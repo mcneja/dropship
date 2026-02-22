@@ -44,7 +44,7 @@ export const CFG = Object.freeze({
 
 export const GAME = Object.freeze({
   ZOOM: 4.0, // ~25% of the world visible
-  THRUST: 18.0,
+  THRUST: 9.0,
   TURN_RATE: 2.4,
   DRAG: 0.12,
   GRAVITY: 2.0,
@@ -55,6 +55,22 @@ export const GAME = Object.freeze({
   LAND_FRICTION: 0.6,
   BOUNCE_RESTITUTION: 0.35,
   COLLIDE_PUSH_FAST: 0.08,
-  DEBUG_COLLISION: true,
+  DEBUG_COLLISION: false,
   DEBUG_NODES: true,
+  MINERS_PER_LEVEL: 10,
+  MINER_CALL_RADIUS: 4.0,
+  MINER_RUN_SPEED: 1.6,
+  MINER_BOARD_RADIUS: 0.5,
+  MINER_MIN_SEP: 1.4,
+  MINER_STAND_OFFSET: 0.12,
+  EXIT_MARGIN: 1.0,
+  MAX_TANGENTIAL_SPEED: 4.0,
+});
+
+export const TOUCH_UI = Object.freeze({
+  left: { x: 0.13, y: 0.72, r: 0.13 },
+  laser: { x: 0.87, y: 0.72, r: 0.12 },
+  bomb: { x: 0.87, y: 0.30, r: 0.11 },
+  dead: 0.04,
+  aimRadius: 0.09,
 });

@@ -22,6 +22,12 @@
  * @returns {Mesh}
  */
 export function buildRingMesh(cfg, map){
+  const OUTER_PAD = 1.0;
+  const R_MESH = cfg.RMAX + OUTER_PAD;
+
+  /**
+   * @param {number} r
+   */
   function ringCount(r){
     if (r<=0) return 1;
     return Math.max(cfg.N_MIN, Math.floor(2*Math.PI*r));
@@ -84,8 +90,9 @@ export function buildRingMesh(cfg, map){
   const rings = [];
   const bandTris = [];
   for (let r=0;r<=cfg.RMAX;r++) rings.push(ringVertices(r));
+  rings.push(ringVertices(cfg.RMAX + OUTER_PAD));
 
-  for (let r=0;r<cfg.RMAX;r++){
+  for (let r=0;r<R_MESH;r++){
     const inner = rings[r];
     const outer = rings[r+1];
     if (r===0){
@@ -95,7 +102,7 @@ export function buildRingMesh(cfg, map){
         const c = outer[(k+1)%outer.length];
         for (const v of [a,b,c]){
           positions.push(v.x, v.y);
-          airFlag.push(map.airBinaryAtWorld(v.x, v.y));
+          airFlag.push(sampleAirAtWorldExtended(v.x, v.y));
           shade.push(shadeAt(v.x, v.y));
         }
       }
@@ -105,7 +112,7 @@ export function buildRingMesh(cfg, map){
       for (const tri of tris){
         for (const v of tri){
           positions.push(v.x, v.y);
-          airFlag.push(map.airBinaryAtWorld(v.x, v.y));
+          airFlag.push(sampleAirAtWorldExtended(v.x, v.y));
           shade.push(shadeAt(v.x, v.y));
         }
       }
@@ -115,8 +122,14 @@ export function buildRingMesh(cfg, map){
   const vertCount = positions.length / 2;
 
   /**
-   * @param {number} x
-   * @param {number} y
+   * @param {number} px
+   * @param {number} py
+   * @param {number} ax
+   * @param {number} ay
+   * @param {number} bx
+   * @param {number} by
+   * @param {number} cx
+   * @param {number} cy
    */
   function pointInTri(px, py, ax, ay, bx, by, cx, cy){
     const v0x = cx - ax, v0y = cy - ay;
@@ -137,15 +150,29 @@ export function buildRingMesh(cfg, map){
    * @param {number} x
    * @param {number} y
    */
+  function sampleAirAtWorldExtended(x, y){
+    const r = Math.hypot(x, y);
+    if (r > cfg.RMAX) return 1;
+    return map.airBinaryAtWorld(x, y);
+  }
+
+  /**
+   * @param {number} x
+   * @param {number} y
+   */
   function findTriAtWorld(x, y){
     const r = Math.hypot(x, y);
     if (r <= 0) return null;
-    const r0 = Math.floor(Math.min(cfg.RMAX - 1, Math.max(0, r)));
-    const tris = bandTris[r0];
-    if (!tris) return null;
-    for (const tri of tris){
-      const a = tri[0], b = tri[1], c = tri[2];
-      if (pointInTri(x, y, a.x, a.y, b.x, b.y, c.x, c.y)) return tri;
+    const r0 = Math.floor(Math.min(R_MESH - 1, Math.max(0, r)));
+    const bands = [r0, r0 - 1, r0 + 1];
+    for (const bi of bands){
+      if (bi < 0 || bi >= R_MESH) continue;
+      const tris = bandTris[bi];
+      if (!tris) continue;
+      for (const tri of tris){
+        const a = tri[0], b = tri[1], c = tri[2];
+        if (pointInTri(x, y, a.x, a.y, b.x, b.y, c.x, c.y)) return tri;
+      }
     }
     return null;
   }
@@ -176,36 +203,30 @@ export function buildRingMesh(cfg, map){
    */
   function airValueAtWorld(x, y){
     const r = Math.hypot(x, y);
-    if (r > cfg.RMAX) return 1;
-    const r0 = Math.floor(Math.min(cfg.RMAX - 1, Math.max(0, r)));
+    if (r > cfg.RMAX + OUTER_PAD) return 1;
+    const r0 = Math.floor(Math.min(R_MESH - 1, Math.max(0, r)));
     if (r0 <= 0){
-      return map.airBinaryAtWorld(x, y);
+      return sampleAirAtWorldExtended(x, y);
     }
-    const tris = bandTris[r0];
-    if (!tris) return map.airBinaryAtWorld(x, y);
-
-    for (const tri of tris){
-      const a = tri[0], b = tri[1], c = tri[2];
-      if (!pointInTri(x, y, a.x, a.y, b.x, b.y, c.x, c.y)) continue;
-      const det = (b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y);
-      if (Math.abs(det) < 1e-6) break;
-      const l1 = ((b.y - c.y) * (x - c.x) + (c.x - b.x) * (y - c.y)) / det;
-      const l2 = ((c.y - a.y) * (x - c.x) + (a.x - c.x) * (y - c.y)) / det;
-      const l3 = 1 - l1 - l2;
-      const a0 = map.airBinaryAtWorld(a.x, a.y);
-      const a1 = map.airBinaryAtWorld(b.x, b.y);
-      const a2 = map.airBinaryAtWorld(c.x, c.y);
-      return a0 * l1 + a1 * l2 + a2 * l3;
-    }
-
-    return map.airBinaryAtWorld(x, y);
+    const tri = findTriAtWorld(x, y);
+    if (!tri) return sampleAirAtWorldExtended(x, y);
+    const a = tri[0], b = tri[1], c = tri[2];
+    const det = (b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y);
+    if (Math.abs(det) < 1e-6) return sampleAirAtWorldExtended(x, y);
+    const l1 = ((b.y - c.y) * (x - c.x) + (c.x - b.x) * (y - c.y)) / det;
+    const l2 = ((c.y - a.y) * (x - c.x) + (a.x - c.x) * (y - c.y)) / det;
+    const l3 = 1 - l1 - l2;
+    const a0 = sampleAirAtWorldExtended(a.x, a.y);
+    const a1 = sampleAirAtWorldExtended(b.x, b.y);
+    const a2 = sampleAirAtWorldExtended(c.x, c.y);
+    return a0 * l1 + a1 * l2 + a2 * l3;
   }
 
   function updateAirFlags(){
     for (let i = 0; i < vertCount; i++){
       const x = positions[i * 2];
       const y = positions[i * 2 + 1];
-      airFlag[i] = map.airBinaryAtWorld(x, y);
+      airFlag[i] = sampleAirAtWorldExtended(x, y);
     }
     return new Float32Array(airFlag);
   }

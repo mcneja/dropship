@@ -39,8 +39,11 @@ export function createMapGen(cfg){
   const R2 = cfg.RMAX * cfg.RMAX;
 
   const inside = new Uint8Array(G*G);
+  /** @type {(i:number, j:number) => number} */
   const idx = (i, j) => j*G+i;
+  /** @type {(i:number, j:number) => Vec2} */
   const toWorld = (i, j) => [worldMin + (i+0.5)*cell, worldMin + (j+0.5)*cell];
+  /** @type {(x:number, y:number) => [number, number]} */
   const toGrid = (x, y) => [Math.floor((x - worldMin) / cell), Math.floor((y - worldMin) / cell)];
 
   for (let j=0;j<G;j++) for (let i=0;i<G;i++){
@@ -315,11 +318,30 @@ export function createMapGen(cfg){
     return current.air[k] ? 1 : 0;
   }
 
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @param {0|1} [val]
+   */
+  function setAirAtWorld(x, y, val = 1){
+    const [i, j] = toGrid(x, y);
+    if (i < 0 || i >= G || j < 0 || j >= G) return false;
+    const k = idx(i, j);
+    if (!inside[k]) return false;
+    current.air[k] = val ? 1 : 0;
+    return true;
+  }
+
+  function getWorld(){
+    return current;
+  }
+
   return {
     grid,
     noise,
     regenWorld,
     airBinaryAtWorld,
-    getWorld: () => current,
+    setAirAtWorld,
+    getWorld,
   };
 }

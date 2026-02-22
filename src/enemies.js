@@ -1,0 +1,379 @@
+// @ts-check
+
+import { mulberry32 } from "./rng.js";
+import { lineOfSightAir } from "./navigation.js";
+import { GAME } from "./config.js";
+
+/** @typedef {[number, number]} Vec2 */
+/** @typedef {"hunter"|"ranger"|"crawler"} EnemyType */
+
+/**
+ * @typedef {Object} Enemy
+ * @property {EnemyType} type
+ * @property {number} x
+ * @property {number} y
+ * @property {number} vx
+ * @property {number} vy
+ * @property {number} cooldown
+ * @property {number} hp
+ * @property {number} dir
+ * @property {number} fuse
+ */
+
+/**
+ * @typedef {Object} Shot
+ * @property {number} x
+ * @property {number} y
+ * @property {number} vx
+ * @property {number} vy
+ * @property {number} life
+ * @property {EnemyType} owner
+ */
+
+ /**
+  * @typedef {Object} Explosion
+  * @property {number} x
+  * @property {number} y
+  * @property {number} life
+  * @property {EnemyType} owner
+  * @property {number} radius
+  */
+
+/**
+ * @typedef {Object} Debris
+ * @property {number} x
+ * @property {number} y
+ * @property {number} vx
+ * @property {number} vy
+ * @property {number} a
+ * @property {number} w
+ * @property {number} life
+ */
+
+/**
+ * @param {{ airValueAtWorld:(x:number,y:number)=>number }} mesh
+ * @param {number} x
+ * @param {number} y
+ */
+function isAir(mesh, x, y){
+  return mesh.airValueAtWorld(x, y) > 0.5;
+}
+
+/**
+ * @param {{ airValueAtWorld:(x:number,y:number)=>number }} mesh
+ * @param {number} x
+ * @param {number} y
+ * @param {number} eps
+ */
+function airGradient(mesh, x, y, eps){
+  const gdx = mesh.airValueAtWorld(x + eps, y) - mesh.airValueAtWorld(x - eps, y);
+  const gdy = mesh.airValueAtWorld(x, y + eps) - mesh.airValueAtWorld(x, y - eps);
+  return [gdx, gdy];
+}
+
+/**
+ * @param {Enemy} e
+ * @param {{ airValueAtWorld:(x:number,y:number)=>number }} mesh
+ * @param {number} dx
+ * @param {number} dy
+ * @param {number} speed
+ * @param {number} dt
+ */
+function tryMoveAir(e, mesh, dx, dy, speed, dt){
+  const len = Math.hypot(dx, dy);
+  if (len < 1e-6) return false;
+  const nx = dx / len;
+  const ny = dy / len;
+  const step = speed * dt;
+  const tx = e.x + nx * step;
+  const ty = e.y + ny * step;
+  if (isAir(mesh, tx, ty)){
+    e.x = tx; e.y = ty;
+    e.vx = nx * speed;
+    e.vy = ny * speed;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * @param {{ airValueAtWorld:(x:number,y:number)=>number }} mesh
+ * @param {number} x
+ * @param {number} y
+ */
+function nudgeTowardSurface(mesh, x, y){
+  const eps = 0.12;
+  const [gdx, gdy] = airGradient(mesh, x, y, eps);
+  const nlen = Math.hypot(gdx, gdy);
+  if (nlen < 1e-5) return [x, y];
+  const nx = gdx / nlen;
+  const ny = gdy / nlen;
+  const air = mesh.airValueAtWorld(x, y);
+  const push = 0.08;
+  if (air > 0.55){
+    return [x - nx * push, y - ny * push];
+  }
+  if (air < 0.45){
+    return [x + nx * push, y + ny * push];
+  }
+  return [x, y];
+}
+
+/**
+ * @param {number} count
+ * @param {number} seed
+ * @param {number} minR
+ * @param {number} maxR
+ * @param {{grid:{G:number,idx:(i:number,j:number)=>number,toWorld:(i:number,j:number)=>Vec2,inside:Uint8Array},getWorld:()=>{air:Uint8Array}}} mapgen
+ * @param {{ airValueAtWorld:(x:number,y:number)=>number }|null} mesh
+ */
+function pickAirPoints(count, seed, minR, maxR, mapgen, mesh){
+  const rand = mulberry32(seed);
+  const { G, idx, toWorld, inside } = mapgen.grid;
+  const air = mapgen.getWorld().air;
+  const points = [];
+  for (let k = 0; k < G * G; k++){
+    if (!inside[k] || !air[k]) continue;
+    const i = k % G;
+    const j = (k / G) | 0;
+    const [x, y] = toWorld(i, j);
+    const r = Math.hypot(x, y);
+    if (r < minR || r > maxR) continue;
+    if (mesh && mesh.airValueAtWorld(x, y) <= 0.5) continue;
+    points.push([x, y]);
+  }
+  for (let i = points.length - 1; i > 0; i--){
+    const j = Math.floor(rand() * (i + 1));
+    const tmp = points[i]; points[i] = points[j]; points[j] = tmp;
+  }
+  return points.slice(0, count);
+}
+
+/**
+ * @param {number} count
+ * @param {number} seed
+ * @param {{grid:{G:number,idx:(i:number,j:number)=>number,toWorld:(i:number,j:number)=>Vec2,inside:Uint8Array},getWorld:()=>{air:Uint8Array}}} mapgen
+ * @param {{ airValueAtWorld:(x:number,y:number)=>number }} mesh
+ */
+function pickSurfacePoints(count, seed, mapgen, mesh){
+  const rand = mulberry32(seed);
+  const { G, idx, toWorld, inside, cell } = mapgen.grid;
+  const air = mapgen.getWorld().air;
+  const points = [];
+  const eps = cell * 0.5;
+  for (let j = 1; j < G - 1; j++){
+    for (let i = 1; i < G - 1; i++){
+      const k = idx(i, j);
+      if (!inside[k] || !air[k]) continue;
+      const [x, y] = toWorld(i, j);
+      const r = Math.hypot(x, y);
+      if (r < 1) continue;
+      const upx = x / r;
+      const upy = y / r;
+      const belowX = x - upx * cell * 0.7;
+      const belowY = y - upy * cell * 0.7;
+      if (mesh.airValueAtWorld(belowX, belowY) > 0.5) continue;
+      const aboveX = x + upx * cell * 0.4;
+      const aboveY = y + upy * cell * 0.4;
+      if (mesh.airValueAtWorld(aboveX, aboveY) <= 0.5) continue;
+      const gdx = mesh.airValueAtWorld(x + eps, y) - mesh.airValueAtWorld(x - eps, y);
+      const gdy = mesh.airValueAtWorld(x, y + eps) - mesh.airValueAtWorld(x, y - eps);
+      const nlen = Math.hypot(gdx, gdy);
+      if (nlen < 1e-4) continue;
+      points.push([x, y]);
+    }
+  }
+  for (let i = points.length - 1; i > 0; i--){
+    const j = Math.floor(rand() * (i + 1));
+    const tmp = points[i]; points[i] = points[j]; points[j] = tmp;
+  }
+  return points.slice(0, count);
+}
+
+/**
+ * @param {Object} deps
+ * @param {typeof import("./config.js").CFG} deps.cfg
+ * @param {{grid:{G:number,idx:(i:number,j:number)=>number,toWorld:(i:number,j:number)=>Vec2,inside:Uint8Array},getWorld:()=>{air:Uint8Array,seed:number}}} deps.mapgen
+ * @param {{ airValueAtWorld:(x:number,y:number)=>number }} deps.mesh
+ */
+export function createEnemies({ cfg, mapgen, mesh }){
+  /** @type {Enemy[]} */
+  const enemies = [];
+  /** @type {Shot[]} */
+  const shots = [];
+  /** @type {Explosion[]} */
+  const explosions = [];
+  /** @type {Debris[]} */
+  const debris = [];
+
+  const HUNTER_SPEED = 2.3;
+  const RANGER_SPEED = 1.6;
+  const CRAWLER_SPEED = 1.2;
+  const HUNTER_SHOT_CD = 1.2;
+  const RANGER_SHOT_CD = 1.8;
+  const SHOT_SPEED = 6.5;
+  const SHOT_LIFE = 3.0;
+  const DETONATE_RANGE = 1.6;
+  const DETONATE_FUSE = 0.6;
+  const LOS_STEP = 0.2;
+  const RANGER_MIN = 5.0;
+  const RANGER_MAX = 9.0;
+
+  /**
+   * Reset enemy and projectile lists.
+   */
+  function reset(){
+    enemies.length = 0;
+    shots.length = 0;
+    explosions.length = 0;
+    debris.length = 0;
+  }
+
+  /**
+   * @param {number} total
+   * @param {number} level
+   */
+  function spawn(total, level){
+    enemies.length = 0;
+    shots.length = 0;
+    explosions.length = 0;
+    debris.length = 0;
+    if (total <= 0) return;
+    const seed = mapgen.getWorld().seed + level * 133;
+    const hunters = Math.max(0, Math.floor(total * 0.5));
+    const rangers = Math.max(0, Math.floor(total * 0.25));
+    const crawlers = Math.max(0, total - hunters - rangers);
+
+    const hunterPts = pickAirPoints(hunters, seed + 1, 2.0, cfg.RMAX - 1.0, mapgen, mesh);
+    const rangerPts = pickAirPoints(rangers, seed + 2, 3.0, cfg.RMAX - 1.0, mapgen, mesh);
+    const crawlerPts = pickSurfacePoints(crawlers, seed + 3, mapgen, mesh);
+
+    for (const [x, y] of hunterPts){
+      enemies.push({ type: "hunter", x, y, vx: 0, vy: 0, cooldown: Math.random(), hp: 2, dir: 1, fuse: 0 });
+    }
+    for (const [x, y] of rangerPts){
+      enemies.push({ type: "ranger", x, y, vx: 0, vy: 0, cooldown: Math.random(), hp: 2, dir: -1, fuse: 0 });
+    }
+    for (const [x, y] of crawlerPts){
+      enemies.push({ type: "crawler", x, y, vx: 0, vy: 0, cooldown: 0, hp: 1, dir: Math.random() < 0.5 ? -1 : 1, fuse: 0 });
+    }
+  }
+
+  /**
+   * @param {{x:number,y:number}} ship
+   * @param {number} dt
+   */
+  function update(ship, dt){
+    if (debris.length){
+      for (let i = debris.length - 1; i >= 0; i--){
+        const d = debris[i];
+        const r = Math.hypot(d.x, d.y) || 1;
+        d.vx += (-d.x / r) * GAME.GRAVITY * dt;
+        d.vy += (-d.y / r) * GAME.GRAVITY * dt;
+        d.vx *= Math.max(0, 1 - GAME.DRAG * dt);
+        d.vy *= Math.max(0, 1 - GAME.DRAG * dt);
+        d.x += d.vx * dt;
+        d.y += d.vy * dt;
+        d.a += d.w * dt;
+        d.life -= dt;
+        if (d.life <= 0) debris.splice(i, 1);
+      }
+    }
+    for (let i = shots.length - 1; i >= 0; i--){
+      const s = shots[i];
+      s.x += s.vx * dt;
+      s.y += s.vy * dt;
+      s.life -= dt;
+      if (s.life <= 0 || !isAir(mesh, s.x, s.y)){
+        shots.splice(i, 1);
+      }
+    }
+
+    for (let i = explosions.length - 1; i >= 0; i--){
+      explosions[i].life -= dt;
+      if (explosions[i].life <= 0) explosions.splice(i, 1);
+    }
+
+    for (let i = enemies.length - 1; i >= 0; i--){
+      const e = enemies[i];
+      if (e.hp <= 0){
+        const pieces = 6;
+        for (let k = 0; k < pieces; k++){
+          const ang = Math.random() * Math.PI * 2;
+          const sp = 1.0 + Math.random() * 2.0;
+          debris.push({
+            x: e.x + Math.cos(ang) * 0.08,
+            y: e.y + Math.sin(ang) * 0.08,
+            vx: Math.cos(ang) * sp,
+            vy: Math.sin(ang) * sp,
+            a: Math.random() * Math.PI * 2,
+            w: (Math.random() - 0.5) * 6,
+            life: 1.1 + Math.random() * 0.8,
+          });
+        }
+        explosions.push({ x: e.x, y: e.y, life: 0.5, owner: e.type, radius: 0.8 });
+        enemies.splice(i, 1);
+        continue;
+      }
+
+      const dx = ship.x - e.x;
+      const dy = ship.y - e.y;
+      const dist = Math.hypot(dx, dy);
+      e.cooldown = Math.max(0, e.cooldown - dt);
+
+      if (e.type === "hunter"){
+        if (!tryMoveAir(e, mesh, dx, dy, HUNTER_SPEED, dt)){
+          const [gx, gy] = airGradient(mesh, e.x, e.y, 0.18);
+          const tlen = Math.hypot(gx, gy);
+          if (tlen > 1e-4){
+            const tx = -gy / tlen;
+            const ty = gx / tlen;
+            tryMoveAir(e, mesh, tx, ty, HUNTER_SPEED, dt) || tryMoveAir(e, mesh, -tx, -ty, HUNTER_SPEED, dt);
+          }
+        }
+        if (e.cooldown <= 0 && dist < 10 && lineOfSightAir(mesh, e.x, e.y, ship.x, ship.y, LOS_STEP)){
+          const inv = 1 / (dist || 1);
+          shots.push({ x: e.x, y: e.y, vx: dx * inv * SHOT_SPEED, vy: dy * inv * SHOT_SPEED, life: SHOT_LIFE, owner: "hunter" });
+          e.cooldown = HUNTER_SHOT_CD;
+        }
+      } else if (e.type === "ranger"){
+        if (dist < RANGER_MIN){
+          tryMoveAir(e, mesh, -dx, -dy, RANGER_SPEED, dt);
+        } else if (dist > RANGER_MAX){
+          tryMoveAir(e, mesh, dx, dy, RANGER_SPEED, dt);
+        }
+        if (e.cooldown <= 0 && dist > RANGER_MIN * 0.8 && lineOfSightAir(mesh, e.x, e.y, ship.x, ship.y, LOS_STEP)){
+          const inv = 1 / (dist || 1);
+          shots.push({ x: e.x, y: e.y, vx: dx * inv * SHOT_SPEED, vy: dy * inv * SHOT_SPEED, life: SHOT_LIFE, owner: "ranger" });
+          e.cooldown = RANGER_SHOT_CD;
+        }
+      } else if (e.type === "crawler"){
+        const [gx, gy] = airGradient(mesh, e.x, e.y, 0.16);
+        const nlen = Math.hypot(gx, gy);
+        if (nlen > 1e-4){
+          const nx = gx / nlen;
+          const ny = gy / nlen;
+          const tx = -ny * e.dir;
+          const ty = nx * e.dir;
+          e.x += tx * CRAWLER_SPEED * dt;
+          e.y += ty * CRAWLER_SPEED * dt;
+          const nudged = nudgeTowardSurface(mesh, e.x, e.y);
+          e.x = nudged[0];
+          e.y = nudged[1];
+        }
+
+        if (dist <= DETONATE_RANGE){
+          e.fuse += dt;
+          if (e.fuse >= DETONATE_FUSE){
+            explosions.push({ x: e.x, y: e.y, life: 0.5, owner: "crawler", radius: 1.1 });
+            enemies.splice(i, 1);
+          }
+        } else {
+          e.fuse = Math.max(0, e.fuse - dt * 0.5);
+        }
+      }
+    }
+  }
+
+  return { enemies, shots, explosions, debris, reset, spawn, update };
+}

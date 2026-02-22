@@ -1,5 +1,7 @@
 ﻿// @ts-check
 
+import { TOUCH_UI } from "./config.js";
+
 /** @typedef {[number, number]} Vec2 */
 
 /**
@@ -11,6 +13,19 @@
  * @property {boolean} debugNodes
  * @property {number} fps
  * @property {number} finalAir
+ * @property {Array<{x:number,y:number,state:string}>} miners
+ * @property {number} minersRemaining
+ * @property {number} level
+ * @property {number} minersDead
+ * @property {Array<{x:number,y:number,type:string}>} enemies
+ * @property {Array<{x:number,y:number,owner:string}>} shots
+ * @property {Array<{x:number,y:number,life:number,owner:string,radius?:number}>} explosions
+ * @property {Array<{x:number,y:number,a:number,life:number}>} enemyDebris
+ * @property {Array<{x:number,y:number}>} playerShots
+ * @property {Array<{x:number,y:number}>} playerBombs
+ * @property {Array<{x:number,y:number,life:number,radius?:number}>} playerExplosions
+ * @property {{x:number,y:number}|null} aimWorld
+ * @property {{leftTouch:{x:number,y:number}|null,laserTouch:{x:number,y:number}|null,bombTouch:{x:number,y:number}|null}|null|undefined} touchUi
  */
 
 /**
@@ -19,7 +34,7 @@
  * @param {typeof import("./config.js").GAME} game
  */
 export function createRenderer(canvas, cfg, game){
-  const gl = canvas.getContext("webgl2", { antialias:true, premultipliedAlpha:false });
+    const gl = canvas.getContext("webgl2", { antialias:true, premultipliedAlpha:false });
   if (!gl) throw new Error("WebGL2 not available");
 
   function resize(){
@@ -36,6 +51,7 @@ export function createRenderer(canvas, cfg, game){
   layout(location=0) in vec2 aPos;
   layout(location=1) in float aAir;
   layout(location=2) in float aShade;
+  out vec2 vWorld;
 
   uniform vec2 uScale;
   uniform vec2 uCam;
@@ -52,6 +68,7 @@ export function createRenderer(canvas, cfg, game){
   void main(){
     vAir = aAir;
     vShade = aShade;
+    vWorld = aPos;
     vec2 p = aPos - uCam;
     p = rot(p, uRot);
     gl_Position = vec4(p * uScale, 0.0, 1.0);
@@ -62,16 +79,21 @@ export function createRenderer(canvas, cfg, game){
 
   in float vAir;
   in float vShade;
+  in vec2 vWorld;
   out vec4 outColor;
 
   uniform vec3 uRockDark;
   uniform vec3 uRockLight;
   uniform vec3 uAirDark;
   uniform vec3 uAirLight;
+  uniform float uMaxR;
 
   vec3 lerp(vec3 a, vec3 b, float t){ return a + (b-a)*t; }
 
   void main(){
+    if (length(vWorld) > uMaxR){
+      discard;
+    }
     float t = clamp(vShade, 0.0, 1.0);
     vec3 c = (vAir > 0.5) ? lerp(uAirDark,  uAirLight,  t)
                           : lerp(uRockDark, uRockLight, t);
@@ -110,6 +132,10 @@ export function createRenderer(canvas, cfg, game){
     outColor = vColor;
   }`;
 
+  /**
+   * @param {number} type
+   * @param {string} src
+   */
   function compile(type, src){
     const sh = gl.createShader(type);
     gl.shaderSource(sh, src);
@@ -143,6 +169,12 @@ export function createRenderer(canvas, cfg, game){
   let airBuf = null;
   let vertCount = 0;
 
+  /**
+   * @param {number} loc
+   * @param {BufferSource} data
+   * @param {number} size
+   * @param {number} [type]
+   */
   function uploadAttrib(loc, data, size, type=gl.FLOAT){
     const buf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
@@ -152,6 +184,9 @@ export function createRenderer(canvas, cfg, game){
     return buf;
   }
 
+  /**
+   * @param {{positions:Float32Array, airFlag:Float32Array, shade:Float32Array, vertCount:number}} mesh
+   */
   function setMesh(mesh){
     gl.bindVertexArray(vao);
     uploadAttrib(0, mesh.positions, 2);
@@ -161,6 +196,9 @@ export function createRenderer(canvas, cfg, game){
     vertCount = mesh.vertCount;
   }
 
+  /**
+   * @param {Float32Array} airFlag
+   */
   function updateAir(airFlag){
     if (!airBuf) return;
     gl.bindBuffer(gl.ARRAY_BUFFER, airBuf);
@@ -175,11 +213,13 @@ export function createRenderer(canvas, cfg, game){
   const uRockLight= gl.getUniformLocation(prog, "uRockLight");
   const uAirDark  = gl.getUniformLocation(prog, "uAirDark");
   const uAirLight = gl.getUniformLocation(prog, "uAirLight");
+  const uMaxR     = gl.getUniformLocation(prog, "uMaxR");
 
   gl.uniform3fv(uRockDark, cfg.ROCK_DARK);
   gl.uniform3fv(uRockLight,cfg.ROCK_LIGHT);
   gl.uniform3fv(uAirDark,  cfg.AIR_DARK);
   gl.uniform3fv(uAirLight, cfg.AIR_LIGHT);
+  gl.uniform1f(uMaxR, cfg.RMAX + 0.5);
 
   gl.bindVertexArray(oVao);
   const oPos = gl.createBuffer();
@@ -196,19 +236,217 @@ export function createRenderer(canvas, cfg, game){
   const ouCam = gl.getUniformLocation(oprog, "uCam");
   const ouRot = gl.getUniformLocation(oprog, "uRot");
 
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @param {number} a
+   */
   function rot2(x, y, a){
     const c = Math.cos(a), s = Math.sin(a);
     return [c*x - s*y, s*x + c*y];
   }
 
+  /**
+   * @param {number[]} pos
+   * @param {number[]} col
+   * @param {number} ax
+   * @param {number} ay
+   * @param {number} bx
+   * @param {number} by
+   * @param {number} cx
+   * @param {number} cy
+   * @param {number} r
+   * @param {number} g
+   * @param {number} b
+   * @param {number} a
+   */
   function pushTri(pos, col, ax, ay, bx, by, cx, cy, r, g, b, a){
     pos.push(ax, ay, bx, by, cx, cy);
     for (let i = 0; i < 3; i++) col.push(r, g, b, a);
   }
 
+  /**
+   * @param {number[]} pos
+   * @param {number[]} col
+   * @param {number} ax
+   * @param {number} ay
+   * @param {number} bx
+   * @param {number} by
+   * @param {number} r
+   * @param {number} g
+   * @param {number} b
+   * @param {number} a
+   */
   function pushLine(pos, col, ax, ay, bx, by, r, g, b, a){
     pos.push(ax, ay, bx, by);
     col.push(r, g, b, a, r, g, b, a);
+  }
+
+  /**
+   * @param {number[]} pos
+   * @param {number[]} col
+   * @param {number} x
+   * @param {number} y
+   * @param {number} size
+   * @param {number} r
+   * @param {number} g
+   * @param {number} b
+   * @param {number} a
+   */
+  function pushDiamondOutline(pos, col, x, y, size, r, g, b, a){
+    const up = size;
+    const right = size;
+    const top = [x, y + up];
+    const rightP = [x + right, y];
+    const bot = [x, y - up];
+    const left = [x - right, y];
+    pushLine(pos, col, top[0], top[1], rightP[0], rightP[1], r, g, b, a);
+    pushLine(pos, col, rightP[0], rightP[1], bot[0], bot[1], r, g, b, a);
+    pushLine(pos, col, bot[0], bot[1], left[0], left[1], r, g, b, a);
+    pushLine(pos, col, left[0], left[1], top[0], top[1], r, g, b, a);
+  }
+
+  /**
+   * @param {number[]} pos
+   * @param {number[]} col
+   * @param {number} x
+   * @param {number} y
+   * @param {number} size
+   * @param {number} r
+   * @param {number} g
+   * @param {number} b
+   * @param {number} a
+   */
+  function pushSquareOutline(pos, col, x, y, size, r, g, b, a){
+    const s = size;
+    const x0 = x - s, x1 = x + s;
+    const y0 = y - s, y1 = y + s;
+    pushLine(pos, col, x0, y0, x1, y0, r, g, b, a);
+    pushLine(pos, col, x1, y0, x1, y1, r, g, b, a);
+    pushLine(pos, col, x1, y1, x0, y1, r, g, b, a);
+    pushLine(pos, col, x0, y1, x0, y0, r, g, b, a);
+  }
+
+  /**
+   * @param {number[]} pos
+   * @param {number[]} col
+   * @param {number} x
+   * @param {number} y
+   * @param {number} size
+   * @param {number} r
+   * @param {number} g
+   * @param {number} b
+   * @param {number} a
+   */
+  function pushDiamond(pos, col, x, y, size, r, g, b, a){
+    const up = size;
+    const right = size;
+    pushTri(pos, col, x, y + up, x + right, y, x, y - up, r, g, b, a);
+    pushTri(pos, col, x, y - up, x - right, y, x, y + up, r, g, b, a);
+  }
+
+  /**
+   * @param {number[]} pos
+   * @param {number[]} col
+   * @param {number} x
+   * @param {number} y
+   * @param {number} size
+   * @param {number} r
+   * @param {number} g
+   * @param {number} b
+   * @param {number} a
+   */
+  function pushSquare(pos, col, x, y, size, r, g, b, a){
+    const s = size;
+    const x0 = x - s, x1 = x + s;
+    const y0 = y - s, y1 = y + s;
+    pushTri(pos, col, x0, y0, x1, y0, x1, y1, r, g, b, a);
+    pushTri(pos, col, x0, y0, x1, y1, x0, y1, r, g, b, a);
+  }
+
+  /**
+   * @param {number[]} pos
+   * @param {number[]} col
+   * @param {number} x
+   * @param {number} y
+   * @param {number} radius
+   * @param {number} r
+   * @param {number} g
+   * @param {number} b
+   * @param {number} a
+   * @param {number} [seg]
+   */
+  function pushCircle(pos, col, x, y, radius, r, g, b, a, seg = 24){
+    const aStart = 0;
+    const x0 = x + Math.cos(aStart) * radius;
+    const y0 = y + Math.sin(aStart) * radius;
+    let px = x0;
+    let py = y0;
+    for (let i = 1; i <= seg; i++){
+      const ang = (i / seg) * Math.PI * 2;
+      const nx = x + Math.cos(ang) * radius;
+      const ny = y + Math.sin(ang) * radius;
+      pushLine(pos, col, px, py, nx, ny, r, g, b, a);
+      px = nx;
+      py = ny;
+    }
+    return seg * 2;
+  }
+
+  /**
+   * @param {number[]} pos
+   * @param {number[]} col
+   * @param {number} x
+   * @param {number} y
+   * @param {number} r
+   * @param {number} g
+   * @param {number} b
+   */
+  function pushMiner(pos, col, x, y, r, g, b){
+    const len = Math.hypot(x, y) || 1;
+    const upx = x / len;
+    const upy = y / len;
+    const tx = -upy;
+    const ty = upx;
+    const halfW = 0.06;
+    const halfH = 0.18;
+    const b0x = x + tx * halfW;
+    const b0y = y + ty * halfW;
+    const b1x = x - tx * halfW;
+    const b1y = y - ty * halfW;
+    const t0x = b0x + upx * (2 * halfH);
+    const t0y = b0y + upy * (2 * halfH);
+    const t1x = b1x + upx * (2 * halfH);
+    const t1y = b1y + upy * (2 * halfH);
+    pushTri(pos, col, t0x, t0y, t1x, t1y, b0x, b0y, r, g, b, 1);
+    pushTri(pos, col, t1x, t1y, b1x, b1y, b0x, b0y, r, g, b, 1);
+  }
+
+  /**
+   * @param {number[]} pos
+   * @param {number[]} col
+   * @param {number} x
+   * @param {number} y
+   * @param {number} r
+   * @param {number} g
+   * @param {number} b
+   */
+  function pushEnemy(pos, col, x, y, r, g, b){
+    const len = Math.hypot(x, y) || 1;
+    const upx = x / len;
+    const upy = y / len;
+    const tx = -upy;
+    const ty = upx;
+    const scale = 1.5;
+    const base = 0.18 * scale;
+    const height = 0.26 * scale;
+    const lx = x - tx * base;
+    const ly = y - ty * base;
+    const rx = x + tx * base;
+    const ry = y + ty * base;
+    const hx = x + upx * height;
+    const hy = y + upy * height;
+    pushTri(pos, col, lx, ly, rx, ry, hx, hy, r, g, b, 1);
   }
 
   /**
@@ -266,7 +504,59 @@ export function createRenderer(canvas, cfg, game){
       pushTri(pos, col, body[0][0], body[0][1], body[1][0], body[1][1], body[2][0], body[2][1], 0.06, 0.08, 0.12, 1);
       pushTri(pos, col, body[0][0], body[0][1], body[2][0], body[2][1], body[3][0], body[3][1], 0.06, 0.08, 0.12, 1);
       triVerts += 6;
+    }
 
+    if (state.miners && state.miners.length){
+      for (const miner of state.miners){
+        if (miner.state === "boarded") continue;
+        if (miner.state === "running"){
+          pushMiner(pos, col, miner.x, miner.y, 0.98, 0.62, 0.2);
+        } else {
+          pushMiner(pos, col, miner.x, miner.y, 0.98, 0.85, 0.25);
+        }
+        triVerts += 6;
+      }
+    }
+
+    if (state.enemies && state.enemies.length){
+      for (const enemy of state.enemies){
+        if (enemy.type === "hunter"){
+          pushEnemy(pos, col, enemy.x, enemy.y, 0.92, 0.25, 0.2);
+        } else if (enemy.type === "ranger"){
+          pushEnemy(pos, col, enemy.x, enemy.y, 0.2, 0.75, 0.95);
+        } else {
+          pushEnemy(pos, col, enemy.x, enemy.y, 0.95, 0.55, 0.2);
+        }
+        triVerts += 3;
+      }
+    }
+
+    if (state.shots && state.shots.length){
+      const size = 0.10;
+      for (const s of state.shots){
+        if (s.owner === "hunter") pushDiamond(pos, col, s.x, s.y, size, 1.0, 0.35, 0.3, 0.9);
+        else pushDiamond(pos, col, s.x, s.y, size, 0.3, 0.8, 1.0, 0.9);
+        triVerts += 6;
+      }
+    }
+
+    if (state.playerShots && state.playerShots.length){
+      const size = 0.11;
+      for (const s of state.playerShots){
+        pushDiamond(pos, col, s.x, s.y, size, 0.95, 0.95, 0.95, 0.95);
+        triVerts += 6;
+      }
+    }
+
+    if (state.playerBombs && state.playerBombs.length){
+      const size = 0.13;
+      for (const b of state.playerBombs){
+        pushSquare(pos, col, b.x, b.y, size, 1.0, 0.7, 0.2, 0.95);
+        triVerts += 6;
+      }
+    }
+
+    if (state.ship.state !== "crashed"){
       pushLine(pos, col, body[0][0], body[0][1], body[1][0], body[1][1], 0.9, 0.9, 0.9, 1);
       pushLine(pos, col, body[1][0], body[1][1], body[2][0], body[2][1], 0.9, 0.9, 0.9, 1);
       pushLine(pos, col, body[2][0], body[2][1], body[3][0], body[3][1], 0.9, 0.9, 0.9, 1);
@@ -274,6 +564,14 @@ export function createRenderer(canvas, cfg, game){
       lineVerts += 8;
     }
 
+    /**
+     * @param {number} dx
+     * @param {number} dy
+     * @param {number} r
+     * @param {number} g
+     * @param {number} b
+     * @param {number} [extraOffset]
+     */
     const thrustV = (dx, dy, r, g, b, extraOffset = 0) => {
       const mag = Math.hypot(dx, dy) || 1;
       const ux = -dx / mag;
@@ -311,6 +609,11 @@ export function createRenderer(canvas, cfg, game){
       lineVerts += 2;
     }
 
+    if (state.aimWorld){
+      pushLine(pos, col, state.ship.x, state.ship.y, state.aimWorld.x, state.aimWorld.y, 0.85, 0.9, 1.0, 0.65);
+      lineVerts += 2;
+    }
+
     if (state.ship.state === "crashed"){
       const t = state.ship.explodeT;
       const radius = shipHWorld * (0.6 + t * 1.6);
@@ -340,6 +643,51 @@ export function createRenderer(canvas, cfg, game){
         const hy = Math.sin(d.a) * len;
         pushLine(pos, col, d.x - hx, d.y - hy, d.x + hx, d.y + hy, 0.9, 0.9, 0.9, 0.9);
         lineVerts += 2;
+      }
+    }
+
+    if (state.enemyDebris && state.enemyDebris.length){
+      for (const d of state.enemyDebris){
+        const len = shipHWorld * 0.14;
+        const hx = Math.cos(d.a) * len;
+        const hy = Math.sin(d.a) * len;
+        pushLine(pos, col, d.x - hx, d.y - hy, d.x + hx, d.y + hy, 1.0, 0.5, 0.2, 0.9);
+        lineVerts += 2;
+      }
+    }
+
+    if (state.explosions && state.explosions.length){
+      for (const ex of state.explosions){
+        const t = Math.max(0, Math.min(1, ex.life / 0.5));
+        const r = 0.35 + (1 - t) * 0.6;
+        const colr = ex.owner === "crawler" ? [1.0, 0.7, 0.2] : [1.0, 0.5, 0.3];
+        pushLine(pos, col, ex.x - r, ex.y, ex.x + r, ex.y, colr[0], colr[1], colr[2], 0.8 * t);
+        pushLine(pos, col, ex.x, ex.y - r, ex.x, ex.y + r, colr[0], colr[1], colr[2], 0.8 * t);
+        lineVerts += 4;
+      }
+    }
+
+    if (state.playerExplosions && state.playerExplosions.length){
+      for (const ex of state.playerExplosions){
+        const t = Math.max(0, Math.min(1, ex.life / 0.8));
+        const r = (ex.radius ?? 1.0) * (0.4 + (1 - t) * 0.9);
+        const alpha = 0.9 * t;
+        const seg = 18;
+        for (let i = 0; i < seg; i++){
+          const a0 = (i / seg) * Math.PI * 2;
+          const a1 = ((i + 1) / seg) * Math.PI * 2;
+          const r0 = r * (0.85 + 0.2 * Math.sin(t * 8 + i));
+          const r1 = r * (0.85 + 0.2 * Math.sin(t * 8 + i + 1));
+          const x0 = ex.x + Math.cos(a0) * r0;
+          const y0 = ex.y + Math.sin(a0) * r0;
+          const x1 = ex.x + Math.cos(a1) * r1;
+          const y1 = ex.y + Math.sin(a1) * r1;
+          pushLine(pos, col, x0, y0, x1, y1, 1.0, 0.9, 0.4, alpha);
+          lineVerts += 2;
+        }
+        pushLine(pos, col, ex.x - r * 0.6, ex.y, ex.x + r * 0.6, ex.y, 1.0, 0.95, 0.6, 0.7 * alpha);
+        pushLine(pos, col, ex.x, ex.y - r * 0.6, ex.x, ex.y + r * 0.6, 1.0, 0.95, 0.6, 0.7 * alpha);
+        lineVerts += 4;
       }
     }
 
@@ -380,8 +728,13 @@ export function createRenderer(canvas, cfg, game){
       }
     }
 
+
     gl.useProgram(oprog);
     gl.bindVertexArray(oVao);
+
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
     gl.uniform2f(ouScale, sx, sy);
     gl.uniform2f(ouCam, state.ship.x, state.ship.y);
     gl.uniform1f(ouRot, camRot);
@@ -390,9 +743,6 @@ export function createRenderer(canvas, cfg, game){
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pos), gl.DYNAMIC_DRAW);
     gl.bindBuffer(gl.ARRAY_BUFFER, oCol);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(col), gl.DYNAMIC_DRAW);
-
-    gl.enable(gl.BLEND);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
     if (triVerts > 0){
       gl.drawArrays(gl.TRIANGLES, 0, triVerts);
@@ -404,6 +754,62 @@ export function createRenderer(canvas, cfg, game){
     }
     if (pointVerts > 0){
       gl.drawArrays(gl.POINTS, offset, pointVerts);
+    }
+
+    if (state.touchUi){
+      const linePos = [];
+      const lineCol = [];
+
+      const w = canvas.width;
+      const h = canvas.height;
+      const minDim = Math.max(1, Math.min(w, h));
+
+      const toPx = (nx, ny) => {
+        return { x: nx * w, y: (1 - ny) * h };
+      };
+
+      const left = toPx(TOUCH_UI.left.x, TOUCH_UI.left.y);
+      const leftRadius = TOUCH_UI.left.r * minDim;
+
+      const laser = toPx(TOUCH_UI.laser.x, TOUCH_UI.laser.y);
+      const laserSize = TOUCH_UI.laser.r * minDim;
+      pushDiamondOutline(linePos, lineCol, laser.x, laser.y, laserSize, 0.95, 0.95, 0.95, 0.9);
+
+      const bomb = toPx(TOUCH_UI.bomb.x, TOUCH_UI.bomb.y);
+      const bombSize = TOUCH_UI.bomb.r * minDim;
+      pushSquareOutline(linePos, lineCol, bomb.x, bomb.y, bombSize, 1.0, 0.75, 0.2, 0.9);
+
+      pushCircle(linePos, lineCol, left.x, left.y, leftRadius, 1.0, 0.55, 0.15, 0.9, 64);
+
+      if (state.touchUi.leftTouch){
+        const touch = toPx(state.touchUi.leftTouch.x, state.touchUi.leftTouch.y);
+        pushCircle(linePos, lineCol, touch.x, touch.y, leftRadius * 0.35, 1.0, 0.2, 0.2, 0.9, 24);
+      }
+      if (state.touchUi.laserTouch){
+        const touch = toPx(state.touchUi.laserTouch.x, state.touchUi.laserTouch.y);
+        pushCircle(linePos, lineCol, touch.x, touch.y, leftRadius * 0.35, 1.0, 0.2, 0.2, 0.9, 24);
+      }
+      if (state.touchUi.bombTouch){
+        const touch = toPx(state.touchUi.bombTouch.x, state.touchUi.bombTouch.y);
+        pushCircle(linePos, lineCol, touch.x, touch.y, leftRadius * 0.35, 1.0, 0.2, 0.2, 0.9, 24);
+      }
+
+      const uiLine = linePos.length / 2;
+      const uiPos = linePos;
+      const uiCol = lineCol;
+
+      gl.uniform2f(ouScale, 2 / w, 2 / h);
+      gl.uniform2f(ouCam, w * 0.5, h * 0.5);
+      gl.uniform1f(ouRot, 0);
+
+      gl.bindBuffer(gl.ARRAY_BUFFER, oPos);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(uiPos), gl.DYNAMIC_DRAW);
+      gl.bindBuffer(gl.ARRAY_BUFFER, oCol);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(uiCol), gl.DYNAMIC_DRAW);
+
+      if (uiLine > 0){
+        gl.drawArrays(gl.LINES, 0, uiLine);
+      }
     }
 
     gl.bindVertexArray(null);
