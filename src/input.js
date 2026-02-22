@@ -1,6 +1,7 @@
 ﻿// @ts-check
 
-/** @typedef {{left:boolean,right:boolean,thrust:boolean,down:boolean,reset:boolean,regen:boolean,toggleDebug:boolean,nextLevel:boolean,shoot:boolean,bomb:boolean,aim?:{x:number,y:number}|null,aimShoot?:{x:number,y:number}|null,aimBomb?:{x:number,y:number}|null,aimShootFrom?:{x:number,y:number}|null,aimShootTo?:{x:number,y:number}|null,aimBombFrom?:{x:number,y:number}|null,aimBombTo?:{x:number,y:number}|null,touchUi?:{leftTouch:{x:number,y:number}|null,laserTouch:{x:number,y:number}|null,bombTouch:{x:number,y:number}|null}|null,touchUiVisible?:boolean}} InputState */
+/** @typedef {{x:number,y:number}} Point */
+/** @typedef {{left:boolean,right:boolean,thrust:boolean,down:boolean,reset:boolean,regen:boolean,toggleDebug:boolean,nextLevel:boolean,shoot:boolean,bomb:boolean,aim?:Point|null,aimShoot?:Point|null,aimBomb?:Point|null,aimShootFrom?:Point|null,aimShootTo?:Point|null,aimBombFrom?:Point|null,aimBombTo?:Point|null,touchUi?:{leftTouch:Point|null,laserTouch:Point|null,bombTouch:Point|null}|null,touchUiVisible?:boolean}} InputState */
 
 import { TOUCH_UI } from "./config.js";
 
@@ -19,8 +20,11 @@ export function createInput(canvas){
   /** @type {Set<string>} */
   const justPressed = new Set();
 
+  /** @type {{id:number|null,pos:Point|null,start:Point|null}} */
   const leftControl = { id: null, pos: null, start: null };
+  /** @type {{id:number|null,pos:Point|null,start:Point|null,lastFire:number}} */
   const laserControl = { id: null, pos: null, start: null, lastFire: 0 };
+  /** @type {{id:number|null,pos:Point|null,start:Point|null,lastFire:number}} */
   const bombControl = { id: null, pos: null, start: null, lastFire: 0 };
 
   const oneshot = {
@@ -31,15 +35,25 @@ export function createInput(canvas){
     shoot: false,
     bomb: false,
   };
+  /** @type {boolean} */
   let prevPadShoot = false;
+  /** @type {boolean} */
   let prevPadBomb = false;
+  /** @type {Point|null} */
   let aimMouse = null;
+  /** @type {Point|null} */
   let aimTouchShoot = null;
+  /** @type {Point|null} */
   let aimTouchBomb = null;
+  /** @type {Point|null} */
   let aimTouchShootFrom = null;
+  /** @type {Point|null} */
   let aimTouchShootTo = null;
+  /** @type {Point|null} */
   let aimTouchBombFrom = null;
+  /** @type {Point|null} */
   let aimTouchBombTo = null;
+  /** @type {"keyboard"|"mouse"|"touch"|"gamepad"|null} */
   let lastInputType = null;
   let lastPointerShootTime = 0;
   const SHOOT_DEBOUNCE_MS = 50;
@@ -54,6 +68,7 @@ export function createInput(canvas){
     oneshot.shoot = true;
     lastPointerShootTime = now;
   }
+  /** @returns {void} */
   function fireBomb(){
     oneshot.bomb = true;
   }
@@ -93,16 +108,34 @@ export function createInput(canvas){
     };
   }
 
+  /**
+   * @param {Point} p
+   * @param {{x:number,y:number}} c
+   * @param {number} r
+   * @returns {boolean}
+   */
   function inCircle(p, c, r){
     const dx = p.x - c.x;
     const dy = p.y - c.y;
     return (dx * dx + dy * dy) <= r * r;
   }
+  /**
+   * @param {Point} p
+   * @param {{x:number,y:number}} c
+   * @param {number} r
+   * @returns {boolean}
+   */
   function inDiamond(p, c, r){
     const dx = Math.abs(p.x - c.x);
     const dy = Math.abs(p.y - c.y);
     return (dx + dy) <= r;
   }
+  /**
+   * @param {Point} p
+   * @param {{x:number,y:number}} c
+   * @param {number} r
+   * @returns {boolean}
+   */
   function inSquare(p, c, r){
     const dx = Math.abs(p.x - c.x);
     const dy = Math.abs(p.y - c.y);
@@ -196,6 +229,9 @@ export function createInput(canvas){
     e.stopPropagation();
   }, { passive: false });
 
+  /**
+   * @returns {{left:boolean,right:boolean,thrust:boolean,down:boolean}}
+   */
   function touchState(){
     let left = false;
     let right = false;
@@ -218,6 +254,11 @@ export function createInput(canvas){
       if (dy > dead) down = true;
     }
 
+    /**
+     * @param {{id:number|null,pos:Point|null,start:Point|null}|null|undefined} control
+     * @param {Point} center
+     * @returns {Point|null}
+     */
     const aimFromControl = (control, center) => {
       if (!control || control.id === null || !control.pos) return null;
       const dx = control.pos.x - center.x;
@@ -250,6 +291,9 @@ export function createInput(canvas){
     return { left, right, thrust, down };
   }
 
+  /**
+   * @returns {{left:boolean,right:boolean,thrust:boolean,down:boolean,aim:Point|null,shoot:boolean,bomb:boolean}}
+   */
   function gamepadState(){
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
     const pad = pads && pads[0];
@@ -287,6 +331,9 @@ export function createInput(canvas){
     return { left, right, thrust, down, aim, shoot, bomb };
   }
 
+  /**
+   * @returns {InputState}
+   */
   function update(){
     const now = performance.now();
     const keyState = {

@@ -34,8 +34,11 @@ import { TOUCH_UI } from "./config.js";
  * @param {typeof import("./config.js").GAME} game
  */
 export function createRenderer(canvas, cfg, game){
-    const gl = canvas.getContext("webgl2", { antialias:true, premultipliedAlpha:false });
-  if (!gl) throw new Error("WebGL2 not available");
+  /** @type {WebGL2RenderingContext|null} */
+  const glMaybe = canvas.getContext("webgl2", { antialias:true, premultipliedAlpha:false });
+  if (!glMaybe) throw new Error("WebGL2 not available");
+  /** @type {WebGL2RenderingContext} */
+  const gl = glMaybe;
 
   function resize(){
     const dpr = Math.max(1, window.devicePixelRatio || 1);
@@ -138,6 +141,7 @@ export function createRenderer(canvas, cfg, game){
    */
   function compile(type, src){
     const sh = gl.createShader(type);
+    if (!sh) throw new Error("Shader allocation failed");
     gl.shaderSource(sh, src);
     gl.compileShader(sh);
     if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)){
@@ -148,7 +152,9 @@ export function createRenderer(canvas, cfg, game){
     return sh;
   }
 
+  /** @type {WebGLProgram|null} */
   const prog = gl.createProgram();
+  if (!prog) throw new Error("Failed to create program");
   gl.attachShader(prog, compile(gl.VERTEX_SHADER, vs));
   gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, fs));
   gl.linkProgram(prog);
@@ -156,7 +162,9 @@ export function createRenderer(canvas, cfg, game){
     throw new Error(gl.getProgramInfoLog(prog) || "Program link failed");
   }
 
+  /** @type {WebGLProgram|null} */
   const oprog = gl.createProgram();
+  if (!oprog) throw new Error("Failed to create overlay program");
   gl.attachShader(oprog, compile(gl.VERTEX_SHADER, ovs));
   gl.attachShader(oprog, compile(gl.FRAGMENT_SHADER, ofs));
   gl.linkProgram(oprog);
@@ -164,19 +172,24 @@ export function createRenderer(canvas, cfg, game){
     throw new Error(gl.getProgramInfoLog(oprog) || "Overlay program link failed");
   }
 
+  /** @type {WebGLVertexArrayObject|null} */
   const vao = gl.createVertexArray();
+  /** @type {WebGLVertexArrayObject|null} */
   const oVao = gl.createVertexArray();
+  if (!vao || !oVao) throw new Error("Failed to create VAO");
+  /** @type {WebGLBuffer|null} */
   let airBuf = null;
   let vertCount = 0;
 
   /**
    * @param {number} loc
-   * @param {BufferSource} data
+   * @param {Float32Array|Uint8Array|Uint16Array|Uint32Array|Int8Array|Int16Array|Int32Array} data
    * @param {number} size
    * @param {number} [type]
    */
   function uploadAttrib(loc, data, size, type=gl.FLOAT){
     const buf = gl.createBuffer();
+    if (!buf) throw new Error("Failed to create buffer");
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
     gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
     gl.enableVertexAttribArray(loc);
@@ -222,8 +235,11 @@ export function createRenderer(canvas, cfg, game){
   gl.uniform1f(uMaxR, cfg.RMAX + 0.5);
 
   gl.bindVertexArray(oVao);
+  /** @type {WebGLBuffer|null} */
   const oPos = gl.createBuffer();
+  /** @type {WebGLBuffer|null} */
   const oCol = gl.createBuffer();
+  if (!oPos || !oCol) throw new Error("Failed to create overlay buffers");
   gl.bindBuffer(gl.ARRAY_BUFFER, oPos);
   gl.enableVertexAttribArray(0);
   gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
@@ -451,7 +467,7 @@ export function createRenderer(canvas, cfg, game){
 
   /**
    * @param {RenderState} state
-   * @param {import("./mesh.js").buildRingMesh} mesh
+   * @param {ReturnType<import("./mesh.js").buildRingMesh>} mesh
    */
   function drawFrame(state, mesh){
     resize();
@@ -482,8 +498,10 @@ export function createRenderer(canvas, cfg, game){
     const nose = shipHWorld * 0.6;
     const tail = shipHWorld * 0.4;
 
-    const pos = [];
-    const col = [];
+  /** @type {number[]} */
+  const pos = [];
+  /** @type {number[]} */
+  const col = [];
     let triVerts = 0;
     let lineVerts = 0;
     let pointVerts = 0;
@@ -757,13 +775,20 @@ export function createRenderer(canvas, cfg, game){
     }
 
     if (state.touchUi){
+      /** @type {number[]} */
       const linePos = [];
+      /** @type {number[]} */
       const lineCol = [];
 
       const w = canvas.width;
       const h = canvas.height;
       const minDim = Math.max(1, Math.min(w, h));
 
+      /**
+       * @param {number} nx
+       * @param {number} ny
+       * @returns {{x:number,y:number}}
+       */
       const toPx = (nx, ny) => {
         return { x: nx * w, y: (1 - ny) * h };
       };
@@ -795,7 +820,9 @@ export function createRenderer(canvas, cfg, game){
       }
 
       const uiLine = linePos.length / 2;
+      /** @type {number[]} */
       const uiPos = linePos;
+      /** @type {number[]} */
       const uiCol = lineCol;
 
       gl.uniform2f(ouScale, 2 / w, 2 / h);

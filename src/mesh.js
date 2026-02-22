@@ -83,11 +83,16 @@ export function buildRingMesh(cfg, map){
     return Math.max(0, Math.min(1, 0.5 + 0.5*n));
   }
 
+  /** @type {number[]} */
   const positions = [];
+  /** @type {number[]} */
   const airFlag = [];
+  /** @type {number[]} */
   const shade = [];
 
+  /** @type {Array<{x:number,y:number}[]>} */
   const rings = [];
+  /** @type {Array<Array<Array<{x:number,y:number}>>>} */
   const bandTris = [];
   for (let r=0;r<=cfg.RMAX;r++) rings.push(ringVertices(r));
   rings.push(ringVertices(cfg.RMAX + OUTER_PAD));

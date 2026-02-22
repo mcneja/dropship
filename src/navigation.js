@@ -41,7 +41,7 @@ class MinHeap {
     if (!items.length) return null;
     const root = items[0];
     const last = items.pop();
-    if (!items.length) return root;
+    if (!last || !items.length) return root;
     items[0] = last;
     let i = 0;
     const n = items.length;
@@ -236,6 +236,10 @@ export function findPathAStar(graph, start, goal, passable){
   cameFrom.fill(-1);
 
   const heap = new MinHeap();
+  /**
+   * @param {number} a
+   * @returns {number}
+   */
   const h = (a) => {
     const na = graph.nodes[a];
     const nb = graph.nodes[goal];

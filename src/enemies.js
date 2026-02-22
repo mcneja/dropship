@@ -124,13 +124,14 @@ function nudgeTowardSurface(mesh, x, y){
  * @param {number} seed
  * @param {number} minR
  * @param {number} maxR
- * @param {{grid:{G:number,idx:(i:number,j:number)=>number,toWorld:(i:number,j:number)=>Vec2,inside:Uint8Array},getWorld:()=>{air:Uint8Array}}} mapgen
+ * @param {{grid:{G:number,idx:(i:number,j:number)=>number,toWorld:(i:number,j:number)=>Vec2,inside:Uint8Array,cell:number},getWorld:()=>{air:Uint8Array}}} mapgen
  * @param {{ airValueAtWorld:(x:number,y:number)=>number }|null} mesh
  */
 function pickAirPoints(count, seed, minR, maxR, mapgen, mesh){
   const rand = mulberry32(seed);
   const { G, idx, toWorld, inside } = mapgen.grid;
   const air = mapgen.getWorld().air;
+  /** @type {Vec2[]} */
   const points = [];
   for (let k = 0; k < G * G; k++){
     if (!inside[k] || !air[k]) continue;
@@ -152,13 +153,14 @@ function pickAirPoints(count, seed, minR, maxR, mapgen, mesh){
 /**
  * @param {number} count
  * @param {number} seed
- * @param {{grid:{G:number,idx:(i:number,j:number)=>number,toWorld:(i:number,j:number)=>Vec2,inside:Uint8Array},getWorld:()=>{air:Uint8Array}}} mapgen
+ * @param {{grid:{G:number,idx:(i:number,j:number)=>number,toWorld:(i:number,j:number)=>Vec2,inside:Uint8Array,cell:number},getWorld:()=>{air:Uint8Array}}} mapgen
  * @param {{ airValueAtWorld:(x:number,y:number)=>number }} mesh
  */
 function pickSurfacePoints(count, seed, mapgen, mesh){
   const rand = mulberry32(seed);
   const { G, idx, toWorld, inside, cell } = mapgen.grid;
   const air = mapgen.getWorld().air;
+  /** @type {Vec2[]} */
   const points = [];
   const eps = cell * 0.5;
   for (let j = 1; j < G - 1; j++){
@@ -193,7 +195,7 @@ function pickSurfacePoints(count, seed, mapgen, mesh){
 /**
  * @param {Object} deps
  * @param {typeof import("./config.js").CFG} deps.cfg
- * @param {{grid:{G:number,idx:(i:number,j:number)=>number,toWorld:(i:number,j:number)=>Vec2,inside:Uint8Array},getWorld:()=>{air:Uint8Array,seed:number}}} deps.mapgen
+ * @param {{grid:{G:number,idx:(i:number,j:number)=>number,toWorld:(i:number,j:number)=>Vec2,inside:Uint8Array,cell:number},getWorld:()=>{air:Uint8Array,seed:number}}} deps.mapgen
  * @param {{ airValueAtWorld:(x:number,y:number)=>number }} deps.mesh
  */
 export function createEnemies({ cfg, mapgen, mesh }){

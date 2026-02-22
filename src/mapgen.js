@@ -55,6 +55,7 @@ export function createMapGen(cfg){
   const grid = { G, cell, worldMin, worldMax, worldSize, R2, inside, idx, toWorld, toGrid };
 
   const dirs4 = [[1,0],[-1,0],[0,1],[0,-1]];
+  /**@type {Vec2[]} */
   const dirs8 = [];
   for (let dy=-1;dy<=1;dy++) for (let dx=-1;dx<=1;dx++) if (dx||dy) dirs8.push([dx,dy]);
 
@@ -180,7 +181,13 @@ export function createMapGen(cfg){
    * @param {number} targetInitialAir
    * @param {() => number} rand
    */
+  /**
+   * @param {number} targetInitialAir
+   * @param {() => number} rand
+   * @returns {{air:Uint8Array,entrances:Vec2[]}}
+   */
   function buildWorld(targetInitialAir, rand){
+    /** @type {Vec2[]} */
     const entrances = [];
     for (let e=0;e<cfg.ENTRANCES;e++){
       const th = (e/cfg.ENTRANCES)*2*Math.PI + (rand()-0.5)*cfg.ENTRANCE_ANGLE_JITTER;
@@ -235,6 +242,7 @@ export function createMapGen(cfg){
       carveDisk(air, ex*0.97, ey*0.97, cfg.ENTRANCE_INNER, 1);
     }
 
+    /**@type {Vec2[]} */
     const seeds=[];
     for (const [ex,ey] of entrances){
       const [ix,iy] = toGrid(ex*0.97, ey*0.97);
@@ -285,7 +293,11 @@ export function createMapGen(cfg){
       veinNoise[k] = noise.ridged(xw*cfg.VEIN_F, yw*cfg.VEIN_F, 3, 0.6, 2.2);
     }
 
-    let best=null, bestDiff=1e9, bestWorld=null;
+    /** @type {number} */
+    let best=0.6;
+    let bestDiff=1e9;
+    /** @type {ReturnType<buildWorld>|null} */
+    let bestWorld=null;
     for (const g of [0.58,0.60,0.62,0.64,0.66,0.68,0.70]){
       const w=buildWorld(g, rand);
       const frac=fractionAir(w.air);

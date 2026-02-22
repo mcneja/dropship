@@ -25,11 +25,13 @@ import { createEnemies } from "./enemies.js";
  * @property {"idle"|"running"|"boarded"} state
  */
 
+/**@typedef {[number, number]} Vec2 */
+
 /**
  * @param {Object} deps
  * @param {typeof import("./config.js").CFG} deps.cfg
  * @param {{ airBinaryAtWorld:(x:number,y:number)=>0|1, setAirAtWorld:(x:number,y:number,val?:0|1)=>boolean, getWorld:()=>{finalAir:number,seed:number,air:Uint8Array,entrances:Vec2[]}, regenWorld:(seed:number)=>{finalAir:number,seed:number}, noise: any, grid:{G:number,cell:number,inside:Uint8Array,idx:(i:number,j:number)=>number,toWorld:(i:number,j:number)=>[number,number],toGrid:(x:number,y:number)=>[number,number]} }} deps.mapgen
- * @param {{ updateAirFlags:()=>Float32Array, airValueAtWorld:(x:number,y:number)=>number, findTriAtWorld:(x:number,y:number)=>Array<{x:number,y:number}>|null, nearestNodeOnRing:(x:number,y:number)=>{x:number,y:number}|null, vertCount:number }} deps.mesh
+ * @param {{ updateAirFlags:()=>Float32Array, airValueAtWorld:(x:number,y:number)=>number, findTriAtWorld:(x:number,y:number)=>Array<{x:number,y:number}>|null, nearestNodeOnRing:(x:number,y:number)=>{x:number,y:number}|null, vertCount:number, rings:Array<Array<{x:number,y:number}>> }} deps.mesh
  * @param {{ updateAir:(airFlag:Float32Array)=>void, drawFrame:(state:any, mesh:any)=>void }} deps.renderer
  * @param {{ update:()=>{left:boolean,right:boolean,thrust:boolean,down:boolean,reset:boolean,regen:boolean,toggleDebug:boolean,nextLevel:boolean,shoot:boolean,bomb:boolean,aim?:{x:number,y:number}|null,aimShoot?:{x:number,y:number}|null,aimBomb?:{x:number,y:number}|null,aimShootFrom?:{x:number,y:number}|null,aimShootTo?:{x:number,y:number}|null,aimBombFrom?:{x:number,y:number}|null,aimBombTo?:{x:number,y:number}|null,touchUi?:{leftTouch:{x:number,y:number}|null,laserTouch:{x:number,y:number}|null,bombTouch:{x:number,y:number}|null}|null,touchUiVisible?:boolean} }} deps.input
  * @param {{ updateHud:(hud:HTMLElement, stats:{fps:number,state:string,speed:number,verts:number,air:number,miners:number,minersDead:number,level:number,debug:boolean,minerCandidates:number})=>void }} deps.ui
@@ -52,10 +54,15 @@ export function createGameLoop({ cfg, mapgen, mesh, renderer, input, ui, canvas,
     explodeT: 0,
     lastAir: 1,
   };
+  /** @type {Array<{x:number,y:number,vx:number,vy:number,a:number,w:number,life:number}>} */
   const debris = [];
+  /** @type {Array<{x:number,y:number,vx:number,vy:number,life:number}>} */
   const playerShots = [];
+  /** @type {Array<{x:number,y:number,vx:number,vy:number,life:number}>} */
   const playerBombs = [];
+  /** @type {Array<{x:number,y:number,life:number,radius?:number}>} */
   const playerExplosions = [];
+  /** @type {{x:number,y:number}|null} */
   let lastAimWorld = null;
 
   const PLAYER_SHOT_SPEED = 7.5;
@@ -410,6 +417,7 @@ export function createGameLoop({ cfg, mapgen, mesh, renderer, input, ui, canvas,
     ];
     let traversable = buildTraversableMask(true);
 
+    /** @type {Array<{x:number,y:number,r:number,key?:string}>} */
     let candidates = [];
     for (const minDot of minDots){
       candidates = gatherMinerCandidates(minDot, traversable);
@@ -507,8 +515,10 @@ export function createGameLoop({ cfg, mapgen, mesh, renderer, input, ui, canvas,
     minerCandidates = candidates.length;
 
     shuffle(candidates, rand);
+    /** @type {Array<{x:number,y:number,r:number,key?:string}>} */
     const placed = [];
     const baseMinSep = GAME.MINER_MIN_SEP;
+    /** @type {number} */
     let minSep = baseMinSep;
 
     const tryFill = () => {
@@ -696,6 +706,7 @@ export function createGameLoop({ cfg, mapgen, mesh, renderer, input, ui, canvas,
       const shipRadius = SHIP_RADIUS;
 
       let collides = false;
+      /** @type {Array<[number, number, boolean, number]>} */
       const samples = [];
       let hit = null;
       const rCenter = Math.hypot(ship.x, ship.y);
@@ -962,6 +973,11 @@ export function createGameLoop({ cfg, mapgen, mesh, renderer, input, ui, canvas,
           const dirx = dx * inv;
           const diry = dy * inv;
 
+          /**
+           * @param {number} tx
+           * @param {number} ty
+           * @returns {boolean}
+           */
           const tryMove = (tx, ty) => {
             const nx = miner.x + tx * stepLen;
             const ny = miner.y + ty * stepLen;
@@ -1056,6 +1072,7 @@ export function createGameLoop({ cfg, mapgen, mesh, renderer, input, ui, canvas,
   let fpsTime = lastTime;
   let fpsFrames = 0;
   let fps = 0;
+  /**@type {boolean} */
   let debugCollisions = GAME.DEBUG_COLLISION;
 
   /**
