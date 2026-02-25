@@ -1,27 +1,27 @@
 ﻿// @ts-check
 
 import { CFG, GAME } from "./config.js";
-import { createMapGen } from "./mapgen.js";
-import { buildRingMesh } from "./mesh.js";
-import { createRenderer } from "./rendering.js";
-import { createInput } from "./input.js";
+import { MapGen } from "./mapgen.js";
+import { RingMesh } from "./mesh.js";
+import { Renderer } from "./rendering.js";
+import { Input } from "./input.js";
 import { updateHud } from "./ui.js";
-import { createGameLoop } from "./loop.js";
+import { GameLoop } from "./loop.js";
 
 const canvas = /** @type {HTMLCanvasElement} */ (document.getElementById("gl"));
 const hud = /** @type {HTMLElement} */ (document.getElementById("hud"));
 
-const mapgen = createMapGen(CFG);
+const mapgen = new MapGen(CFG);
 mapgen.regenWorld(CFG.seed);
 
-const mesh = buildRingMesh(CFG, mapgen);
+const mesh = new RingMesh(CFG, mapgen);
 
-const renderer = createRenderer(canvas, CFG, GAME);
+const renderer = new Renderer(canvas, CFG, GAME);
 renderer.setMesh(mesh);
 
-const input = createInput(canvas);
+const input = new Input(canvas);
 
-const loop = createGameLoop({
+const loop = new GameLoop({
   cfg: CFG,
   mapgen,
   mesh,

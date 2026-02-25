@@ -1,7 +1,5 @@
 ﻿// @ts-check
 
-/** @typedef {[number, number]} Vec2 */
-
 export const CFG = Object.freeze({
   seed: 1337,
   RMAX: 18,
@@ -55,7 +53,9 @@ export const GAME = Object.freeze({
   LAND_FRICTION: 0.6,
   BOUNCE_RESTITUTION: 0.35,
   COLLIDE_PUSH_FAST: 0.08,
+  /** @type {boolean} */
   DEBUG_COLLISION: false,
+  /** @type {boolean} */
   DEBUG_NODES: true,
   MINERS_PER_LEVEL: 10,
   MINER_CALL_RADIUS: 4.0,

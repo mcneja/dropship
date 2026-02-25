@@ -2,8 +2,6 @@
 
 import { mulberry32 } from "./rng.js";
 
-/** @typedef {[number, number]} Vec2 */
-
 const grad2 = [
   [ 1, 1], [-1, 1], [ 1,-1], [-1,-1],
   [ 1, 0], [-1, 0], [ 1, 0], [-1, 0],
@@ -12,6 +10,7 @@ const grad2 = [
 
 /**
  * @param {number} seed
+ * @returns {Uint8Array}
  */
 function buildPerm(seed){
   const p = new Uint8Array(256);
@@ -31,25 +30,30 @@ function buildPerm(seed){
 const F2 = 0.5 * (Math.sqrt(3) - 1);
 const G2 = (3 - Math.sqrt(3)) / 6;
 
-/**
- * @param {number} seed
- */
-export function createNoise(seed){
-  /** @type {Uint8Array} */
-  let perm = buildPerm(seed);
+export class Noise {
+  /**
+   * Simplex noise generator.
+   * @param {number} seed Seed for permutation table.
+   */
+  constructor(seed){
+    /** @type {Uint8Array} */
+    this._perm = buildPerm(seed);
+  }
 
   /**
    * @param {number} s
+   * @returns {void}
    */
-  function setSeed(s){
-    perm = buildPerm(s);
+  setSeed(s){
+    this._perm = buildPerm(s);
   }
 
   /**
    * @param {number} x
    * @param {number} y
+   * @returns {number}
    */
-  function simplex2(x, y){
+  simplex2(x, y){
     const s = (x + y) * F2;
     const i = Math.floor(x + s);
     const j = Math.floor(y + s);
@@ -70,7 +74,7 @@ export function createNoise(seed){
 
     let t0 = 0.5 - x0*x0 - y0*y0;
     if (t0 > 0) {
-      const gi0 = perm[ii + perm[jj]] % 12;
+      const gi0 = this._perm[ii + this._perm[jj]] % 12;
       const g = grad2[gi0];
       t0 *= t0;
       n0 = t0 * t0 * (g[0]*x0 + g[1]*y0);
@@ -78,7 +82,7 @@ export function createNoise(seed){
 
     let t1 = 0.5 - x1*x1 - y1*y1;
     if (t1 > 0) {
-      const gi1 = perm[ii + i1 + perm[jj + j1]] % 12;
+      const gi1 = this._perm[ii + i1 + this._perm[jj + j1]] % 12;
       const g = grad2[gi1];
       t1 *= t1;
       n1 = t1 * t1 * (g[0]*x1 + g[1]*y1);
@@ -86,7 +90,7 @@ export function createNoise(seed){
 
     let t2 = 0.5 - x2*x2 - y2*y2;
     if (t2 > 0) {
-      const gi2 = perm[ii + 1 + perm[jj + 1]] % 12;
+      const gi2 = this._perm[ii + 1 + this._perm[jj + 1]] % 12;
       const g = grad2[gi2];
       t2 *= t2;
       n2 = t2 * t2 * (g[0]*x2 + g[1]*y2);
@@ -101,11 +105,12 @@ export function createNoise(seed){
    * @param {number} [oct]
    * @param {number} [pers]
    * @param {number} [lac]
+   * @returns {number}
    */
-  function fbm(x, y, oct=4, pers=0.55, lac=2.0){
+  fbm(x, y, oct=4, pers=0.55, lac=2.0){
     let amp=1, freq=1, total=0, norm=0;
     for (let o=0;o<oct;o++){
-      total += amp * simplex2(x*freq, y*freq);
+      total += amp * this.simplex2(x*freq, y*freq);
       norm += amp;
       amp *= pers;
       freq *= lac;
@@ -119,11 +124,12 @@ export function createNoise(seed){
    * @param {number} [oct]
    * @param {number} [pers]
    * @param {number} [lac]
+   * @returns {number}
    */
-  function ridged(x, y, oct=4, pers=0.55, lac=2.0){
+  ridged(x, y, oct=4, pers=0.55, lac=2.0){
     let amp=1, freq=1, total=0, norm=0;
     for (let o=0;o<oct;o++){
-      const n = simplex2(x*freq, y*freq); // [-1,1]
+      const n = this.simplex2(x*freq, y*freq); // [-1,1]
       let r = 1 - Math.abs(n);           // [0,1]
       r *= r;
       total += amp * r;
@@ -133,6 +139,4 @@ export function createNoise(seed){
     }
     return norm ? total/norm : 0; // [0,1]
   }
-
-  return { setSeed, simplex2, fbm, ridged };
 }

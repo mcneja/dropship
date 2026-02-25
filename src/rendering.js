@@ -2,475 +2,278 @@
 
 import { TOUCH_UI } from "./config.js";
 
-/** @typedef {[number, number]} Vec2 */
+/** @typedef {import("./types.d.js").RenderState} RenderState */
 
 /**
- * @typedef {Object} RenderState
- * @property {{x:number,y:number,vx:number,vy:number,state:string,explodeT:number,_samples?:Array<[number,number,boolean,number]>|null,_collision?:{x:number,y:number,tri?:Array<{x:number,y:number}>|null,node?:{x:number,y:number}|null}|null}} ship
- * @property {Array<{x:number,y:number,vx:number,vy:number,a:number,w:number,life:number}>} debris
- * @property {{left:boolean,right:boolean,thrust:boolean,down:boolean}} input
- * @property {boolean} debugCollisions
- * @property {boolean} debugNodes
- * @property {number} fps
- * @property {number} finalAir
- * @property {Array<{x:number,y:number,state:string}>} miners
- * @property {number} minersRemaining
- * @property {number} level
- * @property {number} minersDead
- * @property {Array<{x:number,y:number,type:string}>} enemies
- * @property {Array<{x:number,y:number,owner:string}>} shots
- * @property {Array<{x:number,y:number,life:number,owner:string,radius?:number}>} explosions
- * @property {Array<{x:number,y:number,a:number,life:number}>} enemyDebris
- * @property {Array<{x:number,y:number}>} playerShots
- * @property {Array<{x:number,y:number}>} playerBombs
- * @property {Array<{x:number,y:number,life:number,radius?:number}>} playerExplosions
- * @property {{x:number,y:number}|null} aimWorld
- * @property {{leftTouch:{x:number,y:number}|null,laserTouch:{x:number,y:number}|null,bombTouch:{x:number,y:number}|null}|null|undefined} touchUi
+ * @param {WebGL2RenderingContext} gl
+ * @param {number} type
+ * @param {string} src
+ * @returns {WebGLShader}
  */
+function compile(gl, type, src){
+  const sh = gl.createShader(type);
+  if (!sh) throw new Error("Shader allocation failed");
+  gl.shaderSource(sh, src);
+  gl.compileShader(sh);
+  if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)){
+    const log = gl.getShaderInfoLog(sh);
+    gl.deleteShader(sh);
+    throw new Error(log || "Shader compile failed");
+  }
+  return sh;
+}
 
 /**
- * @param {HTMLCanvasElement} canvas
- * @param {typeof import("./config.js").CFG} cfg
- * @param {typeof import("./config.js").GAME} game
+ * @param {WebGL2RenderingContext} gl
+ * @param {number} loc
+ * @param {Float32Array|Uint8Array|Uint16Array|Uint32Array|Int8Array|Int16Array|Int32Array} data
+ * @param {number} size
+ * @param {number} [type]
+ * @returns {WebGLBuffer}
  */
-export function createRenderer(canvas, cfg, game){
-  /** @type {WebGL2RenderingContext|null} */
-  const glMaybe = canvas.getContext("webgl2", { antialias:true, premultipliedAlpha:false });
-  if (!glMaybe) throw new Error("WebGL2 not available");
-  /** @type {WebGL2RenderingContext} */
-  const gl = glMaybe;
+function uploadAttrib(gl, loc, data, size, type=gl.FLOAT){
+  const buf = gl.createBuffer();
+  if (!buf) throw new Error("Failed to create buffer");
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(loc);
+  gl.vertexAttribPointer(loc, size, type, false, 0, 0);
+  return buf;
+}
 
-  function resize(){
-    const dpr = Math.max(1, window.devicePixelRatio || 1);
-    const w = Math.floor(canvas.clientWidth * dpr);
-    const h = Math.floor(canvas.clientHeight * dpr);
-    if (canvas.width !== w || canvas.height !== h){
-      canvas.width = w; canvas.height = h;
-    }
+/**
+ * @param {number} x
+ * @param {number} y
+ * @param {number} a
+ * @returns {[number, number]}
+ */
+function rot2(x, y, a){
+  const c = Math.cos(a), s = Math.sin(a);
+  return [c*x - s*y, s*x + c*y];
+}
+
+/**
+ * @param {number[]} pos
+ * @param {number[]} col
+ * @param {number} ax
+ * @param {number} ay
+ * @param {number} bx
+ * @param {number} by
+ * @param {number} cx
+ * @param {number} cy
+ * @param {number} r
+ * @param {number} g
+ * @param {number} b
+ * @param {number} a
+ * @returns {void}
+ */
+function pushTri(pos, col, ax, ay, bx, by, cx, cy, r, g, b, a){
+  pos.push(ax, ay, bx, by, cx, cy);
+  for (let i = 0; i < 3; i++) col.push(r, g, b, a);
+}
+
+/**
+ * @param {number[]} pos
+ * @param {number[]} col
+ * @param {number} ax
+ * @param {number} ay
+ * @param {number} bx
+ * @param {number} by
+ * @param {number} r
+ * @param {number} g
+ * @param {number} b
+ * @param {number} a
+ * @returns {void}
+ */
+function pushLine(pos, col, ax, ay, bx, by, r, g, b, a){
+  pos.push(ax, ay, bx, by);
+  col.push(r, g, b, a, r, g, b, a);
+}
+
+/**
+ * @param {number[]} pos
+ * @param {number[]} col
+ * @param {number} x
+ * @param {number} y
+ * @param {number} size
+ * @param {number} r
+ * @param {number} g
+ * @param {number} b
+ * @param {number} a
+ * @returns {void}
+ */
+function pushDiamondOutline(pos, col, x, y, size, r, g, b, a){
+  const up = size;
+  const right = size;
+  const top = [x, y + up];
+  const rightP = [x + right, y];
+  const bot = [x, y - up];
+  const left = [x - right, y];
+  pushLine(pos, col, top[0], top[1], rightP[0], rightP[1], r, g, b, a);
+  pushLine(pos, col, rightP[0], rightP[1], bot[0], bot[1], r, g, b, a);
+  pushLine(pos, col, bot[0], bot[1], left[0], left[1], r, g, b, a);
+  pushLine(pos, col, left[0], left[1], top[0], top[1], r, g, b, a);
+}
+
+/**
+ * @param {number[]} pos
+ * @param {number[]} col
+ * @param {number} x
+ * @param {number} y
+ * @param {number} size
+ * @param {number} r
+ * @param {number} g
+ * @param {number} b
+ * @param {number} a
+ * @returns {void}
+ */
+function pushSquareOutline(pos, col, x, y, size, r, g, b, a){
+  const s = size;
+  const x0 = x - s, x1 = x + s;
+  const y0 = y - s, y1 = y + s;
+  pushLine(pos, col, x0, y0, x1, y0, r, g, b, a);
+  pushLine(pos, col, x1, y0, x1, y1, r, g, b, a);
+  pushLine(pos, col, x1, y1, x0, y1, r, g, b, a);
+  pushLine(pos, col, x0, y1, x0, y0, r, g, b, a);
+}
+
+/**
+ * @param {number[]} pos
+ * @param {number[]} col
+ * @param {number} x
+ * @param {number} y
+ * @param {number} size
+ * @param {number} r
+ * @param {number} g
+ * @param {number} b
+ * @param {number} a
+ * @returns {void}
+ */
+function pushDiamond(pos, col, x, y, size, r, g, b, a){
+  const up = size;
+  const right = size;
+  pushTri(pos, col, x, y + up, x + right, y, x, y - up, r, g, b, a);
+  pushTri(pos, col, x, y - up, x - right, y, x, y + up, r, g, b, a);
+}
+
+/**
+ * @param {number[]} pos
+ * @param {number[]} col
+ * @param {number} x
+ * @param {number} y
+ * @param {number} size
+ * @param {number} r
+ * @param {number} g
+ * @param {number} b
+ * @param {number} a
+ * @returns {void}
+ */
+function pushSquare(pos, col, x, y, size, r, g, b, a){
+  const s = size;
+  const x0 = x - s, x1 = x + s;
+  const y0 = y - s, y1 = y + s;
+  pushTri(pos, col, x0, y0, x1, y0, x1, y1, r, g, b, a);
+  pushTri(pos, col, x0, y0, x1, y1, x0, y1, r, g, b, a);
+}
+
+/**
+ * @param {number[]} pos
+ * @param {number[]} col
+ * @param {number} x
+ * @param {number} y
+ * @param {number} radius
+ * @param {number} r
+ * @param {number} g
+ * @param {number} b
+ * @param {number} a
+ * @param {number} [seg]
+ * @returns {number}
+ */
+function pushCircle(pos, col, x, y, radius, r, g, b, a, seg = 24){
+  const aStart = 0;
+  const x0 = x + Math.cos(aStart) * radius;
+  const y0 = y + Math.sin(aStart) * radius;
+  let px = x0;
+  let py = y0;
+  for (let i = 1; i <= seg; i++){
+    const ang = (i / seg) * Math.PI * 2;
+    const nx = x + Math.cos(ang) * radius;
+    const ny = y + Math.sin(ang) * radius;
+    pushLine(pos, col, px, py, nx, ny, r, g, b, a);
+    px = nx;
+    py = ny;
   }
+  return seg * 2;
+}
 
-  const vs = `#version 300 es
-  precision highp float;
-  layout(location=0) in vec2 aPos;
-  layout(location=1) in float aAir;
-  layout(location=2) in float aShade;
-  out vec2 vWorld;
+/**
+ * @param {number[]} pos
+ * @param {number[]} col
+ * @param {number} x
+ * @param {number} y
+ * @param {number} r
+ * @param {number} g
+ * @param {number} b
+ * @returns {void}
+ */
+function pushMiner(pos, col, x, y, r, g, b){
+  const len = Math.hypot(x, y) || 1;
+  const upx = x / len;
+  const upy = y / len;
+  const tx = -upy;
+  const ty = upx;
+  const halfW = 0.06;
+  const halfH = 0.18;
+  const b0x = x + tx * halfW;
+  const b0y = y + ty * halfW;
+  const b1x = x - tx * halfW;
+  const b1y = y - ty * halfW;
+  const t0x = b0x + upx * (2 * halfH);
+  const t0y = b0y + upy * (2 * halfH);
+  const t1x = b1x + upx * (2 * halfH);
+  const t1y = b1y + upy * (2 * halfH);
+  pushTri(pos, col, t0x, t0y, t1x, t1y, b0x, b0y, r, g, b, 1);
+  pushTri(pos, col, t1x, t1y, b1x, b1y, b0x, b0y, r, g, b, 1);
+}
 
-  uniform vec2 uScale;
-  uniform vec2 uCam;
-  uniform float uRot;
+/**
+ * @param {number[]} pos
+ * @param {number[]} col
+ * @param {number} x
+ * @param {number} y
+ * @param {number} r
+ * @param {number} g
+ * @param {number} b
+ * @returns {void}
+ */
+function pushEnemy(pos, col, x, y, r, g, b){
+  const len = Math.hypot(x, y) || 1;
+  const upx = x / len;
+  const upy = y / len;
+  const tx = -upy;
+  const ty = upx;
+  const scale = 1.5;
+  const base = 0.18 * scale;
+  const height = 0.26 * scale;
+  const lx = x - tx * base;
+  const ly = y - ty * base;
+  const rx = x + tx * base;
+  const ry = y + ty * base;
+  const hx = x + upx * height;
+  const hy = y + upy * height;
+  pushTri(pos, col, lx, ly, rx, ry, hx, hy, r, g, b, 1);
+}
 
-  out float vAir;
-  out float vShade;
-
-  vec2 rot(vec2 p, float a){
-    float c = cos(a), s = sin(a);
-    return vec2(c*p.x - s*p.y, s*p.x + c*p.y);
-  }
-
-  void main(){
-    vAir = aAir;
-    vShade = aShade;
-    vWorld = aPos;
-    vec2 p = aPos - uCam;
-    p = rot(p, uRot);
-    gl_Position = vec4(p * uScale, 0.0, 1.0);
-  }`;
-
-  const fs = `#version 300 es
-  precision highp float;
-
-  in float vAir;
-  in float vShade;
-  in vec2 vWorld;
-  out vec4 outColor;
-
-  uniform vec3 uRockDark;
-  uniform vec3 uRockLight;
-  uniform vec3 uAirDark;
-  uniform vec3 uAirLight;
-  uniform float uMaxR;
-
-  vec3 lerp(vec3 a, vec3 b, float t){ return a + (b-a)*t; }
-
-  void main(){
-    if (length(vWorld) > uMaxR){
-      discard;
-    }
-    float t = clamp(vShade, 0.0, 1.0);
-    vec3 c = (vAir > 0.5) ? lerp(uAirDark,  uAirLight,  t)
-                          : lerp(uRockDark, uRockLight, t);
-    outColor = vec4(c, 1.0);
-  }`;
-
-  const ovs = `#version 300 es
-  precision highp float;
-  layout(location=0) in vec2 aPos;
-  layout(location=1) in vec4 aColor;
-
-  uniform vec2 uScale;
-  uniform vec2 uCam;
-  uniform float uRot;
-
-  out vec4 vColor;
-
-  vec2 rot(vec2 p, float a){
-    float c = cos(a), s = sin(a);
-    return vec2(c*p.x - s*p.y, s*p.x + c*p.y);
-  }
-
-  void main(){
-    vec2 p = aPos - uCam;
-    p = rot(p, uRot);
-    gl_Position = vec4(p * uScale, 0.0, 1.0);
-    vColor = aColor;
-    gl_PointSize = 6.0;
-  }`;
-
-  const ofs = `#version 300 es
-  precision highp float;
-  in vec4 vColor;
-  out vec4 outColor;
-  void main(){
-    outColor = vColor;
-  }`;
-
-  /**
-   * @param {number} type
-   * @param {string} src
-   */
-  function compile(type, src){
-    const sh = gl.createShader(type);
-    if (!sh) throw new Error("Shader allocation failed");
-    gl.shaderSource(sh, src);
-    gl.compileShader(sh);
-    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)){
-      const log = gl.getShaderInfoLog(sh);
-      gl.deleteShader(sh);
-      throw new Error(log || "Shader compile failed");
-    }
-    return sh;
-  }
-
-  /** @type {WebGLProgram|null} */
-  const prog = gl.createProgram();
-  if (!prog) throw new Error("Failed to create program");
-  gl.attachShader(prog, compile(gl.VERTEX_SHADER, vs));
-  gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, fs));
-  gl.linkProgram(prog);
-  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)){
-    throw new Error(gl.getProgramInfoLog(prog) || "Program link failed");
-  }
-
-  /** @type {WebGLProgram|null} */
-  const oprog = gl.createProgram();
-  if (!oprog) throw new Error("Failed to create overlay program");
-  gl.attachShader(oprog, compile(gl.VERTEX_SHADER, ovs));
-  gl.attachShader(oprog, compile(gl.FRAGMENT_SHADER, ofs));
-  gl.linkProgram(oprog);
-  if (!gl.getProgramParameter(oprog, gl.LINK_STATUS)){
-    throw new Error(gl.getProgramInfoLog(oprog) || "Overlay program link failed");
-  }
-
-  /** @type {WebGLVertexArrayObject|null} */
-  const vao = gl.createVertexArray();
-  /** @type {WebGLVertexArrayObject|null} */
-  const oVao = gl.createVertexArray();
-  if (!vao || !oVao) throw new Error("Failed to create VAO");
-  /** @type {WebGLBuffer|null} */
-  let airBuf = null;
-  let vertCount = 0;
-
-  /**
-   * @param {number} loc
-   * @param {Float32Array|Uint8Array|Uint16Array|Uint32Array|Int8Array|Int16Array|Int32Array} data
-   * @param {number} size
-   * @param {number} [type]
-   */
-  function uploadAttrib(loc, data, size, type=gl.FLOAT){
-    const buf = gl.createBuffer();
-    if (!buf) throw new Error("Failed to create buffer");
-    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-    gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
-    gl.enableVertexAttribArray(loc);
-    gl.vertexAttribPointer(loc, size, type, false, 0, 0);
-    return buf;
-  }
-
-  /**
-   * @param {{positions:Float32Array, airFlag:Float32Array, shade:Float32Array, vertCount:number}} mesh
-   */
-  function setMesh(mesh){
-    gl.bindVertexArray(vao);
-    uploadAttrib(0, mesh.positions, 2);
-    airBuf = uploadAttrib(1, mesh.airFlag, 1);
-    uploadAttrib(2, mesh.shade, 1);
-    gl.bindVertexArray(null);
-    vertCount = mesh.vertCount;
-  }
-
-  /**
-   * @param {Float32Array} airFlag
-   */
-  function updateAir(airFlag){
-    if (!airBuf) return;
-    gl.bindBuffer(gl.ARRAY_BUFFER, airBuf);
-    gl.bufferData(gl.ARRAY_BUFFER, airFlag, gl.STATIC_DRAW);
-  }
-
-  gl.useProgram(prog);
-  const uScale = gl.getUniformLocation(prog, "uScale");
-  const uCam = gl.getUniformLocation(prog, "uCam");
-  const uRot = gl.getUniformLocation(prog, "uRot");
-  const uRockDark = gl.getUniformLocation(prog, "uRockDark");
-  const uRockLight= gl.getUniformLocation(prog, "uRockLight");
-  const uAirDark  = gl.getUniformLocation(prog, "uAirDark");
-  const uAirLight = gl.getUniformLocation(prog, "uAirLight");
-  const uMaxR     = gl.getUniformLocation(prog, "uMaxR");
-
-  gl.uniform3fv(uRockDark, cfg.ROCK_DARK);
-  gl.uniform3fv(uRockLight,cfg.ROCK_LIGHT);
-  gl.uniform3fv(uAirDark,  cfg.AIR_DARK);
-  gl.uniform3fv(uAirLight, cfg.AIR_LIGHT);
-  gl.uniform1f(uMaxR, cfg.RMAX + 0.5);
-
-  gl.bindVertexArray(oVao);
-  /** @type {WebGLBuffer|null} */
-  const oPos = gl.createBuffer();
-  /** @type {WebGLBuffer|null} */
-  const oCol = gl.createBuffer();
-  if (!oPos || !oCol) throw new Error("Failed to create overlay buffers");
-  gl.bindBuffer(gl.ARRAY_BUFFER, oPos);
-  gl.enableVertexAttribArray(0);
-  gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
-  gl.bindBuffer(gl.ARRAY_BUFFER, oCol);
-  gl.enableVertexAttribArray(1);
-  gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 0, 0);
-  gl.bindVertexArray(null);
-
-  const ouScale = gl.getUniformLocation(oprog, "uScale");
-  const ouCam = gl.getUniformLocation(oprog, "uCam");
-  const ouRot = gl.getUniformLocation(oprog, "uRot");
-
-  /**
-   * @param {number} x
-   * @param {number} y
-   * @param {number} a
-   */
-  function rot2(x, y, a){
-    const c = Math.cos(a), s = Math.sin(a);
-    return [c*x - s*y, s*x + c*y];
-  }
-
-  /**
-   * @param {number[]} pos
-   * @param {number[]} col
-   * @param {number} ax
-   * @param {number} ay
-   * @param {number} bx
-   * @param {number} by
-   * @param {number} cx
-   * @param {number} cy
-   * @param {number} r
-   * @param {number} g
-   * @param {number} b
-   * @param {number} a
-   */
-  function pushTri(pos, col, ax, ay, bx, by, cx, cy, r, g, b, a){
-    pos.push(ax, ay, bx, by, cx, cy);
-    for (let i = 0; i < 3; i++) col.push(r, g, b, a);
-  }
-
-  /**
-   * @param {number[]} pos
-   * @param {number[]} col
-   * @param {number} ax
-   * @param {number} ay
-   * @param {number} bx
-   * @param {number} by
-   * @param {number} r
-   * @param {number} g
-   * @param {number} b
-   * @param {number} a
-   */
-  function pushLine(pos, col, ax, ay, bx, by, r, g, b, a){
-    pos.push(ax, ay, bx, by);
-    col.push(r, g, b, a, r, g, b, a);
-  }
-
-  /**
-   * @param {number[]} pos
-   * @param {number[]} col
-   * @param {number} x
-   * @param {number} y
-   * @param {number} size
-   * @param {number} r
-   * @param {number} g
-   * @param {number} b
-   * @param {number} a
-   */
-  function pushDiamondOutline(pos, col, x, y, size, r, g, b, a){
-    const up = size;
-    const right = size;
-    const top = [x, y + up];
-    const rightP = [x + right, y];
-    const bot = [x, y - up];
-    const left = [x - right, y];
-    pushLine(pos, col, top[0], top[1], rightP[0], rightP[1], r, g, b, a);
-    pushLine(pos, col, rightP[0], rightP[1], bot[0], bot[1], r, g, b, a);
-    pushLine(pos, col, bot[0], bot[1], left[0], left[1], r, g, b, a);
-    pushLine(pos, col, left[0], left[1], top[0], top[1], r, g, b, a);
-  }
-
-  /**
-   * @param {number[]} pos
-   * @param {number[]} col
-   * @param {number} x
-   * @param {number} y
-   * @param {number} size
-   * @param {number} r
-   * @param {number} g
-   * @param {number} b
-   * @param {number} a
-   */
-  function pushSquareOutline(pos, col, x, y, size, r, g, b, a){
-    const s = size;
-    const x0 = x - s, x1 = x + s;
-    const y0 = y - s, y1 = y + s;
-    pushLine(pos, col, x0, y0, x1, y0, r, g, b, a);
-    pushLine(pos, col, x1, y0, x1, y1, r, g, b, a);
-    pushLine(pos, col, x1, y1, x0, y1, r, g, b, a);
-    pushLine(pos, col, x0, y1, x0, y0, r, g, b, a);
-  }
-
-  /**
-   * @param {number[]} pos
-   * @param {number[]} col
-   * @param {number} x
-   * @param {number} y
-   * @param {number} size
-   * @param {number} r
-   * @param {number} g
-   * @param {number} b
-   * @param {number} a
-   */
-  function pushDiamond(pos, col, x, y, size, r, g, b, a){
-    const up = size;
-    const right = size;
-    pushTri(pos, col, x, y + up, x + right, y, x, y - up, r, g, b, a);
-    pushTri(pos, col, x, y - up, x - right, y, x, y + up, r, g, b, a);
-  }
-
-  /**
-   * @param {number[]} pos
-   * @param {number[]} col
-   * @param {number} x
-   * @param {number} y
-   * @param {number} size
-   * @param {number} r
-   * @param {number} g
-   * @param {number} b
-   * @param {number} a
-   */
-  function pushSquare(pos, col, x, y, size, r, g, b, a){
-    const s = size;
-    const x0 = x - s, x1 = x + s;
-    const y0 = y - s, y1 = y + s;
-    pushTri(pos, col, x0, y0, x1, y0, x1, y1, r, g, b, a);
-    pushTri(pos, col, x0, y0, x1, y1, x0, y1, r, g, b, a);
-  }
-
-  /**
-   * @param {number[]} pos
-   * @param {number[]} col
-   * @param {number} x
-   * @param {number} y
-   * @param {number} radius
-   * @param {number} r
-   * @param {number} g
-   * @param {number} b
-   * @param {number} a
-   * @param {number} [seg]
-   */
-  function pushCircle(pos, col, x, y, radius, r, g, b, a, seg = 24){
-    const aStart = 0;
-    const x0 = x + Math.cos(aStart) * radius;
-    const y0 = y + Math.sin(aStart) * radius;
-    let px = x0;
-    let py = y0;
-    for (let i = 1; i <= seg; i++){
-      const ang = (i / seg) * Math.PI * 2;
-      const nx = x + Math.cos(ang) * radius;
-      const ny = y + Math.sin(ang) * radius;
-      pushLine(pos, col, px, py, nx, ny, r, g, b, a);
-      px = nx;
-      py = ny;
-    }
-    return seg * 2;
-  }
-
-  /**
-   * @param {number[]} pos
-   * @param {number[]} col
-   * @param {number} x
-   * @param {number} y
-   * @param {number} r
-   * @param {number} g
-   * @param {number} b
-   */
-  function pushMiner(pos, col, x, y, r, g, b){
-    const len = Math.hypot(x, y) || 1;
-    const upx = x / len;
-    const upy = y / len;
-    const tx = -upy;
-    const ty = upx;
-    const halfW = 0.06;
-    const halfH = 0.18;
-    const b0x = x + tx * halfW;
-    const b0y = y + ty * halfW;
-    const b1x = x - tx * halfW;
-    const b1y = y - ty * halfW;
-    const t0x = b0x + upx * (2 * halfH);
-    const t0y = b0y + upy * (2 * halfH);
-    const t1x = b1x + upx * (2 * halfH);
-    const t1y = b1y + upy * (2 * halfH);
-    pushTri(pos, col, t0x, t0y, t1x, t1y, b0x, b0y, r, g, b, 1);
-    pushTri(pos, col, t1x, t1y, b1x, b1y, b0x, b0y, r, g, b, 1);
-  }
-
-  /**
-   * @param {number[]} pos
-   * @param {number[]} col
-   * @param {number} x
-   * @param {number} y
-   * @param {number} r
-   * @param {number} g
-   * @param {number} b
-   */
-  function pushEnemy(pos, col, x, y, r, g, b){
-    const len = Math.hypot(x, y) || 1;
-    const upx = x / len;
-    const upy = y / len;
-    const tx = -upy;
-    const ty = upx;
-    const scale = 1.5;
-    const base = 0.18 * scale;
-    const height = 0.26 * scale;
-    const lx = x - tx * base;
-    const ly = y - ty * base;
-    const rx = x + tx * base;
-    const ry = y + ty * base;
-    const hx = x + upx * height;
-    const hy = y + upy * height;
-    pushTri(pos, col, lx, ly, rx, ry, hx, hy, r, g, b, 1);
-  }
-
-  /**
-   * @param {RenderState} state
-   * @param {ReturnType<import("./mesh.js").buildRingMesh>} mesh
-   */
-  function drawFrame(state, mesh){
-    resize();
+/**
+ * @param {Renderer} renderer
+ * @param {RenderState} state
+ * @param {import("./mesh.js").RingMesh} mesh
+ * @returns {void}
+ */
+function drawFrameImpl(renderer, state, mesh){
+  const { gl, canvas, cfg, game, prog, oprog, vao, oVao, uScale, uCam, uRot, ouScale, ouCam, ouRot, oPos, oCol } = renderer;
+  const vertCount = renderer.vertCount;
+  renderer.resize();
 
     gl.viewport(0,0,canvas.width,canvas.height);
     gl.clearColor(0,0,0,1);
@@ -787,7 +590,6 @@ export function createRenderer(canvas, cfg, game){
       /**
        * @param {number} nx
        * @param {number} ny
-       * @returns {{x:number,y:number}}
        */
       const toPx = (nx, ny) => {
         return { x: nx * w, y: (1 - ny) * h };
@@ -843,9 +645,224 @@ export function createRenderer(canvas, cfg, game){
     gl.disable(gl.BLEND);
   }
 
-  return {
-    setMesh,
-    updateAir,
-    drawFrame,
-  };
+export class Renderer {
+  /**
+   * WebGL renderer for the game scene.
+   * @param {HTMLCanvasElement} canvas Render surface.
+   * @param {typeof import("./config.js").CFG} cfg Render configuration.
+   * @param {typeof import("./config.js").GAME} game Gameplay constants used in rendering.
+   */
+  constructor(canvas, cfg, game){
+    this.canvas = canvas;
+    this.cfg = cfg;
+    this.game = game;
+
+    /** @type {WebGL2RenderingContext|null} */
+    const glMaybe = canvas.getContext("webgl2", { antialias:true, premultipliedAlpha:false });
+    if (!glMaybe) throw new Error("WebGL2 not available");
+    /** @type {WebGL2RenderingContext} */
+    const gl = glMaybe;
+    this.gl = gl;
+
+    this.airBuf = null;
+    this.vertCount = 0;
+
+    const vs = `#version 300 es
+  precision highp float;
+  layout(location=0) in vec2 aPos;
+  layout(location=1) in float aAir;
+  layout(location=2) in float aShade;
+  out vec2 vWorld;
+
+  uniform vec2 uScale;
+  uniform vec2 uCam;
+  uniform float uRot;
+
+  out float vAir;
+  out float vShade;
+
+  vec2 rot(vec2 p, float a){
+    float c = cos(a), s = sin(a);
+    return vec2(c*p.x - s*p.y, s*p.x + c*p.y);
+  }
+
+  void main(){
+    vAir = aAir;
+    vShade = aShade;
+    vWorld = aPos;
+    vec2 p = aPos - uCam;
+    p = rot(p, uRot);
+    gl_Position = vec4(p * uScale, 0.0, 1.0);
+  }`;
+
+    const fs = `#version 300 es
+  precision highp float;
+
+  in float vAir;
+  in float vShade;
+  in vec2 vWorld;
+  out vec4 outColor;
+
+  uniform vec3 uRockDark;
+  uniform vec3 uRockLight;
+  uniform vec3 uAirDark;
+  uniform vec3 uAirLight;
+  uniform float uMaxR;
+
+  vec3 lerp(vec3 a, vec3 b, float t){ return a + (b-a)*t; }
+
+  void main(){
+    if (length(vWorld) > uMaxR){
+      discard;
+    }
+    float t = clamp(vShade, 0.0, 1.0);
+    vec3 c = (vAir > 0.5) ? lerp(uAirDark,  uAirLight,  t)
+                          : lerp(uRockDark, uRockLight, t);
+    outColor = vec4(c, 1.0);
+  }`;
+
+    const ovs = `#version 300 es
+  precision highp float;
+  layout(location=0) in vec2 aPos;
+  layout(location=1) in vec4 aColor;
+
+  uniform vec2 uScale;
+  uniform vec2 uCam;
+  uniform float uRot;
+
+  out vec4 vColor;
+
+  vec2 rot(vec2 p, float a){
+    float c = cos(a), s = sin(a);
+    return vec2(c*p.x - s*p.y, s*p.x + c*p.y);
+  }
+
+  void main(){
+    vec2 p = aPos - uCam;
+    p = rot(p, uRot);
+    gl_Position = vec4(p * uScale, 0.0, 1.0);
+    vColor = aColor;
+    gl_PointSize = 6.0;
+  }`;
+
+    const ofs = `#version 300 es
+  precision highp float;
+  in vec4 vColor;
+  out vec4 outColor;
+  void main(){
+    outColor = vColor;
+  }`;
+
+    /** @type {WebGLProgram|null} */
+    const prog = gl.createProgram();
+    if (!prog) throw new Error("Failed to create program");
+    gl.attachShader(prog, compile(gl, gl.VERTEX_SHADER, vs));
+    gl.attachShader(prog, compile(gl, gl.FRAGMENT_SHADER, fs));
+    gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)){
+      throw new Error(gl.getProgramInfoLog(prog) || "Program link failed");
+    }
+    this.prog = prog;
+
+    /** @type {WebGLProgram|null} */
+    const oprog = gl.createProgram();
+    if (!oprog) throw new Error("Failed to create overlay program");
+    gl.attachShader(oprog, compile(gl, gl.VERTEX_SHADER, ovs));
+    gl.attachShader(oprog, compile(gl, gl.FRAGMENT_SHADER, ofs));
+    gl.linkProgram(oprog);
+    if (!gl.getProgramParameter(oprog, gl.LINK_STATUS)){
+      throw new Error(gl.getProgramInfoLog(oprog) || "Overlay program link failed");
+    }
+    this.oprog = oprog;
+
+    /** @type {WebGLVertexArrayObject|null} */
+    const vao = gl.createVertexArray();
+    /** @type {WebGLVertexArrayObject|null} */
+    const oVao = gl.createVertexArray();
+    if (!vao || !oVao) throw new Error("Failed to create VAO");
+    this.vao = vao;
+    this.oVao = oVao;
+
+    gl.useProgram(prog);
+    this.uScale = gl.getUniformLocation(prog, "uScale");
+    this.uCam = gl.getUniformLocation(prog, "uCam");
+    this.uRot = gl.getUniformLocation(prog, "uRot");
+    this.uRockDark = gl.getUniformLocation(prog, "uRockDark");
+    this.uRockLight= gl.getUniformLocation(prog, "uRockLight");
+    this.uAirDark  = gl.getUniformLocation(prog, "uAirDark");
+    this.uAirLight = gl.getUniformLocation(prog, "uAirLight");
+    this.uMaxR     = gl.getUniformLocation(prog, "uMaxR");
+
+    gl.uniform3fv(this.uRockDark, cfg.ROCK_DARK);
+    gl.uniform3fv(this.uRockLight,cfg.ROCK_LIGHT);
+    gl.uniform3fv(this.uAirDark,  cfg.AIR_DARK);
+    gl.uniform3fv(this.uAirLight, cfg.AIR_LIGHT);
+    gl.uniform1f(this.uMaxR, cfg.RMAX + 0.5);
+
+    gl.bindVertexArray(oVao);
+    /** @type {WebGLBuffer|null} */
+    const oPos = gl.createBuffer();
+    /** @type {WebGLBuffer|null} */
+    const oCol = gl.createBuffer();
+    if (!oPos || !oCol) throw new Error("Failed to create overlay buffers");
+    this.oPos = oPos;
+    this.oCol = oCol;
+    gl.bindBuffer(gl.ARRAY_BUFFER, oPos);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, oCol);
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 0, 0);
+    gl.bindVertexArray(null);
+
+    this.ouScale = gl.getUniformLocation(oprog, "uScale");
+    this.ouCam = gl.getUniformLocation(oprog, "uCam");
+    this.ouRot = gl.getUniformLocation(oprog, "uRot");
+  }
+
+  /**
+   * @returns {void}
+   */
+  resize(){
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    const w = Math.floor(this.canvas.clientWidth * dpr);
+    const h = Math.floor(this.canvas.clientHeight * dpr);
+    if (this.canvas.width !== w || this.canvas.height !== h){
+      this.canvas.width = w; this.canvas.height = h;
+    }
+  }
+
+  /**
+   * @param {{positions:Float32Array, airFlag:Float32Array, shade:Float32Array, vertCount:number}} mesh
+   * @returns {void}
+   */
+  setMesh(mesh){
+    const gl = this.gl;
+    gl.bindVertexArray(this.vao);
+    uploadAttrib(gl, 0, mesh.positions, 2);
+    this.airBuf = uploadAttrib(gl, 1, mesh.airFlag, 1);
+    uploadAttrib(gl, 2, mesh.shade, 1);
+    gl.bindVertexArray(null);
+    this.vertCount = mesh.vertCount;
+  }
+
+  /**
+   * @param {Float32Array} airFlag
+   * @returns {void}
+   */
+  updateAir(airFlag){
+    if (!this.airBuf) return;
+    const gl = this.gl;
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.airBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, airFlag, gl.STATIC_DRAW);
+  }
+
+  /**
+   * @param {RenderState} state
+   * @param {import("./mesh.js").RingMesh} mesh
+   * @returns {void}
+   */
+  drawFrame(state, mesh){
+    drawFrameImpl(this, state, mesh);
+  }
 }

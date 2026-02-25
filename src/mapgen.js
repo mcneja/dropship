@@ -1,71 +1,72 @@
 ﻿// @ts-check
 
 import { mulberry32 } from "./rng.js";
-import { createNoise } from "./noise.js";
+import { Noise } from "./noise.js";
 
-/** @typedef {[number, number]} Vec2 */
+/** @typedef {import("./types.d.js").Vec2} Vec2 */
+/** @typedef {import("./types.d.js").MapGrid} MapGrid */
+/** @typedef {import("./types.d.js").MapWorld} MapWorld */
 
-/**
- * @typedef {Object} MapGrid
- * @property {number} G
- * @property {number} cell
- * @property {number} worldMin
- * @property {number} worldMax
- * @property {number} worldSize
- * @property {number} R2
- * @property {Uint8Array} inside
- * @property {(i:number, j:number) => number} idx
- * @property {(i:number, j:number) => Vec2} toWorld
- * @property {(x:number, y:number) => [number, number]} toGrid
- */
+export class MapGen {
+  /**
+   * Create a map generator for the given config.
+   * @param {typeof import("./config.js").CFG} cfg Mapgen constants.
+   */
+  constructor(cfg){
+    this.cfg = cfg;
+    const G = cfg.GRID;
+    const worldMin = -(cfg.RMAX + cfg.PAD);
+    const worldMax = +(cfg.RMAX + cfg.PAD);
+    const worldSize = worldMax - worldMin;
+    const cell = worldSize / G;
+    const R2 = cfg.RMAX * cfg.RMAX;
 
-/**
- * @typedef {Object} MapWorld
- * @property {number} seed
- * @property {Uint8Array} air
- * @property {Vec2[]} entrances
- * @property {number} finalAir
- */
+    const inside = new Uint8Array(G*G);
+    /** @type {(i:number, j:number) => number} */
+    const idx = (i, j) => j*G+i;
+    /** @type {(i:number, j:number) => Vec2} */
+    const toWorld = (i, j) => [worldMin + (i+0.5)*cell, worldMin + (j+0.5)*cell];
+    /** @type {(x:number, y:number) => [number, number]} */
+    const toGrid = (x, y) => [Math.floor((x - worldMin) / cell), Math.floor((y - worldMin) / cell)];
 
-/**
- * @param {typeof import("./config.js").CFG} cfg
- */
-export function createMapGen(cfg){
-  const G = cfg.GRID;
-  const worldMin = -(cfg.RMAX + cfg.PAD);
-  const worldMax = +(cfg.RMAX + cfg.PAD);
-  const worldSize = worldMax - worldMin;
-  const cell = worldSize / G;
-  const R2 = cfg.RMAX * cfg.RMAX;
+    for (let j=0;j<G;j++) for (let i=0;i<G;i++){
+      const [x,y] = toWorld(i, j);
+      inside[idx(i, j)] = (x*x + y*y <= R2) ? 1 : 0;
+    }
 
-  const inside = new Uint8Array(G*G);
-  /** @type {(i:number, j:number) => number} */
-  const idx = (i, j) => j*G+i;
-  /** @type {(i:number, j:number) => Vec2} */
-  const toWorld = (i, j) => [worldMin + (i+0.5)*cell, worldMin + (j+0.5)*cell];
-  /** @type {(x:number, y:number) => [number, number]} */
-  const toGrid = (x, y) => [Math.floor((x - worldMin) / cell), Math.floor((y - worldMin) / cell)];
+    /** @type {MapGrid} */
+    this.grid = { G, cell, worldMin, worldMax, worldSize, R2, inside, idx, toWorld, toGrid };
 
-  for (let j=0;j<G;j++) for (let i=0;i<G;i++){
-    const [x,y] = toWorld(i, j);
-    inside[idx(i, j)] = (x*x + y*y <= R2) ? 1 : 0;
+    this._dirs4 = [[1,0],[-1,0],[0,1],[0,-1]];
+    /** @type {Vec2[]} */
+    this._dirs8 = [];
+    for (let dy=-1;dy<=1;dy++) for (let dx=-1;dx<=1;dx++) if (dx||dy) this._dirs8.push([dx,dy]);
+
+    /** @type {Noise} */
+    this.noise = new Noise(cfg.seed);
+
+    /** @type {Float32Array} */
+    this._wx = new Float32Array(G*G);
+    /** @type {Float32Array} */
+    this._wy = new Float32Array(G*G);
+    /** @type {Float32Array} */
+    this._caveNoise = new Float32Array(G*G);
+    /** @type {Float32Array} */
+    this._veinNoise = new Float32Array(G*G);
+
+    /** @type {MapWorld} */
+    this._current = { seed: cfg.seed, air: new Uint8Array(G*G), entrances: [], finalAir: 0 };
   }
-
-  /** @type {MapGrid} */
-  const grid = { G, cell, worldMin, worldMax, worldSize, R2, inside, idx, toWorld, toGrid };
-
-  const dirs4 = [[1,0],[-1,0],[0,1],[0,-1]];
-  /**@type {Vec2[]} */
-  const dirs8 = [];
-  for (let dy=-1;dy<=1;dy++) for (let dx=-1;dx<=1;dx++) if (dx||dy) dirs8.push([dx,dy]);
 
   /**
    * @param {Uint8Array} field
    * @param {number} i
    * @param {number} j
    * @param {number[][]} dirs
+   * @returns {number}
    */
-  function countN(field, i, j, dirs){
+  _countN(field, i, j, dirs){
+    const { G, idx, inside } = this.grid;
     let c=0;
     for (const [dx,dy] of dirs){
       const x=i+dx, y=j+dy;
@@ -77,17 +78,19 @@ export function createMapGen(cfg){
   }
 
   /**
-   * @param {Uint8Array} field
+   * @param {Uint8Array<ArrayBuffer>} field
    * @param {number} iters
+   * @returns {Uint8Array<ArrayBuffer>}
    */
-  function dilate(field, iters){
+  _dilate(field, iters){
+    const { G, idx, inside } = this.grid;
     let out = new Uint8Array(field);
     for (let it=0; it<iters; it++){
       const next = new Uint8Array(out);
       for (let j=0;j<G;j++) for (let i=0;i<G;i++){
         const k=idx(i,j);
         if (!inside[k] || out[k]) continue;
-        for (const [dx,dy] of dirs4){
+        for (const [dx,dy] of this._dirs4){
           const x=i+dx, y=j+dy;
           if (x<0||x>=G||y<0||y>=G) continue;
           const kk=idx(x,y);
@@ -105,8 +108,10 @@ export function createMapGen(cfg){
    * @param {number} cy
    * @param {number} radius
    * @param {0|1} [val]
+   * @returns {void}
    */
-  function carveDisk(field, cx, cy, radius, val=1){
+  _carveDisk(field, cx, cy, radius, val=1){
+    const { G, idx, inside, toGrid, toWorld } = this.grid;
     const r2 = radius*radius;
     const [ix0,iy0] = toGrid(cx-radius, cy-radius);
     const [ix1,iy1] = toGrid(cx+radius, cy+radius);
@@ -124,8 +129,10 @@ export function createMapGen(cfg){
   /**
    * @param {Uint8Array} field
    * @param {Vec2[]} seeds
+   * @returns {Uint8Array}
    */
-  function floodFromSeeds(field, seeds){
+  _floodFromSeeds(field, seeds){
+    const { G, idx, inside } = this.grid;
     const vis = new Uint8Array(G*G);
     const qx = new Int32Array(G*G);
     const qy = new Int32Array(G*G);
@@ -141,7 +148,7 @@ export function createMapGen(cfg){
 
     while (qh<qt){
       const x=qx[qh], y=qy[qh]; qh++;
-      for (const [dx,dy] of dirs4){
+      for (const [dx,dy] of this._dirs4){
         const xx=x+dx, yy=y+dy;
         if (xx<0||xx>=G||yy<0||yy>=G) continue;
         const kk=idx(xx,yy);
@@ -155,8 +162,10 @@ export function createMapGen(cfg){
 
   /**
    * @param {Uint8Array} field
+   * @returns {number}
    */
-  function fractionAir(field){
+  _fractionAir(field){
+    const { G, inside } = this.grid;
     let ins=0, a=0;
     for (let k=0;k<G*G;k++){
       if (!inside[k]) continue;
@@ -166,27 +175,14 @@ export function createMapGen(cfg){
     return a/ins;
   }
 
-  const noise = createNoise(cfg.seed);
-
-  /** @type {Float32Array} */
-  let wx = new Float32Array(G*G);
-  /** @type {Float32Array} */
-  let wy = new Float32Array(G*G);
-  /** @type {Float32Array} */
-  let caveNoise = new Float32Array(G*G);
-  /** @type {Float32Array} */
-  let veinNoise = new Float32Array(G*G);
-
   /**
    * @param {number} targetInitialAir
    * @param {() => number} rand
+   * @returns {{air:Uint8Array<ArrayBufferLike>,entrances:Vec2[]}}
    */
-  /**
-   * @param {number} targetInitialAir
-   * @param {() => number} rand
-   * @returns {{air:Uint8Array,entrances:Vec2[]}}
-   */
-  function buildWorld(targetInitialAir, rand){
+  _buildWorld(targetInitialAir, rand){
+    const { G, idx, inside, toWorld, toGrid } = this.grid;
+    const cfg = this.cfg;
     /** @type {Vec2[]} */
     const entrances = [];
     for (let e=0;e<cfg.ENTRANCES;e++){
@@ -195,6 +191,7 @@ export function createMapGen(cfg){
     }
 
     let lo=0, hi=1;
+    /** @type {Uint8Array<ArrayBufferLike>} */
     let air = new Uint8Array(G*G);
 
     for (let iter=0; iter<20; iter++){
@@ -203,7 +200,7 @@ export function createMapGen(cfg){
       for (let k=0;k<G*G;k++){
         if (!inside[k]) { air[k]=0; continue; }
         ins++;
-        const v = caveNoise[k] > mid ? 1 : 0;
+        const v = this._caveNoise[k] > mid ? 1 : 0;
         air[k]=v; a+=v;
       }
       const frac = a/ins;
@@ -211,17 +208,19 @@ export function createMapGen(cfg){
     }
 
     for (let s=0;s<cfg.CA_STEPS;s++){
+      /** @type {Uint8Array<ArrayBufferLike>} */
       const next = new Uint8Array(air);
       for (let j=0;j<G;j++) for (let i=0;i<G;i++){
         const k=idx(i,j);
         if (!inside[k]) continue;
-        const n8 = countN(air,i,j,dirs8);
+        const n8 = this._countN(air,i,j,this._dirs8);
         if (air[k]) next[k] = (n8 >= cfg.AIR_KEEP_N8) ? 1 : 0;
         else        next[k] = (n8 >= cfg.ROCK_TO_AIR_N8) ? 1 : 0;
       }
       air = next;
     }
 
+    /** @type {Uint8Array<ArrayBuffer>} */
     let veins = new Uint8Array(G*G);
     for (let j=0;j<G;j++) for (let i=0;i<G;i++){
       const k=idx(i,j);
@@ -230,16 +229,16 @@ export function createMapGen(cfg){
       const r = Math.hypot(x,y) / cfg.RMAX;
       let mid = 1.0 - Math.abs(r - 0.60) / 0.60;
       mid = Math.max(0, Math.min(1, mid));
-      if (veinNoise[k] > cfg.VEIN_THRESH && mid > cfg.VEIN_MID_MIN) veins[k]=1;
+      if (this._veinNoise[k] > cfg.VEIN_THRESH && mid > cfg.VEIN_MID_MIN) veins[k]=1;
     }
-    veins = dilate(veins, cfg.VEIN_DILATE);
+    veins = this._dilate(veins, cfg.VEIN_DILATE);
     for (let k=0;k<G*G;k++){
       if (veins[k]) air[k]=0;
     }
 
     for (const [ex,ey] of entrances){
-      carveDisk(air, ex, ey, cfg.ENTRANCE_OUTER, 1);
-      carveDisk(air, ex*0.97, ey*0.97, cfg.ENTRANCE_INNER, 1);
+      this._carveDisk(air, ex, ey, cfg.ENTRANCE_OUTER, 1);
+      this._carveDisk(air, ex*0.97, ey*0.97, cfg.ENTRANCE_INNER, 1);
     }
 
     /**@type {Vec2[]} */
@@ -248,7 +247,7 @@ export function createMapGen(cfg){
       const [ix,iy] = toGrid(ex*0.97, ey*0.97);
       for (let dy=-3;dy<=3;dy++) for (let dx=-3;dx<=3;dx++) seeds.push([ix+dx, iy+dy]);
     }
-    const vis = floodFromSeeds(air, seeds);
+    const vis = this._floodFromSeeds(air, seeds);
     for (let k=0;k<G*G;k++){
       if (air[k] && !vis[k]) air[k]=0;
     }
@@ -256,104 +255,101 @@ export function createMapGen(cfg){
     return { air, entrances };
   }
 
-  /** @type {MapWorld} */
-  let current = { seed: cfg.seed, air: new Uint8Array(G*G), entrances: [], finalAir: 0 };
-
   /**
    * @param {number} seed
    * @returns {MapWorld}
    */
-  function regenWorld(seed){
+  regenWorld(seed){
+    const { G, idx, inside, toWorld } = this.grid;
+    const cfg = this.cfg;
     const rand = mulberry32(seed);
-    noise.setSeed(seed);
+    this.noise.setSeed(seed);
 
-    wx = new Float32Array(G*G);
-    wy = new Float32Array(G*G);
+    this._wx = new Float32Array(G*G);
+    this._wy = new Float32Array(G*G);
     for (let j=0;j<G;j++) for (let i=0;i<G;i++){
       const k=idx(i,j);
       if (!inside[k]) continue;
       const [x,y] = toWorld(i,j);
-      wx[k] = noise.fbm(x*cfg.WARP_F, y*cfg.WARP_F, 3, 0.6, 2.0);
-      wy[k] = noise.fbm((x+19.3)*cfg.WARP_F, (y-11.7)*cfg.WARP_F, 3, 0.6, 2.0);
+      this._wx[k] = this.noise.fbm(x*cfg.WARP_F, y*cfg.WARP_F, 3, 0.6, 2.0);
+      this._wy[k] = this.noise.fbm((x+19.3)*cfg.WARP_F, (y-11.7)*cfg.WARP_F, 3, 0.6, 2.0);
     }
 
-    caveNoise = new Float32Array(G*G);
-    veinNoise = new Float32Array(G*G);
+    this._caveNoise = new Float32Array(G*G);
+    this._veinNoise = new Float32Array(G*G);
     for (let j=0;j<G;j++) for (let i=0;i<G;i++){
       const k=idx(i,j);
       if (!inside[k]) continue;
       const [x,y] = toWorld(i,j);
-      const xw = x + cfg.WARP_A*wx[k];
-      const yw = y + cfg.WARP_A*wy[k];
+      const xw = x + cfg.WARP_A*this._wx[k];
+      const yw = y + cfg.WARP_A*this._wy[k];
 
-      const chambers = 0.5 + 0.5*noise.fbm(xw*cfg.BASE_F*0.8, yw*cfg.BASE_F*0.8, 4, 0.55, 2.0);
-      const corridors= noise.ridged(xw*cfg.BASE_F*1.35, yw*cfg.BASE_F*1.35, 4, 0.55, 2.05);
-      caveNoise[k] = 0.45*chambers + 0.55*corridors;
+      const chambers = 0.5 + 0.5*this.noise.fbm(xw*cfg.BASE_F*0.8, yw*cfg.BASE_F*0.8, 4, 0.55, 2.0);
+      const corridors= this.noise.ridged(xw*cfg.BASE_F*1.35, yw*cfg.BASE_F*1.35, 4, 0.55, 2.05);
+      this._caveNoise[k] = 0.45*chambers + 0.55*corridors;
 
-      veinNoise[k] = noise.ridged(xw*cfg.VEIN_F, yw*cfg.VEIN_F, 3, 0.6, 2.2);
+      this._veinNoise[k] = this.noise.ridged(xw*cfg.VEIN_F, yw*cfg.VEIN_F, 3, 0.6, 2.2);
     }
 
     /** @type {number} */
     let best=0.6;
     let bestDiff=1e9;
-    /** @type {ReturnType<buildWorld>|null} */
+    /** @type {{air:Uint8Array,entrances:Vec2[]}|null} */
     let bestWorld=null;
     for (const g of [0.58,0.60,0.62,0.64,0.66,0.68,0.70]){
-      const w=buildWorld(g, rand);
-      const frac=fractionAir(w.air);
+      const w=this._buildWorld(g, rand);
+      const frac=this._fractionAir(w.air);
       const d=Math.abs(frac - cfg.TARGET_FINAL_AIR);
       if (d<bestDiff){ bestDiff=d; best=g; bestWorld=w; }
     }
     for (const delta of [-0.04,-0.03,-0.02,-0.01,0,0.01,0.02,0.03,0.04]){
       const g=best+delta;
       if (g<=0||g>=1) continue;
-      const w=buildWorld(g, rand);
-      const frac=fractionAir(w.air);
+      const w=this._buildWorld(g, rand);
+      const frac=this._fractionAir(w.air);
       const d=Math.abs(frac - cfg.TARGET_FINAL_AIR);
       if (d<bestDiff){ bestDiff=d; best=g; bestWorld=w; }
     }
 
-    const finalAir = bestWorld ? fractionAir(bestWorld.air) : 0;
-    current = { seed, air: bestWorld ? bestWorld.air : new Uint8Array(G*G), entrances: bestWorld ? bestWorld.entrances : [], finalAir };
-    return current;
+    const finalAir = bestWorld ? this._fractionAir(bestWorld.air) : 0;
+    this._current = { seed, air: bestWorld ? bestWorld.air : new Uint8Array(G*G), entrances: bestWorld ? bestWorld.entrances : [], finalAir };
+    return this._current;
   }
 
   /**
    * @param {number} x
    * @param {number} y
+   * @returns {0|1}
    */
-  function airBinaryAtWorld(x, y){
+  airBinaryAtWorld(x, y){
+    const { G, idx, inside, toGrid } = this.grid;
     const [i, j] = toGrid(x, y);
     if (i < 0 || i >= G || j < 0 || j >= G) return 1;
     const k = idx(i, j);
     if (!inside[k]) return 1;
-    return current.air[k] ? 1 : 0;
+    return this._current.air[k] ? 1 : 0;
   }
 
   /**
    * @param {number} x
    * @param {number} y
    * @param {0|1} [val]
+   * @returns {boolean}
    */
-  function setAirAtWorld(x, y, val = 1){
+  setAirAtWorld(x, y, val = 1){
+    const { G, idx, inside, toGrid } = this.grid;
     const [i, j] = toGrid(x, y);
     if (i < 0 || i >= G || j < 0 || j >= G) return false;
     const k = idx(i, j);
     if (!inside[k]) return false;
-    current.air[k] = val ? 1 : 0;
+    this._current.air[k] = val ? 1 : 0;
     return true;
   }
 
-  function getWorld(){
-    return current;
+  /**
+   * @returns {MapWorld}
+   */
+  getWorld(){
+    return this._current;
   }
-
-  return {
-    grid,
-    noise,
-    regenWorld,
-    airBinaryAtWorld,
-    setAirAtWorld,
-    getWorld,
-  };
 }

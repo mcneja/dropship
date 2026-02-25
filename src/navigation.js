@@ -1,14 +1,6 @@
 // @ts-check
 
-/** @typedef {{x:number,y:number}} Point */
-
-/**
- * @typedef {Object} RadialGraph
- * @property {{x:number,y:number,r:number,i:number}[]} nodes
- * @property {Array<{to:number,cost:number}[]>} neighbors
- * @property {Array<number[]>} ringIndex
- * @property {Map<Point, number>} nodeOfRef
- */
+/** @typedef {import("./types.d.js").Point} Point */
 
 class MinHeap {
   /**
@@ -22,6 +14,7 @@ class MinHeap {
    * @param {number} node
    * @param {number} f
    * @param {number} g
+   * @returns {void}
    */
   push(node, f, g){
     const item = { node, f, g };
@@ -36,6 +29,9 @@ class MinHeap {
     }
     items[i] = item;
   }
+  /**
+   * @returns {{node:number, f:number, g:number}|null}
+   */
   pop(){
     const items = this.items;
     if (!items.length) return null;
@@ -59,16 +55,22 @@ class MinHeap {
     }
     return root;
   }
+  /**
+   * @returns {number}
+   */
   get size(){ return this.items.length; }
 }
 
 /**
  * Build a navigation graph using discrete radial point adjacencies.
  * Uses mesh ring points and band triangulation to infer edges.
- * @param {{rings: Array<Point[]>, bandTris: Array<Array<Array<Point>>>}} mesh
- * @returns {RadialGraph}
  */
-export function buildRadialGraph(mesh){
+export class RadialGraph {
+  /**
+   * Build a navigation graph using discrete radial point adjacencies.
+   * @param {{rings: Array<Point[]>, bandTris: Array<Array<Array<Point>>>}} mesh Mesh rings and band triangles.
+   */
+  constructor(mesh){
   const { rings, bandTris } = mesh;
   /** @type {RadialGraph["nodes"]} */
   const nodes = [];
@@ -140,7 +142,15 @@ export function buildRadialGraph(mesh){
     }
   }
 
-  return { nodes, neighbors, ringIndex, nodeOfRef };
+    /** @type {{x:number,y:number,r:number,i:number}[]} */
+    this.nodes = nodes;
+    /** @type {Array<{to:number,cost:number}[]>} */
+    this.neighbors = neighbors;
+    /** @type {Array<number[]>} */
+    this.ringIndex = ringIndex;
+    /** @type {Map<Point, number>} */
+    this.nodeOfRef = nodeOfRef;
+  }
 }
 
 /**
@@ -148,6 +158,7 @@ export function buildRadialGraph(mesh){
  * @param {{ airValueAtWorld:(x:number,y:number)=>number }} mesh
  * @param {RadialGraph} graph
  * @param {number} [threshold]
+ * @returns {Uint8Array}
  */
 export function buildPassableMask(mesh, graph, threshold = 0.5){
   const passable = new Uint8Array(graph.nodes.length);
@@ -164,10 +175,11 @@ export function buildPassableMask(mesh, graph, threshold = 0.5){
  * @param {{ nearestNodeOnRing:(x:number,y:number)=>Point|null }} mesh
  * @param {number} x
  * @param {number} y
+ * @returns {number}
  */
 export function nearestRadialNode(graph, mesh, x, y){
   const ref = mesh.nearestNodeOnRing(x, y);
-  if (ref && graph.nodeOfRef.has(ref)) return graph.nodeOfRef.get(ref);
+  if (ref && graph.nodeOfRef.has(ref)) return graph.nodeOfRef.get(ref) ?? -1;
   let best = -1;
   let bestD = 1e9;
   for (let i = 0; i < graph.nodes.length; i++){
@@ -185,6 +197,7 @@ export function nearestRadialNode(graph, mesh, x, y){
  * @param {RadialGraph} graph
  * @param {number[]} sources
  * @param {Uint8Array} passable
+ * @returns {Float32Array}
  */
 export function dijkstraMap(graph, sources, passable){
   const n = graph.nodes.length;
@@ -223,6 +236,7 @@ export function dijkstraMap(graph, sources, passable){
  * @param {number} start
  * @param {number} goal
  * @param {Uint8Array} passable
+ * @returns {number[]|null}
  */
 export function findPathAStar(graph, start, goal, passable){
   const n = graph.nodes.length;
@@ -238,7 +252,6 @@ export function findPathAStar(graph, start, goal, passable){
   const heap = new MinHeap();
   /**
    * @param {number} a
-   * @returns {number}
    */
   const h = (a) => {
     const na = graph.nodes[a];
@@ -286,6 +299,7 @@ export function findPathAStar(graph, start, goal, passable){
  * @param {number} bx
  * @param {number} by
  * @param {number} [step]
+ * @returns {boolean}
  */
 export function lineOfSightAir(mesh, ax, ay, bx, by, step = 0.25){
   const dx = bx - ax;
@@ -308,6 +322,7 @@ export function lineOfSightAir(mesh, ax, ay, bx, by, step = 0.25){
  * @param {{x:number,y:number}} ship
  * @param {{x:number,y:number}} target
  * @param {number} [step]
+ * @returns {boolean}
  */
 export function lineOfSightShipTo(mesh, ship, target, step){
   return lineOfSightAir(mesh, ship.x, ship.y, target.x, target.y, step);

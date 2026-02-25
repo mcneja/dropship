@@ -1,127 +1,137 @@
-﻿// @ts-check
+// @ts-check
 
 import { GAME } from "./config.js";
 import { mulberry32 } from "./rng.js";
-import { createEnemies } from "./enemies.js";
+import { Enemies } from "./enemies.js";
 
-/**
- * @typedef {Object} Ship
- * @property {number} x
- * @property {number} y
- * @property {number} vx
- * @property {number} vy
- * @property {string} state
- * @property {number} explodeT
- * @property {number} lastAir
- * @property {Array<[number,number,boolean,number]>|null} [_samples]
- * @property {{x:number,y:number,tri?:Array<{x:number,y:number}>|null,node?:{x:number,y:number}|null}|null} [_collision]
- * @property {number} [_shipRadius]
- */
+/** @typedef {import("./types.d.js").Ship} Ship */
+/** @typedef {import("./types.d.js").Miner} Miner */
+/** @typedef {import("./types.d.js").Ui} Ui */
 
-/**
- * @typedef {Object} Miner
- * @property {number} x
- * @property {number} y
- * @property {"idle"|"running"|"boarded"} state
- */
-
-/**@typedef {[number, number]} Vec2 */
-
-/**
- * @param {Object} deps
- * @param {typeof import("./config.js").CFG} deps.cfg
- * @param {{ airBinaryAtWorld:(x:number,y:number)=>0|1, setAirAtWorld:(x:number,y:number,val?:0|1)=>boolean, getWorld:()=>{finalAir:number,seed:number,air:Uint8Array,entrances:Vec2[]}, regenWorld:(seed:number)=>{finalAir:number,seed:number}, noise: any, grid:{G:number,cell:number,inside:Uint8Array,idx:(i:number,j:number)=>number,toWorld:(i:number,j:number)=>[number,number],toGrid:(x:number,y:number)=>[number,number]} }} deps.mapgen
- * @param {{ updateAirFlags:()=>Float32Array, airValueAtWorld:(x:number,y:number)=>number, findTriAtWorld:(x:number,y:number)=>Array<{x:number,y:number}>|null, nearestNodeOnRing:(x:number,y:number)=>{x:number,y:number}|null, vertCount:number, rings:Array<Array<{x:number,y:number}>> }} deps.mesh
- * @param {{ updateAir:(airFlag:Float32Array)=>void, drawFrame:(state:any, mesh:any)=>void }} deps.renderer
- * @param {{ update:()=>{left:boolean,right:boolean,thrust:boolean,down:boolean,reset:boolean,regen:boolean,toggleDebug:boolean,nextLevel:boolean,shoot:boolean,bomb:boolean,aim?:{x:number,y:number}|null,aimShoot?:{x:number,y:number}|null,aimBomb?:{x:number,y:number}|null,aimShootFrom?:{x:number,y:number}|null,aimShootTo?:{x:number,y:number}|null,aimBombFrom?:{x:number,y:number}|null,aimBombTo?:{x:number,y:number}|null,touchUi?:{leftTouch:{x:number,y:number}|null,laserTouch:{x:number,y:number}|null,bombTouch:{x:number,y:number}|null}|null,touchUiVisible?:boolean} }} deps.input
- * @param {{ updateHud:(hud:HTMLElement, stats:{fps:number,state:string,speed:number,verts:number,air:number,miners:number,minersDead:number,level:number,debug:boolean,minerCandidates:number})=>void }} deps.ui
- * @param {HTMLCanvasElement} deps.canvas
- * @param {HTMLElement} deps.hud
- */
-export function createGameLoop({ cfg, mapgen, mesh, renderer, input, ui, canvas, hud }){
-  const TERRAIN_PAD = 0.5;
-  const TERRAIN_MAX = cfg.RMAX + TERRAIN_PAD;
-  const SHIP_RADIUS = 0.7 * 0.28;
-  const MINER_HEIGHT = 0.36;
-  const MINER_SURFACE_EPS = 0.01;
-  /** @type {Ship} */
-  const ship = {
-    x: 0,
-    y: cfg.RMAX + 0.9,
-    vx: 0,
-    vy: 0,
-    state: "flying",
-    explodeT: 0,
-    lastAir: 1,
-  };
-  /** @type {Array<{x:number,y:number,vx:number,vy:number,a:number,w:number,life:number}>} */
-  const debris = [];
-  /** @type {Array<{x:number,y:number,vx:number,vy:number,life:number}>} */
-  const playerShots = [];
-  /** @type {Array<{x:number,y:number,vx:number,vy:number,life:number}>} */
-  const playerBombs = [];
-  /** @type {Array<{x:number,y:number,life:number,radius?:number}>} */
-  const playerExplosions = [];
-  /** @type {{x:number,y:number}|null} */
-  let lastAimWorld = null;
-
-  const PLAYER_SHOT_SPEED = 7.5;
-  const PLAYER_SHOT_LIFE = 1.2;
-  const PLAYER_SHOT_RADIUS = 0.22;
-  const PLAYER_BOMB_SPEED = 4.5;
-  const PLAYER_BOMB_LIFE = 3.2;
-  const PLAYER_BOMB_RADIUS = 0.35;
-  const PLAYER_BOMB_BLAST = 1.2;
-  const PLAYER_BOMB_DAMAGE = 1.7;
-
+export class GameLoop {
   /**
-   * Reset the ship and player projectiles.
+   * Main gameplay loop orchestrator.
+   * @param {Object} deps
+   * @param {typeof import("./config.js").CFG} deps.cfg
+   * @param {import("./mapgen.js").MapGen} deps.mapgen
+   * @param {import("./mesh.js").RingMesh} deps.mesh
+   * @param {import("./rendering.js").Renderer} deps.renderer
+   * @param {import("./input.js").Input} deps.input
+   * @param {Ui} deps.ui
+   * @param {HTMLCanvasElement} deps.canvas
+   * @param {HTMLElement} deps.hud
    */
-  function resetShip(){
-    ship.x = 0;
-    ship.y = cfg.RMAX + 0.9;
-    ship.vx = 0;
-    ship.vy = 0;
-    ship.state = "flying";
-    ship.explodeT = 0;
-    debris.length = 0;
-    playerShots.length = 0;
-    playerBombs.length = 0;
-    playerExplosions.length = 0;
-    minersDead = 0;
-  }
+  constructor({ cfg, mapgen, mesh, renderer, input, ui, canvas, hud }){
+    this.cfg = cfg;
+    this.mapgen = mapgen;
+    this.mesh = mesh;
+    this.renderer = renderer;
+    this.input = input;
+    this.ui = ui;
+    this.canvas = canvas;
+    this.hud = hud;
 
-  let level = 1;
-  /** @type {Miner[]} */
-  let miners = [];
-  let minersRemaining = 0;
-  let minersDead = 0;
-  let minerCandidates = 0;
-  const enemies = createEnemies({ cfg, mapgen, mesh });
+    this.TERRAIN_PAD = 0.5;
+    this.TERRAIN_MAX = cfg.RMAX + this.TERRAIN_PAD;
+    this.SHIP_RADIUS = 0.7 * 0.28;
+    this.MINER_HEIGHT = 0.36;
+    this.MINER_SURFACE_EPS = 0.01;
+
+    /** @type {Ship} */
+    this.ship = {
+      x: 0,
+      y: cfg.RMAX + 0.9,
+      vx: 0,
+      vy: 0,
+      state: "flying",
+      explodeT: 0,
+      lastAir: 1,
+    };
+    /** @type {Array<{x:number,y:number,vx:number,vy:number,a:number,w:number,life:number}>} */
+    this.debris = [];
+    /** @type {Array<{x:number,y:number,vx:number,vy:number,life:number}>} */
+    this.playerShots = [];
+    /** @type {Array<{x:number,y:number,vx:number,vy:number,life:number}>} */
+    this.playerBombs = [];
+    /** @type {Array<{x:number,y:number,life:number,radius?:number}>} */
+    this.playerExplosions = [];
+    /** @type {{x:number,y:number}|null} */
+    this.lastAimWorld = null;
+
+    this.PLAYER_SHOT_SPEED = 7.5;
+    this.PLAYER_SHOT_LIFE = 1.2;
+    this.PLAYER_SHOT_RADIUS = 0.22;
+    this.PLAYER_BOMB_SPEED = 4.5;
+    this.PLAYER_BOMB_LIFE = 3.2;
+    this.PLAYER_BOMB_RADIUS = 0.35;
+    this.PLAYER_BOMB_BLAST = 1.2;
+    this.PLAYER_BOMB_DAMAGE = 1.7;
+
+    this.level = 1;
+    /** @type {Miner[]} */
+    this.miners = [];
+    this.minersRemaining = 0;
+    this.minersDead = 0;
+    this.minerCandidates = 0;
+    this.enemies = new Enemies({ cfg, mapgen, mesh });
+
+    this._spawnMiners();
+    this.enemies.spawn(this._totalEnemiesForLevel(this.level), this.level);
+
+    this.lastTime = performance.now();
+    this.accumulator = 0;
+    this.fpsTime = this.lastTime;
+    this.fpsFrames = 0;
+    this.fps = 0;
+    this.debugCollisions = GAME.DEBUG_COLLISION;
+    /** @type {boolean} */
+    this.debugCollisions = this.debugCollisions;
+  }
 
   /**
    * @param {number} lvl
+   * @returns {number}
    */
-  const totalEnemiesForLevel = (lvl) => (lvl <= 1 ? 0 : 2 * (lvl - 1));
+  _totalEnemiesForLevel(lvl){
+    return (lvl <= 1 ? 0 : 2 * (lvl - 1));
+  }
 
   /**
-   * Transition the ship to a crashed state and spawn debris.
+   * @returns {void}
    */
-  function triggerCrash(){
-    if (ship.state === "crashed") return;
-    ship.state = "crashed";
-    ship.explodeT = 0;
-    ship.vx = 0; ship.vy = 0;
-    debris.length = 0;
+  _resetShip(){
+    const cfg = this.cfg;
+    this.ship.x = 0;
+    this.ship.y = cfg.RMAX + 0.9;
+    this.ship.vx = 0;
+    this.ship.vy = 0;
+    this.ship.state = "flying";
+    this.ship.explodeT = 0;
+    this.debris.length = 0;
+    this.playerShots.length = 0;
+    this.playerBombs.length = 0;
+    this.playerExplosions.length = 0;
+    this.minersDead = 0;
+  }
+
+  /**
+   * @returns {void}
+   */
+  _triggerCrash(){
+    if (this.ship.state === "crashed") return;
+    this.ship.state = "crashed";
+    this.ship.explodeT = 0;
+    this.ship.vx = 0; this.ship.vy = 0;
+    this.debris.length = 0;
     const pieces = 10;
     for (let i = 0; i < pieces; i++){
       const ang = Math.random() * Math.PI * 2;
       const sp = 1.5 + Math.random() * 2.5;
-      debris.push({
-        x: ship.x + Math.cos(ang) * 0.1,
-        y: ship.y + Math.sin(ang) * 0.1,
-        vx: ship.vx + Math.cos(ang) * sp,
-        vy: ship.vy + Math.sin(ang) * sp,
+      this.debris.push({
+        x: this.ship.x + Math.cos(ang) * 0.1,
+        y: this.ship.y + Math.sin(ang) * 0.1,
+        vx: this.ship.vx + Math.cos(ang) * sp,
+        vy: this.ship.vy + Math.sin(ang) * sp,
         a: Math.random() * Math.PI * 2,
         w: (Math.random() - 0.5) * 4,
         life: 2.5 + Math.random() * 1.5,
@@ -131,36 +141,38 @@ export function createGameLoop({ cfg, mapgen, mesh, renderer, input, ui, canvas,
 
   /**
    * @param {{x:number,y:number}|null|undefined} aim
+   * @returns {{x:number,y:number}|null}
    */
-  function toWorldFromAim(aim){
+  _toWorldFromAim(aim){
     if (!aim) return null;
-    const rect = canvas.getBoundingClientRect();
+    const rect = this.canvas.getBoundingClientRect();
     const w = Math.max(1, rect.width);
     const h = Math.max(1, rect.height);
     const xN = aim.x * 2 - 1;
     const yN = (1 - aim.y) * 2 - 1;
-    const camRot = Math.atan2(ship.x, ship.y || 1e-6);
-    const s = GAME.ZOOM / (cfg.RMAX + cfg.PAD);
+    const camRot = Math.atan2(this.ship.x, this.ship.y || 1e-6);
+    const s = GAME.ZOOM / (this.cfg.RMAX + this.cfg.PAD);
     const aspect = w / h;
     const sx = s / aspect;
     const sy = s;
     const px = xN / sx;
     const py = yN / sy;
     const c = Math.cos(-camRot), s2 = Math.sin(-camRot);
-    const wx = c * px - s2 * py + ship.x;
-    const wy = s2 * px + c * py + ship.y;
+    const wx = c * px - s2 * py + this.ship.x;
+    const wy = s2 * px + c * py + this.ship.y;
     return { x: wx, y: wy };
   }
 
   /**
    * @param {number} x
    * @param {number} y
+   * @returns {void}
    */
-  function applyBombImpact(x, y){
+  _applyBombImpact(x, y){
     const candidates = [];
-    const maxRing = Math.min(cfg.RMAX, mesh.rings.length - 1);
+    const maxRing = Math.min(this.cfg.RMAX, this.mesh.rings.length - 1);
     for (let r = 0; r <= maxRing; r++){
-      const ring = mesh.rings[r];
+      const ring = this.mesh.rings[r];
       if (!ring) continue;
       for (const v of ring){
         const dx = v.x - x;
@@ -173,53 +185,56 @@ export function createGameLoop({ cfg, mapgen, mesh, renderer, input, ui, canvas,
     let changed = false;
     for (let i = 0; i < 3 && i < candidates.length; i++){
       const v = candidates[i].v;
-      if (mapgen.setAirAtWorld(v.x, v.y, 1)) changed = true;
+      if (this.mapgen.setAirAtWorld(v.x, v.y, 1)) changed = true;
     }
     if (changed){
-      const newAir = mesh.updateAirFlags();
-      renderer.updateAir(newAir);
+      const newAir = this.mesh.updateAirFlags();
+      this.renderer.updateAir(newAir);
     }
   }
 
   /**
    * @param {number} x
    * @param {number} y
+   * @returns {void}
    */
-  function applyBombDamage(x, y){
-    const r2 = PLAYER_BOMB_DAMAGE * PLAYER_BOMB_DAMAGE;
-    if (ship.state !== "crashed"){
-      const dx = ship.x - x;
-      const dy = ship.y - y;
+  _applyBombDamage(x, y){
+    const r2 = this.PLAYER_BOMB_DAMAGE * this.PLAYER_BOMB_DAMAGE;
+    if (this.ship.state !== "crashed"){
+      const dx = this.ship.x - x;
+      const dy = this.ship.y - y;
       if (dx * dx + dy * dy <= r2){
-        triggerCrash();
+        this._triggerCrash();
       }
     }
-    for (let j = enemies.enemies.length - 1; j >= 0; j--){
-      const e = enemies.enemies[j];
+    for (let j = this.enemies.enemies.length - 1; j >= 0; j--){
+      const e = this.enemies.enemies[j];
       const dx = e.x - x;
       const dy = e.y - y;
       if (dx * dx + dy * dy <= r2){
-        enemies.enemies.splice(j, 1);
+        this.enemies.enemies.splice(j, 1);
       }
     }
-    for (let j = miners.length - 1; j >= 0; j--){
-      const m = miners[j];
+    for (let j = this.miners.length - 1; j >= 0; j--){
+      const m = this.miners[j];
       if (m.state === "boarded") continue;
       const dx = m.x - x;
       const dy = m.y - y;
       if (dx * dx + dy * dy <= r2){
-        miners.splice(j, 1);
-        minersRemaining = Math.max(0, minersRemaining - 1);
-        minersDead++;
+        this.miners.splice(j, 1);
+        this.minersRemaining = Math.max(0, this.minersRemaining - 1);
+        this.minersDead++;
       }
     }
   }
 
   /**
-   * @param {Array<any>} items
+   * @template T
+   * @param {T[]} items
    * @param {() => number} rand
+   * @returns {void}
    */
-  function shuffle(items, rand){
+  _shuffle(items, rand){
     for (let i = items.length - 1; i > 0; i--){
       const j = Math.floor(rand() * (i + 1));
       const tmp = items[i];
@@ -229,15 +244,13 @@ export function createGameLoop({ cfg, mapgen, mesh, renderer, input, ui, canvas,
   }
 
   /**
-   * @param {Uint8Array|null} traversable
-   */
-  /**
    * @param {number} minDot
    * @param {Uint8Array|null} traversable
+   * @returns {Array<{x:number,y:number,r:number,key:string}>}
    */
-  function gatherMinerCandidates(minDot, traversable){
-    const { G, inside, idx, toWorld, cell } = mapgen.grid;
-    const air = mapgen.getWorld().air;
+  _gatherMinerCandidates(minDot, traversable){
+    const { G, inside, idx, toWorld, cell } = this.mapgen.grid;
+    const air = this.mapgen.getWorld().air;
     const eps = cell * 0.5;
     const candidates = [];
 
@@ -270,16 +283,16 @@ export function createGameLoop({ cfg, mapgen, mesh, renderer, input, ui, canvas,
         let ay = y - upy * cell * 0.75;
         let bx = x + upx * cell * 0.75;
         let by = y + upy * cell * 0.75;
-        let aAir = mesh.airValueAtWorld(ax, ay) > 0.5;
-        let bAir = mesh.airValueAtWorld(bx, by) > 0.5;
+        let aAir = this.mesh.airValueAtWorld(ax, ay) > 0.5;
+        let bAir = this.mesh.airValueAtWorld(bx, by) > 0.5;
         if (aAir === bAir){
           // Ensure a rock->air span for binary search.
           ax = x - upx * cell * 1.2;
           ay = y - upy * cell * 1.2;
           bx = x + upx * cell * 1.2;
           by = y + upy * cell * 1.2;
-          aAir = mesh.airValueAtWorld(ax, ay) > 0.5;
-          bAir = mesh.airValueAtWorld(bx, by) > 0.5;
+          aAir = this.mesh.airValueAtWorld(ax, ay) > 0.5;
+          bAir = this.mesh.airValueAtWorld(bx, by) > 0.5;
           if (aAir === bAir) continue;
         }
         let lx = ax, ly = ay, hx = bx, hy = by;
@@ -287,18 +300,18 @@ export function createGameLoop({ cfg, mapgen, mesh, renderer, input, ui, canvas,
         for (let it = 0; it < 8; it++){
           const mx = (lx + hx) * 0.5;
           const my = (ly + hy) * 0.5;
-          const mAir = mesh.airValueAtWorld(mx, my) > 0.5;
+          const mAir = this.mesh.airValueAtWorld(mx, my) > 0.5;
           if (mAir === lAir){
             lx = mx; ly = my;
           } else {
             hx = mx; hy = my;
           }
         }
-        const baseX = ((lx + hx) * 0.5) + upx * MINER_SURFACE_EPS;
-        const baseY = ((ly + hy) * 0.5) + upy * MINER_SURFACE_EPS;
+        const baseX = ((lx + hx) * 0.5) + upx * this.MINER_SURFACE_EPS;
+        const baseY = ((ly + hy) * 0.5) + upy * this.MINER_SURFACE_EPS;
 
-        const gdx = mesh.airValueAtWorld(x + eps, y) - mesh.airValueAtWorld(x - eps, y);
-        const gdy = mesh.airValueAtWorld(x, y + eps) - mesh.airValueAtWorld(x, y - eps);
+        const gdx = this.mesh.airValueAtWorld(x + eps, y) - this.mesh.airValueAtWorld(x - eps, y);
+        const gdy = this.mesh.airValueAtWorld(x, y + eps) - this.mesh.airValueAtWorld(x, y - eps);
         const nlen = Math.hypot(gdx, gdy);
         if (nlen < 1e-4) continue;
         const nx = gdx / nlen;
@@ -319,15 +332,13 @@ export function createGameLoop({ cfg, mapgen, mesh, renderer, input, ui, canvas,
   }
 
   /**
-   * @param {boolean} [useClearance]
+   * @param {boolean} [useClearance=true]
+   * @returns {Uint8Array|null}
    */
-  /**
-   * @param {boolean} [useClearance]
-   */
-  function buildTraversableMask(useClearance = true){
-    const { G, inside, idx, toGrid, cell } = mapgen.grid;
-    const air = mapgen.getWorld().air;
-    const clearance = Math.max(1, Math.ceil((SHIP_RADIUS * 1.1) / cell));
+  _buildTraversableMask(useClearance = true){
+    const { G, inside, idx, toGrid, cell } = this.mapgen.grid;
+    const air = this.mapgen.getWorld().air;
+    const clearance = Math.max(1, Math.ceil((this.SHIP_RADIUS * 1.1) / cell));
     const safe = new Uint8Array(G * G);
 
     for (let j = 0; j < G; j++){
@@ -349,13 +360,13 @@ export function createGameLoop({ cfg, mapgen, mesh, renderer, input, ui, canvas,
       }
     }
 
-    const entrances = mapgen.getWorld().entrances;
+    const entrances = this.mapgen.getWorld().entrances;
     if (!entrances || !entrances.length) return null;
 
     /**
      * @param {Uint8Array} field
      */
-    function floodFromEntrances(field){
+    const floodFromEntrances = (field) => {
       const vis = new Uint8Array(G * G);
       const qx = new Int32Array(G * G);
       const qy = new Int32Array(G * G);
@@ -392,7 +403,7 @@ export function createGameLoop({ cfg, mapgen, mesh, renderer, input, ui, canvas,
 
       if (qt === 0) return null;
       return vis;
-    }
+    };
 
     if (useClearance){
       const visSafe = floodFromEntrances(safe);
@@ -402,11 +413,11 @@ export function createGameLoop({ cfg, mapgen, mesh, renderer, input, ui, canvas,
   }
 
   /**
-   * Spawn miners for the current level.
+   * @returns {void}
    */
-  function spawnMiners(){
+  _spawnMiners(){
     const count = GAME.MINERS_PER_LEVEL;
-    const seed = mapgen.getWorld().seed + level * 97;
+    const seed = this.mapgen.getWorld().seed + this.level * 97;
     const rand = mulberry32(seed);
     const minDots = [
       GAME.SURFACE_DOT + 0.1,
@@ -415,19 +426,19 @@ export function createGameLoop({ cfg, mapgen, mesh, renderer, input, ui, canvas,
       GAME.SURFACE_DOT - 0.25,
       GAME.SURFACE_DOT - 0.4,
     ];
-    let traversable = buildTraversableMask(true);
+    let traversable = this._buildTraversableMask(true);
 
     /** @type {Array<{x:number,y:number,r:number,key?:string}>} */
     let candidates = [];
     for (const minDot of minDots){
-      candidates = gatherMinerCandidates(minDot, traversable);
+      candidates = this._gatherMinerCandidates(minDot, traversable);
       if (candidates.length >= count * 3) break;
     }
 
     if (!candidates.length && traversable){
-      traversable = buildTraversableMask(false);
+      traversable = this._buildTraversableMask(false);
       for (const minDot of minDots){
-        candidates = gatherMinerCandidates(minDot, traversable);
+        candidates = this._gatherMinerCandidates(minDot, traversable);
         if (candidates.length >= count * 3) break;
       }
     }
@@ -435,8 +446,8 @@ export function createGameLoop({ cfg, mapgen, mesh, renderer, input, ui, canvas,
     if (!candidates.length){
       // Simple surface rule: air cell with rock just below.
       candidates = [];
-      const { G, inside, idx, toWorld, cell } = mapgen.grid;
-      const air = mapgen.getWorld().air;
+      const { G, inside, idx, toWorld, cell } = this.mapgen.grid;
+      const air = this.mapgen.getWorld().air;
       for (let j = 1; j < G - 1; j++){
         for (let i = 1; i < G - 1; i++){
           const k = idx(i, j);
@@ -464,15 +475,15 @@ export function createGameLoop({ cfg, mapgen, mesh, renderer, input, ui, canvas,
           let ay = y - upy * cell * 0.75;
           let bx = x + upx * cell * 0.75;
           let by = y + upy * cell * 0.75;
-          let aAir = mesh.airValueAtWorld(ax, ay) > 0.5;
-          let bAir = mesh.airValueAtWorld(bx, by) > 0.5;
+          let aAir = this.mesh.airValueAtWorld(ax, ay) > 0.5;
+          let bAir = this.mesh.airValueAtWorld(bx, by) > 0.5;
           if (aAir === bAir){
             ax = x - upx * cell * 1.2;
             ay = y - upy * cell * 1.2;
             bx = x + upx * cell * 1.2;
             by = y + upy * cell * 1.2;
-            aAir = mesh.airValueAtWorld(ax, ay) > 0.5;
-            bAir = mesh.airValueAtWorld(bx, by) > 0.5;
+            aAir = this.mesh.airValueAtWorld(ax, ay) > 0.5;
+            bAir = this.mesh.airValueAtWorld(bx, by) > 0.5;
             if (aAir === bAir) continue;
           }
           let lx = ax, ly = ay, hx = bx, hy = by;
@@ -480,25 +491,25 @@ export function createGameLoop({ cfg, mapgen, mesh, renderer, input, ui, canvas,
           for (let it = 0; it < 8; it++){
             const mx = (lx + hx) * 0.5;
             const my = (ly + hy) * 0.5;
-            const mAir = mesh.airValueAtWorld(mx, my) > 0.5;
+            const mAir = this.mesh.airValueAtWorld(mx, my) > 0.5;
             if (mAir === lAir){
               lx = mx; ly = my;
             } else {
               hx = mx; hy = my;
             }
           }
-          const baseX = ((lx + hx) * 0.5) + upx * MINER_SURFACE_EPS;
-          const baseY = ((ly + hy) * 0.5) + upy * MINER_SURFACE_EPS;
+          const baseX = ((lx + hx) * 0.5) + upx * this.MINER_SURFACE_EPS;
+          const baseY = ((ly + hy) * 0.5) + upy * this.MINER_SURFACE_EPS;
           candidates.push({ x: baseX, y: baseY, r, key: `${i},${j}` });
         }
       }
     }
 
     if (!candidates.length){
-      miners = [];
-      minersRemaining = 0;
-      minersDead = 0;
-      minerCandidates = 0;
+      this.miners = [];
+      this.minersRemaining = 0;
+      this.minersDead = 0;
+      this.minerCandidates = 0;
       return;
     }
 
@@ -512,9 +523,9 @@ export function createGameLoop({ cfg, mapgen, mesh, renderer, input, ui, canvas,
       }
       candidates = deduped;
     }
-    minerCandidates = candidates.length;
+    this.minerCandidates = candidates.length;
 
-    shuffle(candidates, rand);
+    this._shuffle(candidates, rand);
     /** @type {Array<{x:number,y:number,r:number,key?:string}>} */
     const placed = [];
     const baseMinSep = GAME.MINER_MIN_SEP;
@@ -557,45 +568,46 @@ export function createGameLoop({ cfg, mapgen, mesh, renderer, input, ui, canvas,
       }
     }
 
-    miners = placed.map((p) => ({ x: p.x, y: p.y, state: "idle" }));
-    minersRemaining = miners.length;
-    minersDead = 0;
+    this.miners = placed.map((p) => ({ x: p.x, y: p.y, state: "idle" }));
+    this.minersRemaining = this.miners.length;
+    this.minersDead = 0;
   }
 
   /**
    * @param {number} seed
    * @param {boolean} advanceLevel
+   * @returns {void}
    */
-  function beginLevel(seed, advanceLevel){
-    mapgen.regenWorld(seed);
-    const newAir = mesh.updateAirFlags();
-    renderer.updateAir(newAir);
-    resetShip();
-    playerExplosions.length = 0;
-    if (advanceLevel) level++;
-    spawnMiners();
-    enemies.spawn(totalEnemiesForLevel(level), level);
+  _beginLevel(seed, advanceLevel){
+    this.mapgen.regenWorld(seed);
+    const newAir = this.mesh.updateAirFlags();
+    this.renderer.updateAir(newAir);
+    this._resetShip();
+    this.playerExplosions.length = 0;
+    if (advanceLevel) this.level++;
+    this._spawnMiners();
+    this.enemies.spawn(this._totalEnemiesForLevel(this.level), this.level);
   }
-
-  spawnMiners();
-  enemies.spawn(totalEnemiesForLevel(level), level);
 
   /**
    * @param {number} x
    * @param {number} y
+   * @returns {Array<[number, number]>}
    */
-  function shipCollisionPoints(x, y){
+  _shipCollisionPoints(x, y){
     const camRot = Math.atan2(x, y || 1e-6);
     const shipRot = -camRot;
     const shipHWorld = 0.7;
     const shipWWorld = 0.5;
     const nose = shipHWorld * 0.6;
     const tail = shipHWorld * 0.4;
+    /** @type {Array<[number, number]>} */
     const local = [
       [0, nose],
       [shipWWorld * 0.6, -tail],
       [-shipWWorld * 0.6, -tail],
     ];
+    /** @type {Array<[number, number]>} */
     const verts = [];
     const c = Math.cos(shipRot), s = Math.sin(shipRot);
     for (const [lx, ly] of local){
@@ -615,13 +627,14 @@ export function createGameLoop({ cfg, mapgen, mesh, renderer, input, ui, canvas,
    * @param {number} x
    * @param {number} y
    * @param {number} shipRadius
+   * @returns {boolean}
    */
-  function shipCollidesAt(x, y, shipRadius){
+  _shipCollidesAt(x, y, shipRadius){
     const rCenter = Math.hypot(x, y);
-    if (rCenter - shipRadius > TERRAIN_MAX) return false;
-    if (mesh.airValueAtWorld(x, y) <= 0.5) return true;
-    for (const [sx, sy] of shipCollisionPoints(x, y)){
-      const av = mesh.airValueAtWorld(sx, sy);
+    if (rCenter - shipRadius > this.TERRAIN_MAX) return false;
+    if (this.mesh.airValueAtWorld(x, y) <= 0.5) return true;
+    for (const [sx, sy] of this._shipCollisionPoints(x, y)){
+      const av = this.mesh.airValueAtWorld(sx, sy);
       if (av <= 0.5) return true;
     }
     return false;
@@ -629,19 +642,20 @@ export function createGameLoop({ cfg, mapgen, mesh, renderer, input, ui, canvas,
 
   /**
    * @param {number} dt
-   * @param {{left:boolean,right:boolean,thrust:boolean,down:boolean,reset:boolean,regen:boolean,toggleDebug:boolean,nextLevel:boolean,shoot:boolean,bomb:boolean,aim?:{x:number,y:number}|null,aimShoot?:{x:number,y:number}|null,aimBomb?:{x:number,y:number}|null,aimShootFrom?:{x:number,y:number}|null,aimShootTo?:{x:number,y:number}|null,aimBombFrom?:{x:number,y:number}|null,aimBombTo?:{x:number,y:number}|null}} inputState
+   * @param {ReturnType<import("./input.js").Input["update"]>} inputState
+   * @returns {void}
    */
-  function step(dt, inputState){
+  _step(dt, inputState){
     const { left, right, thrust, down, reset, shoot, bomb, aim, aimShoot, aimBomb, aimShootFrom, aimShootTo, aimBombFrom, aimBombTo } = inputState;
-    if (reset) resetShip();
-    const aimWorldShoot = toWorldFromAim(aimShoot || aim);
-    const aimWorldBomb = toWorldFromAim(aimBomb || aimShoot || aim);
-    let aimWorld = (aimShootTo && toWorldFromAim(aimShootTo)) || aimWorldShoot || (aimBombTo && toWorldFromAim(aimBombTo)) || aimWorldBomb;
+    if (reset) this._resetShip();
+    const aimWorldShoot = this._toWorldFromAim(aimShoot || aim);
+    const aimWorldBomb = this._toWorldFromAim(aimBomb || aimShoot || aim);
+    let aimWorld = (aimShootTo && this._toWorldFromAim(aimShootTo)) || aimWorldShoot || (aimBombTo && this._toWorldFromAim(aimBombTo)) || aimWorldBomb;
     if ((aimShootFrom && aimShootTo) || (aimBombFrom && aimBombTo)){
       const from = aimShootFrom || aimBombFrom;
       const to = aimShootTo || aimBombTo;
-      const wFrom = from ? toWorldFromAim(from) : null;
-      const wTo = to ? toWorldFromAim(to) : null;
+      const wFrom = from ? this._toWorldFromAim(from) : null;
+      const wTo = to ? this._toWorldFromAim(to) : null;
       if (wFrom && wTo){
         const dx = wTo.x - wFrom.x;
         const dy = wTo.y - wFrom.y;
@@ -649,16 +663,16 @@ export function createGameLoop({ cfg, mapgen, mesh, renderer, input, ui, canvas,
         const dirx = dx / dist;
         const diry = dy / dist;
         const aimLen = 4.0;
-        aimWorld = { x: ship.x + dirx * aimLen, y: ship.y + diry * aimLen };
+        aimWorld = { x: this.ship.x + dirx * aimLen, y: this.ship.y + diry * aimLen };
       }
     }
-    lastAimWorld = aimWorld;
+    this.lastAimWorld = aimWorld;
 
-    if (ship.state === "flying"){
+    if (this.ship.state === "flying"){
       let ax = 0, ay = 0;
-      const r = Math.hypot(ship.x, ship.y) || 1;
-      const rx = ship.x / r;
-      const ry = ship.y / r;
+      const r = Math.hypot(this.ship.x, this.ship.y) || 1;
+      const rx = this.ship.x / r;
+      const ry = this.ship.y / r;
       const tx = -ry;
       const ty = rx;
 
@@ -679,40 +693,39 @@ export function createGameLoop({ cfg, mapgen, mesh, renderer, input, ui, canvas,
         ay += -ry * GAME.THRUST;
       }
 
-      ax += -ship.x / r * GAME.GRAVITY;
-      ay += -ship.y / r * GAME.GRAVITY;
+      ax += -this.ship.x / r * GAME.GRAVITY;
+      ay += -this.ship.y / r * GAME.GRAVITY;
 
-      ship.vx += ax * dt;
-      ship.vy += ay * dt;
+      this.ship.vx += ax * dt;
+      this.ship.vy += ay * dt;
 
       const drag = Math.max(0, 1 - GAME.DRAG * dt);
-      ship.vx *= drag;
-      ship.vy *= drag;
+      this.ship.vx *= drag;
+      this.ship.vy *= drag;
 
-      const vt = ship.vx * tx + ship.vy * ty;
+      const vt = this.ship.vx * tx + this.ship.vy * ty;
       const vtMax = GAME.MAX_TANGENTIAL_SPEED;
       if (Math.abs(vt) > vtMax){
         const excess = vt - Math.sign(vt) * vtMax;
-        ship.vx -= tx * excess;
-        ship.vy -= ty * excess;
+        this.ship.vx -= tx * excess;
+        this.ship.vy -= ty * excess;
       }
 
-      ship.x += ship.vx * dt;
-      ship.y += ship.vy * dt;
+      this.ship.x += this.ship.vx * dt;
+      this.ship.y += this.ship.vy * dt;
 
-      const speed = Math.hypot(ship.vx, ship.vy);
-      const eps = mapgen.grid.cell * 0.75;
-      const shipHWorld = 0.7;
-      const shipRadius = SHIP_RADIUS;
+      const speed = Math.hypot(this.ship.vx, this.ship.vy);
+      const eps = this.mapgen.grid.cell * 0.75;
+      const shipRadius = this.SHIP_RADIUS;
 
       let collides = false;
       /** @type {Array<[number, number, boolean, number]>} */
       const samples = [];
       let hit = null;
-      const rCenter = Math.hypot(ship.x, ship.y);
-      if (rCenter - shipRadius <= TERRAIN_MAX){
-        for (const [sx, sy] of shipCollisionPoints(ship.x, ship.y)){
-          const av = mesh.airValueAtWorld(sx, sy);
+      const rCenter = Math.hypot(this.ship.x, this.ship.y);
+      if (rCenter - shipRadius <= this.TERRAIN_MAX){
+        for (const [sx, sy] of this._shipCollisionPoints(this.ship.x, this.ship.y)){
+          const av = this.mesh.airValueAtWorld(sx, sy);
           const air = av > 0.5;
           samples.push([sx, sy, air, av]);
           if (!air) {
@@ -721,92 +734,92 @@ export function createGameLoop({ cfg, mapgen, mesh, renderer, input, ui, canvas,
           }
         }
       }
-      ship._samples = samples;
-      ship._shipRadius = shipRadius;
+      this.ship._samples = samples;
+      this.ship._shipRadius = shipRadius;
       if (hit){
-        ship._collision = {
+        this.ship._collision = {
           x: hit.x,
           y: hit.y,
-          tri: mesh.findTriAtWorld(hit.x, hit.y),
-          node: mesh.nearestNodeOnRing(hit.x, hit.y),
+          tri: this.mesh.findTriAtWorld(hit.x, hit.y),
+          node: this.mesh.nearestNodeOnRing(hit.x, hit.y),
         };
       } else {
-        ship._collision = null;
+        this.ship._collision = null;
       }
 
       if (collides){
-        const gdx = mesh.airValueAtWorld(ship.x + eps, ship.y) - mesh.airValueAtWorld(ship.x - eps, ship.y);
-        const gdy = mesh.airValueAtWorld(ship.x, ship.y + eps) - mesh.airValueAtWorld(ship.x, ship.y - eps);
+        const gdx = this.mesh.airValueAtWorld(this.ship.x + eps, this.ship.y) - this.mesh.airValueAtWorld(this.ship.x - eps, this.ship.y);
+        const gdy = this.mesh.airValueAtWorld(this.ship.x, this.ship.y + eps) - this.mesh.airValueAtWorld(this.ship.x, this.ship.y - eps);
         let nx = gdx;
         let ny = gdy;
         let nlen = Math.hypot(nx, ny);
         if (nlen < 1e-4){
-          const c = ship._collision;
+          const c = this.ship._collision;
           if (c){
-            nx = ship.x - c.x;
-            ny = ship.y - c.y;
+            nx = this.ship.x - c.x;
+            ny = this.ship.y - c.y;
             nlen = Math.hypot(nx, ny);
           }
         }
         if (nlen < 1e-4){
-          nx = ship.x;
-          ny = ship.y;
+          nx = this.ship.x;
+          ny = this.ship.y;
           nlen = Math.hypot(nx, ny) || 1;
         }
         nx /= nlen;
         ny /= nlen;
-        const camRot = Math.atan2(ship.x, ship.y || 1e-6);
+        const camRot = Math.atan2(this.ship.x, this.ship.y || 1e-6);
         const upx = Math.sin(camRot);
         const upy = Math.cos(camRot);
         const dotUp = nx * upx + ny * upy;
-        const vn = ship.vx * nx + ship.vy * ny;
+        const vn = this.ship.vx * nx + this.ship.vy * ny;
         const impactSpeed = Math.max(0, -vn);
         const resolvePenetration = () => {
           const maxSteps = 8;
           const stepSize = shipRadius * 0.2;
           for (let i = 0; i < maxSteps; i++){
-            if (!shipCollidesAt(ship.x, ship.y, shipRadius)) break;
-            ship.x += nx * stepSize;
-            ship.y += ny * stepSize;
+            if (!this._shipCollidesAt(this.ship.x, this.ship.y, shipRadius)) break;
+            this.ship.x += nx * stepSize;
+            this.ship.y += ny * stepSize;
           }
         };
 
         if (impactSpeed <= GAME.LAND_SPEED && vn < -0.05 && dotUp >= GAME.SURFACE_DOT){
-          ship.state = "landed";
-          ship.vx = 0; ship.vy = 0;
+          this.ship.state = "landed";
+          this.ship.vx = 0; this.ship.vy = 0;
           resolvePenetration();
         } else if (impactSpeed >= GAME.CRASH_SPEED){
-          triggerCrash();
+          this._triggerCrash();
         } else {
           if (impactSpeed <= GAME.LAND_SPEED && vn < -0.05 && dotUp >= GAME.SURFACE_DOT){
-            ship.vx -= nx * GAME.LAND_PULL * dt;
-            ship.vy -= ny * GAME.LAND_PULL * dt;
+            this.ship.vx -= nx * GAME.LAND_PULL * dt;
+            this.ship.vy -= ny * GAME.LAND_PULL * dt;
             const tx = -ny;
             const ty = nx;
-            const vt = ship.vx * tx + ship.vy * ty;
-            ship.vx -= vt * tx * GAME.LAND_FRICTION * dt;
-            ship.vy -= vt * ty * GAME.LAND_FRICTION * dt;
+            const vt = this.ship.vx * tx + this.ship.vy * ty;
+            this.ship.vx -= vt * tx * GAME.LAND_FRICTION * dt;
+            this.ship.vy -= vt * ty * GAME.LAND_FRICTION * dt;
             resolvePenetration();
           } else if (vn < 0){
             const restitution = GAME.BOUNCE_RESTITUTION;
-            ship.vx -= (1 + restitution) * vn * nx;
-            ship.vy -= (1 + restitution) * vn * ny;
+            this.ship.vx -= (1 + restitution) * vn * nx;
+            this.ship.vy -= (1 + restitution) * vn * ny;
             const fast = speed >= (GAME.LAND_SPEED * 1.2);
             const push = shipRadius * (fast ? GAME.COLLIDE_PUSH_FAST : 0.02);
-            ship.x += nx * push;
-            ship.y += ny * push;
+            this.ship.x += nx * push;
+            this.ship.y += ny * push;
             resolvePenetration();
           }
         }
       }
     }
 
-    if (ship.state !== "crashed"){
+    if (this.ship.state !== "crashed"){
       if (shoot){
         let dirx = 0, diry = 0;
         if (aimShootFrom && aimShootTo){
-          const wFrom = toWorldFromAim(aimShootFrom);
-          const wTo = toWorldFromAim(aimShootTo);
+          const wFrom = this._toWorldFromAim(aimShootFrom);
+          const wTo = this._toWorldFromAim(aimShootTo);
           if (wFrom && wTo){
             const dx = wTo.x - wFrom.x;
             const dy = wTo.y - wFrom.y;
@@ -815,27 +828,27 @@ export function createGameLoop({ cfg, mapgen, mesh, renderer, input, ui, canvas,
             diry = dy / dist;
           }
         } else if (aimWorldShoot){
-          const dx = aimWorldShoot.x - ship.x;
-          const dy = aimWorldShoot.y - ship.y;
+          const dx = aimWorldShoot.x - this.ship.x;
+          const dy = aimWorldShoot.y - this.ship.y;
           const dist = Math.hypot(dx, dy) || 1;
           dirx = dx / dist;
           diry = dy / dist;
         }
         if (dirx || diry){
-          playerShots.push({
-            x: ship.x + dirx * 0.45,
-            y: ship.y + diry * 0.45,
-            vx: dirx * PLAYER_SHOT_SPEED,
-            vy: diry * PLAYER_SHOT_SPEED,
-            life: PLAYER_SHOT_LIFE,
+          this.playerShots.push({
+            x: this.ship.x + dirx * 0.45,
+            y: this.ship.y + diry * 0.45,
+            vx: dirx * this.PLAYER_SHOT_SPEED,
+            vy: diry * this.PLAYER_SHOT_SPEED,
+            life: this.PLAYER_SHOT_LIFE,
           });
         }
       }
       if (bomb){
         let dirx = 0, diry = 0;
         if (aimBombFrom && aimBombTo){
-          const wFrom = toWorldFromAim(aimBombFrom);
-          const wTo = toWorldFromAim(aimBombTo);
+          const wFrom = this._toWorldFromAim(aimBombFrom);
+          const wTo = this._toWorldFromAim(aimBombTo);
           if (wFrom && wTo){
             const dx = wTo.x - wFrom.x;
             const dy = wTo.y - wFrom.y;
@@ -844,92 +857,92 @@ export function createGameLoop({ cfg, mapgen, mesh, renderer, input, ui, canvas,
             diry = dy / dist;
           }
         } else if (aimWorldBomb){
-          const dx = aimWorldBomb.x - ship.x;
-          const dy = aimWorldBomb.y - ship.y;
+          const dx = aimWorldBomb.x - this.ship.x;
+          const dy = aimWorldBomb.y - this.ship.y;
           const dist = Math.hypot(dx, dy) || 1;
           dirx = dx / dist;
           diry = dy / dist;
         }
         if (dirx || diry){
-          playerBombs.push({
-            x: ship.x + dirx * 0.45,
-            y: ship.y + diry * 0.45,
-            vx: dirx * PLAYER_BOMB_SPEED,
-            vy: diry * PLAYER_BOMB_SPEED,
-            life: PLAYER_BOMB_LIFE,
+          this.playerBombs.push({
+            x: this.ship.x + dirx * 0.45,
+            y: this.ship.y + diry * 0.45,
+            vx: dirx * this.PLAYER_BOMB_SPEED,
+            vy: diry * this.PLAYER_BOMB_SPEED,
+            life: this.PLAYER_BOMB_LIFE,
           });
         }
       }
     }
 
-    if (playerShots.length){
-      for (let i = playerShots.length - 1; i >= 0; i--){
-        const s = playerShots[i];
+    if (this.playerShots.length){
+      for (let i = this.playerShots.length - 1; i >= 0; i--){
+        const s = this.playerShots[i];
         s.x += s.vx * dt;
         s.y += s.vy * dt;
         s.life -= dt;
-        if (s.life <= 0 || mesh.airValueAtWorld(s.x, s.y) <= 0.5){
-          playerShots.splice(i, 1);
+        if (s.life <= 0 || this.mesh.airValueAtWorld(s.x, s.y) <= 0.5){
+          this.playerShots.splice(i, 1);
           continue;
         }
-        for (let j = enemies.enemies.length - 1; j >= 0; j--){
-          const e = enemies.enemies[j];
+        for (let j = this.enemies.enemies.length - 1; j >= 0; j--){
+          const e = this.enemies.enemies[j];
           const dx = e.x - s.x;
           const dy = e.y - s.y;
-          if (dx * dx + dy * dy <= PLAYER_SHOT_RADIUS * PLAYER_SHOT_RADIUS){
+          if (dx * dx + dy * dy <= this.PLAYER_SHOT_RADIUS * this.PLAYER_SHOT_RADIUS){
             e.hp -= 1;
-            playerShots.splice(i, 1);
-            if (e.hp <= 0) enemies.enemies.splice(j, 1);
+            this.playerShots.splice(i, 1);
+            if (e.hp <= 0) this.enemies.enemies.splice(j, 1);
             break;
           }
         }
-        if (i >= playerShots.length) continue;
-        for (let j = miners.length - 1; j >= 0; j--){
-          const m = miners[j];
+        if (i >= this.playerShots.length) continue;
+        for (let j = this.miners.length - 1; j >= 0; j--){
+          const m = this.miners[j];
           if (m.state === "boarded") continue;
           const dx = m.x - s.x;
           const dy = m.y - s.y;
-          if (dx * dx + dy * dy <= PLAYER_SHOT_RADIUS * PLAYER_SHOT_RADIUS){
-            miners.splice(j, 1);
-            minersRemaining = Math.max(0, minersRemaining - 1);
-            minersDead++;
-            playerShots.splice(i, 1);
+          if (dx * dx + dy * dy <= this.PLAYER_SHOT_RADIUS * this.PLAYER_SHOT_RADIUS){
+            this.miners.splice(j, 1);
+            this.minersRemaining = Math.max(0, this.minersRemaining - 1);
+            this.minersDead++;
+            this.playerShots.splice(i, 1);
             break;
           }
         }
       }
     }
 
-    if (playerBombs.length){
-      for (let i = playerBombs.length - 1; i >= 0; i--){
-        const b = playerBombs[i];
+    if (this.playerBombs.length){
+      for (let i = this.playerBombs.length - 1; i >= 0; i--){
+        const b = this.playerBombs[i];
         b.x += b.vx * dt;
         b.y += b.vy * dt;
         b.life -= dt;
         let hit = false;
-        if (b.life <= 0 || mesh.airValueAtWorld(b.x, b.y) <= 0.5){
+        if (b.life <= 0 || this.mesh.airValueAtWorld(b.x, b.y) <= 0.5){
           hit = true;
         } else {
-          for (let j = enemies.enemies.length - 1; j >= 0; j--){
-            const e = enemies.enemies[j];
+          for (let j = this.enemies.enemies.length - 1; j >= 0; j--){
+            const e = this.enemies.enemies[j];
             const dx = e.x - b.x;
             const dy = e.y - b.y;
-            if (dx * dx + dy * dy <= PLAYER_BOMB_RADIUS * PLAYER_BOMB_RADIUS){
-              enemies.enemies.splice(j, 1);
+            if (dx * dx + dy * dy <= this.PLAYER_BOMB_RADIUS * this.PLAYER_BOMB_RADIUS){
+              this.enemies.enemies.splice(j, 1);
               hit = true;
               break;
             }
           }
           if (!hit){
-            for (let j = miners.length - 1; j >= 0; j--){
-              const m = miners[j];
+            for (let j = this.miners.length - 1; j >= 0; j--){
+              const m = this.miners[j];
               if (m.state === "boarded") continue;
               const dx = m.x - b.x;
               const dy = m.y - b.y;
-              if (dx * dx + dy * dy <= PLAYER_BOMB_RADIUS * PLAYER_BOMB_RADIUS){
-                miners.splice(j, 1);
-                minersRemaining = Math.max(0, minersRemaining - 1);
-                minersDead++;
+              if (dx * dx + dy * dy <= this.PLAYER_BOMB_RADIUS * this.PLAYER_BOMB_RADIUS){
+                this.miners.splice(j, 1);
+                this.minersRemaining = Math.max(0, this.minersRemaining - 1);
+                this.minersDead++;
                 hit = true;
                 break;
               }
@@ -937,27 +950,27 @@ export function createGameLoop({ cfg, mapgen, mesh, renderer, input, ui, canvas,
           }
         }
         if (hit){
-          playerBombs.splice(i, 1);
-          applyBombImpact(b.x, b.y);
-          applyBombDamage(b.x, b.y);
-          playerExplosions.push({ x: b.x, y: b.y, life: 0.8, radius: PLAYER_BOMB_BLAST });
+          this.playerBombs.splice(i, 1);
+          this._applyBombImpact(b.x, b.y);
+          this._applyBombDamage(b.x, b.y);
+          this.playerExplosions.push({ x: b.x, y: b.y, life: 0.8, radius: this.PLAYER_BOMB_BLAST });
         }
       }
     }
 
-    if (playerExplosions.length){
-      for (let i = playerExplosions.length - 1; i >= 0; i--){
-        playerExplosions[i].life -= dt;
-        if (playerExplosions[i].life <= 0) playerExplosions.splice(i, 1);
+    if (this.playerExplosions.length){
+      for (let i = this.playerExplosions.length - 1; i >= 0; i--){
+        this.playerExplosions[i].life -= dt;
+        if (this.playerExplosions[i].life <= 0) this.playerExplosions.splice(i, 1);
       }
     }
 
-    if (miners.length){
-      const landed = ship.state === "landed";
-      for (const miner of miners){
+    if (this.miners.length){
+      const landed = this.ship.state === "landed";
+      for (const miner of this.miners){
         if (miner.state === "boarded") continue;
-        const dx = ship.x - miner.x;
-        const dy = ship.y - miner.y;
+        const dx = this.ship.x - miner.x;
+        const dy = this.ship.y - miner.y;
         const dist = Math.hypot(dx, dy);
 
         if (landed && dist <= GAME.MINER_CALL_RADIUS){
@@ -976,12 +989,11 @@ export function createGameLoop({ cfg, mapgen, mesh, renderer, input, ui, canvas,
           /**
            * @param {number} tx
            * @param {number} ty
-           * @returns {boolean}
            */
           const tryMove = (tx, ty) => {
             const nx = miner.x + tx * stepLen;
             const ny = miner.y + ty * stepLen;
-            if (mesh.airValueAtWorld(nx, ny) > 0.5){
+            if (this.mesh.airValueAtWorld(nx, ny) > 0.5){
               miner.x = nx;
               miner.y = ny;
               return true;
@@ -1007,19 +1019,19 @@ export function createGameLoop({ cfg, mapgen, mesh, renderer, input, ui, canvas,
           }
         }
 
-        const postDx = ship.x - miner.x;
-        const postDy = ship.y - miner.y;
+        const postDx = this.ship.x - miner.x;
+        const postDy = this.ship.y - miner.y;
         const postDist = Math.hypot(postDx, postDy);
         if (landed && postDist <= GAME.MINER_BOARD_RADIUS){
           miner.state = "boarded";
-          minersRemaining = Math.max(0, minersRemaining - 1);
+          this.minersRemaining = Math.max(0, this.minersRemaining - 1);
         }
       }
     }
 
-    if (debris.length){
-      for (let i = debris.length - 1; i >= 0; i--){
-        const d = debris[i];
+    if (this.debris.length){
+      for (let i = this.debris.length - 1; i >= 0; i--){
+        const d = this.debris[i];
         const r = Math.hypot(d.x, d.y) || 1;
         d.vx += (-d.x / r) * GAME.GRAVITY * dt;
         d.vy += (-d.y / r) * GAME.GRAVITY * dt;
@@ -1029,149 +1041,139 @@ export function createGameLoop({ cfg, mapgen, mesh, renderer, input, ui, canvas,
         d.y += d.vy * dt;
         d.a += d.w * dt;
         d.life -= dt;
-        if (d.life <= 0) debris.splice(i, 1);
+        if (d.life <= 0) this.debris.splice(i, 1);
       }
     }
 
-    enemies.update(ship, dt);
+    this.enemies.update(this.ship, dt);
 
-    if (ship.state !== "crashed"){
-      for (let i = enemies.shots.length - 1; i >= 0; i--){
-        const s = enemies.shots[i];
-        const dx = ship.x - s.x;
-        const dy = ship.y - s.y;
-        if (dx * dx + dy * dy <= SHIP_RADIUS * SHIP_RADIUS){
-          enemies.shots.splice(i, 1);
-          triggerCrash();
+    if (this.ship.state !== "crashed"){
+      for (let i = this.enemies.shots.length - 1; i >= 0; i--){
+        const s = this.enemies.shots[i];
+        const dx = this.ship.x - s.x;
+        const dy = this.ship.y - s.y;
+        if (dx * dx + dy * dy <= this.SHIP_RADIUS * this.SHIP_RADIUS){
+          this.enemies.shots.splice(i, 1);
+          this._triggerCrash();
           break;
         }
       }
     }
 
-    if (ship.state !== "crashed" && enemies.explosions.length){
-      for (const ex of enemies.explosions){
+    if (this.ship.state !== "crashed" && this.enemies.explosions.length){
+      for (const ex of this.enemies.explosions){
         const r = ex.radius ?? 1.0;
-        const dx = ship.x - ex.x;
-        const dy = ship.y - ex.y;
+        const dx = this.ship.x - ex.x;
+        const dy = this.ship.y - ex.y;
         if (dx * dx + dy * dy <= r * r){
-          triggerCrash();
+          this._triggerCrash();
           break;
         }
       }
     }
 
-    if (ship.state === "landed"){
+    if (this.ship.state === "landed"){
       if (left || right || thrust){
-        ship.state = "flying";
+        this.ship.state = "flying";
       }
     }
   }
 
-  let lastTime = performance.now();
-  let accumulator = 0;
-  let fpsTime = lastTime;
-  let fpsFrames = 0;
-  let fps = 0;
-  /**@type {boolean} */
-  let debugCollisions = GAME.DEBUG_COLLISION;
-
   /**
-   * Advance a render frame.
+   * @returns {void}
    */
-  function frame(){
+  _frame(){
     const now = performance.now();
-    const dt = Math.min(0.05, (now - lastTime) / 1000);
-    lastTime = now;
-    accumulator += dt;
+    const dt = Math.min(0.05, (now - this.lastTime) / 1000);
+    this.lastTime = now;
+    this.accumulator += dt;
 
-    const inputState = input.update();
+    const inputState = this.input.update();
 
-    if (ship.state === "crashed"){
-      ship.explodeT = Math.min(1.2, ship.explodeT + dt * 0.9);
+    if (this.ship.state === "crashed"){
+      this.ship.explodeT = Math.min(1.2, this.ship.explodeT + dt * 0.9);
     }
 
     if (inputState.regen){
-      const nextSeed = mapgen.getWorld().seed + 1;
-      beginLevel(nextSeed, false);
+      const nextSeed = this.mapgen.getWorld().seed + 1;
+      this._beginLevel(nextSeed, false);
     }
     if (inputState.nextLevel){
-      const nextSeed = mapgen.getWorld().seed + 1;
-      beginLevel(nextSeed, true);
+      const nextSeed = this.mapgen.getWorld().seed + 1;
+      this._beginLevel(nextSeed, true);
     }
 
     if (inputState.toggleDebug){
-      debugCollisions = !debugCollisions;
+      this.debugCollisions = !this.debugCollisions;
     }
 
     const fixed = 1 / 60;
     const maxSteps = 4;
     let steps = 0;
-    while (accumulator >= fixed && steps < maxSteps){
-      step(fixed, inputState);
-      accumulator -= fixed;
+    while (this.accumulator >= fixed && steps < maxSteps){
+      this._step(fixed, inputState);
+      this.accumulator -= fixed;
       steps++;
     }
 
-    if (minersRemaining === 0 && ship.state === "flying"){
-      const r = Math.hypot(ship.x, ship.y);
-      if (r > cfg.RMAX + GAME.EXIT_MARGIN){
-        const nextSeed = mapgen.getWorld().seed + 1;
-        beginLevel(nextSeed, true);
+    if (this.minersRemaining === 0 && this.ship.state === "flying"){
+      const r = Math.hypot(this.ship.x, this.ship.y);
+      if (r > this.cfg.RMAX + GAME.EXIT_MARGIN){
+        const nextSeed = this.mapgen.getWorld().seed + 1;
+        this._beginLevel(nextSeed, true);
       }
     }
 
-    fpsFrames++;
-    if (now - fpsTime >= 500){
-      fps = Math.round((fpsFrames * 1000) / (now - fpsTime));
-      fpsFrames = 0;
-      fpsTime = now;
+    this.fpsFrames++;
+    if (now - this.fpsTime >= 500){
+      this.fps = Math.round((this.fpsFrames * 1000) / (now - this.fpsTime));
+      this.fpsFrames = 0;
+      this.fpsTime = now;
     }
 
-    renderer.drawFrame({
-      ship,
-      debris,
+    this.renderer.drawFrame({
+      ship: this.ship,
+      debris: this.debris,
       input: inputState,
-      debugCollisions,
+      debugCollisions: this.debugCollisions,
       debugNodes: GAME.DEBUG_NODES,
-      fps,
-      finalAir: mapgen.getWorld().finalAir,
-      miners,
-      minersRemaining,
-      level,
-      minersDead,
-      enemies: enemies.enemies,
-      shots: enemies.shots,
-      explosions: enemies.explosions,
-      enemyDebris: enemies.debris,
-      playerShots,
-      playerBombs,
-      playerExplosions,
-      aimWorld: lastAimWorld,
+      fps: this.fps,
+      finalAir: this.mapgen.getWorld().finalAir,
+      miners: this.miners,
+      minersRemaining: this.minersRemaining,
+      level: this.level,
+      minersDead: this.minersDead,
+      enemies: this.enemies.enemies,
+      shots: this.enemies.shots,
+      explosions: this.enemies.explosions,
+      enemyDebris: this.enemies.debris,
+      playerShots: this.playerShots,
+      playerBombs: this.playerBombs,
+      playerExplosions: this.playerExplosions,
+      aimWorld: this.lastAimWorld,
       touchUi: inputState.touchUi,
-    }, mesh);
+    }, this.mesh);
 
-    ui.updateHud(hud, {
-      fps,
-      state: ship.state,
-      speed: Math.hypot(ship.vx, ship.vy),
-      verts: mesh.vertCount,
-      air: mapgen.getWorld().finalAir,
-      miners: minersRemaining,
-      minersDead,
-      level,
-      debug: debugCollisions,
-      minerCandidates,
+    this.ui.updateHud(this.hud, {
+      fps: this.fps,
+      state: this.ship.state,
+      speed: Math.hypot(this.ship.vx, this.ship.vy),
+      verts: this.mesh.vertCount,
+      air: this.mapgen.getWorld().finalAir,
+      miners: this.minersRemaining,
+      minersDead: this.minersDead,
+      level: this.level,
+      debug: this.debugCollisions,
+      minerCandidates: this.minerCandidates,
     });
 
-    requestAnimationFrame(frame);
+    requestAnimationFrame(() => this._frame());
   }
 
   /**
-   * Begin the animation loop.
+   * @returns {void}
    */
-  function start(){
-    requestAnimationFrame(frame);
+  start(){
+    requestAnimationFrame(() => this._frame());
   }
-
-  return { start, ship, debris };
 }

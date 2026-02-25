@@ -3,6 +3,7 @@
 /**
  * @param {HTMLElement} hud
  * @param {{fps:number,state:string,speed:number,verts:number,air:number,miners:number,minersDead:number,level:number,debug:boolean,minerCandidates:number}} stats
+ * @returns {void}
  */
 export function updateHud(hud, stats){
   const debugSuffix = stats.debug ? ` | miner candidates: ${stats.minerCandidates}` : "";
