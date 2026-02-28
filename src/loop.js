@@ -74,8 +74,8 @@ export class GameLoop {
     this.PLAYER_BOMB_SPEED = 4.5;
     this.PLAYER_BOMB_LIFE = 3.2;
     this.PLAYER_BOMB_RADIUS = 0.35;
-    this.PLAYER_BOMB_BLAST = 1.2;
-    this.PLAYER_BOMB_DAMAGE = 1.7;
+    this.PLAYER_BOMB_BLAST = 0.9;
+    this.PLAYER_BOMB_DAMAGE = 1.2;
 
     this.level = 1;
     /** @type {Miner[]} */
