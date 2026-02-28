@@ -24,20 +24,20 @@ export class RingMesh {
      * @param {number} r
      */
     function ringVertices(r){
-      if (r===0) return [{x:0,y:0}];
+      if (r===0) return [{x:0,y:0,air:1}];
       const n = ringCount(r);
       const phase = (0.5/n) * 2*Math.PI;
       const out=[];
       for (let k=0;k<n;k++){
         const a = 2*Math.PI*k/n + phase;
-        out.push({x:r*Math.cos(a), y:r*Math.sin(a)});
+        out.push({x:r*Math.cos(a), y:r*Math.sin(a), air:1});
       }
       return out;
     }
 
     /**
-     * @param {{x:number,y:number}[]} inner
-     * @param {{x:number,y:number}[]} outer
+     * @param {{x:number,y:number,air:number}[]} inner
+     * @param {{x:number,y:number,air:number}[]} outer
      */
     function stitchBand(inner, outer){
       const tris=[];
@@ -76,25 +76,34 @@ export class RingMesh {
     const airFlag = [];
     /** @type {number[]} */
     const shade = [];
+    /** @type {Array<{x:number,y:number,air:number}>} */
+    const vertRefs = [];
 
-    /** @type {Array<{x:number,y:number}[]>} */
+    /** @type {Array<{x:number,y:number,air:number}[]>} */
     const rings = [];
-    /** @type {Array<Array<Array<{x:number,y:number}>>>} */
+    /** @type {Array<Array<Array<{x:number,y:number,air:number}>>>} */
     const bandTris = [];
     for (let r=0;r<=cfg.RMAX;r++) rings.push(ringVertices(r));
     rings.push(ringVertices(cfg.RMAX + this._OUTER_PAD));
+
+    for (const ring of rings){
+      for (const v of ring){
+        v.air = this._sampleAirAtWorldExtended(v.x, v.y);
+      }
+    }
 
     for (let r=0;r<this._R_MESH;r++){
       const inner = rings[r];
       const outer = rings[r+1];
       if (r===0){
         for (let k=0;k<outer.length;k++){
-          const a = {x:0,y:0};
+          const a = {x:0,y:0,air:1};
           const b = outer[k];
           const c = outer[(k+1)%outer.length];
           for (const v of [a,b,c]){
             positions.push(v.x, v.y);
-            airFlag.push(this._sampleAirAtWorldExtended(v.x, v.y));
+            airFlag.push(v.air);
+            vertRefs.push(v);
             shade.push(shadeAt(v.x, v.y));
           }
         }
@@ -104,7 +113,8 @@ export class RingMesh {
         for (const tri of tris){
           for (const v of tri){
             positions.push(v.x, v.y);
-            airFlag.push(this._sampleAirAtWorldExtended(v.x, v.y));
+            airFlag.push(v.air);
+            vertRefs.push(v);
             shade.push(shadeAt(v.x, v.y));
           }
         }
@@ -119,10 +129,11 @@ export class RingMesh {
     this.airFlag = new Float32Array(airFlag);
     /** @type {Float32Array} */
     this.shade = new Float32Array(shade);
-    /** @type {Array<{x:number,y:number}[]>} */
+    /** @type {Array<{x:number,y:number,air:number}[]>} */
     this.rings = rings;
-    /** @type {Array<Array<Array<{x:number,y:number}>>>} */
+    /** @type {Array<Array<Array<{x:number,y:number,air:number}>>>} */
     this.bandTris = bandTris;
+    this._vertRefs = vertRefs;
   }
 
   /**
@@ -165,7 +176,7 @@ export class RingMesh {
   /**
    * @param {number} x
    * @param {number} y
-   * @returns {Array<{x:number,y:number}>|null}
+   * @returns {Array<{x:number,y:number,air:number}>|null}
    */
   findTriAtWorld(x, y){
     const r = Math.hypot(x, y);
@@ -187,7 +198,7 @@ export class RingMesh {
   /**
    * @param {number} x
    * @param {number} y
-   * @returns {{x:number,y:number}|null}
+   * @returns {{x:number,y:number,air:number}|null}
    */
   nearestNodeOnRing(x, y){
     const r = Math.hypot(x, y);
@@ -215,30 +226,36 @@ export class RingMesh {
     if (r > this._cfg.RMAX + this._OUTER_PAD) return 1;
     const r0 = Math.floor(Math.min(this._R_MESH - 1, Math.max(0, r)));
     if (r0 <= 0){
-      return this._sampleAirAtWorldExtended(x, y);
+      return this.rings[0][0].air;
     }
     const tri = this.findTriAtWorld(x, y);
-    if (!tri) return this._sampleAirAtWorldExtended(x, y);
+    if (!tri) return this.nearestNodeOnRing(x, y).air;
     const a = tri[0], b = tri[1], c = tri[2];
     const det = (b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y);
-    if (Math.abs(det) < 1e-6) return this._sampleAirAtWorldExtended(x, y);
+    if (Math.abs(det) < 1e-6) return this.nearestNodeOnRing(x, y).air;
     const l1 = ((b.y - c.y) * (x - c.x) + (c.x - b.x) * (y - c.y)) / det;
     const l2 = ((c.y - a.y) * (x - c.x) + (a.x - c.x) * (y - c.y)) / det;
     const l3 = 1 - l1 - l2;
-    const a0 = this._sampleAirAtWorldExtended(a.x, a.y);
-    const a1 = this._sampleAirAtWorldExtended(b.x, b.y);
-    const a2 = this._sampleAirAtWorldExtended(c.x, c.y);
+    const a0 = a.air;
+    const a1 = b.air;
+    const a2 = c.air;
     return a0 * l1 + a1 * l2 + a2 * l3;
   }
 
   /**
+   * @param {boolean} [resampleFromMap=true]
    * @returns {Float32Array}
    */
-  updateAirFlags(){
+  updateAirFlags(resampleFromMap = true){
+    if (resampleFromMap){
+      for (const ring of this.rings){
+        for (const v of ring){
+          v.air = this._sampleAirAtWorldExtended(v.x, v.y);
+        }
+      }
+    }
     for (let i = 0; i < this.vertCount; i++){
-      const x = this.positions[i * 2];
-      const y = this.positions[i * 2 + 1];
-      this.airFlag[i] = this._sampleAirAtWorldExtended(x, y);
+      this.airFlag[i] = this._vertRefs[i].air;
     }
     return new Float32Array(this.airFlag);
   }

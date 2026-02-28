@@ -6,20 +6,6 @@
  */
 
 /**
- * @typedef {Object} MapGrid
- * @property {number} G
- * @property {number} cell
- * @property {number} worldMin
- * @property {number} worldMax
- * @property {number} worldSize
- * @property {number} R2
- * @property {Uint8Array<ArrayBufferLike>} inside
- * @property {(i:number, j:number) => number} idx
- * @property {(i:number, j:number) => Vec2} toWorld
- * @property {(x:number, y:number) => [number, number]} toGrid
- */
-
-/**
  * @typedef {Object} MapWorld
  * @property {number} seed
  * @property {Uint8Array<ArrayBufferLike>} air
@@ -50,20 +36,6 @@
  * @property {number} x
  * @property {number} y
  * @property {"idle"|"running"|"boarded"} state
- */
-
-/**
- * @typedef {Object} Mesh
- * @property {Float32Array<ArrayBufferLike>} positions
- * @property {Float32Array<ArrayBufferLike>} airFlag
- * @property {Float32Array<ArrayBufferLike>} shade
- * @property {number} vertCount
- * @property {Array<{x:number,y:number}[]>} rings
- * @property {Array<Array<Array<{x:number,y:number}>>>} bandTris
- * @property {(x:number, y:number) => 0|1|number} airValueAtWorld
- * @property {(x:number, y:number) => {x:number,y:number}|null} nearestNodeOnRing
- * @property {(x:number, y:number) => Array<{x:number,y:number}>|null} findTriAtWorld
- * @property {() => Float32Array<ArrayBufferLike>} updateAirFlags
  */
 
 /**

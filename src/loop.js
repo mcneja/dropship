@@ -3,6 +3,7 @@
 import { GAME } from "./config.js";
 import { mulberry32 } from "./rng.js";
 import { Enemies } from "./enemies.js";
+import { collidesAtWorldPoints } from "./collision.js";
 
 /** @typedef {import("./types.d.js").Ship} Ship */
 /** @typedef {import("./types.d.js").Miner} Miner */
@@ -36,6 +37,10 @@ export class GameLoop {
     this.SHIP_RADIUS = 0.7 * 0.28;
     this.MINER_HEIGHT = 0.36;
     this.MINER_SURFACE_EPS = 0.01;
+    this.SURFACE_EPS = Math.max(0.12, cfg.RMAX / 280);
+    this.COLLISION_EPS = Math.max(0.18, cfg.RMAX / 240);
+    this.MINER_HEAD_OFFSET = this.MINER_HEIGHT;
+    this.MINER_FOOT_OFFSET = 0.0;
 
     /** @type {Ship} */
     this.ship = {
@@ -185,10 +190,13 @@ export class GameLoop {
     let changed = false;
     for (let i = 0; i < 3 && i < candidates.length; i++){
       const v = candidates[i].v;
-      if (this.mapgen.setAirAtWorld(v.x, v.y, 1)) changed = true;
+      if (v.air <= 0.5){
+        v.air = 1;
+        changed = true;
+      }
     }
     if (changed){
-      const newAir = this.mesh.updateAirFlags();
+      const newAir = this.mesh.updateAirFlags(false);
       this.renderer.updateAir(newAir);
     }
   }
@@ -244,172 +252,55 @@ export class GameLoop {
   }
 
   /**
-   * @param {number} minDot
-   * @param {Uint8Array|null} traversable
-   * @returns {Array<{x:number,y:number,r:number,key:string}>}
+   * @param {number} ang
+   * @param {number} ringLen
+   * @returns {number}
    */
-  _gatherMinerCandidates(minDot, traversable){
-    const { G, inside, idx, toWorld, cell } = this.mapgen.grid;
-    const air = this.mapgen.getWorld().air;
-    const eps = cell * 0.5;
-    const candidates = [];
-
-    for (let j = 1; j < G - 1; j++){
-      for (let i = 1; i < G - 1; i++){
-        const k = idx(i, j);
-        if (!inside[k] || !air[k]) continue;
-        if (traversable && !traversable[k]) continue;
-        const [x, y] = toWorld(i, j);
-        const r = Math.hypot(x, y);
-        if (r < 1) continue;
-
-        const upx = x / r;
-        const upy = y / r;
-        const tdx = Math.abs(upx) > Math.abs(upy) ? 0 : 1;
-        const tdy = Math.abs(upx) > Math.abs(upy) ? 1 : 0;
-        const k0 = idx(i - tdx, j - tdy);
-        const k1 = idx(i + tdx, j + tdy);
-        if (!inside[k0] || !inside[k1]) continue;
-        if (!air[k0] || !air[k1]) continue;
-        if (traversable && (!traversable[k0] || !traversable[k1])) continue;
-        const rdx = Math.abs(upx) >= Math.abs(upy) ? (upx >= 0 ? 1 : -1) : 0;
-        const rdy = Math.abs(upy) > Math.abs(upx) ? (upy >= 0 ? 1 : -1) : 0;
-        const kb = idx(i - rdx, j - rdy);
-        if (!inside[kb]) continue;
-        if (air[kb]) continue;
-
-        // Find the interpolated terrain surface along the radial line.
-        let ax = x - upx * cell * 0.75;
-        let ay = y - upy * cell * 0.75;
-        let bx = x + upx * cell * 0.75;
-        let by = y + upy * cell * 0.75;
-        let aAir = this.mesh.airValueAtWorld(ax, ay) > 0.5;
-        let bAir = this.mesh.airValueAtWorld(bx, by) > 0.5;
-        if (aAir === bAir){
-          // Ensure a rock->air span for binary search.
-          ax = x - upx * cell * 1.2;
-          ay = y - upy * cell * 1.2;
-          bx = x + upx * cell * 1.2;
-          by = y + upy * cell * 1.2;
-          aAir = this.mesh.airValueAtWorld(ax, ay) > 0.5;
-          bAir = this.mesh.airValueAtWorld(bx, by) > 0.5;
-          if (aAir === bAir) continue;
-        }
-        let lx = ax, ly = ay, hx = bx, hy = by;
-        let lAir = aAir;
-        for (let it = 0; it < 8; it++){
-          const mx = (lx + hx) * 0.5;
-          const my = (ly + hy) * 0.5;
-          const mAir = this.mesh.airValueAtWorld(mx, my) > 0.5;
-          if (mAir === lAir){
-            lx = mx; ly = my;
-          } else {
-            hx = mx; hy = my;
-          }
-        }
-        const baseX = ((lx + hx) * 0.5) + upx * this.MINER_SURFACE_EPS;
-        const baseY = ((ly + hy) * 0.5) + upy * this.MINER_SURFACE_EPS;
-
-        const gdx = this.mesh.airValueAtWorld(x + eps, y) - this.mesh.airValueAtWorld(x - eps, y);
-        const gdy = this.mesh.airValueAtWorld(x, y + eps) - this.mesh.airValueAtWorld(x, y - eps);
-        const nlen = Math.hypot(gdx, gdy);
-        if (nlen < 1e-4) continue;
-        const nx = gdx / nlen;
-        const ny = gdy / nlen;
-        const dotUp = nx * upx + ny * upy;
-        if (dotUp < minDot) continue;
-
-        candidates.push({
-          x: baseX,
-          y: baseY,
-          r,
-          key: `${i},${j}`,
-        });
-      }
-    }
-
-    return candidates;
+  _angleToRingIndex(ang, ringLen){
+    let a = ang % (Math.PI * 2);
+    if (a < 0) a += Math.PI * 2;
+    return Math.round((a / (Math.PI * 2)) * ringLen) % ringLen;
   }
 
   /**
-   * @param {boolean} [useClearance=true]
-   * @returns {Uint8Array|null}
+   * Valid placement rule:
+   * - On ring r: three consecutive air points with center at index i.
+   * - On ring r-1: the center angle maps to two consecutive rock points (i-1,i+1 around mapped index).
+   * @param {() => number} rand
+   * @param {number} rMin
+   * @param {number} rMax
+   * @returns {{x:number,y:number,r:number,key:string}|null}
    */
-  _buildTraversableMask(useClearance = true){
-    const { G, inside, idx, toGrid, cell } = this.mapgen.grid;
-    const air = this.mapgen.getWorld().air;
-    const clearance = Math.max(1, Math.ceil((this.SHIP_RADIUS * 1.1) / cell));
-    const safe = new Uint8Array(G * G);
+  _sampleMinerCandidate(rand, rMin, rMax){
+    const r = Math.max(rMin, Math.min(rMax, rMin + rand() * (rMax - rMin)));
+    const ri = Math.max(2, Math.min(this.cfg.RMAX - 1, Math.round(r)));
+    const ring = this.mesh.rings[ri];
+    const inner = this.mesh.rings[ri - 1];
+    if (!ring || !inner || ring.length < 3 || inner.length < 3) return null;
 
-    for (let j = 0; j < G; j++){
-      for (let i = 0; i < G; i++){
-        const k = idx(i, j);
-        if (!inside[k] || !air[k]) continue;
-        let ok = true;
-        for (let dy = -clearance; dy <= clearance && ok; dy++){
-          const y = j + dy;
-          if (y < 0 || y >= G){ ok = false; break; }
-          for (let dx = -clearance; dx <= clearance; dx++){
-            const x = i + dx;
-            if (x < 0 || x >= G){ ok = false; break; }
-            const kk = idx(x, y);
-            if (!inside[kk] || !air[kk]) { ok = false; break; }
-          }
-        }
-        if (ok) safe[k] = 1;
-      }
-    }
+    const i = Math.floor(rand() * ring.length);
+    const i0 = (i - 1 + ring.length) % ring.length;
+    const i2 = (i + 1) % ring.length;
+    if (ring[i0].air <= 0.5 || ring[i].air <= 0.5 || ring[i2].air <= 0.5) return null;
 
-    const entrances = this.mapgen.getWorld().entrances;
-    if (!entrances || !entrances.length) return null;
+    const x = ring[i].x;
+    const y = ring[i].y;
+    const ang = Math.atan2(y, x);
+    const j = this._angleToRingIndex(ang, inner.length);
+    const j0 = (j - 1 + inner.length) % inner.length;
+    const j2 = (j + 1) % inner.length;
+    if (inner[j0].air > 0.5 || inner[j].air > 0.5 || inner[j2].air > 0.5) return null;
 
-    /**
-     * @param {Uint8Array} field
-     */
-    const floodFromEntrances = (field) => {
-      const vis = new Uint8Array(G * G);
-      const qx = new Int32Array(G * G);
-      const qy = new Int32Array(G * G);
-      let qh = 0, qt = 0;
-      const seedPad = Math.max(1, Math.min(3, clearance + 1));
-
-      for (const [ex, ey] of entrances){
-        const [ix, iy] = toGrid(ex * 0.97, ey * 0.97);
-        for (let dy = -seedPad; dy <= seedPad; dy++){
-          for (let dx = -seedPad; dx <= seedPad; dx++){
-            const x = ix + dx;
-            const y = iy + dy;
-            if (x < 0 || x >= G || y < 0 || y >= G) continue;
-            const k = idx(x, y);
-            if (!inside[k] || !field[k] || vis[k]) continue;
-            vis[k] = 1;
-            qx[qt] = x; qy[qt] = y; qt++;
-          }
-        }
-      }
-
-      const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
-      while (qh < qt){
-        const x = qx[qh], y = qy[qh]; qh++;
-        for (const [dx, dy] of dirs){
-          const xx = x + dx, yy = y + dy;
-          if (xx < 0 || xx >= G || yy < 0 || yy >= G) continue;
-          const kk = idx(xx, yy);
-          if (!inside[kk] || !field[kk] || vis[kk]) continue;
-          vis[kk] = 1;
-          qx[qt] = xx; qy[qt] = yy; qt++;
-        }
-      }
-
-      if (qt === 0) return null;
-      return vis;
-    };
-
-    if (useClearance){
-      const visSafe = floodFromEntrances(safe);
-      if (visSafe) return visSafe;
-    }
-    return floodFromEntrances(air);
+    const base = inner[j];
+    const len = Math.hypot(base.x, base.y) || 1;
+    const upx = base.x / len;
+    const upy = base.y / len;
+    const midX = (base.x + x) * 0.5;
+    const midY = (base.y + y) * 0.5;
+    const lift = this.MINER_SURFACE_EPS;
+    const baseX = midX + upx * lift;
+    const baseY = midY + upy * lift;
+    return { x: baseX, y: baseY, r: len, key: `${ri},${i}` };
   }
 
   /**
@@ -419,90 +310,16 @@ export class GameLoop {
     const count = GAME.MINERS_PER_LEVEL;
     const seed = this.mapgen.getWorld().seed + this.level * 97;
     const rand = mulberry32(seed);
-    const minDots = [
-      GAME.SURFACE_DOT + 0.1,
-      GAME.SURFACE_DOT,
-      GAME.SURFACE_DOT - 0.1,
-      GAME.SURFACE_DOT - 0.25,
-      GAME.SURFACE_DOT - 0.4,
-    ];
-    let traversable = this._buildTraversableMask(true);
+    const rMin = 1.0;
+    const rMax = this.cfg.RMAX - 0.8;
+    const target = count * 3;
+    const attempts = Math.max(200, count * 120);
 
     /** @type {Array<{x:number,y:number,r:number,key?:string}>} */
     let candidates = [];
-    for (const minDot of minDots){
-      candidates = this._gatherMinerCandidates(minDot, traversable);
-      if (candidates.length >= count * 3) break;
-    }
-
-    if (!candidates.length && traversable){
-      traversable = this._buildTraversableMask(false);
-      for (const minDot of minDots){
-        candidates = this._gatherMinerCandidates(minDot, traversable);
-        if (candidates.length >= count * 3) break;
-      }
-    }
-
-    if (!candidates.length){
-      // Simple surface rule: air cell with rock just below.
-      candidates = [];
-      const { G, inside, idx, toWorld, cell } = this.mapgen.grid;
-      const air = this.mapgen.getWorld().air;
-      for (let j = 1; j < G - 1; j++){
-        for (let i = 1; i < G - 1; i++){
-          const k = idx(i, j);
-          if (!inside[k] || !air[k]) continue;
-          if (traversable && !traversable[k]) continue;
-          const [x, y] = toWorld(i, j);
-          const r = Math.hypot(x, y);
-          if (r < 1) continue;
-          const upx = x / r;
-          const upy = y / r;
-          const tdx = Math.abs(upx) > Math.abs(upy) ? 0 : 1;
-          const tdy = Math.abs(upx) > Math.abs(upy) ? 1 : 0;
-          const k0 = idx(i - tdx, j - tdy);
-          const k1 = idx(i + tdx, j + tdy);
-          if (!inside[k0] || !inside[k1]) continue;
-          if (!air[k0] || !air[k1]) continue;
-          if (traversable && (!traversable[k0] || !traversable[k1])) continue;
-          const rdx = Math.abs(upx) >= Math.abs(upy) ? (upx >= 0 ? 1 : -1) : 0;
-          const rdy = Math.abs(upy) > Math.abs(upx) ? (upy >= 0 ? 1 : -1) : 0;
-          const kb = idx(i - rdx, j - rdy);
-          if (!inside[kb]) continue;
-          if (air[kb]) continue;
-
-          let ax = x - upx * cell * 0.75;
-          let ay = y - upy * cell * 0.75;
-          let bx = x + upx * cell * 0.75;
-          let by = y + upy * cell * 0.75;
-          let aAir = this.mesh.airValueAtWorld(ax, ay) > 0.5;
-          let bAir = this.mesh.airValueAtWorld(bx, by) > 0.5;
-          if (aAir === bAir){
-            ax = x - upx * cell * 1.2;
-            ay = y - upy * cell * 1.2;
-            bx = x + upx * cell * 1.2;
-            by = y + upy * cell * 1.2;
-            aAir = this.mesh.airValueAtWorld(ax, ay) > 0.5;
-            bAir = this.mesh.airValueAtWorld(bx, by) > 0.5;
-            if (aAir === bAir) continue;
-          }
-          let lx = ax, ly = ay, hx = bx, hy = by;
-          let lAir = aAir;
-          for (let it = 0; it < 8; it++){
-            const mx = (lx + hx) * 0.5;
-            const my = (ly + hy) * 0.5;
-            const mAir = this.mesh.airValueAtWorld(mx, my) > 0.5;
-            if (mAir === lAir){
-              lx = mx; ly = my;
-            } else {
-              hx = mx; hy = my;
-            }
-          }
-          const baseX = ((lx + hx) * 0.5) + upx * this.MINER_SURFACE_EPS;
-          const baseY = ((ly + hy) * 0.5) + upy * this.MINER_SURFACE_EPS;
-          candidates.push({ x: baseX, y: baseY, r, key: `${i},${j}` });
-        }
-      }
+    for (let i = 0; i < attempts && candidates.length < target; i++){
+      const cand = this._sampleMinerCandidate(rand, rMin, rMax);
+      if (cand) candidates.push(cand);
     }
 
     if (!candidates.length){
@@ -632,12 +449,28 @@ export class GameLoop {
   _shipCollidesAt(x, y, shipRadius){
     const rCenter = Math.hypot(x, y);
     if (rCenter - shipRadius > this.TERRAIN_MAX) return false;
-    if (this.mesh.airValueAtWorld(x, y) <= 0.5) return true;
-    for (const [sx, sy] of this._shipCollisionPoints(x, y)){
-      const av = this.mesh.airValueAtWorld(sx, sy);
-      if (av <= 0.5) return true;
-    }
-    return false;
+    const samples = this._shipCollisionPoints(x, y);
+    samples.push([x, y]);
+    return collidesAtWorldPoints(this.mesh, samples);
+  }
+
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @returns {boolean}
+   */
+  _minerCollidesAt(x, y){
+    const r = Math.hypot(x, y) || 1;
+    const upx = x / r;
+    const upy = y / r;
+    const footX = x + upx * this.MINER_FOOT_OFFSET;
+    const footY = y + upy * this.MINER_FOOT_OFFSET;
+    const headX = x + upx * this.MINER_HEAD_OFFSET;
+    const headY = y + upy * this.MINER_HEAD_OFFSET;
+    return collidesAtWorldPoints(this.mesh, [
+      [footX, footY],
+      [headX, headY],
+    ]);
   }
 
   /**
@@ -715,7 +548,7 @@ export class GameLoop {
       this.ship.y += this.ship.vy * dt;
 
       const speed = Math.hypot(this.ship.vx, this.ship.vy);
-      const eps = this.mapgen.grid.cell * 0.75;
+      const eps = this.COLLISION_EPS;
       const shipRadius = this.SHIP_RADIUS;
 
       let collides = false;
@@ -993,7 +826,7 @@ export class GameLoop {
           const tryMove = (tx, ty) => {
             const nx = miner.x + tx * stepLen;
             const ny = miner.y + ty * stepLen;
-            if (this.mesh.airValueAtWorld(nx, ny) > 0.5){
+            if (!this._minerCollidesAt(nx, ny)){
               miner.x = nx;
               miner.y = ny;
               return true;

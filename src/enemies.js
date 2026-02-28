@@ -2,6 +2,7 @@
 
 import { mulberry32 } from "./rng.js";
 import { lineOfSightAir } from "./navigation.js";
+import { collidesAtOffsets, isAir } from "./collision.js";
 import { GAME } from "./config.js";
 
 /** @typedef {import("./types.d.js").Vec2} Vec2 */
@@ -12,13 +13,19 @@ import { GAME } from "./config.js";
 /** @typedef {import("./types.d.js").Debris} Debris */
 
 /**
- * @param {{ airValueAtWorld:(x:number,y:number)=>number }} mesh
- * @param {number} x
- * @param {number} y
- * @returns {boolean}
+ * @param {number} radius
+ * @param {number} points
+ * @returns {Array<[number, number]>}
  */
-function isAir(mesh, x, y){
-  return mesh.airValueAtWorld(x, y) > 0.5;
+function circleOffsets(radius, points){
+  /** @type {Array<[number, number]>} */
+  const out = [];
+  for (let i = 0; i < points; i++){
+    const ang = (i / points) * Math.PI * 2;
+    out.push([Math.cos(ang) * radius, Math.sin(ang) * radius]);
+  }
+  out.push([0, 0]);
+  return out;
 }
 
 /**
@@ -43,7 +50,7 @@ function airGradient(mesh, x, y, eps){
  * @param {number} dt
  * @returns {boolean}
  */
-function tryMoveAir(e, mesh, dx, dy, speed, dt){
+function tryMoveAir(e, mesh, dx, dy, speed, dt, collider){
   const len = Math.hypot(dx, dy);
   if (len < 1e-6) return false;
   const nx = dx / len;
@@ -51,7 +58,7 @@ function tryMoveAir(e, mesh, dx, dy, speed, dt){
   const step = speed * dt;
   const tx = e.x + nx * step;
   const ty = e.y + ny * step;
-  if (isAir(mesh, tx, ty)){
+  if (!collider ? isAir(mesh, tx, ty) : !collidesAtOffsets(mesh, tx, ty, collider)){
     e.x = tx; e.y = ty;
     e.vx = nx * speed;
     e.vy = ny * speed;
@@ -89,74 +96,88 @@ function nudgeTowardSurface(mesh, x, y){
  * @param {number} seed
  * @param {number} minR
  * @param {number} maxR
- * @param {{grid:{G:number,idx:(i:number,j:number)=>number,toWorld:(i:number,j:number)=>Vec2,inside:Uint8Array,cell:number},getWorld:()=>{air:Uint8Array}}} mapgen
- * @param {{ airValueAtWorld:(x:number,y:number)=>number }|null} mesh
+ * @param {{ airValueAtWorld:(x:number,y:number)=>number }} mesh
  * @returns {Vec2[]}
  */
-function pickAirPoints(count, seed, minR, maxR, mapgen, mesh){
+function pickAirPoints(count, seed, minR, maxR, mesh){
   const rand = mulberry32(seed);
-  const { G, idx, toWorld, inside } = mapgen.grid;
-  const air = mapgen.getWorld().air;
   /** @type {Vec2[]} */
   const points = [];
-  for (let k = 0; k < G * G; k++){
-    if (!inside[k] || !air[k]) continue;
-    const i = k % G;
-    const j = (k / G) | 0;
-    const [x, y] = toWorld(i, j);
-    const r = Math.hypot(x, y);
-    if (r < minR || r > maxR) continue;
-    if (mesh && mesh.airValueAtWorld(x, y) <= 0.5) continue;
+  const attempts = Math.max(200, count * 80);
+  for (let i = 0; i < attempts && points.length < count; i++){
+    const ang = rand() * Math.PI * 2;
+    const r = minR + rand() * (maxR - minR);
+    const x = r * Math.cos(ang);
+    const y = r * Math.sin(ang);
+    if (mesh.airValueAtWorld(x, y) <= 0.5) continue;
     points.push([x, y]);
   }
-  for (let i = points.length - 1; i > 0; i--){
-    const j = Math.floor(rand() * (i + 1));
-    const tmp = points[i]; points[i] = points[j]; points[j] = tmp;
-  }
-  return points.slice(0, count);
+  return points;
 }
 
 /**
  * @param {number} count
  * @param {number} seed
- * @param {{grid:{G:number,idx:(i:number,j:number)=>number,toWorld:(i:number,j:number)=>Vec2,inside:Uint8Array,cell:number},getWorld:()=>{air:Uint8Array}}} mapgen
  * @param {{ airValueAtWorld:(x:number,y:number)=>number }} mesh
+ * @param {number} rMax
  * @returns {Vec2[]}
  */
-function pickSurfacePoints(count, seed, mapgen, mesh){
+function pickSurfacePoints(count, seed, mesh, rMax){
   const rand = mulberry32(seed);
-  const { G, idx, toWorld, inside, cell } = mapgen.grid;
-  const air = mapgen.getWorld().air;
   /** @type {Vec2[]} */
   const points = [];
-  const eps = cell * 0.5;
-  for (let j = 1; j < G - 1; j++){
-    for (let i = 1; i < G - 1; i++){
-      const k = idx(i, j);
-      if (!inside[k] || !air[k]) continue;
-      const [x, y] = toWorld(i, j);
-      const r = Math.hypot(x, y);
-      if (r < 1) continue;
-      const upx = x / r;
-      const upy = y / r;
-      const belowX = x - upx * cell * 0.7;
-      const belowY = y - upy * cell * 0.7;
-      if (mesh.airValueAtWorld(belowX, belowY) > 0.5) continue;
-      const aboveX = x + upx * cell * 0.4;
-      const aboveY = y + upy * cell * 0.4;
-      if (mesh.airValueAtWorld(aboveX, aboveY) <= 0.5) continue;
-      const gdx = mesh.airValueAtWorld(x + eps, y) - mesh.airValueAtWorld(x - eps, y);
-      const gdy = mesh.airValueAtWorld(x, y + eps) - mesh.airValueAtWorld(x, y - eps);
-      const nlen = Math.hypot(gdx, gdy);
-      if (nlen < 1e-4) continue;
-      points.push([x, y]);
+  const eps = 0.12;
+  const rMin = 1.0;
+  const steps = 64;
+
+  /**
+   * @param {number} ang
+   * @returns {{x:number,y:number,r:number}|null}
+   */
+  const findSurface = (ang) => {
+    const cx = Math.cos(ang);
+    const cy = Math.sin(ang);
+    let prevR = rMin;
+    let prevAir = mesh.airValueAtWorld(cx * prevR, cy * prevR) > 0.5;
+    for (let i = 1; i <= steps; i++){
+      const r = rMin + (i / steps) * (rMax - rMin);
+      const curAir = mesh.airValueAtWorld(cx * r, cy * r) > 0.5;
+      if (curAir !== prevAir){
+        let lo = prevR;
+        let hi = r;
+        const loAir = prevAir;
+        for (let it = 0; it < 8; it++){
+          const mid = (lo + hi) * 0.5;
+          const midAir = mesh.airValueAtWorld(cx * mid, cy * mid) > 0.5;
+          if (midAir === loAir){
+            lo = mid;
+          } else {
+            hi = mid;
+          }
+        }
+        const baseR = (lo + hi) * 0.5 + (loAir ? -eps : eps);
+        return { x: cx * baseR, y: cy * baseR, r: baseR };
+      }
+      prevR = r;
+      prevAir = curAir;
     }
+    return null;
+  };
+
+  const attempts = Math.max(200, count * 120);
+  for (let i = 0; i < attempts && points.length < count; i++){
+    const ang = rand() * Math.PI * 2;
+    const surf = findSurface(ang);
+    if (!surf) continue;
+    const upx = surf.x / (Math.hypot(surf.x, surf.y) || 1);
+    const upy = surf.y / (Math.hypot(surf.x, surf.y) || 1);
+    const below = surf.r - eps * 2.0;
+    const above = surf.r + eps * 2.0;
+    if (mesh.airValueAtWorld(upx * below, upy * below) > 0.5) continue;
+    if (mesh.airValueAtWorld(upx * above, upy * above) <= 0.5) continue;
+    points.push([surf.x, surf.y]);
   }
-  for (let i = points.length - 1; i > 0; i--){
-    const j = Math.floor(rand() * (i + 1));
-    const tmp = points[i]; points[i] = points[j]; points[j] = tmp;
-  }
-  return points.slice(0, count);
+  return points;
 }
 
 export class Enemies {
@@ -193,6 +214,10 @@ export class Enemies {
     this._LOS_STEP = 0.2;
     this._RANGER_MIN = 5.0;
     this._RANGER_MAX = 9.0;
+
+    this._HUNTER_COLLIDER = circleOffsets(0.22, 6);
+    this._RANGER_COLLIDER = circleOffsets(0.22, 6);
+    this._CRAWLER_COLLIDER = circleOffsets(0.2, 6);
   }
 
   /**
@@ -223,9 +248,9 @@ export class Enemies {
     const rangers = Math.max(0, Math.floor(total * 0.25));
     const crawlers = Math.max(0, total - hunters - rangers);
 
-    const hunterPts = pickAirPoints(hunters, seed + 1, 2.0, cfg.RMAX - 1.0, mapgen, mesh);
-    const rangerPts = pickAirPoints(rangers, seed + 2, 3.0, cfg.RMAX - 1.0, mapgen, mesh);
-    const crawlerPts = pickSurfacePoints(crawlers, seed + 3, mapgen, mesh);
+    const hunterPts = pickAirPoints(hunters, seed + 1, 2.0, cfg.RMAX - 1.0, mesh);
+    const rangerPts = pickAirPoints(rangers, seed + 2, 3.0, cfg.RMAX - 1.0, mesh);
+    const crawlerPts = pickSurfacePoints(crawlers, seed + 3, mesh, cfg.RMAX - 0.6);
 
     for (const [x, y] of hunterPts){
       this.enemies.push({ type: "hunter", x, y, vx: 0, vy: 0, cooldown: Math.random(), hp: 2, dir: 1, fuse: 0 });
@@ -303,13 +328,13 @@ export class Enemies {
       e.cooldown = Math.max(0, e.cooldown - dt);
 
       if (e.type === "hunter"){
-        if (!tryMoveAir(e, mesh, dx, dy, this._HUNTER_SPEED, dt)){
+        if (!tryMoveAir(e, mesh, dx, dy, this._HUNTER_SPEED, dt, this._HUNTER_COLLIDER)){
           const [gx, gy] = airGradient(mesh, e.x, e.y, 0.18);
           const tlen = Math.hypot(gx, gy);
           if (tlen > 1e-4){
             const tx = -gy / tlen;
             const ty = gx / tlen;
-            tryMoveAir(e, mesh, tx, ty, this._HUNTER_SPEED, dt) || tryMoveAir(e, mesh, -tx, -ty, this._HUNTER_SPEED, dt);
+            tryMoveAir(e, mesh, tx, ty, this._HUNTER_SPEED, dt, this._HUNTER_COLLIDER) || tryMoveAir(e, mesh, -tx, -ty, this._HUNTER_SPEED, dt, this._HUNTER_COLLIDER);
           }
         }
         if (e.cooldown <= 0 && dist < 10 && lineOfSightAir(mesh, e.x, e.y, ship.x, ship.y, this._LOS_STEP)){
@@ -319,9 +344,9 @@ export class Enemies {
         }
       } else if (e.type === "ranger"){
         if (dist < this._RANGER_MIN){
-          tryMoveAir(e, mesh, -dx, -dy, this._RANGER_SPEED, dt);
+          tryMoveAir(e, mesh, -dx, -dy, this._RANGER_SPEED, dt, this._RANGER_COLLIDER);
         } else if (dist > this._RANGER_MAX){
-          tryMoveAir(e, mesh, dx, dy, this._RANGER_SPEED, dt);
+          tryMoveAir(e, mesh, dx, dy, this._RANGER_SPEED, dt, this._RANGER_COLLIDER);
         }
         if (e.cooldown <= 0 && dist > this._RANGER_MIN * 0.8 && lineOfSightAir(mesh, e.x, e.y, ship.x, ship.y, this._LOS_STEP)){
           const inv = 1 / (dist || 1);
@@ -336,11 +361,18 @@ export class Enemies {
           const ny = gy / nlen;
           const tx = -ny * e.dir;
           const ty = nx * e.dir;
-          e.x += tx * this._CRAWLER_SPEED * dt;
-          e.y += ty * this._CRAWLER_SPEED * dt;
+          const step = this._CRAWLER_SPEED * dt;
+          const txw = e.x + tx * step;
+          const tyw = e.y + ty * step;
+          if (!collidesAtOffsets(mesh, txw, tyw, this._CRAWLER_COLLIDER)){
+            e.x = txw;
+            e.y = tyw;
+          }
           const nudged = nudgeTowardSurface(mesh, e.x, e.y);
-          e.x = nudged[0];
-          e.y = nudged[1];
+          if (!collidesAtOffsets(mesh, nudged[0], nudged[1], this._CRAWLER_COLLIDER)){
+            e.x = nudged[0];
+            e.y = nudged[1];
+          }
         }
 
         if (dist <= this._DETONATE_RANGE){

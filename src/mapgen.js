@@ -4,7 +4,6 @@ import { mulberry32 } from "./rng.js";
 import { Noise } from "./noise.js";
 
 /** @typedef {import("./types.d.js").Vec2} Vec2 */
-/** @typedef {import("./types.d.js").MapGrid} MapGrid */
 /** @typedef {import("./types.d.js").MapWorld} MapWorld */
 
 export class MapGen {
@@ -34,7 +33,7 @@ export class MapGen {
       inside[idx(i, j)] = (x*x + y*y <= R2) ? 1 : 0;
     }
 
-    /** @type {MapGrid} */
+    /** @type {{G:number,cell:number,worldMin:number,worldMax:number,worldSize:number,R2:number,inside:Uint8Array,idx:(i:number,j:number)=>number,toWorld:(i:number,j:number)=>Vec2,toGrid:(x:number,y:number)=>[number,number]}} */
     this.grid = { G, cell, worldMin, worldMax, worldSize, R2, inside, idx, toWorld, toGrid };
 
     this._dirs4 = [[1,0],[-1,0],[0,1],[0,-1]];
