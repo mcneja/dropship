@@ -216,14 +216,15 @@ function pushCircle(pos, col, x, y, radius, r, g, b, a, seg = 24){
  * @param {number} b
  * @returns {void}
  */
-function pushMiner(pos, col, x, y, r, g, b){
+function pushMiner(pos, col, x, y, r, g, b, scale){
   const len = Math.hypot(x, y) || 1;
   const upx = x / len;
   const upy = y / len;
   const tx = -upy;
   const ty = upx;
-  const halfW = 0.06;
-  const halfH = 0.18;
+  const s = scale ?? 1;
+  const halfW = 0.06 * s;
+  const halfH = 0.18 * s;
   const b0x = x + tx * halfW;
   const b0y = y + ty * halfW;
   const b1x = x - tx * halfW;
@@ -246,15 +247,15 @@ function pushMiner(pos, col, x, y, r, g, b){
  * @param {number} b
  * @returns {void}
  */
-function pushEnemy(pos, col, x, y, r, g, b){
+function pushEnemy(pos, col, x, y, r, g, b, scale){
   const len = Math.hypot(x, y) || 1;
   const upx = x / len;
   const upy = y / len;
   const tx = -upy;
   const ty = upx;
-  const scale = 1.5;
-  const base = 0.18 * scale;
-  const height = 0.26 * scale;
+  const s = (scale ?? 1) * 1.5;
+  const base = 0.18 * s;
+  const height = 0.26 * s;
   const lx = x - tx * base;
   const ly = y - ty * base;
   const rx = x + tx * base;
@@ -296,8 +297,8 @@ function drawFrameImpl(renderer, state, mesh){
 
     gl.bindVertexArray(null);
 
-    const shipHWorld = 0.7;
-    const shipWWorld = 0.5;
+    const shipHWorld = 0.7 * game.SHIP_SCALE;
+    const shipWWorld = 0.5 * game.SHIP_SCALE;
     const nose = shipHWorld * 0.6;
     const tail = shipHWorld * 0.4;
 
@@ -331,9 +332,9 @@ function drawFrameImpl(renderer, state, mesh){
       for (const miner of state.miners){
         if (miner.state === "boarded") continue;
         if (miner.state === "running"){
-          pushMiner(pos, col, miner.x, miner.y, 0.98, 0.62, 0.2);
+          pushMiner(pos, col, miner.x, miner.y, 0.98, 0.62, 0.2, game.MINER_SCALE);
         } else {
-          pushMiner(pos, col, miner.x, miner.y, 0.98, 0.85, 0.25);
+          pushMiner(pos, col, miner.x, miner.y, 0.98, 0.85, 0.25, game.MINER_SCALE);
         }
         triVerts += 6;
       }
@@ -342,11 +343,11 @@ function drawFrameImpl(renderer, state, mesh){
     if (state.enemies && state.enemies.length){
       for (const enemy of state.enemies){
         if (enemy.type === "hunter"){
-          pushEnemy(pos, col, enemy.x, enemy.y, 0.92, 0.25, 0.2);
+          pushEnemy(pos, col, enemy.x, enemy.y, 0.92, 0.25, 0.2, game.ENEMY_SCALE);
         } else if (enemy.type === "ranger"){
-          pushEnemy(pos, col, enemy.x, enemy.y, 0.2, 0.75, 0.95);
+          pushEnemy(pos, col, enemy.x, enemy.y, 0.2, 0.75, 0.95, game.ENEMY_SCALE);
         } else {
-          pushEnemy(pos, col, enemy.x, enemy.y, 0.95, 0.55, 0.2);
+          pushEnemy(pos, col, enemy.x, enemy.y, 0.95, 0.55, 0.2, game.ENEMY_SCALE);
         }
         triVerts += 3;
       }
@@ -467,15 +468,15 @@ function drawFrameImpl(renderer, state, mesh){
       }
     }
 
-    if (state.enemyDebris && state.enemyDebris.length){
-      for (const d of state.enemyDebris){
-        const len = shipHWorld * 0.14;
-        const hx = Math.cos(d.a) * len;
-        const hy = Math.sin(d.a) * len;
-        pushLine(pos, col, d.x - hx, d.y - hy, d.x + hx, d.y + hy, 1.0, 0.5, 0.2, 0.9);
-        lineVerts += 2;
+      if (state.enemyDebris && state.enemyDebris.length){
+        for (const d of state.enemyDebris){
+          const len = 0.098 * game.ENEMY_SCALE;
+          const hx = Math.cos(d.a) * len;
+          const hy = Math.sin(d.a) * len;
+          pushLine(pos, col, d.x - hx, d.y - hy, d.x + hx, d.y + hy, 1.0, 0.5, 0.2, 0.9);
+          lineVerts += 2;
+        }
       }
-    }
 
     if (state.explosions && state.explosions.length){
       for (const ex of state.explosions){

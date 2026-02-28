@@ -41,8 +41,11 @@ export const CFG = Object.freeze({
 });
 
 export const GAME = Object.freeze({
-  ZOOM: 4.0, // ~25% of the world visible
-  THRUST: 9.0,
+  ZOOM: 8.0, // ~12% of the world visible
+  SHIP_SCALE: 0.5,
+  MINER_SCALE: 0.5,
+  ENEMY_SCALE: 1.0,
+  THRUST: 4.5,
   TURN_RATE: 2.4,
   DRAG: 0.12,
   GRAVITY: 2.0,

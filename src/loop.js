@@ -34,9 +34,9 @@ export class GameLoop {
 
     this.TERRAIN_PAD = 0.5;
     this.TERRAIN_MAX = cfg.RMAX + this.TERRAIN_PAD;
-    this.SHIP_RADIUS = 0.7 * 0.28;
-    this.MINER_HEIGHT = 0.36;
-    this.MINER_SURFACE_EPS = 0.01;
+    this.SHIP_RADIUS = 0.7 * 0.28 * GAME.SHIP_SCALE;
+    this.MINER_HEIGHT = 0.36 * GAME.MINER_SCALE;
+    this.MINER_SURFACE_EPS = 0.01 * GAME.MINER_SCALE;
     this.SURFACE_EPS = Math.max(0.12, cfg.RMAX / 280);
     this.COLLISION_EPS = Math.max(0.18, cfg.RMAX / 240);
     this.MINER_HEAD_OFFSET = this.MINER_HEIGHT;
@@ -414,8 +414,8 @@ export class GameLoop {
   _shipCollisionPoints(x, y){
     const camRot = Math.atan2(x, y || 1e-6);
     const shipRot = -camRot;
-    const shipHWorld = 0.7;
-    const shipWWorld = 0.5;
+    const shipHWorld = 0.7 * GAME.SHIP_SCALE;
+    const shipWWorld = 0.5 * GAME.SHIP_SCALE;
     const nose = shipHWorld * 0.6;
     const tail = shipHWorld * 0.4;
     /** @type {Array<[number, number]>} */
