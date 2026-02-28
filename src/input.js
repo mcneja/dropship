@@ -43,7 +43,7 @@ export class Input {
     /** @type {boolean} */
     this.prevPadBomb = false;
     /** @type {Point|null} */
-    this.aimMouse = null;
+    this.aimMouse = { x: 0.5, y: 0.5 };
     /** @type {Point|null} */
     this.aimTouchShoot = null;
     /** @type {Point|null} */
@@ -62,6 +62,7 @@ export class Input {
     this.SHOOT_DEBOUNCE_MS = 50;
     this.LASER_INTERVAL_MS = 500;
     this.BOMB_INTERVAL_MS = 2000;
+    this.pointerLocked = false;
 
     window.addEventListener("keydown", (e) => this._onKeyDown(e), { passive: false });
     window.addEventListener("keyup", (e) => this._onKeyUp(e), { passive: false });
@@ -75,6 +76,11 @@ export class Input {
       e.preventDefault();
       e.stopPropagation();
     }, { passive: false });
+
+    document.addEventListener("pointerlockchange", () => {
+      this.pointerLocked = document.pointerLockElement === this.canvas;
+      this.canvas.style.cursor = this.pointerLocked ? "none" : "default";
+    });
   }
 
   /**
@@ -170,7 +176,12 @@ export class Input {
    */
   _onPointerDown(e){
     if (e.pointerType !== "touch"){
-      this.aimMouse = this._pointerPos(e);
+      if (!this.pointerLocked && document.pointerLockElement !== this.canvas){
+        this.canvas.requestPointerLock();
+      }
+      if (!this.pointerLocked){
+        this.aimMouse = this._pointerPos(e);
+      }
       const now = performance.now();
       if (e.button === 2) this._fireBomb();
       else if (e.button === 0 || (e.buttons & 1)) this._fireShoot(now);
@@ -203,12 +214,24 @@ export class Input {
    * @returns {void}
    */
   _onPointerMove(e){
-    const p = this._pointerPos(e);
     if (e.pointerType !== "touch"){
-      this.aimMouse = p;
+      if (this.pointerLocked){
+        const rect = this.canvas.getBoundingClientRect();
+        const w = Math.max(1, rect.width);
+        const h = Math.max(1, rect.height);
+        const nx = (this.aimMouse ? this.aimMouse.x : 0.5) + (e.movementX / w);
+        const ny = (this.aimMouse ? this.aimMouse.y : 0.5) + (e.movementY / h);
+        this.aimMouse = {
+          x: Math.max(0, Math.min(1, nx)),
+          y: Math.max(0, Math.min(1, ny)),
+        };
+      } else {
+        this.aimMouse = this._pointerPos(e);
+      }
       this.lastInputType = "mouse";
       return;
     }
+    const p = this._pointerPos(e);
     if (this.leftControl.id === e.pointerId){
       this.leftControl.pos = p;
     } else if (this.laserControl.id === e.pointerId){
@@ -224,7 +247,9 @@ export class Input {
    */
   _onPointerUp(e){
     if (e.pointerType !== "touch"){
-      this.aimMouse = this._pointerPos(e);
+      if (!this.pointerLocked){
+        this.aimMouse = this._pointerPos(e);
+      }
       this.lastInputType = "mouse";
       return;
     }

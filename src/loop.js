@@ -71,6 +71,8 @@ export class GameLoop {
     this.shipHitPopups = [];
     /** @type {{x:number,y:number}|null} */
     this.lastAimWorld = null;
+    /** @type {{x:number,y:number}|null} */
+    this.lastAimScreen = null;
 
     this.PLAYER_SHOT_SPEED = 7.5;
     this.PLAYER_SHOT_LIFE = 1.2;
@@ -594,6 +596,7 @@ export class GameLoop {
       }
     }
     this.lastAimWorld = aimWorld;
+    if (inputState.aim) this.lastAimScreen = inputState.aim;
 
     if (this.ship.hitCooldown > 0){
       this.ship.hitCooldown = Math.max(0, this.ship.hitCooldown - dt);
@@ -1163,7 +1166,7 @@ export class GameLoop {
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, w, h);
-    if (!this.minerPopups.length && !this.shipHitPopups.length){
+    if (!this.minerPopups.length && !this.shipHitPopups.length && !this.lastAimScreen){
       return;
     }
 
@@ -1201,6 +1204,23 @@ export class GameLoop {
       ctx.globalAlpha = alpha;
       ctx.fillStyle = "rgba(255, 80, 80, 1)";
       ctx.fillText("-1", px, py);
+    }
+
+    if (this.lastAimScreen){
+      const px = this.lastAimScreen.x * w;
+      const py = this.lastAimScreen.y * h;
+      const r = Math.max(6, Math.round(10 * dpr));
+      const cross = Math.max(4, Math.round(r * 0.6));
+      ctx.globalAlpha = 0.95;
+      ctx.strokeStyle = "rgba(120, 255, 220, 1)";
+      ctx.lineWidth = Math.max(1, Math.round(2 * dpr));
+      ctx.beginPath();
+      ctx.arc(px, py, r, 0, Math.PI * 2);
+      ctx.moveTo(px - cross, py);
+      ctx.lineTo(px + cross, py);
+      ctx.moveTo(px, py - cross);
+      ctx.lineTo(px, py + cross);
+      ctx.stroke();
     }
     ctx.globalAlpha = 1;
   }
