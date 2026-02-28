@@ -225,9 +225,6 @@ export class Input {
   _onPointerUp(e){
     if (e.pointerType !== "touch"){
       this.aimMouse = this._pointerPos(e);
-      const now = performance.now();
-      if (e.button === 2) this._fireBomb();
-      else if (e.button === 0) this._fireShoot(now);
       this.lastInputType = "mouse";
       return;
     }
