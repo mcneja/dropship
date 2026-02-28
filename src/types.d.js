@@ -106,7 +106,7 @@
  * @property {Array<{x:number,y:number,vx?:number,vy?:number,a:number,w?:number,life:number}>} enemyDebris
  * @property {Array<{x:number,y:number,vx?:number,vy?:number,life?:number}>} playerShots
  * @property {Array<{x:number,y:number,vx?:number,vy?:number,life?:number}>} playerBombs
- * @property {Array<{x:number,y:number,life:number,radius?:number}>} playerExplosions
+ * @property {Array<{x:number,y:number,life:number,radius?:number}>} entityExplosions
  * @property {{x:number,y:number}|null} aimWorld
  * @property {{leftTouch:{x:number,y:number}|null,laserTouch:{x:number,y:number}|null,bombTouch:{x:number,y:number}|null}|null|undefined} touchUi
  */

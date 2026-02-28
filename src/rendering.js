@@ -489,8 +489,8 @@ function drawFrameImpl(renderer, state, mesh){
       }
     }
 
-    if (state.playerExplosions && state.playerExplosions.length){
-      for (const ex of state.playerExplosions){
+    if (state.entityExplosions && state.entityExplosions.length){
+      for (const ex of state.entityExplosions){
         const t = Math.max(0, Math.min(1, ex.life / 0.8));
         const r = (ex.radius ?? 1.0) * (0.4 + (1 - t) * 0.9);
         const alpha = 0.9 * t;

@@ -64,7 +64,7 @@ export class GameLoop {
     /** @type {Array<{x:number,y:number,vx:number,vy:number,life:number}>} */
     this.playerBombs = [];
     /** @type {Array<{x:number,y:number,life:number,radius?:number}>} */
-    this.playerExplosions = [];
+    this.entityExplosions = [];
     /** @type {Array<{x:number,y:number,vx:number,vy:number,life:number}>} */
     this.minerPopups = [];
     /** @type {Array<{x:number,y:number,vx:number,vy:number,life:number}>} */
@@ -83,6 +83,7 @@ export class GameLoop {
     this.PLAYER_BOMB_BLAST = 0.9;
     this.PLAYER_BOMB_DAMAGE = 1.2;
     this.SHIP_HIT_BLAST = 0.55;
+    this.ENEMY_HIT_BLAST = 0.35;
 
     this.level = 1;
     /** @type {Miner[]} */
@@ -127,7 +128,7 @@ export class GameLoop {
     this.debris.length = 0;
     this.playerShots.length = 0;
     this.playerBombs.length = 0;
-    this.playerExplosions.length = 0;
+    this.entityExplosions.length = 0;
     this.minerPopups.length = 0;
     this.shipHitPopups.length = 0;
     this.minersDead = 0;
@@ -170,7 +171,7 @@ export class GameLoop {
     if (this.ship.hitCooldown > 0) return;
     this.ship.hp = Math.max(0, this.ship.hp - 1);
     this.ship.hitCooldown = GAME.SHIP_HIT_COOLDOWN;
-    this.playerExplosions.push({ x, y, life: 0.5, radius: this.SHIP_HIT_BLAST });
+    this.entityExplosions.push({ x, y, life: 0.5, radius: this.SHIP_HIT_BLAST });
     this.shipHitPopups.push({
       x: this.ship.x,
       y: this.ship.y,
@@ -259,7 +260,7 @@ export class GameLoop {
       const dx = e.x - x;
       const dy = e.y - y;
       if (dx * dx + dy * dy <= r2){
-        this.enemies.enemies.splice(j, 1);
+        e.hp = 0;
       }
     }
     for (let j = this.miners.length - 1; j >= 0; j--){
@@ -439,7 +440,7 @@ export class GameLoop {
     const newAir = this.mesh.updateAirFlags();
     this.renderer.updateAir(newAir);
     this._resetShip();
-    this.playerExplosions.length = 0;
+    this.entityExplosions.length = 0;
     if (advanceLevel) this.level++;
     this._spawnMiners();
     this.enemies.spawn(this._totalEnemiesForLevel(this.level), this.level);
@@ -821,12 +822,14 @@ export class GameLoop {
         }
         for (let j = this.enemies.enemies.length - 1; j >= 0; j--){
           const e = this.enemies.enemies[j];
+          if (e.hp <= 0) continue;
           const dx = e.x - s.x;
           const dy = e.y - s.y;
           if (dx * dx + dy * dy <= this.PLAYER_SHOT_RADIUS * this.PLAYER_SHOT_RADIUS){
             e.hp -= 1;
+            this.entityExplosions.push({ x: e.x, y: e.y, life: 0.25, radius: this.ENEMY_HIT_BLAST });
             this.playerShots.splice(i, 1);
-            if (e.hp <= 0) this.enemies.enemies.splice(j, 1);
+            if (e.hp <= 0) e.hp = 0;
             break;
           }
         }
@@ -887,15 +890,15 @@ export class GameLoop {
           this.playerBombs.splice(i, 1);
           this._applyBombImpact(b.x, b.y);
           this._applyBombDamage(b.x, b.y);
-          this.playerExplosions.push({ x: b.x, y: b.y, life: 0.8, radius: this.PLAYER_BOMB_BLAST });
+          this.entityExplosions.push({ x: b.x, y: b.y, life: 0.8, radius: this.PLAYER_BOMB_BLAST });
         }
       }
     }
 
-    if (this.playerExplosions.length){
-      for (let i = this.playerExplosions.length - 1; i >= 0; i--){
-        this.playerExplosions[i].life -= dt;
-        if (this.playerExplosions[i].life <= 0) this.playerExplosions.splice(i, 1);
+    if (this.entityExplosions.length){
+      for (let i = this.entityExplosions.length - 1; i >= 0; i--){
+        this.entityExplosions[i].life -= dt;
+        if (this.entityExplosions[i].life <= 0) this.entityExplosions.splice(i, 1);
       }
     }
 
@@ -1116,7 +1119,7 @@ export class GameLoop {
       enemyDebris: this.enemies.debris,
       playerShots: this.playerShots,
       playerBombs: this.playerBombs,
-      playerExplosions: this.playerExplosions,
+      entityExplosions: this.entityExplosions,
       aimWorld: this.lastAimWorld,
       touchUi: inputState.touchUi,
     }, this.mesh);
