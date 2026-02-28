@@ -29,6 +29,7 @@ const loop = new GameLoop({
   input,
   ui: { updateHud },
   canvas,
+  overlay: /** @type {HTMLCanvasElement} */ (document.getElementById("overlay")),
   hud,
 });
 

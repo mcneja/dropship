@@ -20,9 +20,10 @@ export class GameLoop {
    * @param {import("./input.js").Input} deps.input
    * @param {Ui} deps.ui
    * @param {HTMLCanvasElement} deps.canvas
+   * @param {HTMLCanvasElement|null|undefined} deps.overlay
    * @param {HTMLElement} deps.hud
    */
-  constructor({ cfg, mapgen, mesh, renderer, input, ui, canvas, hud }){
+  constructor({ cfg, mapgen, mesh, renderer, input, ui, canvas, hud, overlay }){
     this.cfg = cfg;
     this.mapgen = mapgen;
     this.mesh = mesh;
@@ -31,6 +32,8 @@ export class GameLoop {
     this.ui = ui;
     this.canvas = canvas;
     this.hud = hud;
+    this.overlay = overlay || null;
+    this.overlayCtx = this.overlay ? this.overlay.getContext("2d") : null;
 
     this.TERRAIN_PAD = 0.5;
     this.TERRAIN_MAX = cfg.RMAX + this.TERRAIN_PAD;
@@ -60,6 +63,8 @@ export class GameLoop {
     this.playerBombs = [];
     /** @type {Array<{x:number,y:number,life:number,radius?:number}>} */
     this.playerExplosions = [];
+    /** @type {Array<{x:number,y:number,vx:number,vy:number,life:number}>} */
+    this.minerPopups = [];
     /** @type {{x:number,y:number}|null} */
     this.lastAimWorld = null;
 
@@ -116,6 +121,7 @@ export class GameLoop {
     this.playerShots.length = 0;
     this.playerBombs.length = 0;
     this.playerExplosions.length = 0;
+    this.minerPopups.length = 0;
     this.minersDead = 0;
   }
 
@@ -404,6 +410,7 @@ export class GameLoop {
     if (advanceLevel) this.level++;
     this._spawnMiners();
     this.enemies.spawn(this._totalEnemiesForLevel(this.level), this.level);
+    this.minerPopups.length = 0;
   }
 
   /**
@@ -438,6 +445,62 @@ export class GameLoop {
       [(verts[1][0] + verts[2][0]) * 0.5, (verts[1][1] + verts[2][1]) * 0.5],
       [(verts[2][0] + verts[0][0]) * 0.5, (verts[2][1] + verts[0][1]) * 0.5],
     ];
+  }
+
+  /**
+   * @param {number} px
+   * @param {number} py
+   * @param {number} ax
+   * @param {number} ay
+   * @param {number} bx
+   * @param {number} by
+   * @returns {number}
+   */
+  _distPointToSegment(px, py, ax, ay, bx, by){
+    const dx = bx - ax;
+    const dy = by - ay;
+    const denom = dx * dx + dy * dy || 1;
+    const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / denom));
+    const cx = ax + dx * t;
+    const cy = ay + dy * t;
+    return Math.hypot(px - cx, py - cy);
+  }
+
+  /**
+   * @param {number} px
+   * @param {number} py
+   * @param {number} shipX
+   * @param {number} shipY
+   * @returns {number}
+   */
+  _shipHullDistance(px, py, shipX, shipY){
+    const camRot = Math.atan2(shipX, shipY || 1e-6);
+    const shipRot = -camRot;
+    const shipHWorld = 0.7 * GAME.SHIP_SCALE;
+    const shipWWorld = 0.5 * GAME.SHIP_SCALE;
+    const nose = shipHWorld * 0.6;
+    const tail = shipHWorld * 0.4;
+    const local = [
+      [0, nose],
+      [shipWWorld * 0.6, -tail],
+      [0, -tail * 0.6],
+      [-shipWWorld * 0.6, -tail],
+    ];
+    const c = Math.cos(shipRot);
+    const s = Math.sin(shipRot);
+    const verts = local.map(([lx, ly]) => {
+      const wx = c * lx - s * ly;
+      const wy = s * lx + c * ly;
+      return [shipX + wx, shipY + wy];
+    });
+    let best = Infinity;
+    for (let i = 0; i < verts.length; i++){
+      const a = verts[i];
+      const b = verts[(i + 1) % verts.length];
+      const d = this._distPointToSegment(px, py, a[0], a[1], b[0], b[1]);
+      if (d < best) best = d;
+    }
+    return best;
   }
 
   /**
@@ -852,13 +915,36 @@ export class GameLoop {
           }
         }
 
-        const postDx = this.ship.x - miner.x;
-        const postDy = this.ship.y - miner.y;
-        const postDist = Math.hypot(postDx, postDy);
-        if (landed && postDist <= GAME.MINER_BOARD_RADIUS){
+        const r = Math.hypot(miner.x, miner.y) || 1;
+        const upx = miner.x / r;
+        const upy = miner.y / r;
+        const headX = miner.x + upx * this.MINER_HEAD_OFFSET;
+        const headY = miner.y + upy * this.MINER_HEAD_OFFSET;
+        const hullDist = this._shipHullDistance(headX, headY, this.ship.x, this.ship.y);
+        if (landed && hullDist <= GAME.MINER_BOARD_RADIUS){
           miner.state = "boarded";
           this.minersRemaining = Math.max(0, this.minersRemaining - 1);
+          const tx = -upy;
+          const ty = upx;
+          const jitter = (Math.random() * 2 - 1) * GAME.MINER_POPUP_TANGENTIAL;
+          this.minerPopups.push({
+            x: miner.x + upx * 0.1,
+            y: miner.y + upy * 0.1,
+            vx: upx * GAME.MINER_POPUP_SPEED + tx * jitter,
+            vy: upy * GAME.MINER_POPUP_SPEED + ty * jitter,
+            life: GAME.MINER_POPUP_LIFE,
+          });
         }
+      }
+    }
+
+    if (this.minerPopups.length){
+      for (let i = this.minerPopups.length - 1; i >= 0; i--){
+        const p = this.minerPopups[i];
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.life -= dt;
+        if (p.life <= 0) this.minerPopups.splice(i, 1);
       }
     }
 
@@ -987,6 +1073,8 @@ export class GameLoop {
       touchUi: inputState.touchUi,
     }, this.mesh);
 
+    this._drawMinerPopups();
+
     this.ui.updateHud(this.hud, {
       fps: this.fps,
       state: this.ship.state,
@@ -1008,5 +1096,54 @@ export class GameLoop {
    */
   start(){
     requestAnimationFrame(() => this._frame());
+  }
+
+  /**
+   * @returns {void}
+   */
+  _drawMinerPopups(){
+    if (!this.overlay || !this.overlayCtx){
+      return;
+    }
+
+    const ctx = this.overlayCtx;
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    const w = Math.floor(this.overlay.clientWidth * dpr);
+    const h = Math.floor(this.overlay.clientHeight * dpr);
+    if (this.overlay.width !== w || this.overlay.height !== h){
+      this.overlay.width = w;
+      this.overlay.height = h;
+    }
+
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    if (!this.minerPopups.length){
+      return;
+    }
+
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = `700 ${Math.max(12, Math.round(16 * dpr))}px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace`;
+    ctx.fillStyle = "rgba(255, 236, 170, 1)";
+
+    const camRot = Math.atan2(this.ship.x, this.ship.y || 1e-6);
+    const s = GAME.ZOOM / (this.cfg.RMAX + this.cfg.PAD);
+    const sx = s / (w / h);
+    const sy = s;
+    const c = Math.cos(camRot), s2 = Math.sin(camRot);
+
+    for (const p of this.minerPopups){
+      const t = Math.max(0, Math.min(1, p.life / GAME.MINER_POPUP_LIFE));
+      const alpha = 0.9 * t;
+      const dx = p.x - this.ship.x;
+      const dy = p.y - this.ship.y;
+      const rx = c * dx - s2 * dy;
+      const ry = s2 * dx + c * dy;
+      const px = (rx * sx * 0.5 + 0.5) * w;
+      const py = (1 - (ry * sy * 0.5 + 0.5)) * h;
+      ctx.globalAlpha = alpha;
+      ctx.fillText("+1", px, py);
+    }
+    ctx.globalAlpha = 1;
   }
 }

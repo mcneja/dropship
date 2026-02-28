@@ -5,7 +5,11 @@
   <title>Dropship</title>
   <style>
     html,body { margin:0; height:100%; background:#000; }
-    canvas { width:100vw; height:100vh; display:block; touch-action:none; user-select:none; }
+    #gl, #overlay {
+      width:100vw; height:100vh; display:block; position:fixed; left:0; top:0;
+      touch-action:none; user-select:none;
+    }
+    #overlay { pointer-events:none; }
     #hud {
       position:fixed; left:12px; top:10px; color:#ddd;
       font: 13px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -15,6 +19,7 @@
 </head>
 <body>
 <canvas id="gl"></canvas>
+<canvas id="overlay"></canvas>
 <div id="hud"></div>
 
 <script type="module" src="/src/main.js"></script>
