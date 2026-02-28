@@ -71,6 +71,9 @@ export const GAME = Object.freeze({
   MINER_POPUP_TANGENTIAL: 0.18,
   EXIT_MARGIN: 1.0,
   MAX_TANGENTIAL_SPEED: 4.0,
+  SHIP_MAX_HP: 3,
+  SHIP_HIT_COOLDOWN: 0.25,
+  SHIP_HIT_POPUP_LIFE: 0.6,
 });
 
 export const TOUCH_UI = Object.freeze({

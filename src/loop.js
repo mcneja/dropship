@@ -54,6 +54,8 @@ export class GameLoop {
       state: "flying",
       explodeT: 0,
       lastAir: 1,
+      hp: GAME.SHIP_MAX_HP,
+      hitCooldown: 0,
     };
     /** @type {Array<{x:number,y:number,vx:number,vy:number,a:number,w:number,life:number}>} */
     this.debris = [];
@@ -65,6 +67,8 @@ export class GameLoop {
     this.playerExplosions = [];
     /** @type {Array<{x:number,y:number,vx:number,vy:number,life:number}>} */
     this.minerPopups = [];
+    /** @type {Array<{x:number,y:number,vx:number,vy:number,life:number}>} */
+    this.shipHitPopups = [];
     /** @type {{x:number,y:number}|null} */
     this.lastAimWorld = null;
 
@@ -76,6 +80,7 @@ export class GameLoop {
     this.PLAYER_BOMB_RADIUS = 0.35;
     this.PLAYER_BOMB_BLAST = 0.9;
     this.PLAYER_BOMB_DAMAGE = 1.2;
+    this.SHIP_HIT_BLAST = 0.55;
 
     this.level = 1;
     /** @type {Miner[]} */
@@ -122,7 +127,10 @@ export class GameLoop {
     this.playerBombs.length = 0;
     this.playerExplosions.length = 0;
     this.minerPopups.length = 0;
+    this.shipHitPopups.length = 0;
     this.minersDead = 0;
+    this.ship.hp = GAME.SHIP_MAX_HP;
+    this.ship.hitCooldown = 0;
   }
 
   /**
@@ -147,6 +155,29 @@ export class GameLoop {
         w: (Math.random() - 0.5) * 4,
         life: 2.5 + Math.random() * 1.5,
       });
+    }
+  }
+
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @returns {void}
+   */
+  _damageShip(x, y){
+    if (this.ship.state === "crashed") return;
+    if (this.ship.hitCooldown > 0) return;
+    this.ship.hp = Math.max(0, this.ship.hp - 1);
+    this.ship.hitCooldown = GAME.SHIP_HIT_COOLDOWN;
+    this.playerExplosions.push({ x, y, life: 0.5, radius: this.SHIP_HIT_BLAST });
+    this.shipHitPopups.push({
+      x: this.ship.x,
+      y: this.ship.y,
+      vx: 0,
+      vy: 0,
+      life: GAME.SHIP_HIT_POPUP_LIFE,
+    });
+    if (this.ship.hp <= 0){
+      this._triggerCrash();
     }
   }
 
@@ -218,7 +249,7 @@ export class GameLoop {
       const dx = this.ship.x - x;
       const dy = this.ship.y - y;
       if (dx * dx + dy * dy <= r2){
-        this._triggerCrash();
+        this._damageShip(x, y);
       }
     }
     for (let j = this.enemies.enemies.length - 1; j >= 0; j--){
@@ -563,6 +594,10 @@ export class GameLoop {
       }
     }
     this.lastAimWorld = aimWorld;
+
+    if (this.ship.hitCooldown > 0){
+      this.ship.hitCooldown = Math.max(0, this.ship.hitCooldown - dt);
+    }
 
     if (this.ship.state === "flying"){
       let ax = 0, ay = 0;
@@ -948,6 +983,16 @@ export class GameLoop {
       }
     }
 
+    if (this.shipHitPopups.length){
+      for (let i = this.shipHitPopups.length - 1; i >= 0; i--){
+        const p = this.shipHitPopups[i];
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.life -= dt;
+        if (p.life <= 0) this.shipHitPopups.splice(i, 1);
+      }
+    }
+
     if (this.debris.length){
       for (let i = this.debris.length - 1; i >= 0; i--){
         const d = this.debris[i];
@@ -973,7 +1018,7 @@ export class GameLoop {
         const dy = this.ship.y - s.y;
         if (dx * dx + dy * dy <= this.SHIP_RADIUS * this.SHIP_RADIUS){
           this.enemies.shots.splice(i, 1);
-          this._triggerCrash();
+          this._damageShip(s.x, s.y);
           break;
         }
       }
@@ -985,7 +1030,7 @@ export class GameLoop {
         const dx = this.ship.x - ex.x;
         const dy = this.ship.y - ex.y;
         if (dx * dx + dy * dy <= r * r){
-          this._triggerCrash();
+          this._damageShip(ex.x, ex.y);
           break;
         }
       }
@@ -1079,6 +1124,7 @@ export class GameLoop {
       fps: this.fps,
       state: this.ship.state,
       speed: Math.hypot(this.ship.vx, this.ship.vy),
+      shipHp: this.ship.hp,
       verts: this.mesh.vertCount,
       air: this.mapgen.getWorld().finalAir,
       miners: this.minersRemaining,
@@ -1117,15 +1163,13 @@ export class GameLoop {
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, w, h);
-    if (!this.minerPopups.length){
+    if (!this.minerPopups.length && !this.shipHitPopups.length){
       return;
     }
 
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.font = `700 ${Math.max(12, Math.round(16 * dpr))}px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace`;
-    ctx.fillStyle = "rgba(255, 236, 170, 1)";
-
     const camRot = Math.atan2(this.ship.x, this.ship.y || 1e-6);
     const s = GAME.ZOOM / (this.cfg.RMAX + this.cfg.PAD);
     const sx = s / (w / h);
@@ -1142,7 +1186,21 @@ export class GameLoop {
       const px = (rx * sx * 0.5 + 0.5) * w;
       const py = (1 - (ry * sy * 0.5 + 0.5)) * h;
       ctx.globalAlpha = alpha;
+      ctx.fillStyle = "rgba(255, 236, 170, 1)";
       ctx.fillText("+1", px, py);
+    }
+    for (const p of this.shipHitPopups){
+      const t = Math.max(0, Math.min(1, p.life / GAME.SHIP_HIT_POPUP_LIFE));
+      const alpha = 0.9 * t;
+      const dx = p.x - this.ship.x;
+      const dy = p.y - this.ship.y;
+      const rx = c * dx - s2 * dy;
+      const ry = s2 * dx + c * dy;
+      const px = (rx * sx * 0.5 + 0.5) * w;
+      const py = (1 - (ry * sy * 0.5 + 0.5)) * h;
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = "rgba(255, 80, 80, 1)";
+      ctx.fillText("-1", px, py);
     }
     ctx.globalAlpha = 1;
   }

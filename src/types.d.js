@@ -14,7 +14,7 @@
  */
 
 /**
- * @typedef {{updateHud:(hud:HTMLElement, stats:{fps:number,state:string,speed:number,verts:number,air:number,miners:number,minersDead:number,level:number,debug:boolean,minerCandidates:number})=>void}} Ui
+ * @typedef {{updateHud:(hud:HTMLElement, stats:{fps:number,state:string,speed:number,verts:number,air:number,miners:number,minersDead:number,level:number,debug:boolean,minerCandidates:number,shipHp:number})=>void}} Ui
  */
 
 /**
@@ -26,6 +26,8 @@
  * @property {string} state
  * @property {number} explodeT
  * @property {number} lastAir
+ * @property {number} hp
+ * @property {number} hitCooldown
  * @property {Array<[number,number,boolean,number]>|null} [_samples]
  * @property {{x:number,y:number,tri?:Array<{x:number,y:number}>|null,node?:{x:number,y:number}|null}|null} [_collision]
  * @property {number} [_shipRadius]
@@ -87,7 +89,7 @@
 
 /**
  * @typedef {Object} RenderState
- * @property {{x:number,y:number,vx:number,vy:number,state:string,explodeT:number,_samples?:Array<[number,number,boolean,number]>|null,_collision?:{x:number,y:number,tri?:Array<{x:number,y:number}>|null,node?:{x:number,y:number}|null}|null}} ship
+ * @property {{x:number,y:number,vx:number,vy:number,state:string,explodeT:number,hp?:number,hitCooldown?:number,_samples?:Array<[number,number,boolean,number]>|null,_collision?:{x:number,y:number,tri?:Array<{x:number,y:number}>|null,node?:{x:number,y:number}|null}|null}} ship
  * @property {Array<{x:number,y:number,vx:number,vy:number,a:number,w:number,life:number}>} debris
  * @property {{left:boolean,right:boolean,thrust:boolean,down:boolean}} input
  * @property {boolean} debugCollisions
