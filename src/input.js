@@ -3,7 +3,7 @@
 /** @typedef {import("./types.d.js").Point} Point */
 /** @typedef {import("./types.d.js").InputState} InputState */
 
-import { TOUCH_UI } from "./config.js";
+import { TOUCH_UI, GAME } from "./config.js";
 
 const KEY_LEFT = new Set(["ArrowLeft", "a", "A"]);
 const KEY_RIGHT = new Set(["ArrowRight", "d", "D"]);
@@ -43,7 +43,7 @@ export class Input {
     /** @type {boolean} */
     this.prevPadBomb = false;
     /** @type {Point|null} */
-    this.aimMouse = { x: 0.5, y: 0.5 };
+    this.aimMouse = null;
     /** @type {Point|null} */
     this.aimTouchShoot = null;
     /** @type {Point|null} */
@@ -306,13 +306,13 @@ export class Input {
       const move = Math.hypot(sx, sy);
       if (move < dead) return null;
       const len = Math.hypot(dx, dy);
-      const radius = TOUCH_UI.aimRadius;
+      const radius = Math.max(0.25, GAME.AIM_SCREEN_RADIUS || 0.25);
       if (len > 1e-4){
         const ux = dx / len;
         const uy = dy / len;
-        return { x: center.x + ux * radius, y: center.y + uy * radius };
+        return { x: 0.5 + ux * radius, y: 0.5 + uy * radius };
       }
-      return { x: center.x, y: center.y - radius };
+      return { x: 0.5, y: 0.5 - radius };
     };
 
     this.aimTouchShoot = aimFromControl(this.laserControl, TOUCH_UI.laser);
@@ -353,7 +353,7 @@ export class Input {
     if (alen > dead){
       const ux = ax2 / alen;
       const uy = ax3 / alen;
-      const radius = 0.22;
+      const radius = Math.max(0.25, GAME.AIM_SCREEN_RADIUS || 0.25);
       aim = { x: 0.5 + ux * radius, y: 0.5 + uy * radius };
     }
 
@@ -381,13 +381,13 @@ export class Input {
       down: false,
     };
 
-    for (const k of this.keys){
+    this.keys.forEach((k) => {
       if (KEY_LEFT.has(k)) keyState.left = true;
       if (KEY_RIGHT.has(k)) keyState.right = true;
       if (KEY_THRUST.has(k)) keyState.thrust = true;
       if (KEY_DOWN.has(k)) keyState.down = true;
       if (KEY_RESET.has(k)) this.oneshot.reset = true;
-    }
+    });
 
     const t = this._touchState();
     const g = this._gamepadState();
@@ -419,9 +419,22 @@ export class Input {
       bombTouch: this.bombControl.pos,
     } : null;
 
-    const aimShoot = this.aimTouchShoot || this.aimMouse || g.aim || null;
-    const aimBomb = this.aimTouchBomb || aimShoot;
-    const aim = aimShoot || aimBomb || null;
+    let aimShoot = null;
+    let aimBomb = null;
+    let aim = null;
+    if (this.lastInputType === "touch"){
+      aimShoot = this.aimTouchShoot;
+      aimBomb = this.aimTouchBomb || aimShoot;
+      aim = aimShoot || aimBomb || null;
+    } else if (this.lastInputType === "gamepad"){
+      aimShoot = g.aim;
+      aimBomb = aimShoot;
+      aim = aimShoot || null;
+    } else {
+      aimShoot = this.aimMouse || g.aim || null;
+      aimBomb = this.aimTouchBomb || aimShoot;
+      aim = aimShoot || aimBomb || null;
+    }
 
     const state = {
       left,

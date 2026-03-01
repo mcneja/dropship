@@ -224,6 +224,15 @@ export class GameLoop {
   }
 
   /**
+   * @param {number} screenFrac
+   * @returns {number}
+   */
+  _aimWorldDistance(screenFrac){
+    const s = GAME.ZOOM / (this.cfg.RMAX + this.cfg.PAD);
+    return (2 * screenFrac) / s;
+  }
+
+  /**
    * @param {number} x
    * @param {number} y
    * @returns {void}
@@ -607,7 +616,7 @@ export class GameLoop {
         const dist = Math.hypot(dx, dy) || 1;
         const dirx = dx / dist;
         const diry = dy / dist;
-        const aimLen = 4.0;
+        const aimLen = Math.max(4.0, this._aimWorldDistance(GAME.AIM_SCREEN_RADIUS || 0.25));
         aimWorld = { x: this.ship.x + dirx * aimLen, y: this.ship.y + diry * aimLen };
       }
     }
@@ -806,8 +815,8 @@ export class GameLoop {
           this.playerShots.push({
             x: this.ship.x + dirx * 0.45,
             y: this.ship.y + diry * 0.45,
-            vx: dirx * this.PLAYER_SHOT_SPEED,
-            vy: diry * this.PLAYER_SHOT_SPEED,
+            vx: dirx * this.PLAYER_SHOT_SPEED + this.ship.vx,
+            vy: diry * this.PLAYER_SHOT_SPEED + this.ship.vy,
             life: this.PLAYER_SHOT_LIFE,
           });
         }
@@ -835,8 +844,8 @@ export class GameLoop {
           this.playerBombs.push({
             x: this.ship.x + dirx * 0.45,
             y: this.ship.y + diry * 0.45,
-            vx: dirx * this.PLAYER_BOMB_SPEED,
-            vy: diry * this.PLAYER_BOMB_SPEED,
+            vx: dirx * this.PLAYER_BOMB_SPEED + this.ship.vx,
+            vy: diry * this.PLAYER_BOMB_SPEED + this.ship.vy,
             life: this.PLAYER_BOMB_LIFE,
           });
         }

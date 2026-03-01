@@ -341,7 +341,7 @@ export class Enemies {
         }
         if (e.cooldown <= 0 && dist < 10 && lineOfSightAir(mesh, e.x, e.y, ship.x, ship.y, this._LOS_STEP)){
           const inv = 1 / (dist || 1);
-          this.shots.push({ x: e.x, y: e.y, vx: dx * inv * this._SHOT_SPEED, vy: dy * inv * this._SHOT_SPEED, life: this._SHOT_LIFE, owner: "hunter" });
+          this.shots.push({ x: e.x, y: e.y, vx: dx * inv * this._SHOT_SPEED + e.vx, vy: dy * inv * this._SHOT_SPEED + e.vy, life: this._SHOT_LIFE, owner: "hunter" });
           e.cooldown = this._HUNTER_SHOT_CD;
         }
       } else if (e.type === "ranger"){
@@ -352,7 +352,7 @@ export class Enemies {
         }
         if (e.cooldown <= 0 && dist > this._RANGER_MIN * 0.8 && lineOfSightAir(mesh, e.x, e.y, ship.x, ship.y, this._LOS_STEP)){
           const inv = 1 / (dist || 1);
-          this.shots.push({ x: e.x, y: e.y, vx: dx * inv * this._SHOT_SPEED, vy: dy * inv * this._SHOT_SPEED, life: this._SHOT_LIFE, owner: "ranger" });
+          this.shots.push({ x: e.x, y: e.y, vx: dx * inv * this._SHOT_SPEED + e.vx, vy: dy * inv * this._SHOT_SPEED + e.vy, life: this._SHOT_LIFE, owner: "ranger" });
           e.cooldown = this._RANGER_SHOT_CD;
         }
       } else if (e.type === "crawler"){

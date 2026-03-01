@@ -76,6 +76,7 @@ export const GAME = Object.freeze({
   SHIP_MAX_HP: 3,
   SHIP_HIT_COOLDOWN: 0.25,
   SHIP_HIT_POPUP_LIFE: 0.6,
+  AIM_SCREEN_RADIUS: 0.25,
 });
 
 export const TOUCH_UI = Object.freeze({
