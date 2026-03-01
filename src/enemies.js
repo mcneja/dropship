@@ -4,6 +4,7 @@ import { mulberry32 } from "./rng.js";
 import { lineOfSightAir } from "./navigation.js";
 import { collidesAtOffsets, isAir } from "./collision.js";
 import { GAME } from "./config.js";
+import { planetGravity } from "./loop.js";
 
 /** @typedef {import("./types.d.js").Vec2} Vec2 */
 /** @typedef {import("./types.d.js").EnemyType} EnemyType */
@@ -274,8 +275,9 @@ export class Enemies {
       for (let i = this.debris.length - 1; i >= 0; i--){
         const d = this.debris[i];
         const r = Math.hypot(d.x, d.y) || 1;
-        d.vx += (-d.x / r) * GAME.GRAVITY * dt;
-        d.vy += (-d.y / r) * GAME.GRAVITY * dt;
+        const {x: gx, y: gy} = planetGravity(d);
+        d.vx += gx * dt;
+        d.vy += gy * dt;
         d.vx *= Math.max(0, 1 - GAME.DRAG * dt);
         d.vy *= Math.max(0, 1 - GAME.DRAG * dt);
         d.x += d.vx * dt;

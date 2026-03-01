@@ -40,21 +40,23 @@ export const CFG = Object.freeze({
   EDGE_DARK: [0x14/255, 0x14/255, 0x14/255],
 });
 
+const surfaceGravityAcceleration = 2.0;
+const rocketAcceleration = 4.5;
+
 export const GAME = Object.freeze({
-  ZOOM: 8.0, // ~12% of the world visible
+  ZOOM: 3.0, // ~12% of the world visible
   SHIP_SCALE: 0.5,
   MINER_SCALE: 0.5,
   ENEMY_SCALE: 1.0,
-  THRUST: 4.5,
+  THRUST: rocketAcceleration,
   TURN_RATE: 2.4,
   DRAG: 0.12,
-  GRAVITY: 2.0,
+  GRAVITY: surfaceGravityAcceleration * CFG.RMAX * CFG.RMAX,
   CRASH_SPEED: 4.5,
   LAND_SPEED: 2.0,
   SURFACE_DOT: 0.7,
-  LAND_PULL: 1.2,
   LAND_FRICTION: 0.6,
-  BOUNCE_RESTITUTION: 0.35,
+  BOUNCE_RESTITUTION: 0.1,
   COLLIDE_PUSH_FAST: 0.08,
   /** @type {boolean} */
   DEBUG_COLLISION: false,

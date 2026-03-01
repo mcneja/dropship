@@ -4,10 +4,22 @@ import { GAME } from "./config.js";
 import { mulberry32 } from "./rng.js";
 import { Enemies } from "./enemies.js";
 import { collidesAtWorldPoints } from "./collision.js";
+import { CFG } from './config.js';
 
 /** @typedef {import("./types.d.js").Ship} Ship */
 /** @typedef {import("./types.d.js").Miner} Miner */
 /** @typedef {import("./types.d.js").Ui} Ui */
+
+/**
+ * @param {{x:number,y:number}} pos 
+ * @returns {{x:number,y:number}}
+ */
+export function planetGravity(pos) {
+  const r2 = Math.max(pos.x*pos.x + pos.y*pos.y, CFG.RMAX*CFG.RMAX);
+  const r = Math.sqrt(r2);
+  const a = -GAME.GRAVITY / (r2 * r);
+  return {x: pos.x * a, y: pos.y * a};
+}
 
 export class GameLoop {
   /**
@@ -45,11 +57,13 @@ export class GameLoop {
     this.MINER_HEAD_OFFSET = this.MINER_HEIGHT;
     this.MINER_FOOT_OFFSET = 0.0;
 
+    const r = cfg.RMAX + 0.9;
+
     /** @type {Ship} */
     this.ship = {
       x: 0,
-      y: cfg.RMAX + 0.9,
-      vx: 0,
+      y: r,
+      vx: Math.sqrt(GAME.GRAVITY / r),
       vy: 0,
       state: "flying",
       explodeT: 0,
@@ -119,9 +133,10 @@ export class GameLoop {
    */
   _resetShip(){
     const cfg = this.cfg;
+    const r = cfg.RMAX + 0.9;
     this.ship.x = 0;
-    this.ship.y = cfg.RMAX + 0.9;
-    this.ship.vx = 0;
+    this.ship.y = r;
+    this.ship.vx = Math.sqrt(GAME.GRAVITY / r);
     this.ship.vy = 0;
     this.ship.state = "flying";
     this.ship.explodeT = 0;
@@ -627,17 +642,30 @@ export class GameLoop {
         ax += -rx * GAME.THRUST;
         ay += -ry * GAME.THRUST;
       }
+      const aThrustSqr = ax*ax + ay*ay;
+      if (aThrustSqr > GAME.THRUST*GAME.THRUST) {
+        const thrustScale = GAME.THRUST / Math.sqrt(aThrustSqr);
+        ax *= thrustScale;
+        ay *= thrustScale;
+      }
 
-      ax += -this.ship.x / r * GAME.GRAVITY;
-      ay += -this.ship.y / r * GAME.GRAVITY;
+      const {x: gx, y: gy} = planetGravity(this.ship);
 
-      this.ship.vx += ax * dt;
-      this.ship.vy += ay * dt;
+      this.ship.x += (this.ship.vx + 0.5 * (ax + gx) * dt) * dt;
+      this.ship.y += (this.ship.vy + 0.5 * (ay + gy) * dt) * dt;
 
+      const {x: gx2, y: gy2} = planetGravity(this.ship);
+
+      this.ship.vx += (ax + (gx + gx2) / 2) * dt;
+      this.ship.vy += (ay + (gy + gy2) / 2) * dt;
+
+      /*
       const drag = Math.max(0, 1 - GAME.DRAG * dt);
       this.ship.vx *= drag;
       this.ship.vy *= drag;
+      */
 
+      /*
       const vt = this.ship.vx * tx + this.ship.vy * ty;
       const vtMax = GAME.MAX_TANGENTIAL_SPEED;
       if (Math.abs(vt) > vtMax){
@@ -645,9 +673,7 @@ export class GameLoop {
         this.ship.vx -= tx * excess;
         this.ship.vy -= ty * excess;
       }
-
-      this.ship.x += this.ship.vx * dt;
-      this.ship.y += this.ship.vy * dt;
+      */
 
       const speed = Math.hypot(this.ship.vx, this.ship.vy);
       const eps = this.COLLISION_EPS;
@@ -708,42 +734,49 @@ export class GameLoop {
         const upy = Math.cos(camRot);
         const dotUp = nx * upx + ny * upy;
         const vn = this.ship.vx * nx + this.ship.vy * ny;
-        const impactSpeed = Math.max(0, -vn);
-        const resolvePenetration = () => {
-          const maxSteps = 8;
-          const stepSize = shipRadius * 0.2;
-          for (let i = 0; i < maxSteps; i++){
-            if (!this._shipCollidesAt(this.ship.x, this.ship.y, shipRadius)) break;
-            this.ship.x += nx * stepSize;
-            this.ship.y += ny * stepSize;
-          }
-        };
+        const vt = this.ship.vx * -ny + this.ship.vy * nx;
 
-        if (impactSpeed <= GAME.LAND_SPEED && vn < -0.05 && dotUp >= GAME.SURFACE_DOT){
-          this.ship.state = "landed";
-          this.ship.vx = 0; this.ship.vy = 0;
-          resolvePenetration();
-        } else if (impactSpeed >= GAME.CRASH_SPEED){
+        if (vn < -GAME.CRASH_SPEED) {
           this._triggerCrash();
         } else {
-          if (impactSpeed <= GAME.LAND_SPEED && vn < -0.05 && dotUp >= GAME.SURFACE_DOT){
-            this.ship.vx -= nx * GAME.LAND_PULL * dt;
-            this.ship.vy -= ny * GAME.LAND_PULL * dt;
-            const tx = -ny;
-            const ty = nx;
-            const vt = this.ship.vx * tx + this.ship.vy * ty;
-            this.ship.vx -= vt * tx * GAME.LAND_FRICTION * dt;
-            this.ship.vy -= vt * ty * GAME.LAND_FRICTION * dt;
-            resolvePenetration();
-          } else if (vn < 0){
-            const restitution = GAME.BOUNCE_RESTITUTION;
-            this.ship.vx -= (1 + restitution) * vn * nx;
-            this.ship.vy -= (1 + restitution) * vn * ny;
-            const fast = speed >= (GAME.LAND_SPEED * 1.2);
-            const push = shipRadius * (fast ? GAME.COLLIDE_PUSH_FAST : 0.02);
-            this.ship.x += nx * push;
-            this.ship.y += ny * push;
-            resolvePenetration();
+          // Adjust velocity
+          if (vn < 0) {
+            if (dotUp < GAME.SURFACE_DOT) {
+              // Non-landing surface: bounce a bit, no friction
+              const restitution = (1 + GAME.BOUNCE_RESTITUTION) * -vn;
+              this.ship.vx += restitution * nx;
+              this.ship.vy += restitution * ny;
+            } else if (vn >= -GAME.LAND_SPEED && Math.abs(vt) < 0.5){
+              // Landed
+              this.ship.state = "landed";
+              this.ship.vx = 0;
+              this.ship.vy = 0;
+            } else {
+              // Contact with landing surface; don't bounce, just prevent moving further in
+              const restitution = -vn;
+              this.ship.vx += restitution * nx;
+              this.ship.vy += restitution * ny;
+
+              // On landing surfaces, apply friction to reduce tangent velocity
+              const friction = GAME.LAND_FRICTION * -vt;
+              this.ship.vx += friction * -ny;
+              this.ship.vy += friction * nx;
+
+              /*
+              const fast = speed >= (GAME.LAND_SPEED * 1.2);
+              const push = shipRadius * (fast ? GAME.COLLIDE_PUSH_FAST : 0.02);
+              this.ship.x += nx * push;
+              this.ship.y += ny * push;
+              */
+            }
+          }
+
+          // Resolve penetration
+          const maxSteps = 8;
+          const stepSize = shipRadius * 0.2;
+          for (let i = 0; i < maxSteps && this._shipCollidesAt(this.ship.x, this.ship.y, shipRadius); i++){
+            this.ship.x += nx * stepSize;
+            this.ship.y += ny * stepSize;
           }
         }
       }
@@ -1003,8 +1036,9 @@ export class GameLoop {
       for (let i = this.debris.length - 1; i >= 0; i--){
         const d = this.debris[i];
         const r = Math.hypot(d.x, d.y) || 1;
-        d.vx += (-d.x / r) * GAME.GRAVITY * dt;
-        d.vy += (-d.y / r) * GAME.GRAVITY * dt;
+        const {x: gx, y: gy} = planetGravity(d);
+        d.vx += gx * dt;
+        d.vy += gy * dt;
         d.vx *= Math.max(0, 1 - GAME.DRAG * dt);
         d.vy *= Math.max(0, 1 - GAME.DRAG * dt);
         d.x += d.vx * dt;
