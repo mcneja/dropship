@@ -14,10 +14,10 @@ rd /s /q dist
 cmd /c "npm run build || exit /b 1"
 
 :: Copy build output to deployment directory
-cmd /c "xcopy /e /i /y dist ..\spillz.github.io\7drl-2026-dropship-concept || exit /b 1"
+cmd /c "xcopy /e /i /y dist ..\spillz.github.io\dropship || exit /b 1"
 
 :: Change to deployment directory
-pushd ..\spillz.github.io\7drl-2026-dropship-concept
+pushd ..\spillz.github.io\dropship
 
 :: Commit and push changes
 git add .
