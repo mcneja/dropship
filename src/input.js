@@ -42,6 +42,8 @@ export class Input {
     this.prevPadShoot = false;
     /** @type {boolean} */
     this.prevPadBomb = false;
+    /** @type {boolean} */
+    this.prevPadStart = false;
     /** @type {Point|null} */
     this.aimMouse = null;
     /** @type {Point|null} */
@@ -63,6 +65,8 @@ export class Input {
     this.LASER_INTERVAL_MS = 500;
     this.BOMB_INTERVAL_MS = 2000;
     this.pointerLocked = false;
+    /** @type {boolean} */
+    this.gameOver = false;
 
     window.addEventListener("keydown", (e) => this._onKeyDown(e), { passive: false });
     window.addEventListener("keyup", (e) => this._onKeyUp(e), { passive: false });
@@ -81,6 +85,14 @@ export class Input {
       this.pointerLocked = document.pointerLockElement === this.canvas;
       this.canvas.style.cursor = this.pointerLocked ? "none" : "default";
     });
+  }
+
+  /**
+   * @param {boolean} gameOver
+   * @returns {void}
+   */
+  setGameOver(gameOver){
+    this.gameOver = gameOver;
   }
 
   /**
@@ -192,6 +204,10 @@ export class Input {
     this.lastInputType = "touch";
     const p = this._pointerPos(e);
     this.canvas.setPointerCapture(e.pointerId);
+    if (this.gameOver && this._inCircle(p, TOUCH_UI.start, TOUCH_UI.start.r)){
+      this.oneshot.reset = true;
+      return;
+    }
     if (this.leftControl.id === null && this._inCircle(p, TOUCH_UI.left, TOUCH_UI.left.r)){
       this.leftControl.id = e.pointerId;
       this.leftControl.pos = p;
@@ -335,7 +351,7 @@ export class Input {
   _gamepadState(){
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
     const pad = pads && pads[0];
-    if (!pad) return { left:false, right:false, thrust:false, down:false, aim:null, shoot:false, bomb:false };
+    if (!pad) return { left:false, right:false, thrust:false, down:false, aim:null, shoot:false, bomb:false, reset:false };
 
     const dead = 0.2;
     const ax0 = pad.axes && pad.axes.length ? pad.axes[0] : 0;
@@ -359,14 +375,17 @@ export class Input {
 
     const rb = !!(pad.buttons && pad.buttons[5] && pad.buttons[5].pressed);
     const rt = !!(pad.buttons && pad.buttons[7] && (pad.buttons[7].pressed || pad.buttons[7].value > 0.4));
+    const startPressed = !!(pad.buttons && pad.buttons[9] && pad.buttons[9].pressed);
     const shoot = rb && !this.prevPadShoot;
     const bomb = rt && !this.prevPadBomb;
-    const anyInput = left || right || thrust || down || aim || rb || rt;
+    const reset = startPressed && !this.prevPadStart;
+    const anyInput = left || right || thrust || down || aim || rb || rt || startPressed;
     if (anyInput) this.lastInputType = "gamepad";
     this.prevPadShoot = rb;
     this.prevPadBomb = rt;
+    this.prevPadStart = startPressed;
 
-    return { left, right, thrust, down, aim, shoot, bomb };
+    return { left, right, thrust, down, aim, shoot, bomb, reset };
   }
 
   /**
@@ -398,6 +417,7 @@ export class Input {
     const down = keyState.down || t.down || g.down;
     if (g.shoot) this.oneshot.shoot = true;
     if (g.bomb) this.oneshot.bomb = true;
+    if (g.reset) this.oneshot.reset = true;
 
     if (this.aimTouchShoot && this.laserControl.id !== null){
       if (now - this.laserControl.lastFire >= this.LASER_INTERVAL_MS){
@@ -456,6 +476,7 @@ export class Input {
       aimBombTo: this.aimTouchBombTo,
       touchUi,
       touchUiVisible,
+      inputType: this.lastInputType,
     };
 
     this.justPressed.clear();

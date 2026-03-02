@@ -1101,6 +1101,7 @@ export class GameLoop {
     this.lastTime = now;
     this.accumulator += dt;
 
+    this.input.setGameOver(this.ship.state === "crashed");
     const inputState = this.input.update();
 
     if (this.ship.state === "crashed"){
@@ -1144,6 +1145,7 @@ export class GameLoop {
       this.fpsTime = now;
     }
 
+    const gameOver = this.ship.state === "crashed";
     this.renderer.drawFrame({
       ship: this.ship,
       debris: this.debris,
@@ -1164,7 +1166,8 @@ export class GameLoop {
       playerBombs: this.playerBombs,
       entityExplosions: this.entityExplosions,
       aimWorld: this.lastAimWorld,
-      touchUi: inputState.touchUi,
+      touchUi: gameOver ? null : inputState.touchUi,
+      touchStart: gameOver && inputState.inputType === "touch",
     }, this.mesh);
 
     this._drawMinerPopups();
@@ -1181,6 +1184,7 @@ export class GameLoop {
       level: this.level,
       debug: this.debugCollisions,
       minerCandidates: this.minerCandidates,
+      inputType: inputState.inputType,
     });
 
     requestAnimationFrame(() => this._frame());

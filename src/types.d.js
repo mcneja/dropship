@@ -14,7 +14,7 @@
  */
 
 /**
- * @typedef {{updateHud:(hud:HTMLElement, stats:{fps:number,state:string,speed:number,verts:number,air:number,miners:number,minersDead:number,level:number,debug:boolean,minerCandidates:number,shipHp:number})=>void}} Ui
+ * @typedef {{updateHud:(hud:HTMLElement, stats:{fps:number,state:string,speed:number,verts:number,air:number,miners:number,minersDead:number,level:number,debug:boolean,minerCandidates:number,shipHp:number,inputType:("keyboard"|"mouse"|"touch"|"gamepad"|null|undefined)})=>void}} Ui
  */
 
 /**
@@ -109,6 +109,7 @@
  * @property {Array<{x:number,y:number,life:number,radius?:number}>} entityExplosions
  * @property {{x:number,y:number}|null} aimWorld
  * @property {{leftTouch:{x:number,y:number}|null,laserTouch:{x:number,y:number}|null,bombTouch:{x:number,y:number}|null}|null|undefined} touchUi
+ * @property {boolean} [touchStart]
  */
 
 /**
@@ -132,6 +133,7 @@
  * @property {Point|null} [aimBombTo]
  * @property {{leftTouch:Point|null,laserTouch:Point|null,bombTouch:Point|null}|null} [touchUi]
  * @property {boolean} [touchUiVisible]
+ * @property {"keyboard"|"mouse"|"touch"|"gamepad"|null} [inputType]
  */
 
 export {};

@@ -265,7 +265,7 @@ export class Enemies {
   }
 
   /**
-   * @param {{x:number,y:number}} ship
+   * @param {{x:number,y:number,state?:string}} ship
    * @param {number} dt
    * @returns {void}
    */
@@ -302,6 +302,7 @@ export class Enemies {
       if (this.explosions[i].life <= 0) this.explosions.splice(i, 1);
     }
 
+    const targetable = ship && ship.state !== "crashed";
     for (let i = this.enemies.length - 1; i >= 0; i--){
       const e = this.enemies[i];
       if (e.hp <= 0){
@@ -324,10 +325,14 @@ export class Enemies {
         continue;
       }
 
+      e.cooldown = Math.max(0, e.cooldown - dt);
+      if (!targetable){
+        continue;
+      }
+
       const dx = ship.x - e.x;
       const dy = ship.y - e.y;
       const dist = Math.hypot(dx, dy);
-      e.cooldown = Math.max(0, e.cooldown - dt);
 
       if (e.type === "hunter"){
         if (!tryMoveAir(e, mesh, dx, dy, this._HUNTER_SPEED, dt, this._HUNTER_COLLIDER)){

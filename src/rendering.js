@@ -93,6 +93,27 @@ function pushLine(pos, col, ax, ay, bx, by, r, g, b, a){
 /**
  * @param {number[]} pos
  * @param {number[]} col
+ * @param {number} ax
+ * @param {number} ay
+ * @param {number} bx
+ * @param {number} by
+ * @param {number} cx
+ * @param {number} cy
+ * @param {number} r
+ * @param {number} g
+ * @param {number} b
+ * @param {number} a
+ * @returns {void}
+ */
+function pushTriangleOutline(pos, col, ax, ay, bx, by, cx, cy, r, g, b, a){
+  pushLine(pos, col, ax, ay, bx, by, r, g, b, a);
+  pushLine(pos, col, bx, by, cx, cy, r, g, b, a);
+  pushLine(pos, col, cx, cy, ax, ay, r, g, b, a);
+}
+
+/**
+ * @param {number[]} pos
+ * @param {number[]} col
  * @param {number} x
  * @param {number} y
  * @param {number} size
@@ -629,7 +650,7 @@ function drawFrameImpl(renderer, state, mesh){
       gl.drawArrays(gl.POINTS, offset, pointVerts);
     }
 
-    if (state.touchUi){
+    if (state.touchUi || state.touchStart){
       /** @type {number[]} */
       const linePos = [];
       /** @type {number[]} */
@@ -647,30 +668,44 @@ function drawFrameImpl(renderer, state, mesh){
         return { x: nx * w, y: (1 - ny) * h };
       };
 
-      const left = toPx(TOUCH_UI.left.x, TOUCH_UI.left.y);
-      const leftRadius = TOUCH_UI.left.r * minDim;
+      if (state.touchUi){
+        const left = toPx(TOUCH_UI.left.x, TOUCH_UI.left.y);
+        const leftRadius = TOUCH_UI.left.r * minDim;
 
-      const laser = toPx(TOUCH_UI.laser.x, TOUCH_UI.laser.y);
-      const laserSize = TOUCH_UI.laser.r * minDim;
-      pushDiamondOutline(linePos, lineCol, laser.x, laser.y, laserSize, 0.95, 0.95, 0.95, 0.9);
+        const laser = toPx(TOUCH_UI.laser.x, TOUCH_UI.laser.y);
+        const laserSize = TOUCH_UI.laser.r * minDim;
+        pushDiamondOutline(linePos, lineCol, laser.x, laser.y, laserSize, 0.95, 0.95, 0.95, 0.9);
 
-      const bomb = toPx(TOUCH_UI.bomb.x, TOUCH_UI.bomb.y);
-      const bombSize = TOUCH_UI.bomb.r * minDim;
-      pushSquareOutline(linePos, lineCol, bomb.x, bomb.y, bombSize, 1.0, 0.75, 0.2, 0.9);
+        const bomb = toPx(TOUCH_UI.bomb.x, TOUCH_UI.bomb.y);
+        const bombSize = TOUCH_UI.bomb.r * minDim;
+        pushSquareOutline(linePos, lineCol, bomb.x, bomb.y, bombSize, 1.0, 0.75, 0.2, 0.9);
 
-      pushCircle(linePos, lineCol, left.x, left.y, leftRadius, 1.0, 0.55, 0.15, 0.9, 64);
+        pushCircle(linePos, lineCol, left.x, left.y, leftRadius, 1.0, 0.55, 0.15, 0.9, 64);
 
-      if (state.touchUi.leftTouch){
-        const touch = toPx(state.touchUi.leftTouch.x, state.touchUi.leftTouch.y);
-        pushCircle(linePos, lineCol, touch.x, touch.y, leftRadius * 0.35, 1.0, 0.2, 0.2, 0.9, 24);
+        if (state.touchUi.leftTouch){
+          const touch = toPx(state.touchUi.leftTouch.x, state.touchUi.leftTouch.y);
+          pushCircle(linePos, lineCol, touch.x, touch.y, leftRadius * 0.35, 1.0, 0.2, 0.2, 0.9, 24);
+        }
+        if (state.touchUi.laserTouch){
+          const touch = toPx(state.touchUi.laserTouch.x, state.touchUi.laserTouch.y);
+          pushCircle(linePos, lineCol, touch.x, touch.y, leftRadius * 0.35, 1.0, 0.2, 0.2, 0.9, 24);
+        }
+        if (state.touchUi.bombTouch){
+          const touch = toPx(state.touchUi.bombTouch.x, state.touchUi.bombTouch.y);
+          pushCircle(linePos, lineCol, touch.x, touch.y, leftRadius * 0.35, 1.0, 0.2, 0.2, 0.9, 24);
+        }
       }
-      if (state.touchUi.laserTouch){
-        const touch = toPx(state.touchUi.laserTouch.x, state.touchUi.laserTouch.y);
-        pushCircle(linePos, lineCol, touch.x, touch.y, leftRadius * 0.35, 1.0, 0.2, 0.2, 0.9, 24);
-      }
-      if (state.touchUi.bombTouch){
-        const touch = toPx(state.touchUi.bombTouch.x, state.touchUi.bombTouch.y);
-        pushCircle(linePos, lineCol, touch.x, touch.y, leftRadius * 0.35, 1.0, 0.2, 0.2, 0.9, 24);
+
+      if (state.touchStart){
+        const start = toPx(TOUCH_UI.start.x, TOUCH_UI.start.y);
+        const size = TOUCH_UI.start.r * minDim;
+        const ax = start.x - size * 0.55;
+        const ay = start.y - size * 0.7;
+        const bx = start.x - size * 0.55;
+        const by = start.y + size * 0.7;
+        const cx = start.x + size * 0.85;
+        const cy = start.y;
+        pushTriangleOutline(linePos, lineCol, ax, ay, bx, by, cx, cy, 0.95, 0.95, 0.95, 0.9);
       }
 
       const uiLine = linePos.length / 2;
