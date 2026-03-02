@@ -74,6 +74,8 @@ export class RingMesh {
     const positions = [];
     /** @type {number[]} */
     const triCentroids = [];
+    /** @type {Array<Array<{x:number,y:number,air:number}>>>} */
+    const triList = [];
     /** @type {number[]} */
     const airFlag = [];
     /** @type {number[]} */
@@ -105,6 +107,7 @@ export class RingMesh {
           const c = outer[(k+1)%outer.length];
           tris.push([a, b, c]);
           triCentroids.push((a.x + b.x + c.x) / 3, (a.y + b.y + c.y) / 3);
+          triList.push([a, b, c]);
           for (const v of [a,b,c]){
             positions.push(v.x, v.y);
             airFlag.push(v.air);
@@ -118,6 +121,7 @@ export class RingMesh {
         bandTris[r] = tris;
         for (const tri of tris){
           triCentroids.push((tri[0].x + tri[1].x + tri[2].x) / 3, (tri[0].y + tri[1].y + tri[2].y) / 3);
+          triList.push(tri);
           for (const v of tri){
             positions.push(v.x, v.y);
             airFlag.push(v.air);
@@ -143,6 +147,7 @@ export class RingMesh {
     this.bandTris = bandTris;
     this._vertRefs = vertRefs;
     this._triCentroids = new Float32Array(triCentroids);
+    this._triList = triList;
 
     this._fogRange = 0;
     this._fogStep = 0.25;
@@ -156,6 +161,8 @@ export class RingMesh {
     this._fogSeen = null;
     this._triIndexOf = null;
     this._fogHold = null;
+    this._fogCursor = 0;
+    this._fogBudgetTris = 200;
   }
 
   /**
@@ -284,7 +291,7 @@ export class RingMesh {
 
   /**
    * Initialize fog buffers tied to the mesh triangles.
-   * @param {{VIS_RANGE:number,VIS_STEP:number}} game
+   * @param {{VIS_RANGE:number,VIS_STEP:number,FOG_SEEN_ALPHA:number,FOG_UNSEEN_ALPHA:number,FOG_HOLD_FRAMES:number,FOG_LOS_THRESH?:number,FOG_ALPHA_LERP?:number,FOG_BUDGET_TRIS?:number}} game
    * @returns {void}
    */
   initFog(game){
@@ -295,6 +302,7 @@ export class RingMesh {
     this._fogHoldFrames = game.FOG_HOLD_FRAMES;
     this._fogLosThresh = game.FOG_LOS_THRESH ?? 0.45;
     this._fogAlphaLerp = game.FOG_ALPHA_LERP ?? 0.2;
+    this._fogBudgetTris = game.FOG_BUDGET_TRIS ?? 200;
     const total = this.triCount;
     this._fogAlpha = new Float32Array(total * 3);
     this._fogVisible = new Uint8Array(total);
@@ -321,6 +329,7 @@ export class RingMesh {
     this._fogSeen.fill(0);
     this._fogHold.fill(0);
     this._fogAlpha.fill(this._fogUnseenAlpha);
+    this._fogCursor = 0;
   }
 
   /**
@@ -353,8 +362,10 @@ export class RingMesh {
    * @returns {void}
    */
   updateFog(shipX, shipY){
-    if (!this._fogVisible || !this._fogSeen || !this._triCentroids || !this._fogAlpha || !this._fogHold) return;
-    this._fogVisible.fill(0);
+    if (!this._fogVisible || !this._fogSeen || !this._triCentroids || !this._fogAlpha || !this._fogHold || !this._triList) return;
+    if (this._fogCursor === 0){
+      this._fogVisible.fill(0);
+    }
     const r2 = this._fogRange * this._fogRange;
     const c = this._triCentroids;
     const count = this._fogVisible.length;
@@ -371,50 +382,52 @@ export class RingMesh {
       return this._lineOfSightMesh(shipX, shipY, px, py, this._fogStep);
     };
 
-    let idx = 0;
-    for (const band of this.bandTris){
-      if (!band) continue;
-      for (const tri of band){
-        const cx = c[idx * 2];
-        const cy = c[idx * 2 + 1];
-        const m01x = (tri[0].x + tri[1].x) * 0.5;
-        const m01y = (tri[0].y + tri[1].y) * 0.5;
-        const m12x = (tri[1].x + tri[2].x) * 0.5;
-        const m12y = (tri[1].y + tri[2].y) * 0.5;
-        const m20x = (tri[2].x + tri[0].x) * 0.5;
-        const m20y = (tri[2].y + tri[0].y) * 0.5;
-        const visibleNow = pointVisible(cx, cy)
-          || pointVisible(tri[0].x, tri[0].y)
-          || pointVisible(tri[1].x, tri[1].y)
-          || pointVisible(tri[2].x, tri[2].y)
-          || pointVisible(m01x, m01y)
-          || pointVisible(m12x, m12y)
-          || pointVisible(m20x, m20y);
-        if (visibleNow){
-          this._fogHold[idx] = this._fogHoldFrames;
-        } else if (this._fogHold[idx] > 0){
-          this._fogHold[idx]--;
-        }
-        if (this._fogHold[idx] > 0){
-          this._fogVisible[idx] = 1;
-          this._fogSeen[idx] = 1;
-        }
-        idx++;
-      }
-    }
+    const budget = Math.max(1, this._fogBudgetTris | 0);
+    const start = this._fogCursor;
+    const end = Math.min(count, start + budget);
     const lerp = this._fogAlphaLerp;
-    for (let i = 0; i < count; i++){
-      let target = 0;
-      if (!this._fogVisible[i]){
-        target = this._fogSeen[i] ? this._fogSeenAlpha : this._fogUnseenAlpha;
+
+    for (let idx = start; idx < end; idx++){
+      const tri = this._triList[idx];
+      const cx = c[idx * 2];
+      const cy = c[idx * 2 + 1];
+      const m01x = (tri[0].x + tri[1].x) * 0.5;
+      const m01y = (tri[0].y + tri[1].y) * 0.5;
+      const m12x = (tri[1].x + tri[2].x) * 0.5;
+      const m12y = (tri[1].y + tri[2].y) * 0.5;
+      const m20x = (tri[2].x + tri[0].x) * 0.5;
+      const m20y = (tri[2].y + tri[0].y) * 0.5;
+      const visibleNow = pointVisible(cx, cy)
+        || pointVisible(tri[0].x, tri[0].y)
+        || pointVisible(tri[1].x, tri[1].y)
+        || pointVisible(tri[2].x, tri[2].y)
+        || pointVisible(m01x, m01y)
+        || pointVisible(m12x, m12y)
+        || pointVisible(m20x, m20y);
+
+      if (visibleNow){
+        this._fogHold[idx] = this._fogHoldFrames;
+      } else if (this._fogHold[idx] > 0){
+        this._fogHold[idx]--;
       }
-      const base = i * 3;
+      if (this._fogHold[idx] > 0){
+        this._fogVisible[idx] = 1;
+        this._fogSeen[idx] = 1;
+      }
+
+      let target = 0;
+      if (!this._fogVisible[idx]){
+        target = this._fogSeen[idx] ? this._fogSeenAlpha : this._fogUnseenAlpha;
+      }
+      const base = idx * 3;
       const a0 = this._fogAlpha[base];
       const next = a0 + (target - a0) * lerp;
       this._fogAlpha[base] = next;
       this._fogAlpha[base + 1] = next;
       this._fogAlpha[base + 2] = next;
     }
+
+    this._fogCursor = end >= count ? 0 : end;
   }
 
   /**

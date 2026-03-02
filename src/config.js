@@ -84,6 +84,7 @@ export const GAME = Object.freeze({
   FOG_SEEN_ALPHA: 0.55,
   FOG_PARTIAL_ALPHA: 0.35,
   FOG_HOLD_FRAMES: 4,
+  FOG_BUDGET_TRIS: 300,
   FOG_LOS_THRESH: 0.5,
   FOG_ALPHA_LERP: 0.2,
 });
