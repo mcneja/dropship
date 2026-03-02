@@ -24,21 +24,22 @@ export function planetGravity(x, y) {
 }
 
 /**
- * 
+ * @param {number} perigee
+ * @param {number} eccentricity
+ * @param {number} angle
+ * @param {boolean} directionCCW
  * @returns {{x: number, y: number, vx: number, vy: number}}
  */
-function initialOrbitState() {
-    const perigee = CFG.RMAX + 0.9;
-    const eccentricity = 0.3333;
-    const angle = 2.5;
-    const p = perigee * (1 + eccentricity);
-    const r = p / (1 + eccentricity * Math.cos(angle));
-    const x = r * Math.cos(angle);
-    const y = r * Math.sin(angle);
-    const vScale = Math.sqrt(GAME.GRAVITY / p);
-    const vx = vScale * Math.sin(angle);
-    const vy = -vScale * (eccentricity + Math.cos(angle));
-    return {x: x, y: y, vx: vx, vy: vy};
+function initialOrbitState(perigee, eccentricity, angle, directionCCW) {
+  angle *= directionCCW ? -1 : 1;
+  const p = perigee * (1 + eccentricity);
+  const r = p / (1 + eccentricity * Math.cos(angle));
+  const x = r * Math.cos(angle);
+  const y = r * Math.sin(angle);
+  const vScale = Math.sqrt(GAME.GRAVITY / p) * (directionCCW ? -1 : 1);
+  const vx = vScale * Math.sin(angle);
+  const vy = -vScale * (eccentricity + Math.cos(angle));
+  return {x: x, y: y, vx: vx, vy: vy};
 }
 
 export class GameLoop {
@@ -77,7 +78,7 @@ export class GameLoop {
     this.MINER_HEAD_OFFSET = this.MINER_HEIGHT;
     this.MINER_FOOT_OFFSET = 0.0;
 
-    const {x: shipX, y: shipY, vx: shipVX, vy: shipVY} = initialOrbitState();
+    const {x: shipX, y: shipY, vx: shipVX, vy: shipVY} = initialOrbitState(CFG.RMAX + 0.9, 0.5, 1.5, false);
 
     /** @type {Ship} */
     this.ship = {
@@ -149,16 +150,25 @@ export class GameLoop {
   }
 
   /**
+   * @param {boolean} levelStart
    * @returns {void}
    */
-  _resetShip(){
-    const {x: shipX, y: shipY, vx: shipVX, vy: shipVY} = initialOrbitState();
+  _resetShip(levelStart){
+    const rShip = CFG.RMAX + (levelStart ? 0.9 : 8);
+    const eccentricity = levelStart ? 0.5 : 0;
+    const angle = levelStart ? 1.5 : 0;
+    const seed = this.mapgen.getWorld().seed + this.level * 97;
+    const rand = mulberry32(seed);
+    const direction = rand() < 0.5;
+    const {x: shipX, y: shipY, vx: shipVX, vy: shipVY} = initialOrbitState(rShip, eccentricity, angle, direction);
     this.ship.x = shipX;
     this.ship.y = shipY;
     this.ship.vx = shipVX;
     this.ship.vy = shipVY;
     this.ship.state = "flying";
     this.ship.explodeT = 0;
+    this.ship.hp = GAME.SHIP_MAX_HP;
+    this.ship.hitCooldown = 0;
     this.debris.length = 0;
     this.playerShots.length = 0;
     this.playerBombs.length = 0;
@@ -166,8 +176,6 @@ export class GameLoop {
     this.minerPopups.length = 0;
     this.shipHitPopups.length = 0;
     this.minersDead = 0;
-    this.ship.hp = GAME.SHIP_MAX_HP;
-    this.ship.hitCooldown = 0;
     this.lastAimWorld = null;
     this.lastAimScreen = null;
   }
@@ -275,8 +283,6 @@ export class GameLoop {
     const posViewCenterX = scale * this.ship.x;
     const posViewCenterY = scale * this.ship.y;
     const radiusView = (rFramedMax - rFramedMin) / 2;
-
-//    radiusView *= 1.5; // add a margin around the screen
 
     return {
       xCenter: posViewCenterX,
@@ -518,7 +524,7 @@ export class GameLoop {
     const newAir = this.mesh.updateAirFlags();
     this.renderer.updateAir(newAir);
     this.mesh.resetFog();
-    this._resetShip();
+    this._resetShip(true);
     this.entityExplosions.length = 0;
     if (advanceLevel) this.level++;
     this._spawnMiners();
@@ -656,7 +662,7 @@ export class GameLoop {
    */
   _step(dt, inputState){
     const { left, right, thrust, down, reset, shoot, bomb, aim, aimShoot, aimBomb, aimShootFrom, aimShootTo, aimBombFrom, aimBombTo } = inputState;
-    if (reset) this._resetShip();
+    if (reset) this._resetShip(false);
 
     if (this.ship.hitCooldown > 0){
       this.ship.hitCooldown = Math.max(0, this.ship.hitCooldown - dt);
@@ -686,12 +692,14 @@ export class GameLoop {
         ax += -rx * GAME.THRUST;
         ay += -ry * GAME.THRUST;
       }
+      /*
       const aThrustSqr = ax*ax + ay*ay;
       if (aThrustSqr > GAME.THRUST*GAME.THRUST) {
         const thrustScale = GAME.THRUST / Math.sqrt(aThrustSqr);
         ax *= thrustScale;
         ay *= thrustScale;
       }
+      */
 
       const {x: gx, y: gy} = planetGravity(this.ship.x, this.ship.y);
 
