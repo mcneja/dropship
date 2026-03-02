@@ -356,6 +356,17 @@ export class RingMesh {
   }
 
   /**
+   * @param {number} ax
+   * @param {number} ay
+   * @param {number} bx
+   * @param {number} by
+   * @returns {boolean}
+   */
+  lineOfSight(ax, ay, bx, by){
+    return this._lineOfSightMesh(ax, ay, bx, by, this._fogStep);
+  }
+
+  /**
    * Update fog visibility for mesh triangles.
    * @param {number} shipX
    * @param {number} shipY
@@ -415,16 +426,19 @@ export class RingMesh {
         this._fogSeen[idx] = 1;
       }
 
-      let target = 0;
-      if (!this._fogVisible[idx]){
-        target = this._fogSeen[idx] ? this._fogSeenAlpha : this._fogUnseenAlpha;
-      }
       const base = idx * 3;
-      const a0 = this._fogAlpha[base];
-      const next = a0 + (target - a0) * lerp;
-      this._fogAlpha[base] = next;
-      this._fogAlpha[base + 1] = next;
-      this._fogAlpha[base + 2] = next;
+      if (this._fogVisible[idx]){
+        this._fogAlpha[base] = 0;
+        this._fogAlpha[base + 1] = 0;
+        this._fogAlpha[base + 2] = 0;
+      } else {
+        const target = this._fogSeen[idx] ? this._fogSeenAlpha : this._fogUnseenAlpha;
+        const a0 = this._fogAlpha[base];
+        const next = a0 + (target - a0) * lerp;
+        this._fogAlpha[base] = next;
+        this._fogAlpha[base + 1] = next;
+        this._fogAlpha[base + 2] = next;
+      }
     }
 
     this._fogCursor = end >= count ? 0 : end;
@@ -450,5 +464,19 @@ export class RingMesh {
     const idx = this._triIndexOf.get(tri);
     if (idx === undefined) return true;
     return !!this._fogVisible[idx];
+  }
+
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @returns {boolean}
+   */
+  fogSeenAt(x, y) {
+    if (!this._fogSeen || !this._triIndexOf) return true;
+    const tri = this.findTriAtWorld(x, y);
+    if (!tri) return true;
+    const idx = this._triIndexOf.get(tri);
+    if (idx === undefined) return true;
+    return !!this._fogSeen[idx];
   }
 }

@@ -345,9 +345,7 @@ export class Enemies {
           }
         }
         if (e.cooldown <= 0 && dist < 10 && lineOfSightAir(mesh, e.x, e.y, ship.x, ship.y, this._LOS_STEP)){
-          const inv = 1 / (dist || 1);
-          this.shots.push({ x: e.x, y: e.y, vx: dx * inv * this._SHOT_SPEED + e.vx, vy: dy * inv * this._SHOT_SPEED + e.vy, life: this._SHOT_LIFE, owner: "hunter" });
-          e.cooldown = this._HUNTER_SHOT_CD;
+          this._shoot(e, dx, dy, this._HUNTER_SHOT_CD);
         }
       } else if (e.type === "ranger"){
         if (dist < this._RANGER_MIN){
@@ -356,9 +354,7 @@ export class Enemies {
           tryMoveAir(e, mesh, dx, dy, this._RANGER_SPEED, dt, this._RANGER_COLLIDER);
         }
         if (e.cooldown <= 0 && dist > this._RANGER_MIN * 0.8 && lineOfSightAir(mesh, e.x, e.y, ship.x, ship.y, this._LOS_STEP)){
-          const inv = 1 / (dist || 1);
-          this.shots.push({ x: e.x, y: e.y, vx: dx * inv * this._SHOT_SPEED + e.vx, vy: dy * inv * this._SHOT_SPEED + e.vy, life: this._SHOT_LIFE, owner: "ranger" });
-          e.cooldown = this._RANGER_SHOT_CD;
+          this._shoot(e, dx, dy, this._RANGER_SHOT_CD);
         }
       } else if (e.type === "crawler"){
         const [gx, gy] = airGradient(mesh, e.x, e.y, 0.16);
@@ -393,5 +389,25 @@ export class Enemies {
         }
       }
     }
+  }
+
+  /**
+   * Shoot a bullet in the specified direction
+   * @param {Enemy} e
+   * @param {number} dx
+   * @param {number} dy
+   * @param {number} cooldown
+   */
+  _shoot(e, dx, dy, cooldown) {
+    const vScale = this._SHOT_SPEED / (Math.hypot(dx, dy) || 1);
+    this.shots.push({
+      x: e.x,
+      y: e.y,
+      vx: e.vx + dx * vScale,
+      vy: e.vy + dy * vScale,
+      life: this._SHOT_LIFE,
+      owner: e.type
+    });
+    e.cooldown = cooldown;
   }
 }
