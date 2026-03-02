@@ -34,6 +34,14 @@
  */
 
 /**
+ * @typedef {Object} ViewState
+ * @property {number} xCenter
+ * @property {number} yCenter
+ * @property {number} radius
+ * @property {number} angle
+ */
+
+/**
  * @typedef {Object} Miner
  * @property {number} x
  * @property {number} y
@@ -89,14 +97,15 @@
 
 /**
  * @typedef {Object} RenderState
- * @property {{x:number,y:number,vx:number,vy:number,state:string,explodeT:number,hp?:number,hitCooldown?:number,_samples?:Array<[number,number,boolean,number]>|null,_collision?:{x:number,y:number,tri?:Array<{x:number,y:number}>|null,node?:{x:number,y:number}|null}|null}} ship
- * @property {Array<{x:number,y:number,vx:number,vy:number,a:number,w:number,life:number}>} debris
+ * @property {ViewState} view
+ * @property {Ship} ship
+ * @property {Array<Debris>} debris
  * @property {{left:boolean,right:boolean,thrust:boolean,down:boolean}} input
  * @property {boolean} debugCollisions
  * @property {boolean} debugNodes
  * @property {number} fps
  * @property {number} finalAir
- * @property {Array<{x:number,y:number,state:string}>} miners
+ * @property {Array<Miner>} miners
  * @property {number} minersRemaining
  * @property {number} level
  * @property {number} minersDead

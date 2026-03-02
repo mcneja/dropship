@@ -275,7 +275,7 @@ export class Enemies {
       for (let i = this.debris.length - 1; i >= 0; i--){
         const d = this.debris[i];
         const r = Math.hypot(d.x, d.y) || 1;
-        const {x: gx, y: gy} = planetGravity(d);
+        const {x: gx, y: gy} = planetGravity(d.x, d.y);
         d.vx += gx * dt;
         d.vy += gy * dt;
         d.vx *= Math.max(0, 1 - GAME.DRAG * dt);
