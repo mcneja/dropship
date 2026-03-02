@@ -44,7 +44,7 @@ const surfaceGravityAcceleration = 2.0;
 const rocketAcceleration = 4.5;
 
 export const GAME = Object.freeze({
-  ZOOM: 3.0, // ~12% of the world visible
+  ZOOM: 4.5,
   SHIP_SCALE: 0.5,
   MINER_SCALE: 0.5,
   ENEMY_SCALE: 1.0,

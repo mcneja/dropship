@@ -243,7 +243,7 @@ export class GameLoop {
    * @returns {ViewState}
    */
   _viewState() {
-    const radiusViewMin = 3.25;
+    const radiusViewMin = GAME.ZOOM;
     const rShip = Math.hypot(this.ship.x, this.ship.y);
     const rPlanet = CFG.RMAX + CFG.PAD;
 
@@ -264,7 +264,7 @@ export class GameLoop {
     return {
       xCenter: posViewCenterX,
       yCenter: posViewCenterY,
-      radius: radiusView,//GAME.ZOOM / (CFG.RMAX + CFG.PAD),
+      radius: radiusView,
       angle: Math.atan2(this.ship.x, this.ship.y || 1e-6)
     };
   }
