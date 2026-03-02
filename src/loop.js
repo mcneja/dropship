@@ -500,6 +500,7 @@ export class GameLoop {
     this.mapgen.regenWorld(seed);
     const newAir = this.mesh.updateAirFlags();
     this.renderer.updateAir(newAir);
+    this.mesh.resetFog();
     this._resetShip();
     this.entityExplosions.length = 0;
     if (advanceLevel) this.level++;
@@ -1184,6 +1185,9 @@ export class GameLoop {
     }
 
     const gameOver = this.ship.state === "crashed";
+    this.mesh.updateFog(this.ship.x, this.ship.y);
+    const fog = this.mesh.fogAlpha();
+    if (fog) this.renderer.updateFog(fog);
     this.renderer.drawFrame({
       view: this._viewState(),
       ship: this.ship,

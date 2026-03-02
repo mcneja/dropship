@@ -77,6 +77,15 @@ export const GAME = Object.freeze({
   SHIP_HIT_COOLDOWN: 0.25,
   SHIP_HIT_POPUP_LIFE: 0.6,
   AIM_SCREEN_RADIUS: 0.25,
+  VIS_RANGE: 7.0,
+  VIS_STEP: 0.25,
+  FOG_COLOR: [0, 0, 0],
+  FOG_UNSEEN_ALPHA: 0.85,
+  FOG_SEEN_ALPHA: 0.55,
+  FOG_PARTIAL_ALPHA: 0.35,
+  FOG_HOLD_FRAMES: 4,
+  FOG_LOS_THRESH: 0.5,
+  FOG_ALPHA_LERP: 0.2,
 });
 
 export const TOUCH_UI = Object.freeze({

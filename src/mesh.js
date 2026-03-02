@@ -73,6 +73,8 @@ export class RingMesh {
     /** @type {number[]} */
     const positions = [];
     /** @type {number[]} */
+    const triCentroids = [];
+    /** @type {number[]} */
     const airFlag = [];
     /** @type {number[]} */
     const shade = [];
@@ -96,10 +98,13 @@ export class RingMesh {
       const inner = rings[r];
       const outer = rings[r+1];
       if (r===0){
+        const tris = [];
         for (let k=0;k<outer.length;k++){
           const a = {x:0,y:0,air:1};
           const b = outer[k];
           const c = outer[(k+1)%outer.length];
+          tris.push([a, b, c]);
+          triCentroids.push((a.x + b.x + c.x) / 3, (a.y + b.y + c.y) / 3);
           for (const v of [a,b,c]){
             positions.push(v.x, v.y);
             airFlag.push(v.air);
@@ -107,10 +112,12 @@ export class RingMesh {
             shade.push(shadeAt(v.x, v.y));
           }
         }
+        bandTris[r] = tris;
       } else {
         const tris = stitchBand(inner, outer);
         bandTris[r] = tris;
         for (const tri of tris){
+          triCentroids.push((tri[0].x + tri[1].x + tri[2].x) / 3, (tri[0].y + tri[1].y + tri[2].y) / 3);
           for (const v of tri){
             positions.push(v.x, v.y);
             airFlag.push(v.air);
@@ -122,6 +129,7 @@ export class RingMesh {
     }
 
     this.vertCount = positions.length / 2;
+    this.triCount = triCentroids.length / 2;
 
     /** @type {Float32Array} */
     this.positions = new Float32Array(positions);
@@ -134,6 +142,20 @@ export class RingMesh {
     /** @type {Array<Array<Array<{x:number,y:number,air:number}>>>} */
     this.bandTris = bandTris;
     this._vertRefs = vertRefs;
+    this._triCentroids = new Float32Array(triCentroids);
+
+    this._fogRange = 0;
+    this._fogStep = 0.25;
+    this._fogSeenAlpha = 0.55;
+    this._fogUnseenAlpha = 0.85;
+    this._fogHoldFrames = 4;
+    this._fogLosThresh = 0.45;
+    this._fogAlphaLerp = 0.2;
+    this._fogAlpha = null;
+    this._fogVisible = null;
+    this._fogSeen = null;
+    this._triIndexOf = null;
+    this._fogHold = null;
   }
 
   /**
@@ -258,5 +280,162 @@ export class RingMesh {
       this.airFlag[i] = this._vertRefs[i].air;
     }
     return new Float32Array(this.airFlag);
+  }
+
+  /**
+   * Initialize fog buffers tied to the mesh triangles.
+   * @param {{VIS_RANGE:number,VIS_STEP:number}} game
+   * @returns {void}
+   */
+  initFog(game){
+    this._fogRange = game.VIS_RANGE;
+    this._fogStep = game.VIS_STEP;
+    this._fogSeenAlpha = game.FOG_SEEN_ALPHA;
+    this._fogUnseenAlpha = game.FOG_UNSEEN_ALPHA;
+    this._fogHoldFrames = game.FOG_HOLD_FRAMES;
+    this._fogLosThresh = game.FOG_LOS_THRESH ?? 0.45;
+    this._fogAlphaLerp = game.FOG_ALPHA_LERP ?? 0.2;
+    const total = this.triCount;
+    this._fogAlpha = new Float32Array(total * 3);
+    this._fogVisible = new Uint8Array(total);
+    this._fogSeen = new Uint8Array(total);
+    this._fogHold = new Uint8Array(total);
+    const triIndexOf = new Map();
+    let idx = 0;
+    for (const band of this.bandTris){
+      if (!band) continue;
+      for (const tri of band){
+        triIndexOf.set(tri, idx);
+        idx++;
+      }
+    }
+    this._triIndexOf = triIndexOf;
+  }
+
+  /**
+   * @returns {void}
+   */
+  resetFog(){
+    if (!this._fogVisible || !this._fogSeen || !this._fogAlpha || !this._fogHold) return;
+    this._fogVisible.fill(0);
+    this._fogSeen.fill(0);
+    this._fogHold.fill(0);
+    this._fogAlpha.fill(this._fogUnseenAlpha);
+  }
+
+  /**
+   * @param {number} ax
+   * @param {number} ay
+   * @param {number} bx
+   * @param {number} by
+   * @param {number} step
+   * @returns {boolean}
+   */
+  _lineOfSightMesh(ax, ay, bx, by, step){
+    const dx = bx - ax;
+    const dy = by - ay;
+    const dist = Math.hypot(dx, dy);
+    if (dist <= 1e-6) return true;
+    const steps = Math.max(1, Math.ceil(dist / step));
+    for (let i = 1; i <= steps; i++){
+      const t = i / steps;
+      const x = ax + dx * t;
+      const y = ay + dy * t;
+      if (this.airValueAtWorld(x, y) <= this._fogLosThresh) return false;
+    }
+    return true;
+  }
+
+  /**
+   * Update fog visibility for mesh triangles.
+   * @param {number} shipX
+   * @param {number} shipY
+   * @returns {void}
+   */
+  updateFog(shipX, shipY){
+    if (!this._fogVisible || !this._fogSeen || !this._triCentroids || !this._fogAlpha || !this._fogHold) return;
+    this._fogVisible.fill(0);
+    const r2 = this._fogRange * this._fogRange;
+    const c = this._triCentroids;
+    const count = this._fogVisible.length;
+
+    /**
+     * @param {number} px
+     * @param {number} py
+     * @returns {boolean}
+     */
+    const pointVisible = (px, py) => {
+      const dx = px - shipX;
+      const dy = py - shipY;
+      if (dx * dx + dy * dy > r2) return false;
+      return this._lineOfSightMesh(shipX, shipY, px, py, this._fogStep);
+    };
+
+    let idx = 0;
+    for (const band of this.bandTris){
+      if (!band) continue;
+      for (const tri of band){
+        const cx = c[idx * 2];
+        const cy = c[idx * 2 + 1];
+        const m01x = (tri[0].x + tri[1].x) * 0.5;
+        const m01y = (tri[0].y + tri[1].y) * 0.5;
+        const m12x = (tri[1].x + tri[2].x) * 0.5;
+        const m12y = (tri[1].y + tri[2].y) * 0.5;
+        const m20x = (tri[2].x + tri[0].x) * 0.5;
+        const m20y = (tri[2].y + tri[0].y) * 0.5;
+        const visibleNow = pointVisible(cx, cy)
+          || pointVisible(tri[0].x, tri[0].y)
+          || pointVisible(tri[1].x, tri[1].y)
+          || pointVisible(tri[2].x, tri[2].y)
+          || pointVisible(m01x, m01y)
+          || pointVisible(m12x, m12y)
+          || pointVisible(m20x, m20y);
+        if (visibleNow){
+          this._fogHold[idx] = this._fogHoldFrames;
+        } else if (this._fogHold[idx] > 0){
+          this._fogHold[idx]--;
+        }
+        if (this._fogHold[idx] > 0){
+          this._fogVisible[idx] = 1;
+          this._fogSeen[idx] = 1;
+        }
+        idx++;
+      }
+    }
+    const lerp = this._fogAlphaLerp;
+    for (let i = 0; i < count; i++){
+      let target = 0;
+      if (!this._fogVisible[i]){
+        target = this._fogSeen[i] ? this._fogSeenAlpha : this._fogUnseenAlpha;
+      }
+      const base = i * 3;
+      const a0 = this._fogAlpha[base];
+      const next = a0 + (target - a0) * lerp;
+      this._fogAlpha[base] = next;
+      this._fogAlpha[base + 1] = next;
+      this._fogAlpha[base + 2] = next;
+    }
+  }
+
+  /**
+   * @returns {Float32Array|undefined}
+   */
+  fogAlpha(){
+    if (!this._fogAlpha) return undefined;
+    return this._fogAlpha;
+  }
+
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @returns {boolean}
+   */
+  fogVisibleAt(x, y){
+    if (!this._fogVisible || !this._triIndexOf) return true;
+    const tri = this.findTriAtWorld(x, y);
+    if (!tri) return true;
+    const idx = this._triIndexOf.get(tri);
+    if (idx === undefined) return true;
+    return !!this._fogVisible[idx];
   }
 }

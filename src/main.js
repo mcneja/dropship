@@ -16,6 +16,7 @@ mapgen.regenWorld(CFG.seed);
 
 const mesh = new RingMesh(CFG, mapgen);
 
+mesh.initFog(GAME);
 const renderer = new Renderer(canvas, CFG, GAME);
 renderer.setMesh(mesh);
 

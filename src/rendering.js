@@ -43,6 +43,13 @@ function uploadAttrib(gl, loc, data, size, type=gl.FLOAT){
 }
 
 /**
+ * @param {number[]} a
+ * @param {number[]} b
+ * @param {number[]} c
+ * @param {number[]} d
+ * @returns {Float32Array}
+ */
+/**
  * @param {number} x
  * @param {number} y
  * @param {number} a
@@ -366,6 +373,10 @@ function drawFrameImpl(renderer, state, mesh){
   ];
   const body = [];
   const shipRot = -camRot;
+  const fogVisibleAt = (x, y) => {
+    if (!mesh || !mesh.fogVisibleAt) return true;
+    return mesh.fogVisibleAt(x, y);
+  };
   if (state.ship.state !== "crashed"){
     for (const [lx, ly] of local){
       const [wx, wy] = rot2(lx, ly, shipRot);
@@ -379,6 +390,7 @@ function drawFrameImpl(renderer, state, mesh){
   if (state.miners && state.miners.length){
     for (const miner of state.miners){
       if (miner.state === "boarded") continue;
+      if (!fogVisibleAt(miner.x, miner.y)) continue;
       if (miner.state === "running"){
         pushMiner(pos, col, miner.x, miner.y, 0.98, 0.62, 0.2, game.MINER_SCALE);
       } else {
@@ -390,6 +402,7 @@ function drawFrameImpl(renderer, state, mesh){
 
   if (state.enemies && state.enemies.length){
     for (const enemy of state.enemies){
+      if (!fogVisibleAt(enemy.x, enemy.y)) continue;
       if (enemy.type === "hunter"){
         pushEnemy(pos, col, enemy.x, enemy.y, 0.92, 0.25, 0.2, game.ENEMY_SCALE);
       } else if (enemy.type === "ranger"){
@@ -764,6 +777,7 @@ export class Renderer {
     this.gl = gl;
 
     this.airBuf = null;
+    this.fogBuf = null;
     this.vertCount = 0;
 
     const vs = `#version 300 es
@@ -771,6 +785,7 @@ export class Renderer {
   layout(location=0) in vec2 aPos;
   layout(location=1) in float aAir;
   layout(location=2) in float aShade;
+  layout(location=3) in float aFog;
   out vec2 vWorld;
 
   uniform vec2 uScale;
@@ -779,6 +794,7 @@ export class Renderer {
 
   out float vAir;
   out float vShade;
+  out float vFog;
 
   vec2 rot(vec2 p, float a){
     float c = cos(a), s = sin(a);
@@ -788,6 +804,7 @@ export class Renderer {
   void main(){
     vAir = aAir;
     vShade = aShade;
+    vFog = aFog;
     vWorld = aPos;
     vec2 p = aPos - uCam;
     p = rot(p, uRot);
@@ -799,6 +816,7 @@ export class Renderer {
 
   in float vAir;
   in float vShade;
+  in float vFog;
   in vec2 vWorld;
   out vec4 outColor;
 
@@ -807,6 +825,7 @@ export class Renderer {
   uniform vec3 uAirDark;
   uniform vec3 uAirLight;
   uniform float uMaxR;
+  uniform vec3 uFogColor;
 
   vec3 lerp(vec3 a, vec3 b, float t){ return a + (b-a)*t; }
 
@@ -817,7 +836,8 @@ export class Renderer {
     float t = clamp(vShade, 0.0, 1.0);
     vec3 c = (vAir > 0.5) ? lerp(uAirDark,  uAirLight,  t)
                           : lerp(uRockDark, uRockLight, t);
-    outColor = vec4(c, 1.0);
+    vec3 fogged = mix(c, uFogColor, clamp(vFog, 0.0, 1.0));
+    outColor = vec4(fogged, 1.0);
   }`;
 
     const ovs = `#version 300 es
@@ -891,12 +911,14 @@ export class Renderer {
     this.uAirDark  = gl.getUniformLocation(prog, "uAirDark");
     this.uAirLight = gl.getUniformLocation(prog, "uAirLight");
     this.uMaxR     = gl.getUniformLocation(prog, "uMaxR");
+    this.uFogColor = gl.getUniformLocation(prog, "uFogColor");
 
     gl.uniform3fv(this.uRockDark, cfg.ROCK_DARK);
     gl.uniform3fv(this.uRockLight,cfg.ROCK_LIGHT);
     gl.uniform3fv(this.uAirDark,  cfg.AIR_DARK);
     gl.uniform3fv(this.uAirLight, cfg.AIR_LIGHT);
     gl.uniform1f(this.uMaxR, cfg.RMAX + 0.5);
+    gl.uniform3fv(this.uFogColor, game.FOG_COLOR);
 
     gl.bindVertexArray(oVao);
     /** @type {WebGLBuffer|null} */
@@ -932,7 +954,7 @@ export class Renderer {
   }
 
   /**
-   * @param {{positions:Float32Array, airFlag:Float32Array, shade:Float32Array, vertCount:number}} mesh
+   * @param {{positions:Float32Array, airFlag:Float32Array, shade:Float32Array, vertCount:number, fogAlpha?:()=>Float32Array|undefined}} mesh
    * @returns {void}
    */
   setMesh(mesh){
@@ -941,6 +963,8 @@ export class Renderer {
     uploadAttrib(gl, 0, mesh.positions, 2);
     this.airBuf = uploadAttrib(gl, 1, mesh.airFlag, 1);
     uploadAttrib(gl, 2, mesh.shade, 1);
+    const fog = (mesh.fogAlpha && mesh.fogAlpha()) || new Float32Array(mesh.vertCount);
+    this.fogBuf = uploadAttrib(gl, 3, fog, 1);
     gl.bindVertexArray(null);
     this.vertCount = mesh.vertCount;
   }
@@ -954,6 +978,17 @@ export class Renderer {
     const gl = this.gl;
     gl.bindBuffer(gl.ARRAY_BUFFER, this.airBuf);
     gl.bufferData(gl.ARRAY_BUFFER, airFlag, gl.STATIC_DRAW);
+  }
+
+  /**
+   * @param {Float32Array} fogAlpha
+   * @returns {void}
+   */
+  updateFog(fogAlpha){
+    if (!this.fogBuf) return;
+    const gl = this.gl;
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.fogBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, fogAlpha, gl.DYNAMIC_DRAW);
   }
 
   /**
