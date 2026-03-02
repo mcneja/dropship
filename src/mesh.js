@@ -284,7 +284,7 @@ export class RingMesh {
 
   /**
    * Initialize fog buffers tied to the mesh triangles.
-   * @param {{VIS_RANGE:number,VIS_STEP:number}} game
+   * @param {{VIS_RANGE:number,VIS_STEP:number,FOG_SEEN_ALPHA:number,FOG_UNSEEN_ALPHA:number,FOG_HOLD_FRAMES:number,FOG_LOS_THRESH:number,FOG_ALPHA_LERP:number}} game
    * @returns {void}
    */
   initFog(game){
