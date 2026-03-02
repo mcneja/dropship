@@ -93,6 +93,26 @@ export class Input {
    */
   setGameOver(gameOver){
     this.gameOver = gameOver;
+    if (gameOver){
+      this.aimMouse = null;
+      this.aimTouchShoot = null;
+      this.aimTouchBomb = null;
+      this.aimTouchShootFrom = null;
+      this.aimTouchShootTo = null;
+      this.aimTouchBombFrom = null;
+      this.aimTouchBombTo = null;
+      this.leftControl.id = null;
+      this.leftControl.pos = null;
+      this.leftControl.start = null;
+      this.laserControl.id = null;
+      this.laserControl.pos = null;
+      this.laserControl.start = null;
+      this.bombControl.id = null;
+      this.bombControl.pos = null;
+      this.bombControl.start = null;
+      this.oneshot.shoot = false;
+      this.oneshot.bomb = false;
+    }
   }
 
   /**
@@ -187,6 +207,9 @@ export class Input {
    * @returns {void}
    */
   _onPointerDown(e){
+    if (this.gameOver && e.pointerType !== "touch"){
+      return;
+    }
     if (e.pointerType !== "touch"){
       if (!this.pointerLocked && document.pointerLockElement !== this.canvas){
         this.canvas.requestPointerLock();
@@ -230,6 +253,9 @@ export class Input {
    * @returns {void}
    */
   _onPointerMove(e){
+    if (this.gameOver && e.pointerType !== "touch"){
+      return;
+    }
     if (e.pointerType !== "touch"){
       if (this.pointerLocked){
         const rect = this.canvas.getBoundingClientRect();
@@ -262,6 +288,9 @@ export class Input {
    * @returns {void}
    */
   _onPointerUp(e){
+    if (this.gameOver && e.pointerType !== "touch"){
+      return;
+    }
     if (e.pointerType !== "touch"){
       if (!this.pointerLocked){
         this.aimMouse = this._pointerPos(e);
@@ -346,7 +375,7 @@ export class Input {
   }
 
   /**
-   * @returns {{left:boolean,right:boolean,thrust:boolean,down:boolean,aim:Point|null,shoot:boolean,bomb:boolean}}
+   * @returns {{left:boolean,right:boolean,thrust:boolean,down:boolean,aim:Point|null,shoot:boolean,bomb:boolean,reset:boolean}}
    */
   _gamepadState(){
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
@@ -411,28 +440,28 @@ export class Input {
     const t = this._touchState();
     const g = this._gamepadState();
 
-    const left = keyState.left || t.left || g.left;
-    const right = keyState.right || t.right || g.right;
-    const thrust = keyState.thrust || t.thrust || g.thrust;
-    const down = keyState.down || t.down || g.down;
+    let left = keyState.left || t.left || g.left;
+    let right = keyState.right || t.right || g.right;
+    let thrust = keyState.thrust || t.thrust || g.thrust;
+    let down = keyState.down || t.down || g.down;
     if (g.shoot) this.oneshot.shoot = true;
     if (g.bomb) this.oneshot.bomb = true;
     if (g.reset) this.oneshot.reset = true;
 
-    if (this.aimTouchShoot && this.laserControl.id !== null){
+    if (!this.gameOver && this.aimTouchShoot && this.laserControl.id !== null){
       if (now - this.laserControl.lastFire >= this.LASER_INTERVAL_MS){
         this.oneshot.shoot = true;
         this.laserControl.lastFire = now;
       }
     }
-    if (this.aimTouchBomb && this.bombControl.id !== null){
+    if (!this.gameOver && this.aimTouchBomb && this.bombControl.id !== null){
       if (now - this.bombControl.lastFire >= this.BOMB_INTERVAL_MS){
         this.oneshot.bomb = true;
         this.bombControl.lastFire = now;
       }
     }
 
-    const touchUiVisible = this.lastInputType === "touch";
+    const touchUiVisible = !this.gameOver && this.lastInputType === "touch";
     const touchUi = touchUiVisible ? {
       leftTouch: this.leftControl.pos,
       laserTouch: this.laserControl.pos,
@@ -442,7 +471,17 @@ export class Input {
     let aimShoot = null;
     let aimBomb = null;
     let aim = null;
-    if (this.lastInputType === "touch"){
+    if (this.gameOver){
+      aimShoot = null;
+      aimBomb = null;
+      aim = null;
+      left = false;
+      right = false;
+      thrust = false;
+      down = false;
+      this.oneshot.shoot = false;
+      this.oneshot.bomb = false;
+    } else if (this.lastInputType === "touch"){
       aimShoot = this.aimTouchShoot;
       aimBomb = this.aimTouchBomb || aimShoot;
       aim = aimShoot || aimBomb || null;
