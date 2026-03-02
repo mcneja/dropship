@@ -781,10 +781,7 @@ export class GameLoop {
         }
         nx /= nlen;
         ny /= nlen;
-        const camRot = Math.atan2(this.ship.x, this.ship.y || 1e-6);
-        const upx = Math.sin(camRot);
-        const upy = Math.cos(camRot);
-        const dotUp = nx * upx + ny * upy;
+        const dotUp = (nx * this.ship.x + ny * this.ship.y) / (Math.hypot(this.ship.x, this.ship.y) || 1);
         const vn = this.ship.vx * nx + this.ship.vy * ny;
         const vt = this.ship.vx * -ny + this.ship.vy * nx;
 
