@@ -151,6 +151,8 @@ export class GameLoop {
     this.minersDead = 0;
     this.ship.hp = GAME.SHIP_MAX_HP;
     this.ship.hitCooldown = 0;
+    this.lastAimWorld = null;
+    this.lastAimScreen = null;
   }
 
   /**
@@ -162,6 +164,8 @@ export class GameLoop {
     this.ship.explodeT = 0;
     this.ship.vx = 0; this.ship.vy = 0;
     this.debris.length = 0;
+    this.lastAimWorld = null;
+    this.lastAimScreen = null;
     const pieces = 10;
     for (let i = 0; i < pieces; i++){
       const ang = Math.random() * Math.PI * 2;
@@ -635,26 +639,6 @@ export class GameLoop {
   _step(dt, inputState){
     const { left, right, thrust, down, reset, shoot, bomb, aim, aimShoot, aimBomb, aimShootFrom, aimShootTo, aimBombFrom, aimBombTo } = inputState;
     if (reset) this._resetShip();
-    const aimWorldShoot = this._toWorldFromAim(aimShoot || aim);
-    const aimWorldBomb = this._toWorldFromAim(aimBomb || aimShoot || aim);
-    let aimWorld = (aimShootTo && this._toWorldFromAim(aimShootTo)) || aimWorldShoot || (aimBombTo && this._toWorldFromAim(aimBombTo)) || aimWorldBomb;
-    if ((aimShootFrom && aimShootTo) || (aimBombFrom && aimBombTo)){
-      const from = aimShootFrom || aimBombFrom;
-      const to = aimShootTo || aimBombTo;
-      const wFrom = from ? this._toWorldFromAim(from) : null;
-      const wTo = to ? this._toWorldFromAim(to) : null;
-      if (wFrom && wTo){
-        const dx = wTo.x - wFrom.x;
-        const dy = wTo.y - wFrom.y;
-        const dist = Math.hypot(dx, dy) || 1;
-        const dirx = dx / dist;
-        const diry = dy / dist;
-        const aimLen = Math.max(4.0, this._aimWorldDistance(GAME.AIM_SCREEN_RADIUS || 0.25));
-        aimWorld = { x: this.ship.x + dirx * aimLen, y: this.ship.y + diry * aimLen };
-      }
-    }
-    this.lastAimWorld = aimWorld;
-    if (inputState.aim) this.lastAimScreen = inputState.aim;
 
     if (this.ship.hitCooldown > 0){
       this.ship.hitCooldown = Math.max(0, this.ship.hitCooldown - dt);
@@ -823,6 +807,27 @@ export class GameLoop {
         }
       }
     }
+
+    const aimWorldShoot = this._toWorldFromAim(aimShoot || aim);
+    const aimWorldBomb = this._toWorldFromAim(aimBomb || aimShoot || aim);
+    let aimWorld = (aimShootTo && this._toWorldFromAim(aimShootTo)) || aimWorldShoot || (aimBombTo && this._toWorldFromAim(aimBombTo)) || aimWorldBomb;
+    if ((aimShootFrom && aimShootTo) || (aimBombFrom && aimBombTo)){
+      const from = aimShootFrom || aimBombFrom;
+      const to = aimShootTo || aimBombTo;
+      const wFrom = from ? this._toWorldFromAim(from) : null;
+      const wTo = to ? this._toWorldFromAim(to) : null;
+      if (wFrom && wTo){
+        const dx = wTo.x - wFrom.x;
+        const dy = wTo.y - wFrom.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        const dirx = dx / dist;
+        const diry = dy / dist;
+        const aimLen = Math.max(4.0, this._aimWorldDistance(GAME.AIM_SCREEN_RADIUS || 0.25));
+        aimWorld = { x: this.ship.x + dirx * aimLen, y: this.ship.y + diry * aimLen };
+      }
+    }
+    this.lastAimWorld = aimWorld;
+    if (inputState.aim) this.lastAimScreen = inputState.aim;
 
     if (this.ship.state !== "crashed"){
       if (shoot){
@@ -1291,7 +1296,7 @@ export class GameLoop {
       ctx.fillText("-1", px, py);
     }
 
-    if (this.lastAimScreen){
+    if (this.lastAimScreen && this.ship.state !== "crashed"){
       const px = this.lastAimScreen.x * w;
       const py = this.lastAimScreen.y * h;
       const r = Math.max(6, Math.round(10 * dpr));
