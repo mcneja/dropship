@@ -373,10 +373,6 @@ function drawFrameImpl(renderer, state, mesh){
   ];
   const body = [];
   const shipRot = -camRot;
-  const fogVisibleAt = (x, y) => {
-    if (!mesh || !mesh.fogVisibleAt) return true;
-    return mesh.fogVisibleAt(x, y);
-  };
   if (state.ship.state !== "crashed"){
     for (const [lx, ly] of local){
       const [wx, wy] = rot2(lx, ly, shipRot);
@@ -390,7 +386,7 @@ function drawFrameImpl(renderer, state, mesh){
   if (state.miners && state.miners.length){
     for (const miner of state.miners){
       if (miner.state === "boarded") continue;
-      if (!fogVisibleAt(miner.x, miner.y)) continue;
+      if (!mesh.fogSeenAt(miner.x, miner.y)) continue;
       if (miner.state === "running"){
         pushMiner(pos, col, miner.x, miner.y, 0.98, 0.62, 0.2, game.MINER_SCALE);
       } else {
@@ -402,7 +398,7 @@ function drawFrameImpl(renderer, state, mesh){
 
   if (state.enemies && state.enemies.length){
     for (const enemy of state.enemies){
-      if (!fogVisibleAt(enemy.x, enemy.y)) continue;
+      if (!mesh.fogVisibleAt(enemy.x, enemy.y)) continue;
       if (enemy.type === "hunter"){
         pushEnemy(pos, col, enemy.x, enemy.y, 0.92, 0.25, 0.2, game.ENEMY_SCALE);
       } else if (enemy.type === "ranger"){

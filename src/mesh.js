@@ -438,4 +438,18 @@ export class RingMesh {
     if (idx === undefined) return true;
     return !!this._fogVisible[idx];
   }
+
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @returns {boolean}
+   */
+  fogSeenAt(x, y) {
+    if (!this._fogSeen || !this._triIndexOf) return true;
+    const tri = this.findTriAtWorld(x, y);
+    if (!tri) return true;
+    const idx = this._triIndexOf.get(tri);
+    if (idx === undefined) return true;
+    return !!this._fogSeen[idx];
+  }
 }
