@@ -243,12 +243,12 @@ export class GameLoop {
    * @returns {ViewState}
    */
   _viewState() {
-    const radiusViewMin = 3.25;
+    const radiusViewMin = GAME.ZOOM;
     const rShip = Math.hypot(this.ship.x, this.ship.y);
     const rPlanet = CFG.RMAX + CFG.PAD;
 
-    let uTransition = Math.max(0, Math.min(1, (rShip - rPlanet) / (2 * rPlanet)));
-    //uTransition = (3.0 - 2.0 * uTransition) * uTransition * uTransition;
+    let uTransition = Math.max(0, Math.min(1, (rShip - rPlanet) / rPlanet));
+    uTransition = (3.0 - 2.0 * uTransition) * uTransition * uTransition;
     const rFramedMin = (rShip - radiusViewMin) + (-rPlanet - (rShip - radiusViewMin)) * uTransition;
     const rFramedMax = rShip + radiusViewMin;
 
@@ -264,7 +264,7 @@ export class GameLoop {
     return {
       xCenter: posViewCenterX,
       yCenter: posViewCenterY,
-      radius: radiusView,//GAME.ZOOM / (CFG.RMAX + CFG.PAD),
+      radius: radiusView,
       angle: Math.atan2(this.ship.x, this.ship.y || 1e-6)
     };
   }
