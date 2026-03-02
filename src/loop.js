@@ -23,6 +23,24 @@ export function planetGravity(x, y) {
   return {x: x * a, y: y * a};
 }
 
+/**
+ * 
+ * @returns {{x: number, y: number, vx: number, vy: number}}
+ */
+function initialOrbitState() {
+    const perigee = CFG.RMAX + 0.9;
+    const eccentricity = 0.3333;
+    const angle = 2.5;
+    const p = perigee * (1 + eccentricity);
+    const r = p / (1 + eccentricity * Math.cos(angle));
+    const x = r * Math.cos(angle);
+    const y = r * Math.sin(angle);
+    const vScale = Math.sqrt(GAME.GRAVITY / p);
+    const vx = vScale * Math.sin(angle);
+    const vy = -vScale * (eccentricity + Math.cos(angle));
+    return {x: x, y: y, vx: vx, vy: vy};
+}
+
 export class GameLoop {
   /**
    * Main gameplay loop orchestrator.
@@ -59,14 +77,14 @@ export class GameLoop {
     this.MINER_HEAD_OFFSET = this.MINER_HEIGHT;
     this.MINER_FOOT_OFFSET = 0.0;
 
-    const r = cfg.RMAX + 0.9;
+    const {x: shipX, y: shipY, vx: shipVX, vy: shipVY} = initialOrbitState();
 
     /** @type {Ship} */
     this.ship = {
-      x: 0,
-      y: r,
-      vx: Math.sqrt(GAME.GRAVITY / r),
-      vy: 0,
+      x: shipX,
+      y: shipY,
+      vx: shipVX,
+      vy: shipVY,
       state: "flying",
       explodeT: 0,
       lastAir: 1,
@@ -134,12 +152,11 @@ export class GameLoop {
    * @returns {void}
    */
   _resetShip(){
-    const cfg = this.cfg;
-    const r = cfg.RMAX + 0.9;
-    this.ship.x = 0;
-    this.ship.y = r;
-    this.ship.vx = Math.sqrt(GAME.GRAVITY / r);
-    this.ship.vy = 0;
+    const {x: shipX, y: shipY, vx: shipVX, vy: shipVY} = initialOrbitState();
+    this.ship.x = shipX;
+    this.ship.y = shipY;
+    this.ship.vx = shipVX;
+    this.ship.vy = shipVY;
     this.ship.state = "flying";
     this.ship.explodeT = 0;
     this.debris.length = 0;

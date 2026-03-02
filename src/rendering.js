@@ -507,9 +507,8 @@ function drawFrameImpl(renderer, state, mesh){
       let rApogee = a * (1 + eccentricity);
 
       const rMin = cfg.RMAX + 0.5;
-      const rMax = Math.max(r * 2, cfg.RMAX * 2);
 
-      if (rPerigee >= rMin && rApogee <= rMax) {
+      if (rPerigee >= rMin) {
         const dirX = state.ship.x / r;
         const dirY = state.ship.y / r;
 
@@ -517,7 +516,6 @@ function drawFrameImpl(renderer, state, mesh){
         const crossX = -dirY * crossTickSize;
         const crossY = dirX * crossTickSize;
 
-        rApogee = Math.min(rApogee, rMax);
         rPerigee = Math.max(rPerigee, rMin);
 
         const apoX = dirX * rApogee;
@@ -526,10 +524,8 @@ function drawFrameImpl(renderer, state, mesh){
         const periX = dirX * rPerigee;
         const periY = dirY * rPerigee;
 
-        if (rApogee < rMax) {
-          pushLine(pos, col, apoX - crossX, apoY - crossY, apoX + crossX, apoY + crossY, 0.2, 1.0, 0.2, 0.5);
-          lineVerts += 2;
-        }
+        pushLine(pos, col, apoX - crossX, apoY - crossY, apoX + crossX, apoY + crossY, 0.2, 1.0, 0.2, 0.5);
+        lineVerts += 2;
 
         if (rPerigee > rMin) {
           pushLine(pos, col, periX - crossX, periY - crossY, periX + crossX, periY + crossY, 0.2, 1.0, 0.2, 0.5);
