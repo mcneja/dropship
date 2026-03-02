@@ -6,19 +6,21 @@ import { Enemies } from "./enemies.js";
 import { collidesAtWorldPoints } from "./collision.js";
 import { CFG } from './config.js';
 
+/** @typedef {import("./types.d.js").ViewState} ViewState */
 /** @typedef {import("./types.d.js").Ship} Ship */
 /** @typedef {import("./types.d.js").Miner} Miner */
 /** @typedef {import("./types.d.js").Ui} Ui */
 
 /**
- * @param {{x:number,y:number}} pos 
+ * @param {number} x
+ * @param {number} y
  * @returns {{x:number,y:number}}
  */
-export function planetGravity(pos) {
-  const r2 = Math.max(pos.x*pos.x + pos.y*pos.y, CFG.RMAX*CFG.RMAX);
+export function planetGravity(x, y) {
+  const r2 = Math.max(x*x + y*y, CFG.RMAX*CFG.RMAX);
   const r = Math.sqrt(r2);
   const a = -GAME.GRAVITY / (r2 * r);
-  return {x: pos.x * a, y: pos.y * a};
+  return {x: x * a, y: y * a};
 }
 
 export class GameLoop {
@@ -210,16 +212,17 @@ export class GameLoop {
     const h = Math.max(1, rect.height);
     const xN = aim.x * 2 - 1;
     const yN = (1 - aim.y) * 2 - 1;
-    const camRot = Math.atan2(this.ship.x, this.ship.y || 1e-6);
-    const s = GAME.ZOOM / (this.cfg.RMAX + this.cfg.PAD);
+    const viewState = this._viewState();
+    const camRot = viewState.angle;
+    const s = 1 / viewState.radius;
     const aspect = w / h;
     const sx = s / aspect;
     const sy = s;
     const px = xN / sx;
     const py = yN / sy;
     const c = Math.cos(-camRot), s2 = Math.sin(-camRot);
-    const wx = c * px - s2 * py + this.ship.x;
-    const wy = s2 * px + c * py + this.ship.y;
+    const wx = c * px - s2 * py + viewState.xCenter;
+    const wy = s2 * px + c * py + viewState.yCenter;
     return { x: wx, y: wy };
   }
 
@@ -230,6 +233,36 @@ export class GameLoop {
   _aimWorldDistance(screenFrac){
     const s = GAME.ZOOM / (this.cfg.RMAX + this.cfg.PAD);
     return (2 * screenFrac) / s;
+  }
+
+  /**
+   * @returns {ViewState}
+   */
+  _viewState() {
+    const radiusViewMin = 3.25;
+    const rShip = Math.hypot(this.ship.x, this.ship.y);
+    const rPlanet = CFG.RMAX + CFG.PAD;
+
+    let uTransition = Math.max(0, Math.min(1, (rShip - rPlanet) / (2 * rPlanet)));
+    //uTransition = (3.0 - 2.0 * uTransition) * uTransition * uTransition;
+    const rFramedMin = (rShip - radiusViewMin) + (-rPlanet - (rShip - radiusViewMin)) * uTransition;
+    const rFramedMax = rShip + radiusViewMin;
+
+    const rViewCenter = (rFramedMin + rFramedMax) / 2;
+
+    const scale = rViewCenter / rShip;
+    const posViewCenterX = scale * this.ship.x;
+    const posViewCenterY = scale * this.ship.y;
+    const radiusView = (rFramedMax - rFramedMin) / 2;
+
+//    radiusView *= 1.5; // add a margin around the screen
+
+    return {
+      xCenter: posViewCenterX,
+      yCenter: posViewCenterY,
+      radius: radiusView,//GAME.ZOOM / (CFG.RMAX + CFG.PAD),
+      angle: Math.atan2(this.ship.x, this.ship.y || 1e-6)
+    };
   }
 
   /**
@@ -658,12 +691,12 @@ export class GameLoop {
         ay *= thrustScale;
       }
 
-      const {x: gx, y: gy} = planetGravity(this.ship);
+      const {x: gx, y: gy} = planetGravity(this.ship.x, this.ship.y);
 
       this.ship.x += (this.ship.vx + 0.5 * (ax + gx) * dt) * dt;
       this.ship.y += (this.ship.vy + 0.5 * (ay + gy) * dt) * dt;
 
-      const {x: gx2, y: gy2} = planetGravity(this.ship);
+      const {x: gx2, y: gy2} = planetGravity(this.ship.x, this.ship.y);
 
       this.ship.vx += (ax + (gx + gx2) / 2) * dt;
       this.ship.vy += (ay + (gy + gy2) / 2) * dt;
@@ -1045,7 +1078,7 @@ export class GameLoop {
       for (let i = this.debris.length - 1; i >= 0; i--){
         const d = this.debris[i];
         const r = Math.hypot(d.x, d.y) || 1;
-        const {x: gx, y: gy} = planetGravity(d);
+        const {x: gx, y: gy} = planetGravity(d.x, d.y);
         d.vx += gx * dt;
         d.vy += gy * dt;
         d.vx *= Math.max(0, 1 - GAME.DRAG * dt);
@@ -1147,6 +1180,7 @@ export class GameLoop {
 
     const gameOver = this.ship.state === "crashed";
     this.renderer.drawFrame({
+      view: this._viewState(),
       ship: this.ship,
       debris: this.debris,
       input: inputState,
@@ -1223,8 +1257,9 @@ export class GameLoop {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.font = `700 ${Math.max(12, Math.round(16 * dpr))}px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace`;
-    const camRot = Math.atan2(this.ship.x, this.ship.y || 1e-6);
-    const s = GAME.ZOOM / (this.cfg.RMAX + this.cfg.PAD);
+    const viewState = this._viewState();
+    const camRot = viewState.angle;
+    const s = 1 / viewState.radius;
     const sx = s / (w / h);
     const sy = s;
     const c = Math.cos(camRot), s2 = Math.sin(camRot);
@@ -1232,8 +1267,8 @@ export class GameLoop {
     for (const p of this.minerPopups){
       const t = Math.max(0, Math.min(1, p.life / GAME.MINER_POPUP_LIFE));
       const alpha = 0.9 * t;
-      const dx = p.x - this.ship.x;
-      const dy = p.y - this.ship.y;
+      const dx = p.x - viewState.xCenter;
+      const dy = p.y - viewState.yCenter;
       const rx = c * dx - s2 * dy;
       const ry = s2 * dx + c * dy;
       const px = (rx * sx * 0.5 + 0.5) * w;
@@ -1245,8 +1280,8 @@ export class GameLoop {
     for (const p of this.shipHitPopups){
       const t = Math.max(0, Math.min(1, p.life / GAME.SHIP_HIT_POPUP_LIFE));
       const alpha = 0.9 * t;
-      const dx = p.x - this.ship.x;
-      const dy = p.y - this.ship.y;
+      const dx = p.x - viewState.xCenter;
+      const dy = p.y - viewState.yCenter;
       const rx = c * dx - s2 * dy;
       const ry = s2 * dx + c * dy;
       const px = (rx * sx * 0.5 + 0.5) * w;
