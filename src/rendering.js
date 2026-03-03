@@ -640,55 +640,33 @@ function drawFrameImpl(renderer, state, planet){
   }
 
   if (state.ship.state !== "crashed"){
+    // Braking line
     const vscale = vScaleStopping(planet, state.ship.x, state.ship.y, state.ship.vx, state.ship.vy, game.THRUST);
-    pushLine(pos, col, state.ship.x, state.ship.y, state.ship.x + state.ship.vx * vscale, state.ship.y + state.ship.vy * vscale, 0.5, 0.84, 1.0, 1);
+    pushLine(pos, col, state.ship.x, state.ship.y, state.ship.x + state.ship.vx * vscale, state.ship.y + state.ship.vy * vscale, 0.5, 0.84, 1.0, 0.5);
     lineVerts += 2;
 
-    // Plot apogee and perigee, if in orbit
+    // Orbit apogee and perigee
+    const {rPerigee: rPerigee, rApogee: rApogee} = planet.perigeeAndApogee(state.ship.x, state.ship.y, state.ship.vx, state.ship.vy);
+    const rMin = cfg.RMAX + 0.5;
+    if (rPerigee >= rMin) {
+      const r = Math.hypot(state.ship.x, state.ship.y);
+      const dirX = state.ship.x / r;
+      const dirY = state.ship.y / r;
 
-    const rCrossV = state.ship.x * state.ship.vy - state.ship.y * state.ship.vx;
-    const r = Math.hypot(state.ship.x, state.ship.y);
-    const gravMu = planet.gravitationalConstant;
-    const eccentricityX = (state.ship.vy * rCrossV) / gravMu - state.ship.x / r;
-    const eccentricityY = (-state.ship.vx * rCrossV) / gravMu - state.ship.y / r;
-    const eccentricity = Math.hypot(eccentricityX, eccentricityY);
+      const crossTickSize = 0.01 * state.view.radius;
+      const crossX = -dirY * crossTickSize;
+      const crossY = dirX * crossTickSize;
 
-    if (eccentricity < 1.0) {
-      const vSqr = state.ship.vx * state.ship.vx + state.ship.vy * state.ship.vy;
-      const specificEnergy = vSqr / 2 - gravMu / r;
-      const a = -gravMu / (2 * specificEnergy);
-      let rPerigee = a * (1 - eccentricity);
-      let rApogee = a * (1 + eccentricity);
+      const apoX = dirX * rApogee;
+      const apoY = dirY * rApogee;
 
-      const rMin = cfg.RMAX + 0.5;
+      const periX = dirX * rPerigee;
+      const periY = dirY * rPerigee;
 
-      if (rPerigee >= rMin) {
-        const dirX = state.ship.x / r;
-        const dirY = state.ship.y / r;
-
-        const crossTickSize = 0.01 * state.view.radius;
-        const crossX = -dirY * crossTickSize;
-        const crossY = dirX * crossTickSize;
-
-        rPerigee = Math.max(rPerigee, rMin);
-
-        const apoX = dirX * rApogee;
-        const apoY = dirY * rApogee;
-
-        const periX = dirX * rPerigee;
-        const periY = dirY * rPerigee;
-
-        pushLine(pos, col, apoX - crossX, apoY - crossY, apoX + crossX, apoY + crossY, 0.2, 1.0, 0.2, 0.5);
-        lineVerts += 2;
-
-        if (rPerigee > rMin) {
-          pushLine(pos, col, periX - crossX, periY - crossY, periX + crossX, periY + crossY, 0.2, 1.0, 0.2, 0.5);
-          lineVerts += 2;
-        }
-
-        pushLine(pos, col, apoX, apoY, periX, periY, 0.2, 1.0, 0.2, 0.5);
-        lineVerts += 2;
-      }
+      pushLine(pos, col, apoX - crossX, apoY - crossY, apoX + crossX, apoY + crossY, 0.5, 0.84, 1.0, 0.5);
+      pushLine(pos, col, periX - crossX, periY - crossY, periX + crossX, periY + crossY, 0.5, 0.84, 1.0, 0.5);
+      pushLine(pos, col, apoX, apoY, periX, periY, 0.5, 0.84, 1.0, 0.5);
+      lineVerts += 6;
     }
   }
 

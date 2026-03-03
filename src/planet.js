@@ -335,6 +335,36 @@ export class Planet {
   }
 
   /**
+   * Evaluate perigee and apogee height for orbit defined by a position and velocity
+   * @param {number} x
+   * @param {number} y
+   * @param {number} vx
+   * @param {number} vy
+   * @returns {{rPerigee: number, rApogee: number}}
+   */
+  perigeeAndApogee(x, y, vx, vy) {
+    const rCrossV = x * vy - y * vx;
+    const r = Math.hypot(x, y);
+    const gravMu = this.gravitationalConstant;
+    const eccentricityX = (vy * rCrossV) / gravMu - x / r;
+    const eccentricityY = (-vx * rCrossV) / gravMu - y / r;
+    const eccentricity = Math.hypot(eccentricityX, eccentricityY);
+
+    // Not handling parabolic or hyperbolic trajectories correctly yet
+    if (eccentricity >= 1.0) {
+      return {rPerigee: 0, rApogee: Infinity};
+    }
+
+    const vSqr = vx * vx + vy * vy;
+    const specificEnergy = vSqr / 2 - gravMu / r;
+    const a = -gravMu / (2 * specificEnergy);
+    const rPerigee = a * (1 - eccentricity);
+    const rApogee = a * (1 + eccentricity);
+
+    return {rPerigee: rPerigee, rApogee: rApogee};
+  }
+
+  /**
    * @returns {number}
    */
   _radialNodeCount(){
