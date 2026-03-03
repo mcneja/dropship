@@ -65,18 +65,14 @@ export const CFG = Object.freeze({
   SDF_BUILD_SUPERSAMPLE: 2,
 });
 
-const surfaceGravityAcceleration = 2.0;
-const rocketAcceleration = 4.5;
-
 export const GAME = Object.freeze({
   ZOOM: 4.5,
   SHIP_SCALE: 0.5,
   MINER_SCALE: 0.5,
   ENEMY_SCALE: 1.0,
-  THRUST: rocketAcceleration,
+  THRUST: 4.5,
   TURN_RATE: 2.4,
   DRAG: 0.12,
-  GRAVITY: surfaceGravityAcceleration * CFG.RMAX * CFG.RMAX,
   CRASH_SPEED: 4.5,
   LAND_SPEED: 2.0,
   SURFACE_DOT: 0.7,

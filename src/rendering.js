@@ -1,9 +1,9 @@
 ﻿// @ts-check
 
 import { TOUCH_UI } from "./config.js";
-import { planetGravity } from "./loop.js";
 
 /** @typedef {import("./types.d.js").RenderState} RenderState */
+/** @typedef {import("./planet.js").Planet} Planet */
 
 /**
  * @param {WebGL2RenderingContext} gl
@@ -409,6 +409,7 @@ function pushEnemy(pos, col, x, y, r, g, b, scale){
 
 /**
  * Scale to apply to current velocity to represent distance required to come to a stop.
+ * @param {Planet} planet
  * @param {number} x 
  * @param {number} y 
  * @param {number} vx 
@@ -416,8 +417,8 @@ function pushEnemy(pos, col, x, y, r, g, b, scale){
  * @param {number} thrust 
  * @returns {number}
  */
-function vScaleStopping(x, y, vx, vy, thrust) {
-  const {x: gx, y: gy} = planetGravity(x, y);
+function vScaleStopping(planet, x, y, vx, vy, thrust) {
+  const {x: gx, y: gy} = planet.gravityAt(x, y);
   const speed = Math.hypot(vx, vy);
   if (speed < 1e-6) {
     return 0;
@@ -431,7 +432,7 @@ function vScaleStopping(x, y, vx, vy, thrust) {
 /**
  * @param {Renderer} renderer
  * @param {RenderState} state
- * @param {import("./planet.js").Planet} planet
+ * @param {Planet} planet
  * @returns {void}
  */
 function drawFrameImpl(renderer, state, planet){
@@ -639,7 +640,7 @@ function drawFrameImpl(renderer, state, planet){
   }
 
   if (state.ship.state !== "crashed"){
-    const vscale = vScaleStopping(state.ship.x, state.ship.y, state.ship.vx, state.ship.vy, game.THRUST);
+    const vscale = vScaleStopping(planet, state.ship.x, state.ship.y, state.ship.vx, state.ship.vy, game.THRUST);
     pushLine(pos, col, state.ship.x, state.ship.y, state.ship.x + state.ship.vx * vscale, state.ship.y + state.ship.vy * vscale, 0.5, 0.84, 1.0, 1);
     lineVerts += 2;
 
@@ -647,14 +648,15 @@ function drawFrameImpl(renderer, state, planet){
 
     const rCrossV = state.ship.x * state.ship.vy - state.ship.y * state.ship.vx;
     const r = Math.hypot(state.ship.x, state.ship.y);
-    const eccentricityX = (state.ship.vy * rCrossV) / game.GRAVITY - state.ship.x / r;
-    const eccentricityY = (-state.ship.vx * rCrossV) / game.GRAVITY - state.ship.y / r;
+    const gravMu = planet.gravitationalConstant;
+    const eccentricityX = (state.ship.vy * rCrossV) / gravMu - state.ship.x / r;
+    const eccentricityY = (-state.ship.vx * rCrossV) / gravMu - state.ship.y / r;
     const eccentricity = Math.hypot(eccentricityX, eccentricityY);
 
     if (eccentricity < 1.0) {
       const vSqr = state.ship.vx * state.ship.vx + state.ship.vy * state.ship.vy;
-      const specificEnergy = vSqr / 2 - game.GRAVITY / r;
-      const a = -game.GRAVITY / (2 * specificEnergy);
+      const specificEnergy = vSqr / 2 - gravMu / r;
+      const a = -gravMu / (2 * specificEnergy);
       let rPerigee = a * (1 - eccentricity);
       let rApogee = a * (1 + eccentricity);
 
@@ -664,7 +666,7 @@ function drawFrameImpl(renderer, state, planet){
         const dirX = state.ship.x / r;
         const dirY = state.ship.y / r;
 
-        const crossTickSize = 0.05;
+        const crossTickSize = 0.01 * state.view.radius;
         const crossX = -dirY * crossTickSize;
         const crossY = dirX * crossTickSize;
 
@@ -1412,7 +1414,7 @@ export class Renderer {
   }
 
   /**
-   * @param {import("./planet.js").Planet} planet
+   * @param {Planet} planet
    * @returns {void}
    */
   setPlanet(planet){
@@ -1538,7 +1540,7 @@ export class Renderer {
 
   /**
    * @param {RenderState} state
-   * @param {import("./planet.js").Planet} planet
+   * @param {Planet} planet
    * @returns {void}
    */
   drawFrame(state, planet){

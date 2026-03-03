@@ -3,6 +3,8 @@
 import { RingMesh } from "./planet_ring_mesh.js";
 import { PlanetSdf } from "./planet_sdf.js";
 
+const surfaceGravityAcceleration = 2.0;
+
 /**
  * Planet terrain abstraction backed by mapgen grid truth.
  */
@@ -18,6 +20,9 @@ export class Planet {
     this.mapgen = mapgen;
     /** @type {"radial"|"sdf"} */
     this.mode = "radial";
+    const rPlanet = cfg.RMAX;
+    this.planetRadius = rPlanet;
+    this.gravitationalConstant = surfaceGravityAcceleration * rPlanet * rPlanet;
 
     this.radial = new RingMesh(cfg, mapgen);
     this.radial.initFog(game);
@@ -233,7 +238,7 @@ export class Planet {
   /**
    * @param {number} x
    * @param {number} y
-   * @returns {{gx:number,gy:number}|null}
+   * @returns {{ux:number,uy:number}|null}
    */
   _upDirAt(x, y){
     const r = Math.hypot(x, y);
@@ -293,6 +298,40 @@ export class Planet {
     if (fog) renderer.updateFog(fog);
     const fogGrid = this.sdf.renderData().fog;
     if (fogGrid) renderer.updateFogTexture(fogGrid);
+  }
+
+  /**
+   * Evaluate gravitational acceleration at a position relative to the planet
+   * @param {number} x
+   * @param {number} y
+   * @returns {{x:number,y:number}}
+   */
+  gravityAt(x, y) {
+    const rPlanet = this.planetRadius;
+    const r2 = Math.max(x*x + y*y, rPlanet*rPlanet);
+    const r = Math.sqrt(r2);
+    const a = -this.gravitationalConstant / (r2 * r);
+    return {x: x * a, y: y * a};
+  }
+
+  /**
+   * Position and velocity on an orbit (specified by closest approach, orbit eccentricity, current angle, and direction)
+   * @param {number} perigee
+   * @param {number} eccentricity
+   * @param {number} angle
+   * @param {boolean} directionCCW
+   * @returns {{x: number, y: number, vx: number, vy: number}}
+   */
+  orbitStateFromElements(perigee, eccentricity, angle, directionCCW) {
+    angle *= directionCCW ? -1 : 1;
+    const p = perigee * (1 + eccentricity);
+    const r = p / (1 + eccentricity * Math.cos(angle));
+    const x = r * Math.cos(angle);
+    const y = r * Math.sin(angle);
+    const vScale = Math.sqrt(this.gravitationalConstant / p) * (directionCCW ? -1 : 1);
+    const vx = vScale * Math.sin(angle);
+    const vy = -vScale * (eccentricity + Math.cos(angle));
+    return {x: x, y: y, vx: vx, vy: vy};
   }
 
   /**

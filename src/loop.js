@@ -11,37 +11,6 @@ import { CFG } from './config.js';
 /** @typedef {import("./types.d.js").Miner} Miner */
 /** @typedef {import("./types.d.js").Ui} Ui */
 
-/**
- * @param {number} x
- * @param {number} y
- * @returns {{x:number,y:number}}
- */
-export function planetGravity(x, y) {
-  const r2 = Math.max(x*x + y*y, CFG.RMAX*CFG.RMAX);
-  const r = Math.sqrt(r2);
-  const a = -GAME.GRAVITY / (r2 * r);
-  return {x: x * a, y: y * a};
-}
-
-/**
- * @param {number} perigee
- * @param {number} eccentricity
- * @param {number} angle
- * @param {boolean} directionCCW
- * @returns {{x: number, y: number, vx: number, vy: number}}
- */
-function initialOrbitState(perigee, eccentricity, angle, directionCCW) {
-  angle *= directionCCW ? -1 : 1;
-  const p = perigee * (1 + eccentricity);
-  const r = p / (1 + eccentricity * Math.cos(angle));
-  const x = r * Math.cos(angle);
-  const y = r * Math.sin(angle);
-  const vScale = Math.sqrt(GAME.GRAVITY / p) * (directionCCW ? -1 : 1);
-  const vx = vScale * Math.sin(angle);
-  const vy = -vScale * (eccentricity + Math.cos(angle));
-  return {x: x, y: y, vx: vx, vy: vy};
-}
-
 export class GameLoop {
   /**
    * Main gameplay loop orchestrator.
@@ -80,7 +49,7 @@ export class GameLoop {
     this.MINER_HEAD_OFFSET = this.MINER_HEIGHT;
     this.MINER_FOOT_OFFSET = 0.0;
 
-    const {x: shipX, y: shipY, vx: shipVX, vy: shipVY} = initialOrbitState(CFG.RMAX + 0.9, 0.5, 1.5, false);
+    const {x: shipX, y: shipY, vx: shipVX, vy: shipVY} = planet.orbitStateFromElements(cfg.RMAX + 0.9, 0.5, 1.5, false);
 
     /** @type {Ship} */
     this.ship = {
@@ -162,7 +131,7 @@ export class GameLoop {
     const seed = this.mapgen.getWorld().seed + this.level * 97;
     const rand = mulberry32(seed);
     const direction = rand() < 0.5;
-    const {x: shipX, y: shipY, vx: shipVX, vy: shipVY} = initialOrbitState(rShip, eccentricity, angle, direction);
+    const {x: shipX, y: shipY, vx: shipVX, vy: shipVY} = this.planet.orbitStateFromElements(rShip, eccentricity, angle, direction);
     this.ship.x = shipX;
     this.ship.y = shipY;
     this.ship.vx = shipVX;
@@ -713,12 +682,12 @@ export class GameLoop {
       }
       */
 
-      const {x: gx, y: gy} = planetGravity(this.ship.x, this.ship.y);
+      const {x: gx, y: gy} = this.planet.gravityAt(this.ship.x, this.ship.y);
 
       this.ship.x += (this.ship.vx + 0.5 * (ax + gx) * dt) * dt;
       this.ship.y += (this.ship.vy + 0.5 * (ay + gy) * dt) * dt;
 
-      const {x: gx2, y: gy2} = planetGravity(this.ship.x, this.ship.y);
+      const {x: gx2, y: gy2} = this.planet.gravityAt(this.ship.x, this.ship.y);
 
       this.ship.vx += (ax + (gx + gx2) / 2) * dt;
       this.ship.vy += (ay + (gy + gy2) / 2) * dt;
@@ -1121,7 +1090,7 @@ export class GameLoop {
       for (let i = this.debris.length - 1; i >= 0; i--){
         const d = this.debris[i];
         const r = Math.hypot(d.x, d.y) || 1;
-        const {x: gx, y: gy} = planetGravity(d.x, d.y);
+        const {x: gx, y: gy} = this.planet.gravityAt(d.x, d.y);
         d.vx += gx * dt;
         d.vy += gy * dt;
         d.vx *= Math.max(0, 1 - GAME.DRAG * dt);
