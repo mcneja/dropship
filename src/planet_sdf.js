@@ -178,11 +178,10 @@ export class PlanetSdf {
   }
 
   _buildAirGridFromSampler(){
-    const { G, inside, toWorld } = this.mapgen.grid;
+    const { G, toWorld } = this.mapgen.grid;
     const out = new Uint8Array(G * G);
     for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) {
       const k = j * G + i;
-      if (!inside[k]) { out[k] = 1; continue; }
       const [x, y] = toWorld(i, j);
       out[k] = this._airAtWorld(x, y) ? 1 : 0;
     }
@@ -190,11 +189,10 @@ export class PlanetSdf {
   }
 
   _buildShadeGrid(){
-    const { G, idx, inside, toWorld } = this.mapgen.grid;
+    const { G, idx, toWorld } = this.mapgen.grid;
     const out = new Float32Array(G * G);
     for (let j = 0; j < G; j++) for (let i = 0; i < G; i++){
       const k = idx(i, j);
-      if (!inside[k]) { out[k] = 0; continue; }
       const [x, y] = toWorld(i, j);
       const n = this.mapgen.noise.fbm(x * 0.16, y * 0.16, 2, 0.6, 2.0);
       out[k] = Math.max(0, Math.min(1, 0.5 + 0.5 * n));
@@ -254,7 +252,7 @@ export class PlanetSdf {
   }
 
   _rebuildSdfFull(){
-    const { G, inside, cell } = this.mapgen.grid;
+    const { G, cell } = this.mapgen.grid;
     const source = String(this.cfg.SDF_SOURCE || "mapgen");
     const air = (source === "radial") ? this._buildAirGridFromSampler() : this.mapgen.getWorld().air;
     const size = G * G;
@@ -263,8 +261,7 @@ export class PlanetSdf {
     const distToAir = new Float32Array(size);
 
     for (let k = 0; k < size; k++){
-      const ins = inside[k];
-      const isAir = ins ? (air[k] ? 1 : 0) : 1;
+      const isAir = air[k] ? 1 : 0;
       distToRock[k] = isAir ? INF : 0;
       distToAir[k] = isAir ? 0 : INF;
     }
@@ -320,8 +317,7 @@ export class PlanetSdf {
 
     const sdf = new Float32Array(size);
     for (let k = 0; k < size; k++){
-      const ins = inside[k];
-      const isAir = ins ? (air[k] ? 1 : 0) : 1;
+      const isAir = air[k] ? 1 : 0;
       const d = Math.max(0, Math.sqrt(isAir ? distToRock[k] : distToAir[k]) - 0.5);
       sdf[k] = (isAir ? 1 : -1) * d * cell;
     }
