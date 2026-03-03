@@ -302,7 +302,7 @@ export class GameLoop {
   _applyBombImpact(x, y){
     const newAir = this.planet.applyAirEdit(x, y, this.TERRAIN_IMPACT_RADIUS, 1);
     this.renderer.updateAir(newAir);
-    this.planet.syncRenderer(this.renderer);
+    this.planet.syncRenderResources(this.renderer);
   }
 
   /**
@@ -503,7 +503,7 @@ export class GameLoop {
     this.mapgen.regenWorld(seed);
     const newAir = this.planet.regenFromMap();
     this.renderer.updateAir(newAir);
-    this.planet.syncRenderer(this.renderer);
+    this.planet.syncRenderResources(this.renderer);
     this.radial.resetFog();
     this._resetShip(true);
     this.entityExplosions.length = 0;
@@ -1165,7 +1165,7 @@ export class GameLoop {
     if (inputState.toggleRender){
       this.planet.toggleMode();
       this.renderer.setRenderMode(this.planet.mode);
-      this.planet.syncFog(this.renderer, this.ship.x, this.ship.y);
+      this.planet.syncRenderFog(this.renderer, this.ship.x, this.ship.y);
     }
 
     const fixed = 1 / 60;
@@ -1193,7 +1193,7 @@ export class GameLoop {
     }
 
     const gameOver = this.ship.state === "crashed";
-    this.planet.syncFog(this.renderer, this.ship.x, this.ship.y);
+    this.planet.syncRenderFog(this.renderer, this.ship.x, this.ship.y);
     this.renderer.drawFrame({
       view: this._viewState(),
       ship: this.ship,

@@ -46,7 +46,7 @@ export const CFG = Object.freeze({
   // SDF grid sizing: 'relative' (GRID * SDF_GRID_RELATIVE), 'mapgen_full' (GRID), or 'absolute' (SDF_GRID_ABSOLUTE).
   SDF_GRID_MODE: "relative",
   // Relative SDF size vs mapgen GRID when SDF_GRID_MODE='relative'.
-  SDF_GRID_RELATIVE: 0.25,
+  SDF_GRID_RELATIVE: 0.1,
   // If true, cap SDF relative size by radial node count target.
   SDF_GRID_CLAMP_TO_NODES: false,
   // Absolute SDF size when SDF_GRID_MODE='absolute'.
@@ -58,7 +58,7 @@ export const CFG = Object.freeze({
   // Use marching squares contouring for SDF boundary (hard edge, smoother angles).
   SDF_MARCHING_SQUARES: false,
   // Supersample factor for building SDF render grid (1, 2, or 4).
-  SDF_BUILD_SUPERSAMPLE: 2,
+  SDF_BUILD_SUPERSAMPLE: 1,
 });
 
 const surfaceGravityAcceleration = 2.0;

@@ -775,7 +775,7 @@ function drawFrameImpl(renderer, state, planet){
     }
   }
   const dbg = state.debugPoints;
-  if (state.debugCollisions && state.renderMode === "sdf" && dbg){
+  if (state.debugCollisions && state.debugNodes && dbg){
     for (const [sxw, syw, air, av] of dbg){
       pos.push(sxw, syw);
       if (air) col.push(airPoint[0], airPoint[1], airPoint[2], 0.45);
@@ -802,16 +802,7 @@ function drawFrameImpl(renderer, state, planet){
     }
   }
 
-  if (state.debugCollisions && state.debugNodes && state.renderMode !== "sdf"){
-    for (const ring of mesh.rings){
-      for (const v of ring){
-        pos.push(v.x, v.y);
-        if (v.air > 0.5) col.push(airPoint[0], airPoint[1], airPoint[2], 0.6);
-        else col.push(rockPoint[0], rockPoint[1], rockPoint[2], 0.6);
-        pointVerts += 1;
-      }
-    }
-  }
+  // Debug nodes now come from state.debugPoints for both modes.
 
 
   gl.useProgram(oprog);
