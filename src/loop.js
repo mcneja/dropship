@@ -489,6 +489,7 @@ export class GameLoop {
       }
     }
 
+    /** @type {Array<Miner>} */
     const nudged = [];
     let dead = 0;
     for (const p of placed){
