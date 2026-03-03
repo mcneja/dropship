@@ -322,7 +322,7 @@ export class PlanetSdf {
     for (let k = 0; k < size; k++){
       const ins = inside[k];
       const isAir = ins ? (air[k] ? 1 : 0) : 1;
-      const d = isAir ? Math.sqrt(distToRock[k]) : Math.sqrt(distToAir[k]);
+      const d = Math.max(0, Math.sqrt(isAir ? distToRock[k] : distToAir[k]) - 0.5);
       sdf[k] = (isAir ? 1 : -1) * d * cell;
     }
 
@@ -461,7 +461,7 @@ export class PlanetSdf {
     const sdfOut = new Float32Array(size);
     for (let k = 0; k < size; k++){
       const isAir = cur[k] ? 1 : 0;
-      const d = isAir ? Math.sqrt(distToRock[k]) : Math.sqrt(distToAir[k]);
+      const d = Math.max(0, Math.sqrt(isAir ? distToRock[k] : distToAir[k]) - 0.5);
       sdfOut[k] = (isAir ? 1 : -1) * d * cell;
     }
     this._sdfGridLow = this._downsampleSdf(sdfOut, H, G);
