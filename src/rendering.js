@@ -122,6 +122,13 @@ function createTexture(gl, w, h, internalFormat, format, type, data, minFilter=g
   return tex;
 }
 
+function ensureTexData(gl, type, data){
+  if (type === gl.HALF_FLOAT && data && data instanceof Float32Array){
+    return toHalfFloatArray(data);
+  }
+  return data;
+}
+
 function resampleGrid(src, srcSize, dstSize){
   if (srcSize === dstSize){
     return src;
@@ -1142,6 +1149,15 @@ export class Renderer {
     return texelFetch(tex, ii, 0).r;
   }
 
+  float sampleFogSmooth(sampler2D tex, vec2 uv, vec2 size){
+    vec2 px = 1.0 / size;
+    float f0 = sampleTex(tex, uv + vec2(-0.25, -0.25) * px, size);
+    float f1 = sampleTex(tex, uv + vec2(0.25, -0.25) * px, size);
+    float f2 = sampleTex(tex, uv + vec2(-0.25, 0.25) * px, size);
+    float f3 = sampleTex(tex, uv + vec2(0.25, 0.25) * px, size);
+    return 0.25 * (f0 + f1 + f2 + f3);
+  }
+
 
   float segDist(vec2 p, vec2 a, vec2 b){
     vec2 ab = b - a;
@@ -1241,7 +1257,7 @@ export class Renderer {
     uv = clamp(uv, 0.0, 1.0);
     float sdf = (uMarchingSquares > 0.5) ? sampleSdfMarching(uv, uGridSize) : sampleSdfSuper(uSdfTex, uv, uGridSize, uSdfSuper);
     float shade = sampleTex(uShadeTex, uv, uGridSize);
-    float fogRaw = sampleTex(uFogTex, uv, uFogGridSize);
+    float fogRaw = sampleFogSmooth(uFogTex, uv, uFogGridSize);
     float fog = fogRaw;
     if (fogRaw > 0.001){
       float seen = uFogSeenScale;
@@ -1481,7 +1497,7 @@ export class Renderer {
       gl.bindTexture(gl.TEXTURE_2D, this.sdfTex);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, this.sdfTexFilter);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, this.sdfTexFilter);
-      gl.texImage2D(gl.TEXTURE_2D, 0, this.sdfTexInternalFormat, G, G, 0, this.sdfTexFormat, this.sdfTexType, sdfGrid);
+      gl.texImage2D(gl.TEXTURE_2D, 0, this.sdfTexInternalFormat, G, G, 0, this.sdfTexFormat, this.sdfTexType, ensureTexData(gl, this.sdfTexType, sdfGrid));
       gl.bindTexture(gl.TEXTURE_2D, null);
     }
     if (!this.shadeTex){
@@ -1490,7 +1506,7 @@ export class Renderer {
       gl.bindTexture(gl.TEXTURE_2D, this.shadeTex);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, this.sdfTexFilter);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, this.sdfTexFilter);
-      gl.texImage2D(gl.TEXTURE_2D, 0, this.sdfTexInternalFormat, G, G, 0, this.sdfTexFormat, this.sdfTexType, shadeGrid);
+      gl.texImage2D(gl.TEXTURE_2D, 0, this.sdfTexInternalFormat, G, G, 0, this.sdfTexFormat, this.sdfTexType, ensureTexData(gl, this.sdfTexType, shadeGrid));
       gl.bindTexture(gl.TEXTURE_2D, null);
     }
   }
@@ -1515,7 +1531,7 @@ export class Renderer {
       gl.bindTexture(gl.TEXTURE_2D, this.fogTex);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, this.sdfTexFilter);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, this.sdfTexFilter);
-      gl.texImage2D(gl.TEXTURE_2D, 0, this.sdfTexInternalFormat, G, G, 0, this.sdfTexFormat, this.sdfTexType, fogGrid);
+      gl.texImage2D(gl.TEXTURE_2D, 0, this.sdfTexInternalFormat, G, G, 0, this.sdfTexFormat, this.sdfTexType, ensureTexData(gl, this.sdfTexType, fogGrid));
       gl.bindTexture(gl.TEXTURE_2D, null);
     }
   }

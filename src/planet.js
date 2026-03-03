@@ -142,6 +142,134 @@ export class Planet {
     return this.radial.fogAlphaAtWorld(x, y);
   }
 
+
+  /**
+   * Surface normal and slope info at world point.
+   * Returns slope as (1 - dot(normal, gravityDir)), so 0 is perfectly flat.
+   * @param {number} x
+   * @param {number} y
+   * @param {number} [eps]
+   * @returns {{nx:number, ny:number, slope:number}|null}
+   */
+  surfaceInfoAtWorld(x, y, eps = 0.18){
+    const up = this._upDirAt(x, y);
+    if (!up) return null;
+    const n = (this.mode === "sdf")
+      ? this.sdfNormalAtWorld(x, y, eps)
+      : this.radialNormalAtWorld(x, y, eps);
+    if (!n) return null;
+    let dot = n.nx * up.ux + n.ny * up.uy;
+    if (dot < 0){
+      n.nx = -n.nx;
+      n.ny = -n.ny;
+      dot = -dot;
+    }
+    return { nx: n.nx, ny: n.ny, slope: 1 - dot };
+  }
+
+  /**
+   * Walkability test using surface slope (lower is flatter).
+   * @param {number} x
+   * @param {number} y
+   * @param {number} maxSlope
+   * @param {number} [eps]
+   * @returns {boolean}
+   */
+  isWalkableAtWorld(x, y, maxSlope = 0.35, eps = 0.18){
+    const info = this.surfaceInfoAtWorld(x, y, eps);
+    if (!info) return false;
+    return info.slope <= maxSlope;
+  }
+
+  /**
+   * Landable check using slope and a small clearance test.
+   * @param {number} x
+   * @param {number} y
+   * @param {number} maxSlope
+   * @param {number} clearance
+   * @param {number} [eps]
+   * @returns {boolean}
+   */
+  isLandableAtWorld(x, y, maxSlope = 0.4, clearance = 0.2, eps = 0.18){
+    const info = this.surfaceInfoAtWorld(x, y, eps);
+    if (!info) return false;
+    if (info.slope > maxSlope) return false;
+    const ax = x + info.nx * clearance;
+    const ay = y + info.ny * clearance;
+    return this.airValueAtWorld(ax, ay) > 0.5;
+  }
+
+  /**
+   * Nudge a point out of rock along the local surface normal.
+   * Returns ok=false if it stays buried after maxPush.
+   * @param {number} x
+   * @param {number} y
+   * @param {number} [maxPush]
+   * @param {number} [step]
+   * @param {number} [eps]
+   * @returns {{x:number,y:number,ok:boolean}}
+   */
+  nudgeOutOfTerrain(x, y, maxPush = 0.6, step = 0.06, eps = 0.18){
+    if (this.airValueAtWorld(x, y) > 0.5){
+      return { x, y, ok: true };
+    }
+    const steps = Math.max(1, Math.ceil(maxPush / step));
+    let cx = x;
+    let cy = y;
+    for (let i = 0; i < steps; i++){
+      const n = (this.mode === "sdf")
+        ? this.sdfNormalAtWorld(cx, cy, eps)
+        : this.radialNormalAtWorld(cx, cy, eps);
+      if (!n) break;
+      cx += n.nx * step;
+      cy += n.ny * step;
+      if (this.airValueAtWorld(cx, cy) > 0.5){
+        return { x: cx, y: cy, ok: true };
+      }
+    }
+    return { x: cx, y: cy, ok: false };
+  }
+
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @returns {{gx:number,gy:number}|null}
+   */
+  _upDirAt(x, y){
+    const r = Math.hypot(x, y);
+    if (r < 1e-6) return null;
+    return { ux: x / r, uy: y / r };
+  }
+
+  /**
+   * Normal from radial occupancy gradient.
+   * @param {number} x
+   * @param {number} y
+   * @param {number} eps
+   * @returns {{nx:number,ny:number}|null}
+   */
+  radialNormalAtWorld(x, y, eps){
+    const gdx = this.radial.airValueAtWorld(x + eps, y) - this.radial.airValueAtWorld(x - eps, y);
+    const gdy = this.radial.airValueAtWorld(x, y + eps) - this.radial.airValueAtWorld(x, y - eps);
+    const len = Math.hypot(gdx, gdy);
+    if (len < 1e-6) return null;
+    return { nx: gdx / len, ny: gdy / len };
+  }
+
+  /**
+   * Normal from SDF gradient.
+   * @param {number} x
+   * @param {number} y
+   * @param {number} eps
+   * @returns {{nx:number,ny:number}|null}
+   */
+  sdfNormalAtWorld(x, y, eps){
+    const gdx = this.sdf.sdfValueAtWorld(x + eps, y) - this.sdf.sdfValueAtWorld(x - eps, y);
+    const gdy = this.sdf.sdfValueAtWorld(x, y + eps) - this.sdf.sdfValueAtWorld(x, y - eps);
+    const len = Math.hypot(gdx, gdy);
+    if (len < 1e-6) return null;
+    return { nx: gdx / len, ny: gdy / len };
+  }
   /**
    * Update renderer resources for current mode (no-op for radial mode).
    * @param {{updateSdfTextures:(sdf:Float32Array, shade:Float32Array)=>void}} renderer

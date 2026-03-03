@@ -54,13 +54,15 @@ export const CFG = Object.freeze({
   // SDF source: 'mapgen' (grid truth) or 'radial' (ring mesh).
   SDF_SOURCE: "radial",
   // SDF texture format: "r32f" or "r16f"
-  SDF_TEX_FORMAT: "r32f",
+  SDF_TEX_FORMAT: "r16f",
   // Use hardware linear filtering when supported (only for r16f).
-  SDF_HW_FILTER: false,
+  SDF_HW_FILTER: true,
   // Use marching squares contouring for SDF boundary (hard edge, smoother angles).
   SDF_MARCHING_SQUARES: false,
+  // Supersample factor for SDF fog/visibility grid (1, 2, or 4).
+  SDF_FOG_SUPERSAMPLE: 2,
   // Supersample factor for building SDF render grid (1, 2, or 4).
-  SDF_BUILD_SUPERSAMPLE: 1,
+  SDF_BUILD_SUPERSAMPLE: 2,
 });
 
 const surfaceGravityAcceleration = 2.0;

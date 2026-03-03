@@ -62,6 +62,16 @@ export class PlanetSdf {
   }
 
   /**
+   * Continuous signed distance at world point.
+   * @param {number} x
+   * @param {number} y
+   * @returns {number}
+   */
+  sdfValueAtWorld(x, y){
+    return this._sampleSdfFullAtWorld(x, y);
+  }
+
+  /**
    * @returns {{gridSize:number,fogSize:number,sdf:Float32Array,shade:Float32Array,fog:Float32Array|null}}
    */
   renderData(){
@@ -121,14 +131,16 @@ export class PlanetSdf {
    */
   buildFogFromRadial(radial){
     const size = this._fogSize || this._sdfSize;
-    const out = new Float32Array(size * size);
+    const scale = Math.max(1, Math.min(4, Math.round(this.cfg.SDF_FOG_SUPERSAMPLE || 1)));
+    const sizeHi = size * scale;
+    const outHi = new Float32Array(sizeHi * sizeHi);
     const { worldMin, worldSize } = this.mapgen.grid;
-    for (let j = 0; j < size; j++) for (let i = 0; i < size; i++){
-      const x = worldMin + (i + 0.5) * (worldSize / size);
-      const y = worldMin + (j + 0.5) * (worldSize / size);
-      out[j * size + i] = radial.fogAlphaAtWorld(x, y);
+    for (let j = 0; j < sizeHi; j++) for (let i = 0; i < sizeHi; i++){
+      const x = worldMin + (i + 0.5) * (worldSize / sizeHi);
+      const y = worldMin + (j + 0.5) * (worldSize / sizeHi);
+      outHi[j * sizeHi + i] = radial.fogAlphaAtWorld(x, y);
     }
-    this._fogGrid = out;
+    this._fogGrid = (scale > 1) ? this._downsampleSdf(outHi, sizeHi, size) : outHi;
   }
 
   _shadeGridRender(){
@@ -214,8 +226,7 @@ export class PlanetSdf {
   }
 
   _calcFogResolution(){
-    const base = Math.max(this._sdfSize, 32);
-    return Math.min(this.mapgen.grid.G, base * 2);
+    return this._sdfSize;
   }
 
   _downsampleSdf(src, srcSize, dstSize){
@@ -498,23 +509,25 @@ export class PlanetSdf {
   _updateFogSdf(shipX, shipY, airValueAtWorld){
     const size = this._fogSize || this._sdfSize;
     if (size <= 0) return;
+    const scale = Math.max(1, Math.min(4, Math.round(this.cfg.SDF_FOG_SUPERSAMPLE || 1)));
+    const sizeHi = size * scale;
     const { worldMin, worldSize } = this.mapgen.grid;
     const r2 = this.game.VIS_RANGE * this.game.VIS_RANGE;
     const step = this.game.VIS_STEP;
     const holdFrames = this.game.FOG_HOLD_FRAMES ?? 4;
     const seenAlpha = this.game.FOG_SEEN_ALPHA ?? 0.55;
     const unseenAlpha = this.game.FOG_UNSEEN_ALPHA ?? 0.85;
-    if (!this._fogSeenGrid || this._fogSeenGrid.length !== size * size){
-      this._fogSeenGrid = new Uint8Array(size * size);
-      this._fogHoldGrid = new Uint8Array(size * size);
+    if (!this._fogSeenGrid || this._fogSeenGrid.length !== sizeHi * sizeHi){
+      this._fogSeenGrid = new Uint8Array(sizeHi * sizeHi);
+      this._fogHoldGrid = new Uint8Array(sizeHi * sizeHi);
     }
     const seen = this._fogSeenGrid;
     const hold = this._fogHoldGrid;
-    const out = new Float32Array(size * size);
-    const cell = worldSize / size;
+    const outHi = new Float32Array(sizeHi * sizeHi);
+    const cell = worldSize / sizeHi;
 
-    for (let j = 0; j < size; j++) for (let i = 0; i < size; i++){
-      const idx = j * size + i;
+    for (let j = 0; j < sizeHi; j++) for (let i = 0; i < sizeHi; i++){
+      const idx = j * sizeHi + i;
       const x = worldMin + (i + 0.5) * cell;
       const y = worldMin + (j + 0.5) * cell;
       const dx = x - shipX;
@@ -549,9 +562,9 @@ export class PlanetSdf {
       if (hold[idx] === 0){
         fog = seen[idx] ? seenAlpha : unseenAlpha;
       }
-      out[idx] = fog;
+      outHi[idx] = fog;
     }
-    this._fogGrid = out;
+    this._fogGrid = (scale > 1) ? this._downsampleSdf(outHi, sizeHi, size) : outHi;
   }
 
   _buildSdfDebugPoints(){

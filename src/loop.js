@@ -489,9 +489,19 @@ export class GameLoop {
       }
     }
 
-    this.miners = placed.map((p) => ({ x: p.x, y: p.y, state: "idle" }));
+    const nudged = [];
+    let dead = 0;
+    for (const p of placed){
+      const res = this.planet.nudgeOutOfTerrain(p.x, p.y);
+      if (!res.ok){
+        dead++;
+        continue;
+      }
+      nudged.push({ x: res.x, y: res.y, state: "idle" });
+    }
+    this.miners = nudged;
     this.minersRemaining = this.miners.length;
-    this.minersDead = 0;
+    this.minersDead = dead;
   }
 
   /**
@@ -545,6 +555,26 @@ export class GameLoop {
       [(verts[1][0] + verts[2][0]) * 0.5, (verts[1][1] + verts[2][1]) * 0.5],
       [(verts[2][0] + verts[0][0]) * 0.5, (verts[2][1] + verts[0][1]) * 0.5],
     ];
+  }
+
+  /**
+   * Nudge miners out of terrain after mode changes; kill if deeply buried.
+   * @returns {void}
+   */
+  _nudgeMinersFromTerrain(){
+    for (let i = this.miners.length - 1; i >= 0; i--){
+      const m = this.miners[i];
+      if (m.state === "boarded") continue;
+      const res = this.planet.nudgeOutOfTerrain(m.x, m.y);
+      if (!res.ok){
+        this.miners.splice(i, 1);
+        this.minersRemaining = Math.max(0, this.minersRemaining - 1);
+        this.minersDead++;
+        continue;
+      }
+      m.x = res.x;
+      m.y = res.y;
+    }
   }
 
   /**
@@ -771,7 +801,10 @@ export class GameLoop {
         } else {
           // Adjust velocity
           if (vn < 0) {
-            if (dotUp < GAME.SURFACE_DOT) {
+            const maxSlope = 1 - Math.cos(Math.PI / 8); // 22.5 deg
+            const landSlope = Math.min((1 - GAME.SURFACE_DOT) + 0.03, maxSlope);
+            const clearance = (this.ship._shipRadius || 0.25);
+            if (!this.planet.isLandableAtWorld(this.ship.x, this.ship.y, landSlope, clearance, 0.2)) {
               // Non-landing surface: bounce a bit, no friction
               const restitution = (1 + GAME.BOUNCE_RESTITUTION) * -vn;
               this.ship.vx += restitution * nx;
@@ -1166,6 +1199,7 @@ export class GameLoop {
       this.planet.toggleMode();
       this.renderer.setRenderMode(this.planet.mode);
       this.planet.syncRenderFog(this.renderer, this.ship.x, this.ship.y);
+      this._nudgeMinersFromTerrain();
     }
 
     const fixed = 1 / 60;
