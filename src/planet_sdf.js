@@ -9,12 +9,14 @@ export class PlanetSdf {
    * @param {typeof import("./config.js").GAME} game
    * @param {import("./mapgen.js").MapGen} mapgen
    * @param {() => number} getNodeCount
+   * @param {(x:number,y:number)=>number} airSampleAtWorld
    */
-  constructor(cfg, game, mapgen, getNodeCount){
+  constructor(cfg, game, mapgen, getNodeCount, airSampleAtWorld){
     this.cfg = cfg;
     this.game = game;
     this.mapgen = mapgen;
     this._getNodeCount = getNodeCount;
+    this._airSampleAtWorld = airSampleAtWorld;
 
     /** @type {Float32Array|null} */
     this._shadeGrid = null;
@@ -156,6 +158,25 @@ export class PlanetSdf {
     return this._fogSize || this._sdfSize;
   }
 
+  _airAtWorld(x, y){
+    if (this._airSampleAtWorld){
+      return this._airSampleAtWorld(x, y) > 0.5 ? 1 : 0;
+    }
+    return this.mapgen.airBinaryAtWorld(x, y);
+  }
+
+  _buildAirGridFromSampler(){
+    const { G, inside, toWorld } = this.mapgen.grid;
+    const out = new Uint8Array(G * G);
+    for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) {
+      const k = j * G + i;
+      if (!inside[k]) { out[k] = 1; continue; }
+      const [x, y] = toWorld(i, j);
+      out[k] = this._airAtWorld(x, y) ? 1 : 0;
+    }
+    return out;
+  }
+
   _buildShadeGrid(){
     const { G, idx, inside, toWorld } = this.mapgen.grid;
     const out = new Float32Array(G * G);
@@ -223,7 +244,8 @@ export class PlanetSdf {
 
   _rebuildSdfFull(){
     const { G, inside, cell } = this.mapgen.grid;
-    const air = this.mapgen.getWorld().air;
+    const source = String(this.cfg.SDF_SOURCE || "mapgen");
+    const air = (source === "radial") ? this._buildAirGridFromSampler() : this.mapgen.getWorld().air;
     const size = G * G;
     const INF = 1e12;
     const distToRock = new Float32Array(size);
@@ -335,7 +357,8 @@ export class PlanetSdf {
     for (let j = 0; j < H; j++) for (let i = 0; i < H; i++){
       const x = worldMin + (i + 0.5) * (worldSize / H);
       const y = worldMin + (j + 0.5) * (worldSize / H);
-      const v = this._sampleSdfFullAtWorld(x, y);
+      const source = String(this.cfg.SDF_SOURCE || "mapgen");
+      const v = (source === "radial") ? (this._airAtWorld(x, y) ? 1 : -1) : this._sampleSdfFullAtWorld(x, y);
       bin[j * H + i] = v > 0 ? 1 : 0;
     }
     // De-checkerboard: collapse 2x2 alternating patterns using local majority.

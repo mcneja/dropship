@@ -22,7 +22,7 @@ export class Planet {
     this.radial = new RingMesh(cfg, mapgen);
     this.radial.initFog(game);
 
-    this.sdf = new PlanetSdf(cfg, game, mapgen, () => this._radialNodeCount());
+    this.sdf = new PlanetSdf(cfg, game, mapgen, () => this._radialNodeCount(), (x, y) => this.radial.airValueAtWorld(x, y));
     /** @type {Array<[number,number,boolean,number]>|null} */
     this._radialDebugPoints = null;
     /** @type {boolean} */

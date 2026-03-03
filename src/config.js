@@ -46,11 +46,13 @@ export const CFG = Object.freeze({
   // SDF grid sizing: 'relative' (GRID * SDF_GRID_RELATIVE), 'mapgen_full' (GRID), or 'absolute' (SDF_GRID_ABSOLUTE).
   SDF_GRID_MODE: "relative",
   // Relative SDF size vs mapgen GRID when SDF_GRID_MODE='relative'.
-  SDF_GRID_RELATIVE: 0.1,
+  SDF_GRID_RELATIVE: 0.5,
   // If true, cap SDF relative size by radial node count target.
   SDF_GRID_CLAMP_TO_NODES: false,
   // Absolute SDF size when SDF_GRID_MODE='absolute'.
   SDF_GRID_ABSOLUTE: 256,
+  // SDF source: 'mapgen' (grid truth) or 'radial' (ring mesh).
+  SDF_SOURCE: "radial",
   // SDF texture format: "r32f" or "r16f"
   SDF_TEX_FORMAT: "r32f",
   // Use hardware linear filtering when supported (only for r16f).
