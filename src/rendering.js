@@ -43,6 +43,57 @@ function uploadAttrib(gl, loc, data, size, type=gl.FLOAT){
 }
 
 /**
+ * @param {Float32Array} src
+ * @returns {Uint16Array}
+ */
+function toHalfFloatArray(src){
+  const out = new Uint16Array(src.length);
+  const view = new DataView(new ArrayBuffer(4));
+  for (let i = 0; i < src.length; i++){
+    const f = src[i];
+    if (isNaN(f)){
+      out[i] = 0x7e00;
+      continue;
+    }
+    if (f === Infinity){
+      out[i] = 0x7c00;
+      continue;
+    }
+    if (f === -Infinity){
+      out[i] = 0xfc00;
+      continue;
+    }
+    view.setFloat32(0, f, true);
+    const x = view.getUint32(0, true);
+    const sign = (x >> 31) & 0x1;
+    let exp = (x >> 23) & 0xff;
+    let mant = x & 0x7fffff;
+    let h;
+    if (exp === 0){
+      h = sign << 15;
+    } else if (exp === 0xff){
+      h = (sign << 15) | 0x7c00 | (mant ? 0x200 : 0);
+    } else {
+      exp = exp - 127 + 15;
+      if (exp >= 0x1f){
+        h = (sign << 15) | 0x7c00;
+      } else if (exp <= 0){
+        if (exp < -10){
+          h = sign << 15;
+        } else {
+          mant = (mant | 0x800000) >> (1 - exp);
+          h = (sign << 15) | ((mant + 0x1000) >> 13);
+        }
+      } else {
+        h = (sign << 15) | (exp << 10) | ((mant + 0x1000) >> 13);
+      }
+    }
+    out[i] = h;
+  }
+  return out;
+}
+
+/**
  * @param {WebGL2RenderingContext} gl
  * @param {number} w
  * @param {number} h
@@ -55,6 +106,10 @@ function uploadAttrib(gl, loc, data, size, type=gl.FLOAT){
  * @returns {WebGLTexture}
  */
 function createTexture(gl, w, h, internalFormat, format, type, data, minFilter=gl.NEAREST, magFilter=gl.NEAREST){
+
+  if (type === gl.HALF_FLOAT && data && data instanceof Float32Array){
+    data = toHalfFloatArray(data);
+  }
   const tex = gl.createTexture();
   if (!tex) throw new Error("Failed to create texture");
   gl.bindTexture(gl.TEXTURE_2D, tex);
@@ -65,6 +120,32 @@ function createTexture(gl, w, h, internalFormat, format, type, data, minFilter=g
   gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, w, h, 0, format, type, data);
   gl.bindTexture(gl.TEXTURE_2D, null);
   return tex;
+}
+
+function resampleGrid(src, srcSize, dstSize){
+  if (srcSize === dstSize){
+    return src;
+  }
+  const out = new Float32Array(dstSize * dstSize);
+  const scale = srcSize / dstSize;
+  for (let j = 0; j < dstSize; j++) for (let i = 0; i < dstSize; i++){
+    const x = (i + 0.5) * scale - 0.5;
+    const y = (j + 0.5) * scale - 0.5;
+    const x0 = Math.max(0, Math.min(srcSize - 1, Math.floor(x)));
+    const y0 = Math.max(0, Math.min(srcSize - 1, Math.floor(y)));
+    const x1 = Math.max(0, Math.min(srcSize - 1, x0 + 1));
+    const y1 = Math.max(0, Math.min(srcSize - 1, y0 + 1));
+    const fx = x - x0;
+    const fy = y - y0;
+    const i00 = y0 * srcSize + x0;
+    const i10 = y0 * srcSize + x1;
+    const i01 = y1 * srcSize + x0;
+    const i11 = y1 * srcSize + x1;
+    const a = src[i00] * (1 - fx) + src[i10] * fx;
+    const b = src[i01] * (1 - fx) + src[i11] * fx;
+    out[j * dstSize + i] = a * (1 - fy) + b * fy;
+  }
+  return out;
 }
 
 /**
@@ -389,6 +470,7 @@ function drawFrameImpl(renderer, state, planet){
     gl.uniform3fv(renderer.suFogColor, game.FOG_COLOR);
     gl.uniform2f(renderer.suViewport, canvas.width, canvas.height);
     gl.uniform1f(renderer.suUseHwFilter, renderer.sdfUseHwFilter ? 1.0 : 0.0);
+    gl.uniform1f(renderer.suMarchingSquares, cfg.SDF_MARCHING_SQUARES ? 1.0 : 0.0);
 
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, renderer.sdfTex);
@@ -692,8 +774,9 @@ function drawFrameImpl(renderer, state, planet){
       pointVerts += 1;
     }
   }
-  if (state.debugCollisions && state.renderMode === "sdf" && state.sdfDebugPoints){
-    for (const [sxw, syw, air, av] of state.sdfDebugPoints){
+  const dbg = state.debugPoints;
+  if (state.debugCollisions && state.renderMode === "sdf" && dbg){
+    for (const [sxw, syw, air, av] of dbg){
       pos.push(sxw, syw);
       if (air) col.push(airPoint[0], airPoint[1], airPoint[2], 0.45);
       else col.push(rockPoint[0], rockPoint[1], rockPoint[2], 0.45);
@@ -1009,6 +1092,7 @@ export class Renderer {
   uniform vec3 uFogColor;
   uniform vec2 uViewport;
   uniform float uUseHwFilter;
+  uniform float uMarchingSquares;
   uniform sampler2D uSdfTex;
   uniform sampler2D uShadeTex;
   uniform sampler2D uFogTex;
@@ -1067,6 +1151,93 @@ export class Renderer {
     return texelFetch(tex, ii, 0).r;
   }
 
+
+  float segDist(vec2 p, vec2 a, vec2 b){
+    vec2 ab = b - a;
+    float denom = max(1e-6, dot(ab, ab));
+    float t = clamp(dot(p - a, ab) / denom, 0.0, 1.0);
+    vec2 q = a + ab * t;
+    return length(p - q);
+  }
+
+  float sampleSdfMarching(vec2 uv, vec2 size){
+    vec2 coord = uv * size - 0.5;
+    vec2 i0 = floor(coord);
+    vec2 f = coord - i0;
+    vec2 maxI = size - 1.0;
+    ivec2 i00 = ivec2(clamp(i0, vec2(0.0), maxI));
+    ivec2 i10 = ivec2(clamp(i0 + vec2(1.0, 0.0), vec2(0.0), maxI));
+    ivec2 i01 = ivec2(clamp(i0 + vec2(0.0, 1.0), vec2(0.0), maxI));
+    ivec2 i11 = ivec2(clamp(i0 + vec2(1.0, 1.0), vec2(0.0), maxI));
+    float v00 = texelFetch(uSdfTex, i00, 0).r;
+    float v10 = texelFetch(uSdfTex, i10, 0).r;
+    float v01 = texelFetch(uSdfTex, i01, 0).r;
+    float v11 = texelFetch(uSdfTex, i11, 0).r;
+
+    bool top = (v00 > 0.0) != (v10 > 0.0);
+    bool right = (v10 > 0.0) != (v11 > 0.0);
+    bool bottom = (v01 > 0.0) != (v11 > 0.0);
+    bool left = (v00 > 0.0) != (v01 > 0.0);
+
+    vec2 pTop = vec2(0.0);
+    vec2 pRight = vec2(0.0);
+    vec2 pBottom = vec2(0.0);
+    vec2 pLeft = vec2(0.0);
+
+    if (top){
+      float t = v00 / (v00 - v10);
+      pTop = vec2(clamp(t, 0.0, 1.0), 0.0);
+    }
+    if (right){
+      float t = v10 / (v10 - v11);
+      pRight = vec2(1.0, clamp(t, 0.0, 1.0));
+    }
+    if (bottom){
+      float t = v01 / (v01 - v11);
+      pBottom = vec2(clamp(t, 0.0, 1.0), 1.0);
+    }
+    if (left){
+      float t = v00 / (v00 - v01);
+      pLeft = vec2(0.0, clamp(t, 0.0, 1.0));
+    }
+
+    int count = int(top) + int(right) + int(bottom) + int(left);
+    float signVal = sampleTex(uSdfTex, uv, size);
+    float sign = (signVal >= 0.0) ? 1.0 : -1.0;
+
+    if (count < 2){
+      return signVal;
+    }
+
+    float dist = 1e6;
+    if (count == 2){
+      vec2 a = vec2(0.0);
+      vec2 b = vec2(0.0);
+      bool gotA = false;
+      if (top){ a = pTop; gotA = true; }
+      if (right){ if (!gotA){ a = pRight; gotA = true; } else { b = pRight; } }
+      if (bottom){ if (!gotA){ a = pBottom; gotA = true; } else { b = pBottom; } }
+      if (left){ if (!gotA){ a = pLeft; gotA = true; } else { b = pLeft; } }
+      dist = segDist(f, a, b);
+    } else if (count == 4){
+      float center = (v00 + v10 + v01 + v11) * 0.25;
+      if (center > 0.0){
+        float d1 = segDist(f, pTop, pRight);
+        float d2 = segDist(f, pBottom, pLeft);
+        dist = min(d1, d2);
+      } else {
+        float d1 = segDist(f, pTop, pLeft);
+        float d2 = segDist(f, pBottom, pRight);
+        dist = min(d1, d2);
+      }
+    } else {
+      // 3 crossings: fall back to bilinear sample
+      return signVal;
+    }
+
+    return dist * sign;
+  }
+
   vec3 lerp(vec3 a, vec3 b, float t){ return a + (b-a)*t; }
 
   void main(){
@@ -1077,7 +1248,7 @@ export class Renderer {
     if (length(world) > uMaxR) discard;
     vec2 uv = (world - uWorldMin) / uWorldSize;
     uv = clamp(uv, 0.0, 1.0);
-    float sdf = sampleSdfSuper(uSdfTex, uv, uGridSize, uSdfSuper);
+    float sdf = (uMarchingSquares > 0.5) ? sampleSdfMarching(uv, uGridSize) : sampleSdfSuper(uSdfTex, uv, uGridSize, uSdfSuper);
     float shade = sampleTex(uShadeTex, uv, uGridSize);
     float fogRaw = sampleTex(uFogTex, uv, uFogGridSize);
     float fog = fogRaw;
@@ -1195,6 +1366,7 @@ export class Renderer {
     this.suFogColor = gl.getUniformLocation(sdfProg, "uFogColor");
     this.suViewport = gl.getUniformLocation(sdfProg, "uViewport");
     this.suUseHwFilter = gl.getUniformLocation(sdfProg, "uUseHwFilter");
+    this.suMarchingSquares = gl.getUniformLocation(sdfProg, "uMarchingSquares");
     const suSdfTex = gl.getUniformLocation(sdfProg, "uSdfTex");
     const suShadeTex = gl.getUniformLocation(sdfProg, "uShadeTex");
     const suFogTex = gl.getUniformLocation(sdfProg, "uFogTex");
@@ -1250,13 +1422,14 @@ export class Renderer {
     this.renderMode = planet.mode;
 
     const { worldMin, worldSize } = planet.mapgen.grid;
-    this._gridSize = planet.sdfRenderSize();
-    this._fogGridSize = planet.fogSize();
     this._worldMin = worldMin;
     this._worldSize = worldSize;
 
-    this.updateSdfTextures(planet.sdfRenderGrid(), planet.shadeRenderGrid());
-    const fogGrid = planet.fogGrid() || new Float32Array(this._gridSize * this._gridSize);
+    const rd = planet.renderData();
+    this._gridSize = rd.gridSize;
+    this._fogGridSize = rd.fogSize;
+    this.updateSdfTextures(rd.sdf, rd.shade);
+    const fogGrid = rd.fog || new Float32Array(this._gridSize * this._gridSize);
     this.updateFogTexture(fogGrid);
 
   }
@@ -1299,8 +1472,18 @@ export class Renderer {
    */
   updateSdfTextures(sdfGrid, shadeGrid){
     const gl = this.gl;
-    const G = Math.max(1, Math.round(Math.sqrt(sdfGrid.length)));
+    const len = sdfGrid.length;
+    if (len < 1) return;
+    const G = Math.max(1, Math.floor(Math.sqrt(len)));
+    if (G * G > len){
+      console.warn("SDF grid size mismatch; skipping texture upload.", { len, G });
+      return;
+    }
     this._gridSize = G;
+    if (shadeGrid.length !== sdfGrid.length){
+      const shadeSize = Math.max(1, Math.floor(Math.sqrt(shadeGrid.length)));
+      shadeGrid = resampleGrid(shadeGrid, shadeSize, G);
+    }
     if (!this.sdfTex){
       this.sdfTex = createTexture(gl, G, G, this.sdfTexInternalFormat, this.sdfTexFormat, this.sdfTexType, sdfGrid, this.sdfTexFilter, this.sdfTexFilter);
     } else {
@@ -1327,7 +1510,13 @@ export class Renderer {
    */
   updateFogTexture(fogGrid){
     const gl = this.gl;
-    const G = Math.max(1, Math.round(Math.sqrt(fogGrid.length)));
+    const len = fogGrid.length;
+    if (len < 1) return;
+    const G = Math.max(1, Math.floor(Math.sqrt(len)));
+    if (G * G > len){
+      console.warn("Fog grid size mismatch; skipping texture upload.", { len, G });
+      return;
+    }
     this._fogGridSize = G;
     if (!this.fogTex){
       this.fogTex = createTexture(gl, G, G, this.sdfTexInternalFormat, this.sdfTexFormat, this.sdfTexType, fogGrid, this.sdfTexFilter, this.sdfTexFilter);

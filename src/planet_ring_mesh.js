@@ -74,7 +74,7 @@ export class RingMesh {
     const positions = [];
     /** @type {number[]} */
     const triCentroids = [];
-    /** @type {Array<Array<{x:number,y:number,air:number}>>>} */
+    /** @type {Array<Array<{x:number,y:number,air:number}>>} */
     const triList = [];
     /** @type {number[]} */
     const airFlag = [];

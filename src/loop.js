@@ -302,7 +302,7 @@ export class GameLoop {
   _applyBombImpact(x, y){
     const newAir = this.planet.applyAirEdit(x, y, this.TERRAIN_IMPACT_RADIUS, 1);
     this.renderer.updateAir(newAir);
-    this.renderer.updateSdfTextures(this.planet.sdfRenderGrid(), this.planet.shadeRenderGrid());
+    this.planet.syncRenderer(this.renderer);
   }
 
   /**
@@ -503,9 +503,9 @@ export class GameLoop {
     this.mapgen.regenWorld(seed);
     const newAir = this.planet.regenFromMap();
     this.renderer.updateAir(newAir);
-    this.renderer.updateSdfTextures(this.planet.sdfRenderGrid(), this.planet.shadeRenderGrid());
+    this.planet.syncRenderer(this.renderer);
     this.radial.resetFog();
-    this._resetShip();
+    this._resetShip(true);
     this.entityExplosions.length = 0;
     if (advanceLevel) this.level++;
     this._spawnMiners();
@@ -762,10 +762,7 @@ export class GameLoop {
         }
         nx /= nlen;
         ny /= nlen;
-        const camRot = Math.atan2(this.ship.x, this.ship.y || 1e-6);
-        const upx = Math.sin(camRot);
-        const upy = Math.cos(camRot);
-        const dotUp = nx * upx + ny * upy;
+        const dotUp = (nx * this.ship.x + ny * this.ship.y) / (Math.hypot(this.ship.x, this.ship.y) || 1);
         const vn = this.ship.vx * nx + this.ship.vy * ny;
         const vt = this.ship.vx * -ny + this.ship.vy * nx;
 
@@ -1168,10 +1165,7 @@ export class GameLoop {
     if (inputState.toggleRender){
       this.planet.toggleMode();
       this.renderer.setRenderMode(this.planet.mode);
-      const fog = this.planet.updateFogForRender(this.ship.x, this.ship.y);
-      if (fog) this.renderer.updateFog(fog);
-      const fogGrid = this.planet.fogGrid();
-      if (fogGrid) this.renderer.updateFogTexture(fogGrid);
+      this.planet.syncFog(this.renderer, this.ship.x, this.ship.y);
     }
 
     const fixed = 1 / 60;
@@ -1199,10 +1193,7 @@ export class GameLoop {
     }
 
     const gameOver = this.ship.state === "crashed";
-    const fog = this.planet.updateFogForRender(this.ship.x, this.ship.y);
-    if (fog) this.renderer.updateFog(fog);
-    const fogGrid = this.planet.fogGrid();
-    if (fogGrid) this.renderer.updateFogTexture(fogGrid);
+    this.planet.syncFog(this.renderer, this.ship.x, this.ship.y);
     this.renderer.drawFrame({
       view: this._viewState(),
       ship: this.ship,
@@ -1211,7 +1202,7 @@ export class GameLoop {
       debugCollisions: this.debugCollisions,
       debugNodes: GAME.DEBUG_NODES,
       debugCollisionSamples: this.debugCollisions ? (this.ship._samples || []) : null,
-      sdfDebugPoints: (this.debugCollisions && GAME.DEBUG_NODES) ? this.planet.sdfDebugPoints() : null,
+      debugPoints: (this.debugCollisions && GAME.DEBUG_NODES) ? this.planet.debugPoints() : null,
       renderMode: this.planet.mode,
       fps: this.fps,
       finalAir: this.mapgen.getWorld().finalAir,

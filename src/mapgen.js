@@ -57,7 +57,6 @@ export class MapGen {
     this._current = { seed: cfg.seed, air: new Uint8Array(G*G), entrances: [], finalAir: 0 };
 
     /** @type {Float32Array} */
-    this._sdf = new Float32Array(G*G);
   }
 
   /**
@@ -316,126 +315,6 @@ export class MapGen {
     const finalAir = bestWorld ? this._fractionAir(bestWorld.air) : 0;
     this._current = { seed, air: bestWorld ? bestWorld.air : new Uint8Array(G*G), entrances: bestWorld ? bestWorld.entrances : [], finalAir };
     return this._current;
-  }
-
-  /**
-   * Recompute signed distance field from current air grid.
-   * Positive in air, negative in rock. Units are world units.
-   * @returns {Float32Array}
-   */
-  rebuildSdf(){
-    const { G, inside, idx, cell } = this.grid;
-    const air = this._current.air;
-    const size = G * G;
-    const INF = 1e12;
-
-    /** @type {Float32Array} */
-    const distToRock = new Float32Array(size);
-    /** @type {Float32Array} */
-    const distToAir = new Float32Array(size);
-
-    for (let k = 0; k < size; k++){
-      const ins = inside[k];
-      const isAir = ins ? (air[k] ? 1 : 0) : 1;
-      distToRock[k] = isAir ? INF : 0;
-      distToAir[k] = isAir ? 0 : INF;
-    }
-
-    const _edt2d = (data) => {
-      const tmp = new Float32Array(size);
-      const f = new Float32Array(G);
-      const d = new Float32Array(G);
-      const v = new Int32Array(G);
-      const z = new Float32Array(G + 1);
-
-      const edt1d = (ff, out) => {
-        let k = 0;
-        v[0] = 0;
-        z[0] = -INF;
-        z[1] = INF;
-        for (let q = 1; q < G; q++){
-          let s = ((ff[q] + q*q) - (ff[v[k]] + v[k]*v[k])) / (2*q - 2*v[k]);
-          while (s <= z[k]){
-            k--;
-            s = ((ff[q] + q*q) - (ff[v[k]] + v[k]*v[k])) / (2*q - 2*v[k]);
-          }
-          k++;
-          v[k] = q;
-          z[k] = s;
-          z[k + 1] = INF;
-        }
-        k = 0;
-        for (let q = 0; q < G; q++){
-          while (z[k + 1] < q) k++;
-          const dx = q - v[k];
-          out[q] = dx*dx + ff[v[k]];
-        }
-      };
-
-      // pass 1: rows
-      for (let y = 0; y < G; y++){
-        const base = y * G;
-        for (let x = 0; x < G; x++) f[x] = data[base + x];
-        edt1d(f, d);
-        for (let x = 0; x < G; x++) tmp[base + x] = d[x];
-      }
-      // pass 2: cols
-      for (let x = 0; x < G; x++){
-        for (let y = 0; y < G; y++) f[y] = tmp[y * G + x];
-        edt1d(f, d);
-        for (let y = 0; y < G; y++) data[y * G + x] = d[y];
-      }
-    };
-
-    _edt2d(distToRock);
-    _edt2d(distToAir);
-
-    for (let k = 0; k < size; k++){
-      const ins = inside[k];
-      const isAir = ins ? (air[k] ? 1 : 0) : 1;
-      const d = isAir ? Math.sqrt(distToRock[k]) : Math.sqrt(distToAir[k]);
-      this._sdf[k] = (isAir ? 1 : -1) * d * cell;
-    }
-
-    return this._sdf;
-  }
-
-  /**
-   * Sample signed distance at world point (bilinear).
-   * @param {number} x
-   * @param {number} y
-   * @returns {number}
-   */
-  sampleSdfAtWorld(x, y){
-    const { G, worldMin, worldSize } = this.grid;
-    const u = (x - worldMin) / worldSize;
-    const v = (y - worldMin) / worldSize;
-    if (u <= 0 || v <= 0 || u >= 1 || v >= 1){
-      return 1;
-    }
-    const gx = u * G - 0.5;
-    const gy = v * G - 0.5;
-    const x0 = Math.max(0, Math.min(G - 1, Math.floor(gx)));
-    const y0 = Math.max(0, Math.min(G - 1, Math.floor(gy)));
-    const x1 = Math.max(0, Math.min(G - 1, x0 + 1));
-    const y1 = Math.max(0, Math.min(G - 1, y0 + 1));
-    const fx = gx - x0;
-    const fy = gy - y0;
-    const i00 = y0 * G + x0;
-    const i10 = y0 * G + x1;
-    const i01 = y1 * G + x0;
-    const i11 = y1 * G + x1;
-    const a = this._sdf[i00] * (1 - fx) + this._sdf[i10] * fx;
-    const b = this._sdf[i01] * (1 - fx) + this._sdf[i11] * fx;
-    return a * (1 - fy) + b * fy;
-  }
-
-
-  /**
-   * @returns {Float32Array}
-   */
-  getSdfGrid(){
-    return this._sdf;
   }
 
   /**

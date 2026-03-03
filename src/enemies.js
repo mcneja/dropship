@@ -132,6 +132,15 @@ function pickSurfacePoints(count, seed, planet, rMax){
   const steps = 64;
 
   /**
+   * @returns {{x:number,y:number}}
+   */
+  function posRandomInDisc() {
+    const angle = rand() * Math.PI * 2;
+    const r = rMax * Math.sqrt(rand());
+    return {x: r * Math.cos(angle), y: r * Math.sin(angle)};
+  }
+
+  /**
    * @param {number} ang
    * @returns {{x:number,y:number,r:number}|null}
    */
@@ -167,6 +176,10 @@ function pickSurfacePoints(count, seed, planet, rMax){
 
   const attempts = Math.max(200, count * 120);
   for (let i = 0; i < attempts && points.length < count; i++){
+    const {x: x, y: y} = posRandomInDisc();
+    if (planet.airValueAtWorld(x, y) <= 0.5) continue;
+    points.push([x, y]);
+    /*
     const ang = rand() * Math.PI * 2;
     const surf = findSurface(ang);
     if (!surf) continue;
@@ -177,6 +190,7 @@ function pickSurfacePoints(count, seed, planet, rMax){
     if (planet.airValueAtWorld(upx * below, upy * below) > 0.5) continue;
     if (planet.airValueAtWorld(upx * above, upy * above) <= 0.5) continue;
     points.push([surf.x, surf.y]);
+    */
   }
   return points;
 }
@@ -244,7 +258,7 @@ export class Enemies {
     this.explosions.length = 0;
     this.debris.length = 0;
     if (total <= 0) return;
-    const seed = mapgen.getWorld().seed + level * 133;
+    const seed = this.mapgen.getWorld().seed + level * 133;
     const hunters = Math.max(0, Math.floor(total * 0.5));
     const rangers = Math.max(0, Math.floor(total * 0.25));
     const crawlers = Math.max(0, total - hunters - rangers);
@@ -260,7 +274,10 @@ export class Enemies {
       this.enemies.push({ type: "ranger", x, y, vx: 0, vy: 0, cooldown: Math.random(), hp: 2, dir: -1, fuse: 0 });
     }
     for (const [x, y] of crawlerPts){
-      this.enemies.push({ type: "crawler", x, y, vx: 0, vy: 0, cooldown: 0, hp: 1, dir: Math.random() < 0.5 ? -1 : 1, fuse: 0 });
+      const s = -1 / Math.max(1e-6, Math.hypot(x, y));
+      const vx = x * s;
+      const vy = y * s;
+      this.enemies.push({ type: "crawler", x, y, vx: vx, vy: vy, cooldown: 0, hp: 1, dir: Math.random() < 0.5 ? -1 : 1, fuse: 0 });
     }
   }
 
@@ -397,6 +414,7 @@ export class Enemies {
    * @param {number} dx
    * @param {number} dy
    * @param {number} cooldown
+   * @returns {void}
    */
   _shoot(e, dx, dy, cooldown) {
     const vScale = this._SHOT_SPEED / (Math.hypot(dx, dy) || 1);

@@ -104,7 +104,7 @@
  * @property {boolean} debugCollisions
  * @property {boolean} debugNodes
  * @property {Array<[number,number,boolean,number]>|null} [debugCollisionSamples]
- * @property {Array<[number,number,boolean,number]>|null} [sdfDebugPoints]
+ * @property {Array<[number,number,boolean,number]>|null} [debugPoints]
  * @property {number} fps
  * @property {number} finalAir
  * @property {("radial"|"sdf")} [renderMode]

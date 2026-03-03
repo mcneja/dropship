@@ -33,7 +33,7 @@ export class Input {
     this.oneshot = {
       regen: false,
       toggleDebug: false,
-      toggleRender: true,
+      toggleRender: false,
       reset: false,
       nextLevel: false,
       shoot: false,
