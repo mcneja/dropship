@@ -6,7 +6,7 @@ export const CFG = Object.freeze({
   N_MIN: 6,
 
   // cave grid resolution (simulation) - independent from mesh
-  GRID: 360,
+  GRID: 1024,
   PAD: 1.2,
   TARGET_FINAL_AIR: 0.50,
 
@@ -38,6 +38,24 @@ export const CFG = Object.freeze({
   AIR_DARK:  [0x2b/255, 0x2b/255, 0x2b/255],
   AIR_LIGHT: [0x4a/255, 0x4a/255, 0x4a/255],
   EDGE_DARK: [0x14/255, 0x14/255, 0x14/255],
+  // SDF supersample levels: 0=off, 1=4x, 2=8x
+  SDF_SUPERSAMPLE: 0,
+  SDF_FOG_SCALE: 0.8,
+  SDF_FOG_SEEN_SCALE: 0.7,
+  SDF_FOG_UNSEEN_SCALE: 1.0,
+  SDF_GRID_SCALE: 4,
+  // SDF grid sizing: 'relative' (GRID * SDF_GRID_RELATIVE), 'mapgen_full' (GRID), or 'absolute' (SDF_GRID_ABSOLUTE).
+  SDF_GRID_MODE: "relative",
+  // Relative SDF size vs mapgen GRID when SDF_GRID_MODE='relative'.
+  SDF_GRID_RELATIVE: 1.0,
+  // If true, cap SDF relative size by radial node count target.
+  SDF_GRID_CLAMP_TO_NODES: false,
+  // Absolute SDF size when SDF_GRID_MODE='absolute'.
+  SDF_GRID_ABSOLUTE: 256,
+  // SDF texture format: "r32f" or "r16f"
+  SDF_TEX_FORMAT: "r32f",
+  // Use hardware linear filtering when supported (only for r16f).
+  SDF_HW_FILTER: false,
 });
 
 const surfaceGravityAcceleration = 2.0;

@@ -43,6 +43,31 @@ function uploadAttrib(gl, loc, data, size, type=gl.FLOAT){
 }
 
 /**
+ * @param {WebGL2RenderingContext} gl
+ * @param {number} w
+ * @param {number} h
+ * @param {number} internalFormat
+ * @param {number} format
+ * @param {number} type
+ * @param {ArrayBufferView|null} data
+ * @param {number} [minFilter]
+ * @param {number} [magFilter]
+ * @returns {WebGLTexture}
+ */
+function createTexture(gl, w, h, internalFormat, format, type, data, minFilter=gl.NEAREST, magFilter=gl.NEAREST){
+  const tex = gl.createTexture();
+  if (!tex) throw new Error("Failed to create texture");
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, minFilter);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, magFilter);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, w, h, 0, format, type, data);
+  gl.bindTexture(gl.TEXTURE_2D, null);
+  return tex;
+}
+
+/**
  * @param {number[]} a
  * @param {number[]} b
  * @param {number[]} c
@@ -318,12 +343,13 @@ function vScaleStopping(x, y, vx, vy, thrust) {
 /**
  * @param {Renderer} renderer
  * @param {RenderState} state
- * @param {import("./mesh.js").RingMesh} mesh
+ * @param {import("./planet.js").Planet} planet
  * @returns {void}
  */
-function drawFrameImpl(renderer, state, mesh){
+function drawFrameImpl(renderer, state, planet){
   const { gl, canvas, cfg, game, prog, oprog, vao, oVao, uScale, uCam, uRot, ouScale, ouCam, ouRot, oPos, oCol } = renderer;
   const vertCount = renderer.vertCount;
+  const mesh = planet.radial;
   renderer.resize();
 
   gl.viewport(0,0,canvas.width,canvas.height);
@@ -331,9 +357,6 @@ function drawFrameImpl(renderer, state, mesh){
   gl.clear(gl.COLOR_BUFFER_BIT);
 
   const camRot = state.view.angle;
-
-  gl.useProgram(prog);
-  gl.bindVertexArray(vao);
 
   const s = 1 / state.view.radius;
   let sx, sy;
@@ -344,13 +367,47 @@ function drawFrameImpl(renderer, state, mesh){
     sx = s;
     sy = s * canvas.width / canvas.height;
   }
-  gl.uniform2f(uScale, sx, sy);
-  gl.uniform2f(uCam, state.view.xCenter, state.view.yCenter);
-  gl.uniform1f(uRot, camRot);
+  if (renderer.renderMode === "sdf"){
+    gl.useProgram(renderer.sdfProg);
+    gl.bindVertexArray(renderer.sdfVao);
+    gl.uniform2f(renderer.suScale, sx, sy);
+    gl.uniform2f(renderer.suCam, state.view.xCenter, state.view.yCenter);
+    gl.uniform1f(renderer.suRot, camRot);
+    gl.uniform2f(renderer.suWorldMin, renderer._worldMin, renderer._worldMin);
+    gl.uniform1f(renderer.suWorldSize, renderer._worldSize);
+    gl.uniform2f(renderer.suGridSize, renderer._gridSize, renderer._gridSize);
+    gl.uniform2f(renderer.suFogGridSize, renderer._fogGridSize || renderer._gridSize, renderer._fogGridSize || renderer._gridSize);
+    gl.uniform1f(renderer.suSdfSuper, cfg.SDF_SUPERSAMPLE ?? 0.0);
+    gl.uniform1f(renderer.suFogScale, cfg.SDF_FOG_SCALE ?? 1.0);
+    gl.uniform1f(renderer.suFogSeenScale, cfg.SDF_FOG_SEEN_SCALE ?? 1.0);
+    gl.uniform1f(renderer.suFogUnseenScale, cfg.SDF_FOG_UNSEEN_SCALE ?? 1.0);
+    gl.uniform1f(renderer.suMaxR, cfg.RMAX + 0.5);
+    gl.uniform3fv(renderer.suRockDark, cfg.ROCK_DARK);
+    gl.uniform3fv(renderer.suRockLight, cfg.ROCK_LIGHT);
+    gl.uniform3fv(renderer.suAirDark, cfg.AIR_DARK);
+    gl.uniform3fv(renderer.suAirLight, cfg.AIR_LIGHT);
+    gl.uniform3fv(renderer.suFogColor, game.FOG_COLOR);
+    gl.uniform2f(renderer.suViewport, canvas.width, canvas.height);
+    gl.uniform1f(renderer.suUseHwFilter, renderer.sdfUseHwFilter ? 1.0 : 0.0);
 
-  gl.drawArrays(gl.TRIANGLES, 0, vertCount);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, renderer.sdfTex);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, renderer.shadeTex);
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, renderer.fogTex);
 
-  gl.bindVertexArray(null);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    gl.bindVertexArray(null);
+  } else {
+    gl.useProgram(prog);
+    gl.bindVertexArray(vao);
+    gl.uniform2f(uScale, sx, sy);
+    gl.uniform2f(uCam, state.view.xCenter, state.view.yCenter);
+    gl.uniform1f(uRot, camRot);
+    gl.drawArrays(gl.TRIANGLES, 0, vertCount);
+    gl.bindVertexArray(null);
+  }
 
   const shipHWorld = 0.7 * game.SHIP_SCALE;
   const shipWWorld = 0.5 * game.SHIP_SCALE;
@@ -373,6 +430,9 @@ function drawFrameImpl(renderer, state, mesh){
   ];
   const body = [];
   const shipRot = -camRot;
+  const lighten = (c) => Math.min(1, c + 0.3);
+  const rockPoint = [1.0, 0.55, 0.12];
+  const airPoint = [lighten(cfg.AIR_LIGHT[0]), lighten(cfg.AIR_LIGHT[1]), lighten(cfg.AIR_LIGHT[2])];
   const losVisibleAt = (x, y) => {
     if (!mesh || !mesh.lineOfSight) return true;
     const dx = x - state.ship.x;
@@ -623,11 +683,20 @@ function drawFrameImpl(renderer, state, mesh){
     }
   }
 
-  if (state.debugCollisions && state.ship._samples){
-    for (const [sxw, syw, air, av] of state.ship._samples){
+  const dbgSamples = state.debugCollisionSamples || state.ship._samples;
+  if (state.debugCollisions && dbgSamples){
+    for (const [sxw, syw, air, av] of dbgSamples){
       pos.push(sxw, syw);
       if (air) col.push(0.45, 1.0, 0.55, 0.9);
       else col.push(1.0, 0.3, 0.3, 0.9);
+      pointVerts += 1;
+    }
+  }
+  if (state.debugCollisions && state.renderMode === "sdf" && state.sdfDebugPoints){
+    for (const [sxw, syw, air, av] of state.sdfDebugPoints){
+      pos.push(sxw, syw);
+      if (air) col.push(airPoint[0], airPoint[1], airPoint[2], 0.45);
+      else col.push(rockPoint[0], rockPoint[1], rockPoint[2], 0.45);
       pointVerts += 1;
     }
   }
@@ -636,25 +705,26 @@ function drawFrameImpl(renderer, state, mesh){
     pos.push(c.x, c.y);
     col.push(1.0, 0.95, 0.2, 1.0);
     pointVerts += 1;
-    if (c.tri){
+    if (c.tri && state.renderMode !== "sdf"){
       const a = c.tri[0], b = c.tri[1], d = c.tri[2];
       pushLine(pos, col, a.x, a.y, b.x, b.y, 1.0, 0.4, 0.2, 0.8);
       pushLine(pos, col, b.x, b.y, d.x, d.y, 1.0, 0.4, 0.2, 0.8);
       pushLine(pos, col, d.x, d.y, a.x, a.y, 1.0, 0.4, 0.2, 0.8);
       lineVerts += 6;
     }
-    if (c.node){
+    if (c.node && state.renderMode !== "sdf"){
       pos.push(c.node.x, c.node.y);
       col.push(0.2, 0.9, 1.0, 0.9);
       pointVerts += 1;
     }
   }
 
-  if (state.debugCollisions && state.debugNodes){
+  if (state.debugCollisions && state.debugNodes && state.renderMode !== "sdf"){
     for (const ring of mesh.rings){
       for (const v of ring){
         pos.push(v.x, v.y);
-        col.push(0.95, 0.8, 0.2, 0.6);
+        if (v.air > 0.5) col.push(airPoint[0], airPoint[1], airPoint[2], 0.6);
+        else col.push(rockPoint[0], rockPoint[1], rockPoint[2], 0.6);
         pointVerts += 1;
       }
     }
@@ -778,6 +848,44 @@ export class Renderer {
     this.airBuf = null;
     this.fogBuf = null;
     this.vertCount = 0;
+    this.renderMode = "radial";
+    this.sdfTex = null;
+    this.shadeTex = null;
+    this.fogTex = null;
+    this._gridSize = 0;
+    this._fogGridSize = 0;
+    this._worldMin = 0;
+    this._worldSize = 1;
+
+    this.sdfUseHwFilter = false;
+    this.sdfTexInternalFormat = gl.R32F;
+    this.sdfTexFormat = gl.RED;
+    this.sdfTexType = gl.FLOAT;
+    this.sdfTexFilter = gl.NEAREST;
+
+    const sdfFormatRaw = cfg.SDF_TEX_FORMAT ?? "r32f";
+    const sdfFormat = String(sdfFormatRaw).toLowerCase();
+    if (sdfFormat === "r16f"){
+      this.sdfTexInternalFormat = gl.R16F;
+      this.sdfTexFormat = gl.RED;
+      this.sdfTexType = gl.HALF_FLOAT;
+    } else if (sdfFormat !== "r32f"){
+      console.warn(`Unknown SDF_TEX_FORMAT: ${sdfFormatRaw}. Falling back to r32f.`);
+    }
+
+    if (cfg.SDF_HW_FILTER){
+      const hasFloatLinear = !!gl.getExtension("OES_texture_float_linear");
+      const hasHalfFloatLinear = !!gl.getExtension("OES_texture_half_float_linear");
+      const canLinear = (this.sdfTexInternalFormat === gl.R16F)
+        ? (hasHalfFloatLinear || hasFloatLinear)
+        : false;
+      if (canLinear){
+        this.sdfUseHwFilter = true;
+        this.sdfTexFilter = gl.LINEAR;
+      } else {
+        console.warn("SDF_HW_FILTER requested but linear filtering not supported for current SDF format.");
+      }
+    }
 
     const vs = `#version 300 es
   precision highp float;
@@ -871,6 +979,120 @@ export class Renderer {
     outColor = vColor;
   }`;
 
+    const sdfVs = `#version 300 es
+  precision highp float;
+  layout(location=0) in vec2 aPos;
+  void main(){
+    gl_Position = vec4(aPos, 0.0, 1.0);
+  }`;
+
+    const sdfFs = `#version 300 es
+  precision highp float;
+  out vec4 outColor;
+
+  uniform vec2 uScale;
+  uniform vec2 uCam;
+  uniform float uRot;
+  uniform vec2 uWorldMin;
+  uniform float uWorldSize;
+  uniform vec2 uGridSize;
+  uniform vec2 uFogGridSize;
+  uniform float uFogScale;
+  uniform float uFogSeenScale;
+  uniform float uFogUnseenScale;
+  uniform float uSdfSuper;
+  uniform float uMaxR;
+  uniform vec3 uRockDark;
+  uniform vec3 uRockLight;
+  uniform vec3 uAirDark;
+  uniform vec3 uAirLight;
+  uniform vec3 uFogColor;
+  uniform vec2 uViewport;
+  uniform float uUseHwFilter;
+  uniform sampler2D uSdfTex;
+  uniform sampler2D uShadeTex;
+  uniform sampler2D uFogTex;
+
+  vec2 rot(vec2 p, float a){
+    float c = cos(a), s = sin(a);
+    return vec2(c*p.x - s*p.y, s*p.x + c*p.y);
+  }
+
+  float sampleTex(sampler2D tex, vec2 uv, vec2 size){
+    if (uUseHwFilter > 0.5){
+      return texture(tex, uv).r;
+    }
+    vec2 coord = uv * size - 0.5;
+    vec2 i0 = floor(coord);
+    vec2 f = coord - i0;
+    vec2 maxI = size - 1.0;
+    ivec2 i00 = ivec2(clamp(i0, vec2(0.0), maxI));
+    ivec2 i10 = ivec2(clamp(i0 + vec2(1.0, 0.0), vec2(0.0), maxI));
+    ivec2 i01 = ivec2(clamp(i0 + vec2(0.0, 1.0), vec2(0.0), maxI));
+    ivec2 i11 = ivec2(clamp(i0 + vec2(1.0, 1.0), vec2(0.0), maxI));
+    float a = texelFetch(tex, i00, 0).r;
+    float b = texelFetch(tex, i10, 0).r;
+    float c = texelFetch(tex, i01, 0).r;
+    float d = texelFetch(tex, i11, 0).r;
+    float ab = mix(a, b, f.x);
+    float cd = mix(c, d, f.x);
+    return mix(ab, cd, f.y);
+  }
+
+  float sampleSdfSuper(sampler2D tex, vec2 uv, vec2 size, float level){
+    if (level < 0.5){
+      return sampleTex(tex, uv, size);
+    }
+    vec2 px = 1.0 / size;
+    float s0 = sampleTex(tex, uv + vec2(-0.25, -0.25) * px, size);
+    float s1 = sampleTex(tex, uv + vec2(0.25, -0.25) * px, size);
+    float s2 = sampleTex(tex, uv + vec2(-0.25, 0.25) * px, size);
+    float s3 = sampleTex(tex, uv + vec2(0.25, 0.25) * px, size);
+    float base = 0.25 * (s0 + s1 + s2 + s3);
+    if (level < 1.5){
+      return base;
+    }
+    float s4 = sampleTex(tex, uv + vec2(-0.45, 0.0) * px, size);
+    float s5 = sampleTex(tex, uv + vec2(0.45, 0.0) * px, size);
+    float s6 = sampleTex(tex, uv + vec2(0.0, -0.45) * px, size);
+    float s7 = sampleTex(tex, uv + vec2(0.0, 0.45) * px, size);
+    return (base * 4.0 + s4 + s5 + s6 + s7) / 8.0;
+  }
+
+  float sampleTexNearest(sampler2D tex, vec2 uv, vec2 size){
+    vec2 coord = uv * size - 0.5;
+    vec2 i0 = floor(coord + 0.5);
+    vec2 maxI = size - 1.0;
+    ivec2 ii = ivec2(clamp(i0, vec2(0.0), maxI));
+    return texelFetch(tex, ii, 0).r;
+  }
+
+  vec3 lerp(vec3 a, vec3 b, float t){ return a + (b-a)*t; }
+
+  void main(){
+    vec2 ndc = (gl_FragCoord.xy / uViewport) * 2.0 - 1.0;
+    vec2 p = ndc / uScale;
+    p = rot(p, -uRot);
+    vec2 world = p + uCam;
+    if (length(world) > uMaxR) discard;
+    vec2 uv = (world - uWorldMin) / uWorldSize;
+    uv = clamp(uv, 0.0, 1.0);
+    float sdf = sampleSdfSuper(uSdfTex, uv, uGridSize, uSdfSuper);
+    float shade = sampleTex(uShadeTex, uv, uGridSize);
+    float fogRaw = sampleTex(uFogTex, uv, uFogGridSize);
+    float fog = fogRaw;
+    if (fogRaw > 0.001){
+      float seen = uFogSeenScale;
+      float unseen = uFogUnseenScale;
+      fog = (fogRaw < 0.7) ? (fogRaw * seen) : (fogRaw * unseen);
+    }
+    fog = clamp(fog * uFogScale, 0.0, 1.0);
+    vec3 c = (sdf > 0.0) ? lerp(uAirDark,  uAirLight,  clamp(shade, 0.0, 1.0))
+                         : lerp(uRockDark, uRockLight, clamp(shade, 0.0, 1.0));
+    vec3 fogged = mix(c, uFogColor, clamp(fog, 0.0, 1.0));
+    outColor = vec4(fogged, 1.0);
+  }`;
+
     /** @type {WebGLProgram|null} */
     const prog = gl.createProgram();
     if (!prog) throw new Error("Failed to create program");
@@ -893,13 +1115,27 @@ export class Renderer {
     }
     this.oprog = oprog;
 
+    /** @type {WebGLProgram|null} */
+    const sdfProg = gl.createProgram();
+    if (!sdfProg) throw new Error("Failed to create SDF program");
+    gl.attachShader(sdfProg, compile(gl, gl.VERTEX_SHADER, sdfVs));
+    gl.attachShader(sdfProg, compile(gl, gl.FRAGMENT_SHADER, sdfFs));
+    gl.linkProgram(sdfProg);
+    if (!gl.getProgramParameter(sdfProg, gl.LINK_STATUS)){
+      throw new Error(gl.getProgramInfoLog(sdfProg) || "SDF program link failed");
+    }
+    this.sdfProg = sdfProg;
+
     /** @type {WebGLVertexArrayObject|null} */
     const vao = gl.createVertexArray();
     /** @type {WebGLVertexArrayObject|null} */
     const oVao = gl.createVertexArray();
-    if (!vao || !oVao) throw new Error("Failed to create VAO");
+    /** @type {WebGLVertexArrayObject|null} */
+    const sdfVao = gl.createVertexArray();
+    if (!vao || !oVao || !sdfVao) throw new Error("Failed to create VAO");
     this.vao = vao;
     this.oVao = oVao;
+    this.sdfVao = sdfVao;
 
     gl.useProgram(prog);
     this.uScale = gl.getUniformLocation(prog, "uScale");
@@ -938,6 +1174,50 @@ export class Renderer {
     this.ouScale = gl.getUniformLocation(oprog, "uScale");
     this.ouCam = gl.getUniformLocation(oprog, "uCam");
     this.ouRot = gl.getUniformLocation(oprog, "uRot");
+
+    gl.useProgram(sdfProg);
+    this.suScale = gl.getUniformLocation(sdfProg, "uScale");
+    this.suCam = gl.getUniformLocation(sdfProg, "uCam");
+    this.suRot = gl.getUniformLocation(sdfProg, "uRot");
+    this.suWorldMin = gl.getUniformLocation(sdfProg, "uWorldMin");
+    this.suWorldSize = gl.getUniformLocation(sdfProg, "uWorldSize");
+    this.suGridSize = gl.getUniformLocation(sdfProg, "uGridSize");
+    this.suFogGridSize = gl.getUniformLocation(sdfProg, "uFogGridSize");
+    this.suSdfSuper = gl.getUniformLocation(sdfProg, "uSdfSuper");
+    this.suFogScale = gl.getUniformLocation(sdfProg, "uFogScale");
+    this.suFogSeenScale = gl.getUniformLocation(sdfProg, "uFogSeenScale");
+    this.suFogUnseenScale = gl.getUniformLocation(sdfProg, "uFogUnseenScale");
+    this.suMaxR = gl.getUniformLocation(sdfProg, "uMaxR");
+    this.suRockDark = gl.getUniformLocation(sdfProg, "uRockDark");
+    this.suRockLight = gl.getUniformLocation(sdfProg, "uRockLight");
+    this.suAirDark = gl.getUniformLocation(sdfProg, "uAirDark");
+    this.suAirLight = gl.getUniformLocation(sdfProg, "uAirLight");
+    this.suFogColor = gl.getUniformLocation(sdfProg, "uFogColor");
+    this.suViewport = gl.getUniformLocation(sdfProg, "uViewport");
+    this.suUseHwFilter = gl.getUniformLocation(sdfProg, "uUseHwFilter");
+    const suSdfTex = gl.getUniformLocation(sdfProg, "uSdfTex");
+    const suShadeTex = gl.getUniformLocation(sdfProg, "uShadeTex");
+    const suFogTex = gl.getUniformLocation(sdfProg, "uFogTex");
+    if (suSdfTex) gl.uniform1i(suSdfTex, 0);
+    if (suShadeTex) gl.uniform1i(suShadeTex, 1);
+    if (suFogTex) gl.uniform1i(suFogTex, 2);
+
+    gl.bindVertexArray(sdfVao);
+    const sdfPos = gl.createBuffer();
+    if (!sdfPos) throw new Error("Failed to create SDF buffer");
+    this.sdfPos = sdfPos;
+    gl.bindBuffer(gl.ARRAY_BUFFER, sdfPos);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+      -1, -1,
+       1, -1,
+       1,  1,
+      -1, -1,
+       1,  1,
+      -1,  1,
+    ]), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    gl.bindVertexArray(null);
   }
 
   /**
@@ -953,11 +1233,12 @@ export class Renderer {
   }
 
   /**
-   * @param {{positions:Float32Array, airFlag:Float32Array, shade:Float32Array, vertCount:number, fogAlpha?:()=>Float32Array|undefined}} mesh
+   * @param {import("./planet.js").Planet} planet
    * @returns {void}
    */
-  setMesh(mesh){
+  setPlanet(planet){
     const gl = this.gl;
+    const mesh = planet.radial;
     gl.bindVertexArray(this.vao);
     uploadAttrib(gl, 0, mesh.positions, 2);
     this.airBuf = uploadAttrib(gl, 1, mesh.airFlag, 1);
@@ -966,7 +1247,28 @@ export class Renderer {
     this.fogBuf = uploadAttrib(gl, 3, fog, 1);
     gl.bindVertexArray(null);
     this.vertCount = mesh.vertCount;
+    this.renderMode = planet.mode;
+
+    const { worldMin, worldSize } = planet.mapgen.grid;
+    this._gridSize = planet.sdfRenderSize();
+    this._fogGridSize = planet.fogSize();
+    this._worldMin = worldMin;
+    this._worldSize = worldSize;
+
+    this.updateSdfTextures(planet.sdfRenderGrid(), planet.shadeRenderGrid());
+    const fogGrid = planet.fogGrid() || new Float32Array(this._gridSize * this._gridSize);
+    this.updateFogTexture(fogGrid);
+
   }
+
+  /**
+   * @param {"radial"|"sdf"} mode
+   * @returns {void}
+   */
+  setRenderMode(mode){
+    this.renderMode = mode;
+  }
+
 
   /**
    * @param {Float32Array} airFlag
@@ -991,11 +1293,59 @@ export class Renderer {
   }
 
   /**
-   * @param {RenderState} state
-   * @param {import("./mesh.js").RingMesh} mesh
+   * @param {Float32Array} sdfGrid
+   * @param {Float32Array} shadeGrid
    * @returns {void}
    */
-  drawFrame(state, mesh){
-    drawFrameImpl(this, state, mesh);
+  updateSdfTextures(sdfGrid, shadeGrid){
+    const gl = this.gl;
+    const G = Math.max(1, Math.round(Math.sqrt(sdfGrid.length)));
+    this._gridSize = G;
+    if (!this.sdfTex){
+      this.sdfTex = createTexture(gl, G, G, this.sdfTexInternalFormat, this.sdfTexFormat, this.sdfTexType, sdfGrid, this.sdfTexFilter, this.sdfTexFilter);
+    } else {
+      gl.bindTexture(gl.TEXTURE_2D, this.sdfTex);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, this.sdfTexFilter);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, this.sdfTexFilter);
+      gl.texImage2D(gl.TEXTURE_2D, 0, this.sdfTexInternalFormat, G, G, 0, this.sdfTexFormat, this.sdfTexType, sdfGrid);
+      gl.bindTexture(gl.TEXTURE_2D, null);
+    }
+    if (!this.shadeTex){
+      this.shadeTex = createTexture(gl, G, G, this.sdfTexInternalFormat, this.sdfTexFormat, this.sdfTexType, shadeGrid, this.sdfTexFilter, this.sdfTexFilter);
+    } else {
+      gl.bindTexture(gl.TEXTURE_2D, this.shadeTex);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, this.sdfTexFilter);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, this.sdfTexFilter);
+      gl.texImage2D(gl.TEXTURE_2D, 0, this.sdfTexInternalFormat, G, G, 0, this.sdfTexFormat, this.sdfTexType, shadeGrid);
+      gl.bindTexture(gl.TEXTURE_2D, null);
+    }
+  }
+
+  /**
+   * @param {Float32Array} fogGrid
+   * @returns {void}
+   */
+  updateFogTexture(fogGrid){
+    const gl = this.gl;
+    const G = Math.max(1, Math.round(Math.sqrt(fogGrid.length)));
+    this._fogGridSize = G;
+    if (!this.fogTex){
+      this.fogTex = createTexture(gl, G, G, this.sdfTexInternalFormat, this.sdfTexFormat, this.sdfTexType, fogGrid, this.sdfTexFilter, this.sdfTexFilter);
+    } else {
+      gl.bindTexture(gl.TEXTURE_2D, this.fogTex);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, this.sdfTexFilter);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, this.sdfTexFilter);
+      gl.texImage2D(gl.TEXTURE_2D, 0, this.sdfTexInternalFormat, G, G, 0, this.sdfTexFormat, this.sdfTexType, fogGrid);
+      gl.bindTexture(gl.TEXTURE_2D, null);
+    }
+  }
+
+  /**
+   * @param {RenderState} state
+   * @param {import("./planet.js").Planet} planet
+   * @returns {void}
+   */
+  drawFrame(state, planet){
+    drawFrameImpl(this, state, planet);
   }
 }

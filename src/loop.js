@@ -48,7 +48,7 @@ export class GameLoop {
    * @param {Object} deps
    * @param {typeof import("./config.js").CFG} deps.cfg
    * @param {import("./mapgen.js").MapGen} deps.mapgen
-   * @param {import("./mesh.js").RingMesh} deps.mesh
+ * @param {import("./planet.js").Planet} deps.planet
    * @param {import("./rendering.js").Renderer} deps.renderer
    * @param {import("./input.js").Input} deps.input
    * @param {Ui} deps.ui
@@ -56,10 +56,11 @@ export class GameLoop {
    * @param {HTMLCanvasElement|null|undefined} deps.overlay
    * @param {HTMLElement} deps.hud
    */
-  constructor({ cfg, mapgen, mesh, renderer, input, ui, canvas, hud, overlay }){
+  constructor({ cfg, mapgen, planet, renderer, input, ui, canvas, hud, overlay }){
     this.cfg = cfg;
     this.mapgen = mapgen;
-    this.mesh = mesh;
+    this.planet = planet;
+    this.radial = planet.radial;
     this.renderer = renderer;
     this.input = input;
     this.ui = ui;
@@ -70,6 +71,7 @@ export class GameLoop {
 
     this.TERRAIN_PAD = 0.5;
     this.TERRAIN_MAX = cfg.RMAX + this.TERRAIN_PAD;
+    this.TERRAIN_IMPACT_RADIUS = 0.6;
     this.SHIP_RADIUS = 0.7 * 0.28 * GAME.SHIP_SCALE;
     this.MINER_HEIGHT = 0.36 * GAME.MINER_SCALE;
     this.MINER_SURFACE_EPS = 0.01 * GAME.MINER_SCALE;
@@ -126,7 +128,7 @@ export class GameLoop {
     this.minersRemaining = 0;
     this.minersDead = 0;
     this.minerCandidates = 0;
-    this.enemies = new Enemies({ cfg, mapgen, mesh });
+    this.enemies = new Enemies({ cfg, mapgen, planet });
 
     this._spawnMiners();
     this.enemies.spawn(this._totalEnemiesForLevel(this.level), this.level);
@@ -298,31 +300,9 @@ export class GameLoop {
    * @returns {void}
    */
   _applyBombImpact(x, y){
-    const candidates = [];
-    const maxRing = Math.min(this.cfg.RMAX, this.mesh.rings.length - 1);
-    for (let r = 0; r <= maxRing; r++){
-      const ring = this.mesh.rings[r];
-      if (!ring) continue;
-      for (const v of ring){
-        const dx = v.x - x;
-        const dy = v.y - y;
-        const d2 = dx * dx + dy * dy;
-        candidates.push({ v, d2 });
-      }
-    }
-    candidates.sort((a, b) => a.d2 - b.d2);
-    let changed = false;
-    for (let i = 0; i < 3 && i < candidates.length; i++){
-      const v = candidates[i].v;
-      if (v.air <= 0.5){
-        v.air = 1;
-        changed = true;
-      }
-    }
-    if (changed){
-      const newAir = this.mesh.updateAirFlags(false);
-      this.renderer.updateAir(newAir);
-    }
+    const newAir = this.planet.applyAirEdit(x, y, this.TERRAIN_IMPACT_RADIUS, 1);
+    this.renderer.updateAir(newAir);
+    this.renderer.updateSdfTextures(this.planet.sdfRenderGrid(), this.planet.shadeRenderGrid());
   }
 
   /**
@@ -398,8 +378,8 @@ export class GameLoop {
   _sampleMinerCandidate(rand, rMin, rMax){
     const r = Math.max(rMin, Math.min(rMax, rMin + rand() * (rMax - rMin)));
     const ri = Math.max(2, Math.min(this.cfg.RMAX - 1, Math.round(r)));
-    const ring = this.mesh.rings[ri];
-    const inner = this.mesh.rings[ri - 1];
+    const ring = this.radial.rings[ri];
+    const inner = this.radial.rings[ri - 1];
     if (!ring || !inner || ring.length < 3 || inner.length < 3) return null;
 
     const i = Math.floor(rand() * ring.length);
@@ -521,10 +501,11 @@ export class GameLoop {
    */
   _beginLevel(seed, advanceLevel){
     this.mapgen.regenWorld(seed);
-    const newAir = this.mesh.updateAirFlags();
+    const newAir = this.planet.regenFromMap();
     this.renderer.updateAir(newAir);
-    this.mesh.resetFog();
-    this._resetShip(true);
+    this.renderer.updateSdfTextures(this.planet.sdfRenderGrid(), this.planet.shadeRenderGrid());
+    this.radial.resetFog();
+    this._resetShip();
     this.entityExplosions.length = 0;
     if (advanceLevel) this.level++;
     this._spawnMiners();
@@ -633,7 +614,7 @@ export class GameLoop {
     if (rCenter - shipRadius > this.TERRAIN_MAX) return false;
     const samples = this._shipCollisionPoints(x, y);
     samples.push([x, y]);
-    return collidesAtWorldPoints(this.mesh, samples);
+    return collidesAtWorldPoints(this.planet, samples);
   }
 
   /**
@@ -649,7 +630,7 @@ export class GameLoop {
     const footY = y + upy * this.MINER_FOOT_OFFSET;
     const headX = x + upx * this.MINER_HEAD_OFFSET;
     const headY = y + upy * this.MINER_HEAD_OFFSET;
-    return collidesAtWorldPoints(this.mesh, [
+    return collidesAtWorldPoints(this.planet, [
       [footX, footY],
       [headX, headY],
     ]);
@@ -738,7 +719,7 @@ export class GameLoop {
       const rCenter = Math.hypot(this.ship.x, this.ship.y);
       if (rCenter - shipRadius <= this.TERRAIN_MAX){
         for (const [sx, sy] of this._shipCollisionPoints(this.ship.x, this.ship.y)){
-          const av = this.mesh.airValueAtWorld(sx, sy);
+          const av = this.planet.airValueAtWorld(sx, sy);
           const air = av > 0.5;
           samples.push([sx, sy, air, av]);
           if (!air) {
@@ -753,16 +734,16 @@ export class GameLoop {
         this.ship._collision = {
           x: hit.x,
           y: hit.y,
-          tri: this.mesh.findTriAtWorld(hit.x, hit.y),
-          node: this.mesh.nearestNodeOnRing(hit.x, hit.y),
+          tri: this.radial.findTriAtWorld(hit.x, hit.y),
+          node: this.radial.nearestNodeOnRing(hit.x, hit.y),
         };
       } else {
         this.ship._collision = null;
       }
 
       if (collides){
-        const gdx = this.mesh.airValueAtWorld(this.ship.x + eps, this.ship.y) - this.mesh.airValueAtWorld(this.ship.x - eps, this.ship.y);
-        const gdy = this.mesh.airValueAtWorld(this.ship.x, this.ship.y + eps) - this.mesh.airValueAtWorld(this.ship.x, this.ship.y - eps);
+        const gdx = this.planet.airValueAtWorld(this.ship.x + eps, this.ship.y) - this.planet.airValueAtWorld(this.ship.x - eps, this.ship.y);
+        const gdy = this.planet.airValueAtWorld(this.ship.x, this.ship.y + eps) - this.planet.airValueAtWorld(this.ship.x, this.ship.y - eps);
         let nx = gdx;
         let ny = gdy;
         let nlen = Math.hypot(nx, ny);
@@ -922,7 +903,7 @@ export class GameLoop {
         s.x += s.vx * dt;
         s.y += s.vy * dt;
         s.life -= dt;
-        if (s.life <= 0 || this.mesh.airValueAtWorld(s.x, s.y) <= 0.5){
+        if (s.life <= 0 || this.planet.airValueAtWorld(s.x, s.y) <= 0.5){
           this.playerShots.splice(i, 1);
           continue;
         }
@@ -963,7 +944,7 @@ export class GameLoop {
         b.y += b.vy * dt;
         b.life -= dt;
         let hit = false;
-        if (b.life <= 0 || this.mesh.airValueAtWorld(b.x, b.y) <= 0.5){
+        if (b.life <= 0 || this.planet.airValueAtWorld(b.x, b.y) <= 0.5){
           hit = true;
         } else {
           for (let j = this.enemies.enemies.length - 1; j >= 0; j--){
@@ -1184,6 +1165,14 @@ export class GameLoop {
     if (inputState.toggleDebug){
       this.debugCollisions = !this.debugCollisions;
     }
+    if (inputState.toggleRender){
+      this.planet.toggleMode();
+      this.renderer.setRenderMode(this.planet.mode);
+      const fog = this.planet.updateFogForRender(this.ship.x, this.ship.y);
+      if (fog) this.renderer.updateFog(fog);
+      const fogGrid = this.planet.fogGrid();
+      if (fogGrid) this.renderer.updateFogTexture(fogGrid);
+    }
 
     const fixed = 1 / 60;
     const maxSteps = 4;
@@ -1210,9 +1199,10 @@ export class GameLoop {
     }
 
     const gameOver = this.ship.state === "crashed";
-    this.mesh.updateFog(this.ship.x, this.ship.y);
-    const fog = this.mesh.fogAlpha();
+    const fog = this.planet.updateFogForRender(this.ship.x, this.ship.y);
     if (fog) this.renderer.updateFog(fog);
+    const fogGrid = this.planet.fogGrid();
+    if (fogGrid) this.renderer.updateFogTexture(fogGrid);
     this.renderer.drawFrame({
       view: this._viewState(),
       ship: this.ship,
@@ -1220,6 +1210,9 @@ export class GameLoop {
       input: inputState,
       debugCollisions: this.debugCollisions,
       debugNodes: GAME.DEBUG_NODES,
+      debugCollisionSamples: this.debugCollisions ? (this.ship._samples || []) : null,
+      sdfDebugPoints: (this.debugCollisions && GAME.DEBUG_NODES) ? this.planet.sdfDebugPoints() : null,
+      renderMode: this.planet.mode,
       fps: this.fps,
       finalAir: this.mapgen.getWorld().finalAir,
       miners: this.miners,
@@ -1236,7 +1229,7 @@ export class GameLoop {
       aimWorld: this.lastAimWorld,
       touchUi: gameOver ? null : inputState.touchUi,
       touchStart: gameOver && inputState.inputType === "touch",
-    }, this.mesh);
+    }, this.planet);
 
     this._drawMinerPopups();
 
@@ -1245,7 +1238,7 @@ export class GameLoop {
       state: this.ship.state,
       speed: Math.hypot(this.ship.vx, this.ship.vy),
       shipHp: this.ship.hp,
-      verts: this.mesh.vertCount,
+      verts: this.radial.vertCount,
       air: this.mapgen.getWorld().finalAir,
       miners: this.minersRemaining,
       minersDead: this.minersDead,
@@ -1253,6 +1246,7 @@ export class GameLoop {
       debug: this.debugCollisions,
       minerCandidates: this.minerCandidates,
       inputType: inputState.inputType,
+      renderMode: this.planet.mode,
     });
 
     requestAnimationFrame(() => this._frame());

@@ -33,6 +33,7 @@ export class Input {
     this.oneshot = {
       regen: false,
       toggleDebug: false,
+      toggleRender: true,
       reset: false,
       nextLevel: false,
       shoot: false,
@@ -144,6 +145,7 @@ export class Input {
     if (key === "m" || key === "M") this.oneshot.regen = true;
     if (key === "c" || key === "C") this.oneshot.toggleDebug = true;
     if (key === "n" || key === "N") this.oneshot.nextLevel = true;
+    if (key === "v" || key === "V") this.oneshot.toggleRender = true;
   }
 
   /**
@@ -503,6 +505,7 @@ export class Input {
       reset: this.oneshot.reset,
       regen: this.oneshot.regen,
       toggleDebug: this.oneshot.toggleDebug,
+      toggleRender: this.oneshot.toggleRender,
       nextLevel: this.oneshot.nextLevel,
       shoot: this.oneshot.shoot,
       bomb: this.oneshot.bomb,
@@ -522,6 +525,7 @@ export class Input {
     this.oneshot.reset = false;
     this.oneshot.regen = false;
     this.oneshot.toggleDebug = false;
+    this.oneshot.toggleRender = false;
     this.oneshot.nextLevel = false;
     this.oneshot.shoot = false;
     this.oneshot.bomb = false;

@@ -467,6 +467,28 @@ export class RingMesh {
   }
 
   /**
+   * Sample fog alpha at world position (barycentric).
+   * @param {number} x
+   * @param {number} y
+   * @returns {number}
+   */
+  fogAlphaAtWorld(x, y){
+    if (!this._fogAlpha) return 0;
+    const tri = this.findTriAtWorld(x, y);
+    if (!tri) return 0;
+    const idx = this._triIndexOf ? this._triIndexOf.get(tri) : undefined;
+    if (idx === undefined) return 0;
+    const a = tri[0], b = tri[1], c = tri[2];
+    const det = (b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y);
+    if (Math.abs(det) < 1e-6) return this._fogAlpha[idx * 3];
+    const l1 = ((b.y - c.y) * (x - c.x) + (c.x - b.x) * (y - c.y)) / det;
+    const l2 = ((c.y - a.y) * (x - c.x) + (a.x - c.x) * (y - c.y)) / det;
+    const l3 = 1 - l1 - l2;
+    const base = idx * 3;
+    return this._fogAlpha[base] * l1 + this._fogAlpha[base + 1] * l2 + this._fogAlpha[base + 2] * l3;
+  }
+
+  /**
    * @param {number} x
    * @param {number} y
    * @returns {boolean}
