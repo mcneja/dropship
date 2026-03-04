@@ -258,6 +258,7 @@ export class Enemies {
     const crawlers = Math.min(numEnemiesRemaining, Math.floor(total * 0.25));
     numEnemiesRemaining -= crawlers;
     const turrets = numEnemiesRemaining;
+    const orbitingTurrets = 1;
 
     const rHunterRangerMax = cfg.RMAX - 1.0;
     const hunterPts = pickAirPoints(hunters, seed + 1, planet, rHunterRangerMax * 0.5, rHunterRangerMax);
@@ -266,20 +267,31 @@ export class Enemies {
     const turretPts = pickAirPoints(turrets, seed + 4, planet, 0.0, cfg.RMAX + 0.5);
 
     for (const [x, y] of hunterPts){
-      this.enemies.push({ type: "hunter", x, y, vx: 0, vy: 0, cooldown: Math.random(), hp: 2, dir: 1 });
+      this.enemies.push({ type: "hunter", x, y, vx: 0, vy: 0, cooldown: Math.random(), hp: 2 });
     }
     for (const [x, y] of rangerPts){
-      this.enemies.push({ type: "ranger", x, y, vx: 0, vy: 0, cooldown: Math.random(), hp: 2, dir: -1 });
+      this.enemies.push({ type: "ranger", x, y, vx: 0, vy: 0, cooldown: Math.random(), hp: 2 });
     }
     for (const [x, y] of crawlerPts){
       const dir = Math.random() * Math.PI * 2;
       const speed = Math.min(3, level * 0.25 + 0.5);
       const vx = Math.cos(dir) * speed;
       const vy = Math.sin(dir) * speed;
-      this.enemies.push({ type: "crawler", x, y, vx: vx, vy: vy, cooldown: 0, hp: 1, dir: 1 });
+      this.enemies.push({ type: "crawler", x, y, vx: vx, vy: vy, cooldown: 0, hp: 1 });
     }
     for (const [x, y] of turretPts){
-      this.enemies.push({ type: "turret", x, y, vx: 0, vy: 0, cooldown: Math.random(), hp: 1, dir: 1 });
+      this.enemies.push({ type: "turret", x, y, vx: 0, vy: 0, cooldown: Math.random(), hp: 1 });
+    }
+    {
+      const rand = mulberry32(seed + 5);
+      for (let i = 0; i < orbitingTurrets; ++i){
+        const perigee = cfg.RMAX + 2 + rand() * 4;
+        const eccentricity = rand() * 0.2;
+        const angle = rand() * Math.PI * 2;
+        const directionCCW = (rand() < 0.5);
+        const {x: x, y: y, vx: vx, vy: vy} = planet.orbitStateFromElements(perigee, eccentricity, angle, directionCCW);
+        this.enemies.push({ type: "orbitingTurret", x, y, vx, vy, cooldown: Math.random(), hp: 1 });
+      }
     }
   }
 
@@ -383,6 +395,8 @@ export class Enemies {
         }
       } else if (e.type === "turret"){
         this._updateTurret(e, ship);
+      } else if (e.type === "orbitingTurret"){
+        this._updateOrbitingTurret(e, ship, dt);
       }
     }
   }
@@ -498,8 +512,8 @@ export class Enemies {
 
     const dx = ship.x - e.x;
     const dy = ship.y - e.y;
-    const dvx = ship.vx;
-    const dvy = ship.vy;
+    const dvx = ship.vx - e.vx;
+    const dvy = ship.vy - e.vy;
 
     const dt = dTImpact(dx, dy, dvx, dvy, this._TURRET_SHOT_SPEED);
     const dxAim = dx + dvx * dt;
@@ -518,6 +532,27 @@ export class Enemies {
 
     e.cooldown = 1.0;
     this._shoot(e, this._TURRET_SHOT_SPEED, dxAim, dyAim);
+  }
+
+  /**
+   * @param {Enemy} e 
+   * @param {Ship} ship 
+   * @returns {void}
+   */
+  _updateOrbitingTurret(e, ship, dt) {
+    // Integrate orbital motion
+    const {x: gx, y: gy} = this.planet.gravityAt(e.x, e.y);
+
+    e.x += (e.vx + 0.5 * gx * dt) * dt;
+    e.y += (e.vy + 0.5 * gy * dt) * dt;
+
+    const {x: gx2, y: gy2} = this.planet.gravityAt(e.x, e.y);
+
+    e.vx += ((gx + gx2) / 2) * dt;
+    e.vy += ((gy + gy2) / 2) * dt;
+
+    // Do normal turret update
+    this._updateTurret(e, ship);
   }
 
   /**

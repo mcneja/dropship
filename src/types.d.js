@@ -51,7 +51,7 @@
  */
 
 /**
- * @typedef {"hunter"|"ranger"|"crawler"|"turret"} EnemyType
+ * @typedef {"hunter"|"ranger"|"crawler"|"turret"|"orbitingTurret"} EnemyType
  */
 
 /**
@@ -63,7 +63,6 @@
  * @property {number} vy
  * @property {number} cooldown
  * @property {number} hp
- * @property {number} dir
  */
 
 /**
