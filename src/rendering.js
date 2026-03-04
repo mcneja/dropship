@@ -397,15 +397,14 @@ function pushEnemy(pos, col, x, y, r, g, b, scale){
   const upy = y / len;
   const tx = -upy;
   const ty = upx;
-  const s = (scale ?? 1) * 1.5;
-  const base = 0.18 * s;
-  const height = 0.26 * s;
-  const lx = x - tx * base;
-  const ly = y - ty * base;
-  const rx = x + tx * base;
-  const ry = y + ty * base;
-  const hx = x + upx * height;
-  const hy = y + upy * height;
+  const baseX = scale * 0.866;
+  const baseY = scale * 0.5;
+  const lx = x - tx * baseX - upx * baseY;
+  const ly = y - ty * baseX - upy * baseY;
+  const rx = x + tx * baseX - upx * baseY;
+  const ry = y + ty * baseX - upy * baseY;
+  const hx = x + upx * scale;
+  const hy = y + upy * scale;
   pushTri(pos, col, lx, ly, rx, ry, hx, hy, r, g, b, 1);
 }
 
@@ -714,7 +713,7 @@ function drawFrameImpl(renderer, state, planet){
 
     if (state.enemyDebris && state.enemyDebris.length){
       for (const d of state.enemyDebris){
-        const len = 0.098 * game.ENEMY_SCALE;
+        const len = 0.2 * game.ENEMY_SCALE;
         const hx = Math.cos(d.a) * len;
         const hy = Math.sin(d.a) * len;
         pushLine(pos, col, d.x - hx, d.y - hy, d.x + hx, d.y + hy, 1.0, 0.5, 0.2, 0.9);
