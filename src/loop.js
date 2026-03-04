@@ -773,7 +773,7 @@ export class GameLoop {
             const maxSlope = 1 - Math.cos(Math.PI / 8); // 22.5 deg
             const landSlope = Math.min((1 - GAME.SURFACE_DOT) + 0.03, maxSlope);
             const clearance = (this.ship._shipRadius || 0.25);
-            if (!this.planet.isLandableAtWorld(this.ship.x, this.ship.y, landSlope, clearance, 0.2)) {
+            if (dotUp <= 0.7 || !this.planet.isLandableAtWorld(this.ship.x, this.ship.y, landSlope, clearance, 0.2)) {
               // Non-landing surface: bounce a bit, no friction
               const restitution = (1 + GAME.BOUNCE_RESTITUTION) * -vn;
               this.ship.vx += restitution * nx;
