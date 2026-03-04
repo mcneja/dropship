@@ -1023,16 +1023,25 @@ export class GameLoop {
 
         let indexPathMiner = indexPathFromPos(guidePath.path, margin, miner.x, miner.y);
 
-        miner.state = (landed && indexPathMiner !== null) ? "running" :"idle";
+        miner.state = (indexPathMiner !== null) ? "running" :"idle";
 
         if (miner.state === "running"){
-          const indexPathTarget = guidePath.indexClosest;
-          const distMax = GAME.MINER_RUN_SPEED * dt;
+          let indexPathTarget = guidePath.indexClosest;
+          if (!landed) {
+            const distEvade = 0.6;
+            if (indexPathMiner < indexPathTarget) {
+              indexPathTarget = moveAlongPathNegative(guidePath.path, indexPathTarget, distEvade, 0);
+            } else {
+              indexPathTarget = moveAlongPathPositive(guidePath.path, indexPathTarget, distEvade, guidePath.path.length - 1);
+            }
+          }
 
+          const distMax = (landed ? GAME.MINER_RUN_SPEED : GAME.MINER_JOG_SPEED) * dt;
           if (indexPathMiner < indexPathTarget) {
             indexPathMiner = moveAlongPathPositive(guidePath.path, indexPathMiner, distMax, indexPathTarget);
           } else if (indexPathMiner > indexPathTarget) {
             indexPathMiner = moveAlongPathNegative(guidePath.path, indexPathMiner, distMax, indexPathTarget);
+            console.assert(indexPathMiner >= 0);
           }
 
           const posNew = posFromPathIndex(guidePath.path, indexPathMiner);
@@ -1373,8 +1382,16 @@ function indexPathFromPos(path, distMax, x, y) {
  * @returns {{x:number, y:number}}
  */
 function posFromPathIndex(path, indexPath) {
-  const iSeg = Math.floor(indexPath);
-  const uSeg = indexPath - iSeg;
+  if (path.length === 0) {
+    return path[0];
+  }
+  indexPath = Math.max(0, Math.min(path.length - 1, indexPath));
+  let iSeg = Math.floor(indexPath);
+  let uSeg = indexPath - iSeg;
+  if (iSeg === path.length - 1) {
+    iSeg -= 1;
+    uSeg += 1;
+  }
   const x0 = path[iSeg].x;
   const y0 = path[iSeg].y;
   const x1 = path[iSeg+1].x;
@@ -1400,7 +1417,7 @@ function moveAlongPathPositive(path, indexPath, distRemaining, indexPathMax) {
   let iSeg = Math.floor(indexPath);
   let uSeg = indexPath - iSeg;
 
-  while (iSeg + 1 < path.length) {
+  while (iSeg > 0 && iSeg + 1 < path.length) {
     // Measure segment length
     const dSegX = path[iSeg+1].x - path[iSeg].x;
     const dSegY = path[iSeg+1].y - path[iSeg].y;
@@ -1446,7 +1463,7 @@ function moveAlongPathNegative(path, indexPath, distRemaining, indexPathMin) {
   let iSeg = Math.floor(indexPath);
   let uSeg = indexPath - iSeg;
 
-  while (iSeg > 0) {
+  while (iSeg > 0 && iSeg + 1 < path.length) {
     // Measure segment length
     const dSegX = path[iSeg+1].x - path[iSeg].x;
     const dSegY = path[iSeg+1].y - path[iSeg].y;
