@@ -116,7 +116,7 @@ export class GameLoop {
    * @returns {number}
    */
   _totalEnemiesForLevel(lvl){
-    return (lvl <= 1 ? 0 : 2 * (lvl - 1));
+    return 30;//(lvl <= 1 ? 0 : 2 * (lvl - 1));
   }
 
   /**

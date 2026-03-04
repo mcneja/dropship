@@ -222,6 +222,8 @@ export class Enemies {
     this._HUNTER_SHOT_CD = 1.2;
     this._RANGER_SHOT_CD = 1.8;
     this._SHOT_SPEED = 6.5;
+    this._TURRET_MAX_RANGE = 5.0;
+    this._TURRET_SHOT_SPEED = 5.0;
     this._SHOT_LIFE = 3.0;
     this._APPROACH_RANGE = 2.0;
     this._DETONATE_RANGE = 0.5;
@@ -259,13 +261,19 @@ export class Enemies {
     this.debris.length = 0;
     if (total <= 0) return;
     const seed = this.mapgen.getWorld().seed + level * 133;
-    const hunters = Math.max(0, Math.floor(total * 0.125));
-    const rangers = Math.max(0, Math.floor(total * 0.25));
-    const crawlers = Math.max(0, total - hunters - rangers);
+    let numEnemiesRemaining = total;
+    const hunters = Math.min(numEnemiesRemaining, Math.floor(total * 0.125));
+    numEnemiesRemaining -= hunters;
+    const rangers = Math.min(numEnemiesRemaining, Math.floor(total * 0.25));
+    numEnemiesRemaining -= rangers;
+    const crawlers = Math.min(numEnemiesRemaining, Math.floor(total * 0.25));
+    numEnemiesRemaining -= crawlers;
+    const turrets = numEnemiesRemaining;
 
     const hunterPts = pickAirPoints(hunters, seed + 1, 2.0, cfg.RMAX - 1.0, planet);
     const rangerPts = pickAirPoints(rangers, seed + 2, 3.0, cfg.RMAX - 1.0, planet);
     const crawlerPts = pickSurfacePoints(crawlers, seed + 3, planet, cfg.RMAX - 0.6);
+    const turretPts = pickSurfacePoints(turrets, seed + 4, planet, cfg.RMAX + 0.5);
 
     for (const [x, y] of hunterPts){
       this.enemies.push({ type: "hunter", x, y, vx: 0, vy: 0, cooldown: Math.random(), hp: 2, dir: 1 });
@@ -278,7 +286,10 @@ export class Enemies {
       const speed = Math.min(3, level * 0.25 + 0.5);
       const vx = Math.cos(dir) * speed;
       const vy = Math.sin(dir) * speed;
-      this.enemies.push({ type: "crawler", x, y, vx: vx, vy: vy, cooldown: 0, hp: 1, dir: 0 });
+      this.enemies.push({ type: "crawler", x, y, vx: vx, vy: vy, cooldown: 0, hp: 1, dir: 1 });
+    }
+    for (const [x, y] of turretPts){
+      this.enemies.push({ type: "turret", x, y, vx: 0, vy: 0, cooldown: Math.random(), hp: 1, dir: 1 });
     }
   }
 
@@ -363,7 +374,8 @@ export class Enemies {
           }
         }
         if (e.cooldown <= 0 && dist < 10 && lineOfSightAir(planet, e.x, e.y, ship.x, ship.y, this._LOS_STEP)){
-          this._shoot(e, dx, dy, this._HUNTER_SHOT_CD);
+          this._shoot(e, this._SHOT_SPEED, dx, dy);
+          e.cooldown = this._HUNTER_SHOT_CD;
         }
       } else if (e.type === "ranger"){
         if (dist < this._RANGER_MIN){
@@ -372,12 +384,15 @@ export class Enemies {
           tryMoveAir(e, planet, dx, dy, this._RANGER_SPEED, dt, this._RANGER_COLLIDER);
         }
         if (e.cooldown <= 0 && dist > this._RANGER_MIN * 0.8 && lineOfSightAir(planet, e.x, e.y, ship.x, ship.y, this._LOS_STEP)){
-          this._shoot(e, dx, dy, this._RANGER_SHOT_CD);
+          this._shoot(e, this._SHOT_SPEED, dx, dy);
+          e.cooldown = this._RANGER_SHOT_CD;
         }
       } else if (e.type === "crawler"){
         if (!this._updateCrawler(e, ship, dt)) {
           this.enemies.splice(i, 1);
         }
+      } else if (e.type === "turret"){
+        this._updateTurret(e, ship);
       }
     }
   }
@@ -484,15 +499,42 @@ export class Enemies {
   }
 
   /**
-   * Shoot a bullet in the specified direction
-   * @param {Enemy} e
-   * @param {number} dx
-   * @param {number} dy
-   * @param {number} cooldown
+   * @param {Enemy} e 
+   * @param {Ship} ship 
    * @returns {void}
    */
-  _shoot(e, dx, dy, cooldown) {
-    const vScale = this._SHOT_SPEED / (Math.hypot(dx, dy) || 1);
+  _updateTurret(e, ship) {
+    if (e.cooldown > 0) return;
+
+    const dx = ship.x - e.x;
+    const dy = ship.y - e.y;
+    const dvx = ship.vx;
+    const dvy = ship.vy;
+
+    const dt = dTImpact(dx, dy, dvx, dvy, this._TURRET_SHOT_SPEED);
+    const dxAim = dx + dvx * dt;
+    const dyAim = dy + dvy * dt;
+
+    const dAim = Math.hypot(dxAim, dyAim);
+
+    if (dAim >= this._TURRET_MAX_RANGE) return;
+    if (!lineOfSightAir(this.planet, e.x, e.y, ship.x, ship.y, this._LOS_STEP)) return;
+    if (!lineOfSightAir(this.planet, e.x, e.y, e.x + dxAim, e.y + dyAim, this._LOS_STEP)) return;
+
+    e.cooldown = 1.0;
+    this._shoot(e, this._TURRET_SHOT_SPEED, dxAim, dyAim);
+  }
+
+  /**
+   * Shoot a bullet in the specified direction
+   * @param {Enemy} e
+   * @param {number} shotSpeed
+   * @param {number} dx
+   * @param {number} dy
+   * @returns {void}
+   */
+  _shoot(e, shotSpeed, dx, dy) {
+    const vScale = shotSpeed / (Math.hypot(dx, dy) || 1);
     this.shots.push({
       x: e.x,
       y: e.y,
@@ -501,6 +543,24 @@ export class Enemies {
       life: this._SHOT_LIFE,
       owner: e.type
     });
-    e.cooldown = cooldown;
   }
+}
+
+/**
+ * 
+ * @param {number} x 
+ * @param {number} y 
+ * @param {number} vx 
+ * @param {number} vy 
+ * @param {number} s 
+ * @returns {number}
+ */
+function dTImpact(x, y, vx, vy, s) {
+  const a = s*s - vx*vx - vy*vy;
+  const b = x*vx + y*vy;
+  const c = x*x + y*y;
+  const d = b*b + a*c;
+  if (d < 0) return 0;
+  const t = Math.max(0, (b + Math.sqrt(d)) / a);
+  return t;
 }

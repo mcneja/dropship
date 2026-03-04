@@ -51,7 +51,7 @@
  */
 
 /**
- * @typedef {"hunter"|"ranger"|"crawler"} EnemyType
+ * @typedef {"hunter"|"ranger"|"crawler"|"turret"} EnemyType
  */
 
 /**

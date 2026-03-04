@@ -562,8 +562,10 @@ function drawFrameImpl(renderer, state, planet){
         pushEnemy(pos, col, enemy.x, enemy.y, 0.92, 0.25, 0.2, game.ENEMY_SCALE);
       } else if (enemy.type === "ranger"){
         pushEnemy(pos, col, enemy.x, enemy.y, 0.2, 0.75, 0.95, game.ENEMY_SCALE);
-      } else {
+      } else if (enemy.type === "crawler") {
         pushEnemy(pos, col, enemy.x, enemy.y, 0.95, 0.55, 0.2, game.ENEMY_SCALE);
+      } else {
+        pushEnemy(pos, col, enemy.x, enemy.y, 0.5, 0.125, 1.0, game.ENEMY_SCALE);
       }
       triVerts += 3;
     }
@@ -573,7 +575,8 @@ function drawFrameImpl(renderer, state, planet){
     const size = 0.10;
     for (const s of state.shots){
       if (s.owner === "hunter") pushDiamond(pos, col, s.x, s.y, size, 1.0, 0.35, 0.3, 0.9);
-      else pushDiamond(pos, col, s.x, s.y, size, 0.3, 0.8, 1.0, 0.9);
+      else if (s.owner === "ranger") pushDiamond(pos, col, s.x, s.y, size, 0.3, 0.8, 1.0, 0.9);
+      else pushDiamond(pos, col, s.x, s.y, size, 0.5, 0.125, 1.0, 0.9);
       triVerts += 6;
     }
   }
