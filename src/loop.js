@@ -17,7 +17,7 @@ export class GameLoop {
    * @param {Object} deps
    * @param {typeof import("./config.js").CFG} deps.cfg
    * @param {import("./mapgen.js").MapGen} deps.mapgen
- * @param {import("./planet.js").Planet} deps.planet
+   * @param {import("./planet.js").Planet} deps.planet
    * @param {import("./rendering.js").Renderer} deps.renderer
    * @param {import("./input.js").Input} deps.input
    * @param {Ui} deps.ui
@@ -189,8 +189,8 @@ export class GameLoop {
     this.shipHitPopups.push({
       x: this.ship.x,
       y: this.ship.y,
-      vx: this.ship.x,
-      vy: this.ship.y,
+      vx: 0,
+      vy: 0,
       life: GAME.SHIP_HIT_POPUP_LIFE,
     });
     if (this.ship.hp <= 0){
