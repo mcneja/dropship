@@ -8,6 +8,7 @@ import { GAME } from "./config.js";
 /** @typedef {import("./types.d.js").Vec2} Vec2 */
 /** @typedef {import("./types.d.js").EnemyType} EnemyType */
 /** @typedef {import("./types.d.js").Enemy} Enemy */
+/** @typedef {import("./types.d.js").Ship} Ship */
 /** @typedef {import("./types.d.js").Shot} Shot */
 /** @typedef {import("./types.d.js").Explosion} Explosion */
 /** @typedef {import("./types.d.js").Debris} Debris */
@@ -273,15 +274,16 @@ export class Enemies {
       this.enemies.push({ type: "ranger", x, y, vx: 0, vy: 0, cooldown: Math.random(), hp: 2, dir: -1, fuse: 0 });
     }
     for (const [x, y] of crawlerPts){
-      const s = -1 / Math.max(1e-6, Math.hypot(x, y));
-      const vx = x * s;
-      const vy = y * s;
-      this.enemies.push({ type: "crawler", x, y, vx: vx, vy: vy, cooldown: 0, hp: 1, dir: Math.random() < 0.5 ? -1 : 1, fuse: 0 });
+      const dir = Math.random() * Math.PI * 2;
+      const speed = Math.min(3, level * 0.25 + 0.5);
+      const vx = Math.cos(dir) * speed;
+      const vy = Math.sin(dir) * speed;
+      this.enemies.push({ type: "crawler", x, y, vx: vx, vy: vy, cooldown: 0, hp: 1, dir: 0, fuse: 0 });
     }
   }
 
   /**
-   * @param {{x:number,y:number,state?:string}} ship
+   * @param {Ship} ship
    * @param {number} dt
    * @returns {void}
    */
@@ -373,38 +375,99 @@ export class Enemies {
           this._shoot(e, dx, dy, this._RANGER_SHOT_CD);
         }
       } else if (e.type === "crawler"){
-        const [gx, gy] = airGradient(planet, e.x, e.y, 0.16);
-        const nlen = Math.hypot(gx, gy);
-        if (nlen > 1e-4){
-          const nx = gx / nlen;
-          const ny = gy / nlen;
-          const tx = -ny * e.dir;
-          const ty = nx * e.dir;
-          const step = this._CRAWLER_SPEED * dt;
-          const txw = e.x + tx * step;
-          const tyw = e.y + ty * step;
-          if (!collidesAtOffsets(planet, txw, tyw, this._CRAWLER_COLLIDER)){
-            e.x = txw;
-            e.y = tyw;
-          }
-          const nudged = nudgeTowardSurface(planet, e.x, e.y);
-          if (!collidesAtOffsets(planet, nudged[0], nudged[1], this._CRAWLER_COLLIDER)){
-            e.x = nudged[0];
-            e.y = nudged[1];
-          }
-        }
-
-        if (dist <= this._DETONATE_RANGE){
-          e.fuse += dt;
-          if (e.fuse >= this._DETONATE_FUSE){
-            this.explosions.push({ x: e.x, y: e.y, life: 0.5, owner: "crawler", radius: 1.1 });
-            this.enemies.splice(i, 1);
-          }
-        } else {
-          e.fuse = Math.max(0, e.fuse - dt * 0.5);
+        if (!this._updateCrawler(e, ship, dt)) {
+          this.enemies.splice(i, 1);
         }
       }
     }
+  }
+
+  /**
+   * @param {Enemy} e 
+   * @param {Ship} ship 
+   * @param {number} dt 
+   * @returns {boolean} keep alive?
+   */
+  _updateCrawler(e, ship, dt) {
+    this._moveCrawler(e, dt);
+
+    const dx = ship.x - e.x;
+    const dy = ship.y - e.y;
+    const dist = Math.hypot(dx, dy);
+
+    if (dist <= this._DETONATE_RANGE){
+      e.fuse += dt;
+      if (e.fuse >= this._DETONATE_FUSE){
+        this.explosions.push({ x: e.x, y: e.y, life: 0.5, owner: "crawler", radius: 1.1 });
+        return false;
+      }
+    } else {
+      e.fuse = Math.max(0, e.fuse - dt * 0.5);
+    }
+    return true;
+  }
+
+  /**
+   * @param {Enemy} e 
+   * @param {number} dt 
+   */
+  _moveCrawler(e, dt) {
+    this._reflectVelocityBackTowardPlanet(e);
+    this._reflectVelocityAwayFromTerrain(e);
+    e.x += e.vx * dt;
+    e.y += e.vy * dt;
+  }
+
+  /**
+   * @param {Enemy} e 
+   * @returns {void}
+   */
+  _reflectVelocityBackTowardPlanet(e) {
+    const rMax = this.planet.planetRadius + 1;
+
+    const rEnemy = Math.hypot(e.x, e.y);
+    if (rEnemy < rMax) return;
+
+    const nx = e.x / rEnemy;
+    const ny = e.y / rEnemy;
+
+    const vNormal = e.vx * nx + e.vy * ny;
+    if (vNormal <= 0) return;
+
+    const impulse = -2 * vNormal;
+
+    e.vx += impulse * nx;
+    e.vy += impulse * ny;
+  }
+
+  /**
+   * 
+   * @param {Enemy} e 
+   * @returns {void}
+   */
+  _reflectVelocityAwayFromTerrain(e) {
+    const planet = this.planet;
+
+    const distAboveGround = planet.airValueAtWorld(e.x, e.y) - 0.75;
+    if (distAboveGround > 0) return;
+
+    const eps = 0.18;
+    const gdx = planet.airValueAtWorld(e.x + eps, e.y) - planet.airValueAtWorld(e.x - eps, e.y);
+    const gdy = planet.airValueAtWorld(e.x, e.y + eps) - planet.airValueAtWorld(e.x, e.y - eps);
+    let nx = gdx;
+    let ny = gdy;
+    let nlen = Math.hypot(nx, ny);
+    if (nlen < 1e-4) return;
+    nx /= nlen;
+    ny /= nlen;
+
+    const vNormal = nx * e.vx + ny * e.vy;
+    if (vNormal >= 0) return;
+
+    const impulse = -2 * vNormal;
+
+    e.vx += impulse * nx;
+    e.vy += impulse * ny;
   }
 
   /**
