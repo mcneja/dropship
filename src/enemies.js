@@ -518,7 +518,12 @@ export class Enemies {
     const dAim = Math.hypot(dxAim, dyAim);
 
     if (dAim >= this._TURRET_MAX_RANGE) return;
-    if (!lineOfSightAir(this.planet, e.x, e.y, ship.x, ship.y, this._LOS_STEP)) return;
+    if (!lineOfSightAir(this.planet, e.x, e.y, ship.x, ship.y, this._LOS_STEP)) {
+      // Put turret on extra cooldown when player is out of sight, to
+      // give players the element of "surprise" when they get into view.
+      e.cooldown = Math.max(e.cooldown, 2.5);
+      return;  
+    }
     if (!lineOfSightAir(this.planet, e.x, e.y, e.x + dxAim, e.y + dyAim, this._LOS_STEP)) return;
 
     e.cooldown = 1.0;
