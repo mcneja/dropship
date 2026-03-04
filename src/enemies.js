@@ -95,19 +95,22 @@ function nudgeTowardSurface(planet, x, y){
 /**
  * @param {number} count
  * @param {number} seed
- * @param {number} minR
- * @param {number} maxR
  * @param {{ airValueAtWorld:(x:number,y:number)=>number }} planet
+ * @param {number} rMin
+ * @param {number} rMax
  * @returns {Vec2[]}
  */
-function pickAirPoints(count, seed, minR, maxR, planet){
+function pickAirPoints(count, seed, planet, rMin, rMax){
+  if (rMin >= rMax) return;
+
   const rand = mulberry32(seed);
+
   /** @type {Vec2[]} */
   const points = [];
   const attempts = Math.max(200, count * 80);
   for (let i = 0; i < attempts && points.length < count; i++){
     const ang = rand() * Math.PI * 2;
-    const r = minR + rand() * (maxR - minR);
+    const r = Math.sqrt(rMin*rMin + rand() * (rMax*rMax - rMin*rMin));
     const x = r * Math.cos(ang);
     const y = r * Math.sin(ang);
     if (planet.airValueAtWorld(x, y) <= 0.5) continue;
@@ -130,15 +133,6 @@ function pickSurfacePoints(count, seed, planet, rMax){
   const eps = 0.12;
   const rMin = 1.0;
   const steps = 64;
-
-  /**
-   * @returns {{x:number,y:number}}
-   */
-  function posRandomInDisc() {
-    const angle = rand() * Math.PI * 2;
-    const r = rMax * Math.sqrt(rand());
-    return {x: r * Math.cos(angle), y: r * Math.sin(angle)};
-  }
 
   /**
    * @param {number} ang
@@ -176,10 +170,6 @@ function pickSurfacePoints(count, seed, planet, rMax){
 
   const attempts = Math.max(200, count * 120);
   for (let i = 0; i < attempts && points.length < count; i++){
-    const {x: x, y: y} = posRandomInDisc();
-    if (planet.airValueAtWorld(x, y) <= 0.5) continue;
-    points.push([x, y]);
-    /*
     const ang = rand() * Math.PI * 2;
     const surf = findSurface(ang);
     if (!surf) continue;
@@ -190,7 +180,6 @@ function pickSurfacePoints(count, seed, planet, rMax){
     if (planet.airValueAtWorld(upx * below, upy * below) > 0.5) continue;
     if (planet.airValueAtWorld(upx * above, upy * above) <= 0.5) continue;
     points.push([surf.x, surf.y]);
-    */
   }
   return points;
 }
@@ -270,10 +259,11 @@ export class Enemies {
     numEnemiesRemaining -= crawlers;
     const turrets = numEnemiesRemaining;
 
-    const hunterPts = pickAirPoints(hunters, seed + 1, 2.0, cfg.RMAX - 1.0, planet);
-    const rangerPts = pickAirPoints(rangers, seed + 2, 3.0, cfg.RMAX - 1.0, planet);
-    const crawlerPts = pickSurfacePoints(crawlers, seed + 3, planet, cfg.RMAX - 0.6);
-    const turretPts = pickSurfacePoints(turrets, seed + 4, planet, cfg.RMAX + 0.5);
+    const rHunterRangerMax = cfg.RMAX - 1.0;
+    const hunterPts = pickAirPoints(hunters, seed + 1, planet, rHunterRangerMax * 0.5, rHunterRangerMax);
+    const rangerPts = pickAirPoints(rangers, seed + 2, planet, rHunterRangerMax * 0.75, rHunterRangerMax);
+    const crawlerPts = pickAirPoints(crawlers, seed + 3, planet, 0.0, cfg.RMAX - 0.6);
+    const turretPts = pickAirPoints(turrets, seed + 4, planet, 0.0, cfg.RMAX + 0.5);
 
     for (const [x, y] of hunterPts){
       this.enemies.push({ type: "hunter", x, y, vx: 0, vy: 0, cooldown: Math.random(), hp: 2, dir: 1 });
