@@ -28,6 +28,7 @@
  * @property {number} lastAir
  * @property {number} hp
  * @property {number} hitCooldown
+ * @property {{path:Array<{x:number,y:number}>, indexClosest:number}|null} guidePath
  * @property {Array<[number,number,boolean,number]>|null} [_samples]
  * @property {{x:number,y:number,tri?:Array<{x:number,y:number}>|null,node?:{x:number,y:number}|null}|null} [_collision]
  * @property {number} [_shipRadius]

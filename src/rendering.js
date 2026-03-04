@@ -789,6 +789,54 @@ function drawFrameImpl(renderer, state, planet){
     }
   }
 
+  // Test surface guide path
+
+  /*
+  if (state.ship.guidePath) {
+    const path = state.ship.guidePath.path;
+    for (let i = 1; i < path.length; ++i) {
+      pushLine(pos, col, path[i-1].x, path[i-1].y, path[i].x, path[i].y, 1, 0.9, 0, 1);
+      lineVerts += 2;
+    }
+
+    const iShip = state.ship.guidePath.indexClosest;
+    pushLine(pos, col, state.ship.x, state.ship.y, path[iShip].x, path[iShip].y, 1, 0.9, 0, 1);
+    lineVerts += 2;
+  }
+  */
+
+  // Test closest-point-on-planet (use mouse cursor as query point)
+
+  /*
+  if (state.aimWorld) {
+    const posClosestOld = planet.posClosest(state.aimWorld.x, state.aimWorld.y);
+    if (posClosestOld) {
+      pushLine(pos, col, state.aimWorld.x, state.aimWorld.y, posClosestOld.x, posClosestOld.y, 1, 1, 0, 1);
+      lineVerts += 2;
+    }
+  }
+  */
+
+  // Draw a box around the distance field
+  /*
+  {
+    const s = renderer._worldSize;
+    const x0 = renderer._worldMin;
+    const y0 = renderer._worldMin;
+    const x1 = x0 + s;
+    const y1 = y0 + s;
+    const r = 1;
+    const g = 1;
+    const b = 1;
+    const a = 1;
+    pushLine(pos, col, x0, y0, x1, y0, r, g, b, a);
+    pushLine(pos, col, x1, y0, x1, y1, r, g, b, a);
+    pushLine(pos, col, x1, y1, x0, y1, r, g, b, a);
+    pushLine(pos, col, x0, y1, x0, y0, r, g, b, a);
+    lineVerts += 8;
+  }
+  */
+
   // Debug nodes now come from state.debugPoints for both modes.
 
 

@@ -147,6 +147,108 @@ export class Planet {
     return this.radial.fogAlphaAtWorld(x, y);
   }
 
+  /**
+   * Find closest point on world
+   * Note: Does not work very far from the surface in the "radial" mode
+   * @param {number} x
+   * @param {number} y
+   * @returns {{x:number, y:number}|null}
+   */
+  posClosest(x, y) {
+    const eps = 0.1;
+
+    let dist, gdx, gdy, g;
+
+    if (this.mode === "sdf") {
+      dist = this.sdf.sdfValueAtWorld(x, y);
+      gdx = (this.sdf.sdfValueAtWorld(x + eps, y) - this.sdf.sdfValueAtWorld(x - eps, y)) / (2 * eps);
+      gdy = (this.sdf.sdfValueAtWorld(x, y + eps) - this.sdf.sdfValueAtWorld(x, y - eps)) / (2 * eps);
+      g = Math.hypot(gdx, gdy);
+      if (g < 0.707) {
+        return null;
+      }
+    } else {
+      dist = this.radial.airValueAtWorld(x, y) - 0.5;
+      gdx = this.radial.airValueAtWorld(x + eps, y) - this.radial.airValueAtWorld(x - eps, y);
+      gdy = this.radial.airValueAtWorld(x, y + eps) - this.radial.airValueAtWorld(x, y - eps);
+      g = Math.hypot(gdx, gdy);
+      if (g < 1e-4) {
+        return null;
+      }
+    }
+    const step = -dist / g;
+    return {x: x + gdx * step, y: y + gdy * step};
+  }
+
+  /**
+   * Build a guide path to the closest point on the terrain to the query position
+   * @param {number} x
+   * @param {number} y
+   * @param {number} maxDistance
+   * @returns {{path:Array<{x:number, y:number}>, indexClosest: number}|null}
+   */
+  surfaceGuidePathTo(x, y, maxDistance) {
+    const pos = this.posClosest(x, y);
+    if (!pos) return null;
+
+    /** @type {Array<{x:number, y:number}>} */
+    const path = [{x: pos.x, y: pos.y}];
+    let indexClosest = 0;
+
+    let px = pos.x;
+    let py = pos.y;
+
+    /**
+     * @param {number} x 
+     * @param {number} y 
+     * @returns {{nx:number, ny:number}}
+     */
+    const tryGetNormalAt = (x, y) => {
+      const eps = 0.18;
+      return (this.mode === "sdf")
+        ? this.sdfNormalAtWorld(x, y, eps)
+        : this.radialNormalAtWorld(x, y, eps);
+    };
+
+    /**
+     * 
+     * @param {number} px 
+     * @param {number} py 
+     * @param {number} stepSize 
+     * @returns {{x:number, y:number}|null}
+     */
+    const tryGetStep = (px, py, stepSize) => {
+      let n = tryGetNormalAt(px, py);
+      if (!n) return null;
+      const dotUp = (px * n.nx + py * n.ny) / (Math.hypot(px, py) * Math.hypot(n.nx, n.ny));
+      if (dotUp <= 0.5) return null;
+      const qx = px + n.ny * -stepSize;
+      const qy = py + n.nx *  stepSize;
+      const posNext = this.posClosest(qx, qy);
+      if (!posNext) return null;
+      if (Math.hypot(posNext.x - x, posNext.y - y) > maxDistance) return null;
+      return {x: posNext.x, y: posNext.y};
+    };
+
+    const stepSize = 0.25;
+
+    const maxPointsPos = 16;
+    while (path.length < maxPointsPos) {
+      const posExtend = tryGetStep(path[0].x, path[0].y, stepSize);
+      if (!posExtend) break;
+      path.unshift(posExtend);
+      ++indexClosest;
+    }
+
+    const maxPointsNeg = path.length + 15;
+    while (path.length < maxPointsNeg) {
+      const posExtend = tryGetStep(path[path.length-1].x, path[path.length-1].y, -stepSize);
+      if (!posExtend) break;
+      path.push(posExtend);
+    }
+
+    return {path: path, indexClosest: indexClosest};
+  }
 
   /**
    * Surface normal and slope info at world point.
@@ -275,6 +377,7 @@ export class Planet {
     if (len < 1e-6) return null;
     return { nx: gdx / len, ny: gdy / len };
   }
+
   /**
    * Update renderer resources for current mode (no-op for radial mode).
    * @param {{updateSdfTextures:(sdf:Float32Array, shade:Float32Array)=>void}} renderer

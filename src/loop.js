@@ -62,6 +62,7 @@ export class GameLoop {
       lastAir: 1,
       hp: GAME.SHIP_MAX_HP,
       hitCooldown: 0,
+      guidePath: null,
     };
     /** @type {Array<{x:number,y:number,vx:number,vy:number,a:number,w:number,life:number}>} */
     this.debris = [];
@@ -108,8 +109,6 @@ export class GameLoop {
     this.fpsFrames = 0;
     this.fps = 0;
     this.debugCollisions = GAME.DEBUG_COLLISION;
-    /** @type {boolean} */
-    this.debugCollisions = this.debugCollisions;
   }
 
   /**
@@ -836,6 +835,12 @@ export class GameLoop {
     this.lastAimWorld = aimWorld;
     if (inputState.aim) this.lastAimScreen = inputState.aim;
 
+    if (this.ship.state === "crashed"){
+      this.ship.guidePath = null;
+    } else {
+      this.ship.guidePath = this.planet.surfaceGuidePathTo(this.ship.x, this.ship.y, GAME.MINER_CALL_RADIUS);
+    }
+
     if (this.ship.state !== "crashed"){
       if (shoot){
         let dirx = 0, diry = 0;
@@ -989,58 +994,53 @@ export class GameLoop {
       }
     }
 
-    if (this.miners.length){
+    if (this.miners.length && this.ship.guidePath){
+      // Build bounding box for guide path for quick rejection
+      const guidePath = this.ship.guidePath;
+      let guidePathMinX = Infinity;
+      let guidePathMinY = Infinity;
+      let guidePathMaxX = -Infinity;
+      let guidePathMaxY = -Infinity;
+      for (const pos of guidePath.path) {
+        guidePathMinX = Math.min(guidePathMinX, pos.x);
+        guidePathMinY = Math.min(guidePathMinY, pos.y);
+        guidePathMaxX = Math.max(guidePathMaxX, pos.x);
+        guidePathMaxY = Math.max(guidePathMaxY, pos.y);
+      }
+      const margin = 1;
+      guidePathMinX -= margin;
+      guidePathMinY -= margin;
+      guidePathMaxX += margin;
+      guidePathMaxY += margin;
+
       const landed = this.ship.state === "landed";
       for (const miner of this.miners){
         if (miner.state === "boarded") continue;
-        const dx = this.ship.x - miner.x;
-        const dy = this.ship.y - miner.y;
-        const dist = Math.hypot(dx, dy);
 
-        if (landed && dist <= GAME.MINER_CALL_RADIUS){
-          miner.state = "running";
-        } else if (!landed && miner.state === "running"){
-          miner.state = "idle";
+        if (miner.x < guidePathMinX || miner.y < guidePathMinY || miner.x > guidePathMaxX || miner.y > guidePathMaxY) {
+          continue;
         }
 
-        if (landed && miner.state === "running"){
-          const speed = GAME.MINER_RUN_SPEED;
-          const stepLen = speed * dt;
-          const inv = 1 / (dist || 1);
-          const dirx = dx * inv;
-          const diry = dy * inv;
+        let indexPathMiner = indexPathFromPos(guidePath.path, margin, miner.x, miner.y);
 
-          /**
-           * @param {number} tx
-           * @param {number} ty
-           */
-          const tryMove = (tx, ty) => {
-            const nx = miner.x + tx * stepLen;
-            const ny = miner.y + ty * stepLen;
-            if (!this._minerCollidesAt(nx, ny)){
-              miner.x = nx;
-              miner.y = ny;
-              return true;
-            }
-            return false;
-          };
+        miner.state = (landed && indexPathMiner !== null) ? "running" :"idle";
 
-          if (!tryMove(dirx, diry)){
-            const r = Math.hypot(miner.x, miner.y) || 1;
-            const upx = miner.x / r;
-            const upy = miner.y / r;
-            const dotUp = dirx * upx + diry * upy;
-            const tx = dirx - upx * dotUp;
-            const ty = diry - upy * dotUp;
-            const tlen = Math.hypot(tx, ty);
-            if (tlen > 1e-4){
-              const tnx = tx / tlen;
-              const tny = ty / tlen;
-              if (!tryMove(tnx, tny)){
-                tryMove(-tnx, -tny);
-              }
-            }
+        if (miner.state === "running"){
+          const indexPathTarget = guidePath.indexClosest;
+          const distMax = GAME.MINER_RUN_SPEED * dt;
+
+          if (indexPathMiner < indexPathTarget) {
+            indexPathMiner = moveAlongPathPositive(guidePath.path, indexPathMiner, distMax, indexPathTarget);
+          } else if (indexPathMiner > indexPathTarget) {
+            indexPathMiner = moveAlongPathNegative(guidePath.path, indexPathMiner, distMax, indexPathTarget);
           }
+
+          const posNew = posFromPathIndex(guidePath.path, indexPathMiner);
+          const rNew = Math.hypot(posNew.x, posNew.y);
+          const raiseAmount = 0.02; // raise the miner above the path by this to aid in visibility
+          const scalePos = 1 + raiseAmount / rNew;
+          miner.x = posNew.x * scalePos;
+          miner.y = posNew.y * scalePos;
         }
 
         const r = Math.hypot(miner.x, miner.y) || 1;
@@ -1332,4 +1332,146 @@ export class GameLoop {
     }
     ctx.globalAlpha = 1;
   }
+}
+
+/**
+ * 
+ * @param {Array<{x:number, y:number}>} path 
+ * @param {number} distMax
+ * @param {number} x 
+ * @param {number} y 
+ * @returns {number|null}
+ */
+function indexPathFromPos(path, distMax, x, y) {
+  let distClosestSqr = Infinity;
+  let indexPath = null;
+  for (let i = 1; i < path.length; ++i) {
+    const pos0 = path[i-1];
+    const pos1 = path[i];
+    const dSegX = pos1.x - pos0.x;
+    const dSegY = pos1.y - pos0.y;
+    const dPosX = x - pos0.x;
+    const dPosY = y - pos0.y;
+    let u = (dSegX * dPosX + dSegY * dPosY) / (dSegX * dSegX + dSegY * dSegY);
+    u = Math.max(0, Math.min(1, u));
+    const dPosClosestX = dSegX * u - dPosX;
+    const dPosClosestY = dSegY * u - dPosY;
+    const distSqr = dPosClosestX*dPosClosestX + dPosClosestY*dPosClosestY;
+    if (distSqr > distMax*distMax) continue;
+    if (distSqr < distClosestSqr) {
+      distClosestSqr = distSqr;
+      indexPath = (i - 1) + u;
+    }
+  }
+  return indexPath;
+}
+
+/**
+ * 
+ * @param {Array<{x:number, y:number}>} path 
+ * @param {number} indexPath 
+ * @returns {{x:number, y:number}}
+ */
+function posFromPathIndex(path, indexPath) {
+  const iSeg = Math.floor(indexPath);
+  const uSeg = indexPath - iSeg;
+  const x0 = path[iSeg].x;
+  const y0 = path[iSeg].y;
+  const x1 = path[iSeg+1].x;
+  const y1 = path[iSeg+1].y;
+  const dSegX = x1 - x0;
+  const dSegY = y1 - y0;
+  return {x: x0 + dSegX * uSeg, y: y0 + dSegY * uSeg};
+}
+
+/**
+ * 
+ * @param {Array<{x:number, y:number}>} path
+ * @param {number} indexPath
+ * @param {number} distRemaining
+ * @param {number} indexPathMax
+ * @returns {number}
+ */
+function moveAlongPathPositive(path, indexPath, distRemaining, indexPathMax) {
+  const iSegMax = Math.floor(indexPathMax);
+  const uSegMax = indexPathMax - iSegMax;
+
+  // Unpack indexPath into segment index and fraction of distance along the segment
+  let iSeg = Math.floor(indexPath);
+  let uSeg = indexPath - iSeg;
+
+  while (iSeg + 1 < path.length) {
+    // Measure segment length
+    const dSegX = path[iSeg+1].x - path[iSeg].x;
+    const dSegY = path[iSeg+1].y - path[iSeg].y;
+    const distSeg = Math.hypot(dSegX, dSegY);
+
+    // Stop when we hit indexPathMax
+    const distSegStop = (iSeg < iSegMax) ? Infinity : (uSegMax * distSeg);
+    if (distRemaining >= distSegStop) {
+      indexPath = indexPathMax;
+      break;
+    }
+
+    // Stop when we exhaust distRemaining
+    const distSegRemaining = (1 - uSeg) * distSeg;
+    if (distRemaining < distSegRemaining) {
+      indexPath += distRemaining / distSeg;
+      break;
+    }
+
+    // Move on to the next segment
+    distRemaining -= distSegRemaining;
+    ++iSeg;
+    uSeg = 0;
+    indexPath = iSeg;
+  }
+
+  return indexPath;
+}
+
+/**
+ * 
+ * @param {Array<{x:number, y:number}>} path
+ * @param {number} indexPath
+ * @param {number} distRemaining
+ * @param {number} indexPathMin
+ * @returns {number}
+ */
+function moveAlongPathNegative(path, indexPath, distRemaining, indexPathMin) {
+  const iSegMin = Math.floor(indexPathMin);
+  const uSegMin = indexPathMin - iSegMin;
+
+  // Unpack indexPath into segment index and fraction of distance along the segment
+  let iSeg = Math.floor(indexPath);
+  let uSeg = indexPath - iSeg;
+
+  while (iSeg > 0) {
+    // Measure segment length
+    const dSegX = path[iSeg+1].x - path[iSeg].x;
+    const dSegY = path[iSeg+1].y - path[iSeg].y;
+    const distSeg = Math.hypot(dSegX, dSegY);
+
+    // Stop when we hit indexPathMin
+    const distSegStop = (iSeg > iSegMin) ? Infinity : ((1 - uSegMin) * distSeg);
+    if (distRemaining >= distSegStop) {
+      indexPath = indexPathMin;
+      break;
+    }
+
+    // Stop when we exhaust distRemaining
+    const distSegRemaining = uSeg * distSeg;
+    if (distRemaining < distSegRemaining) {
+      indexPath -= distRemaining / distSeg;
+      break;
+    }
+
+    // Move on to the next segment
+    distRemaining -= distSegRemaining;
+    indexPath = iSeg;
+    --iSeg;
+    uSeg = 1;
+  }
+
+  return indexPath;
 }
