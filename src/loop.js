@@ -466,7 +466,7 @@ export class GameLoop {
         dead++;
         continue;
       }
-      nudged.push({ x: res.x, y: res.y, state: "idle" });
+      nudged.push({ x: res.x, y: res.y, jumpCycle: Math.random(), state: "idle" });
     }
     this.miners = nudged;
     this.minersRemaining = this.miners.length;
@@ -1020,22 +1020,19 @@ export class GameLoop {
       if (miner.state === "boarded") continue;
 
       let indexPathMiner = null;
-      if (miner.x >= guidePathMinX && miner.y >= guidePathMinY && miner.x <= guidePathMaxX && miner.y <= guidePathMaxY) {
+      if (landed && miner.x >= guidePathMinX && miner.y >= guidePathMinY && miner.x <= guidePathMaxX && miner.y <= guidePathMaxY) {
         indexPathMiner = indexPathFromPos(guidePath.path, guidepathMargin, miner.x, miner.y);
       }
 
       miner.state = (indexPathMiner !== null) ? "running" :"idle";
 
+      // Update jump cycle
+      const r = Math.hypot(miner.x, miner.y) || 1;
+      miner.jumpCycle += 1.5 * dt * r / this.planet.planetRadius;
+      miner.jumpCycle -= Math.floor(miner.jumpCycle);
+
       if (miner.state === "running"){
         let indexPathTarget = guidePath.indexClosest;
-        if (!landed) {
-          const distEvade = 0.6;
-          if (indexPathMiner < indexPathTarget) {
-            indexPathTarget = moveAlongPathNegative(guidePath.path, indexPathTarget, distEvade, 0);
-          } else {
-            indexPathTarget = moveAlongPathPositive(guidePath.path, indexPathTarget, distEvade, guidePath.path.length - 1);
-          }
-        }
 
         const distMax = (landed ? GAME.MINER_RUN_SPEED : GAME.MINER_JOG_SPEED) * dt;
         if (indexPathMiner < indexPathTarget) {
@@ -1053,7 +1050,6 @@ export class GameLoop {
         miner.y = posNew.y * scalePos;
       }
 
-      const r = Math.hypot(miner.x, miner.y) || 1;
       const upx = miner.x / r;
       const upy = miner.y / r;
       const headX = miner.x + upx * this.MINER_HEAD_OFFSET;

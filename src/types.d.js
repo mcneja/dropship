@@ -46,6 +46,7 @@
  * @typedef {Object} Miner
  * @property {number} x
  * @property {number} y
+ * @property {number} jumpCycle
  * @property {"idle"|"running"|"boarded"} state
  */
 

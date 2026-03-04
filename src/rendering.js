@@ -353,24 +353,26 @@ function pushCircle(pos, col, x, y, radius, r, g, b, a, seg = 24){
  * @param {number[]} col
  * @param {number} x
  * @param {number} y
+ * @param {number} jumpCycle
  * @param {number} r
  * @param {number} g
  * @param {number} b
  * @returns {void}
  */
-function pushMiner(pos, col, x, y, r, g, b, scale){
+function pushMiner(pos, col, x, y, jumpCycle, r, g, b, scale){
   const len = Math.hypot(x, y) || 1;
   const upx = x / len;
   const upy = y / len;
+  const jumpOffset = 0.5 * jumpCycle * (1 - jumpCycle);
   const tx = -upy;
   const ty = upx;
   const s = scale ?? 1;
   const halfW = 0.06 * s;
   const halfH = 0.18 * s;
-  const b0x = x + tx * halfW;
-  const b0y = y + ty * halfW;
-  const b1x = x - tx * halfW;
-  const b1y = y - ty * halfW;
+  const b0x = x + tx * halfW + upx * jumpOffset;
+  const b0y = y + ty * halfW + upy * jumpOffset;
+  const b1x = x - tx * halfW + upx * jumpOffset;
+  const b1y = y - ty * halfW + upy * jumpOffset;
   const t0x = b0x + upx * (2 * halfH);
   const t0y = b0y + upy * (2 * halfH);
   const t1x = b1x + upx * (2 * halfH);
@@ -545,9 +547,9 @@ function drawFrameImpl(renderer, state, planet){
       if (miner.state === "boarded") continue;
       if (miner.state !== "running" && !losVisibleAt(miner.x, miner.y)) continue;
       if (miner.state === "running"){
-        pushMiner(pos, col, miner.x, miner.y, 0.98, 0.62, 0.2, game.MINER_SCALE);
+        pushMiner(pos, col, miner.x, miner.y, miner.jumpCycle, 0.98, 0.62, 0.2, game.MINER_SCALE);
       } else {
-        pushMiner(pos, col, miner.x, miner.y, 0.98, 0.85, 0.25, game.MINER_SCALE);
+        pushMiner(pos, col, miner.x, miner.y, miner.jumpCycle, 0.98, 0.85, 0.25, game.MINER_SCALE);
       }
       triVerts += 6;
     }
