@@ -1017,11 +1017,10 @@ export class GameLoop {
       for (const miner of this.miners){
         if (miner.state === "boarded") continue;
 
-        if (miner.x < guidePathMinX || miner.y < guidePathMinY || miner.x > guidePathMaxX || miner.y > guidePathMaxY) {
-          continue;
+        let indexPathMiner = null;
+        if (miner.x >= guidePathMinX && miner.y >= guidePathMinY && miner.x <= guidePathMaxX && miner.y <= guidePathMaxY) {
+          indexPathMiner = indexPathFromPos(guidePath.path, margin, miner.x, miner.y);
         }
-
-        let indexPathMiner = indexPathFromPos(guidePath.path, margin, miner.x, miner.y);
 
         miner.state = (indexPathMiner !== null) ? "running" :"idle";
 
