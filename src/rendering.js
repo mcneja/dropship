@@ -543,7 +543,7 @@ function drawFrameImpl(renderer, state, planet){
   if (state.miners && state.miners.length){
     for (const miner of state.miners){
       if (miner.state === "boarded") continue;
-      if (!losVisibleAt(miner.x, miner.y)) continue;
+      if (miner.state !== "running" && !losVisibleAt(miner.x, miner.y)) continue;
       if (miner.state === "running"){
         pushMiner(pos, col, miner.x, miner.y, 0.98, 0.62, 0.2, game.MINER_SCALE);
       } else {
