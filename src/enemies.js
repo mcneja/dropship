@@ -258,7 +258,7 @@ export class Enemies {
     const crawlers = Math.min(numEnemiesRemaining, Math.floor(total * 0.25));
     numEnemiesRemaining -= crawlers;
     const turrets = numEnemiesRemaining;
-    const orbitingTurrets = 1;
+    const orbitingTurrets = 8;
 
     const rHunterRangerMax = cfg.RMAX - 1.0;
     const hunterPts = pickAirPoints(hunters, seed + 1, planet, rHunterRangerMax * 0.5, rHunterRangerMax);
@@ -284,13 +284,14 @@ export class Enemies {
     }
     {
       const rand = mulberry32(seed + 5);
+      const directionCCW = (rand() < 0.5);
+      const perigee = cfg.RMAX + 2;
+      const eccentricity = rand() * 0.15;
+      let angle = rand() * Math.PI * 2;
       for (let i = 0; i < orbitingTurrets; ++i){
-        const perigee = cfg.RMAX + 2 + rand() * 4;
-        const eccentricity = rand() * 0.2;
-        const angle = rand() * Math.PI * 2;
-        const directionCCW = (rand() < 0.5);
         const {x: x, y: y, vx: vx, vy: vy} = planet.orbitStateFromElements(perigee, eccentricity, angle, directionCCW);
         this.enemies.push({ type: "orbitingTurret", x, y, vx, vy, cooldown: Math.random(), hp: 1 });
+        angle += 0.1;
       }
     }
   }
@@ -356,11 +357,6 @@ export class Enemies {
         continue;
       }
 
-      e.cooldown = Math.max(0, e.cooldown - dt);
-      if (!targetable){
-        continue;
-      }
-
       const dx = ship.x - e.x;
       const dy = ship.y - e.y;
       const dist = Math.hypot(dx, dy);
@@ -375,7 +371,8 @@ export class Enemies {
             tryMoveAir(e, planet, tx, ty, this._HUNTER_SPEED, dt, this._HUNTER_COLLIDER) || tryMoveAir(e, planet, -tx, -ty, this._HUNTER_SPEED, dt, this._HUNTER_COLLIDER);
           }
         }
-        if (e.cooldown <= 0 && dist < 10 && lineOfSightAir(planet, e.x, e.y, ship.x, ship.y, this._LOS_STEP)){
+        e.cooldown = Math.max(0, e.cooldown - dt);
+        if (targetable && e.cooldown <= 0 && dist < 10 && lineOfSightAir(planet, e.x, e.y, ship.x, ship.y, this._LOS_STEP)){
           this._shoot(e, this._SHOT_SPEED, dx, dy);
           e.cooldown = this._HUNTER_SHOT_CD;
         }
@@ -385,7 +382,8 @@ export class Enemies {
         } else if (dist > this._RANGER_MAX){
           tryMoveAir(e, planet, dx, dy, this._RANGER_SPEED, dt, this._RANGER_COLLIDER);
         }
-        if (e.cooldown <= 0 && dist > this._RANGER_MIN * 0.8 && lineOfSightAir(planet, e.x, e.y, ship.x, ship.y, this._LOS_STEP)){
+        e.cooldown = Math.max(0, e.cooldown - dt);
+        if (targetable && e.cooldown <= 0 && dist > this._RANGER_MIN * 0.8 && lineOfSightAir(planet, e.x, e.y, ship.x, ship.y, this._LOS_STEP)){
           this._shoot(e, this._SHOT_SPEED, dx, dy);
           e.cooldown = this._RANGER_SHOT_CD;
         }
@@ -394,7 +392,7 @@ export class Enemies {
           this.enemies.splice(i, 1);
         }
       } else if (e.type === "turret"){
-        this._updateTurret(e, ship);
+        this._updateTurret(e, ship, dt);
       } else if (e.type === "orbitingTurret"){
         this._updateOrbitingTurret(e, ship, dt);
       }
@@ -440,6 +438,7 @@ export class Enemies {
    * @returns {void}
    */
   _approachPlayer(e, ship) {
+    if (!ship || ship.state === "crashed") return;
     const dx = ship.x - e.x;
     const dy = ship.y - e.y;
     const dist = Math.hypot(dx, dy);
@@ -505,19 +504,24 @@ export class Enemies {
   /**
    * @param {Enemy} e 
    * @param {Ship} ship 
+   * @param {number} dt
    * @returns {void}
    */
-  _updateTurret(e, ship) {
+  _updateTurret(e, ship, dt) {
+    const cooldownNext = Math.max(0, e.cooldown - dt);
+    e.cooldown = cooldownNext;
     if (e.cooldown > 0) return;
+
+    if (!ship || ship.state === "crashed") return;
 
     const dx = ship.x - e.x;
     const dy = ship.y - e.y;
     const dvx = ship.vx - e.vx;
     const dvy = ship.vy - e.vy;
 
-    const dt = dTImpact(dx, dy, dvx, dvy, this._TURRET_SHOT_SPEED);
-    const dxAim = dx + dvx * dt;
-    const dyAim = dy + dvy * dt;
+    const dtHit = dTImpact(dx, dy, dvx, dvy, this._TURRET_SHOT_SPEED);
+    const dxAim = dx + dvx * dtHit;
+    const dyAim = dy + dvy * dtHit;
 
     const dAim = Math.hypot(dxAim, dyAim);
 
@@ -526,7 +530,7 @@ export class Enemies {
       // Put turret on extra cooldown when player is out of sight, to
       // give players the element of "surprise" when they get into view.
       e.cooldown = Math.max(e.cooldown, 2.5);
-      return;  
+      return;
     }
     if (!lineOfSightAir(this.planet, e.x, e.y, e.x + dxAim, e.y + dyAim, this._LOS_STEP)) return;
 
@@ -552,7 +556,7 @@ export class Enemies {
     e.vy += ((gy + gy2) / 2) * dt;
 
     // Do normal turret update
-    this._updateTurret(e, ship);
+    this._updateTurret(e, ship, dt);
   }
 
   /**
