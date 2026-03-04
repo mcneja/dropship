@@ -63,7 +63,6 @@
  * @property {number} cooldown
  * @property {number} hp
  * @property {number} dir
- * @property {number} fuse
  */
 
 /**

@@ -219,12 +219,12 @@ export class Enemies {
 
     this._HUNTER_SPEED = 2.3;
     this._RANGER_SPEED = 1.6;
-    this._CRAWLER_SPEED = 1.2;
     this._HUNTER_SHOT_CD = 1.2;
     this._RANGER_SHOT_CD = 1.8;
     this._SHOT_SPEED = 6.5;
     this._SHOT_LIFE = 3.0;
-    this._DETONATE_RANGE = 1.6;
+    this._APPROACH_RANGE = 2.0;
+    this._DETONATE_RANGE = 0.5;
     this._DETONATE_FUSE = 0.6;
     this._LOS_STEP = 0.2;
     this._RANGER_MIN = 5.0;
@@ -259,7 +259,7 @@ export class Enemies {
     this.debris.length = 0;
     if (total <= 0) return;
     const seed = this.mapgen.getWorld().seed + level * 133;
-    const hunters = Math.max(0, Math.floor(total * 0.5));
+    const hunters = Math.max(0, Math.floor(total * 0.125));
     const rangers = Math.max(0, Math.floor(total * 0.25));
     const crawlers = Math.max(0, total - hunters - rangers);
 
@@ -268,17 +268,17 @@ export class Enemies {
     const crawlerPts = pickSurfacePoints(crawlers, seed + 3, planet, cfg.RMAX - 0.6);
 
     for (const [x, y] of hunterPts){
-      this.enemies.push({ type: "hunter", x, y, vx: 0, vy: 0, cooldown: Math.random(), hp: 2, dir: 1, fuse: 0 });
+      this.enemies.push({ type: "hunter", x, y, vx: 0, vy: 0, cooldown: Math.random(), hp: 2, dir: 1 });
     }
     for (const [x, y] of rangerPts){
-      this.enemies.push({ type: "ranger", x, y, vx: 0, vy: 0, cooldown: Math.random(), hp: 2, dir: -1, fuse: 0 });
+      this.enemies.push({ type: "ranger", x, y, vx: 0, vy: 0, cooldown: Math.random(), hp: 2, dir: -1 });
     }
     for (const [x, y] of crawlerPts){
       const dir = Math.random() * Math.PI * 2;
       const speed = Math.min(3, level * 0.25 + 0.5);
       const vx = Math.cos(dir) * speed;
       const vy = Math.sin(dir) * speed;
-      this.enemies.push({ type: "crawler", x, y, vx: vx, vy: vy, cooldown: 0, hp: 1, dir: 0, fuse: 0 });
+      this.enemies.push({ type: "crawler", x, y, vx: vx, vy: vy, cooldown: 0, hp: 1, dir: 0 });
     }
   }
 
@@ -389,33 +389,46 @@ export class Enemies {
    * @returns {boolean} keep alive?
    */
   _updateCrawler(e, ship, dt) {
-    this._moveCrawler(e, dt);
+    this._moveCrawler(e, ship, dt);
 
     const dx = ship.x - e.x;
     const dy = ship.y - e.y;
     const dist = Math.hypot(dx, dy);
 
     if (dist <= this._DETONATE_RANGE){
-      e.fuse += dt;
-      if (e.fuse >= this._DETONATE_FUSE){
-        this.explosions.push({ x: e.x, y: e.y, life: 0.5, owner: "crawler", radius: 1.1 });
-        return false;
-      }
-    } else {
-      e.fuse = Math.max(0, e.fuse - dt * 0.5);
+      this.explosions.push({ x: e.x, y: e.y, life: 0.5, owner: "crawler", radius: 1.1 });
+      return false;
     }
     return true;
   }
 
   /**
-   * @param {Enemy} e 
+   * @param {Enemy} e
+   * @param {Ship} ship
    * @param {number} dt 
    */
-  _moveCrawler(e, dt) {
+  _moveCrawler(e, ship, dt) {
+    this._approachPlayer(e, ship);
     this._reflectVelocityBackTowardPlanet(e);
     this._reflectVelocityAwayFromTerrain(e);
     e.x += e.vx * dt;
     e.y += e.vy * dt;
+  }
+
+  /**
+   * @param {Enemy} e 
+   * @param {Ship} ship 
+   * @returns {void}
+   */
+  _approachPlayer(e, ship) {
+    const dx = ship.x - e.x;
+    const dy = ship.y - e.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist >= this._APPROACH_RANGE) return;
+    if (dist < 1e-4) return;
+    const s = Math.hypot(e.vx, e.vy) / dist;
+    e.vx = dx * s;
+    e.vy = dy * s;
   }
 
   /**
