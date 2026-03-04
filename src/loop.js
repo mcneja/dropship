@@ -994,83 +994,84 @@ export class GameLoop {
       }
     }
 
-    if (this.miners.length && this.ship.guidePath){
-      // Build bounding box for guide path for quick rejection
-      const guidePath = this.ship.guidePath;
-      let guidePathMinX = Infinity;
-      let guidePathMinY = Infinity;
-      let guidePathMaxX = -Infinity;
-      let guidePathMaxY = -Infinity;
+    // Build bounding box for guide path for quick rejection
+    const guidepathMargin = 1;
+    let guidePathMinX = Infinity;
+    let guidePathMinY = Infinity;
+    let guidePathMaxX = -Infinity;
+    let guidePathMaxY = -Infinity;
+    const guidePath = this.ship.guidePath;
+    if (guidePath) {
       for (const pos of guidePath.path) {
         guidePathMinX = Math.min(guidePathMinX, pos.x);
         guidePathMinY = Math.min(guidePathMinY, pos.y);
         guidePathMaxX = Math.max(guidePathMaxX, pos.x);
         guidePathMaxY = Math.max(guidePathMaxY, pos.y);
       }
-      const margin = 1;
-      guidePathMinX -= margin;
-      guidePathMinY -= margin;
-      guidePathMaxX += margin;
-      guidePathMaxY += margin;
+      guidePathMinX -= guidepathMargin;
+      guidePathMinY -= guidepathMargin;
+      guidePathMaxX += guidepathMargin;
+      guidePathMaxY += guidepathMargin;
+    }
 
-      const landed = this.ship.state === "landed";
-      for (const miner of this.miners){
-        if (miner.state === "boarded") continue;
+    const landed = this.ship.state === "landed";
 
-        let indexPathMiner = null;
-        if (miner.x >= guidePathMinX && miner.y >= guidePathMinY && miner.x <= guidePathMaxX && miner.y <= guidePathMaxY) {
-          indexPathMiner = indexPathFromPos(guidePath.path, margin, miner.x, miner.y);
-        }
+    for (const miner of this.miners){
+      if (miner.state === "boarded") continue;
 
-        miner.state = (indexPathMiner !== null) ? "running" :"idle";
+      let indexPathMiner = null;
+      if (miner.x >= guidePathMinX && miner.y >= guidePathMinY && miner.x <= guidePathMaxX && miner.y <= guidePathMaxY) {
+        indexPathMiner = indexPathFromPos(guidePath.path, guidepathMargin, miner.x, miner.y);
+      }
 
-        if (miner.state === "running"){
-          let indexPathTarget = guidePath.indexClosest;
-          if (!landed) {
-            const distEvade = 0.6;
-            if (indexPathMiner < indexPathTarget) {
-              indexPathTarget = moveAlongPathNegative(guidePath.path, indexPathTarget, distEvade, 0);
-            } else {
-              indexPathTarget = moveAlongPathPositive(guidePath.path, indexPathTarget, distEvade, guidePath.path.length - 1);
-            }
-          }
+      miner.state = (indexPathMiner !== null) ? "running" :"idle";
 
-          const distMax = (landed ? GAME.MINER_RUN_SPEED : GAME.MINER_JOG_SPEED) * dt;
+      if (miner.state === "running"){
+        let indexPathTarget = guidePath.indexClosest;
+        if (!landed) {
+          const distEvade = 0.6;
           if (indexPathMiner < indexPathTarget) {
-            indexPathMiner = moveAlongPathPositive(guidePath.path, indexPathMiner, distMax, indexPathTarget);
-          } else if (indexPathMiner > indexPathTarget) {
-            indexPathMiner = moveAlongPathNegative(guidePath.path, indexPathMiner, distMax, indexPathTarget);
-            console.assert(indexPathMiner >= 0);
+            indexPathTarget = moveAlongPathNegative(guidePath.path, indexPathTarget, distEvade, 0);
+          } else {
+            indexPathTarget = moveAlongPathPositive(guidePath.path, indexPathTarget, distEvade, guidePath.path.length - 1);
           }
-
-          const posNew = posFromPathIndex(guidePath.path, indexPathMiner);
-          const rNew = Math.hypot(posNew.x, posNew.y);
-          const raiseAmount = 0.02; // raise the miner above the path by this to aid in visibility
-          const scalePos = 1 + raiseAmount / rNew;
-          miner.x = posNew.x * scalePos;
-          miner.y = posNew.y * scalePos;
         }
 
-        const r = Math.hypot(miner.x, miner.y) || 1;
-        const upx = miner.x / r;
-        const upy = miner.y / r;
-        const headX = miner.x + upx * this.MINER_HEAD_OFFSET;
-        const headY = miner.y + upy * this.MINER_HEAD_OFFSET;
-        const hullDist = this._shipHullDistance(headX, headY, this.ship.x, this.ship.y);
-        if (landed && hullDist <= GAME.MINER_BOARD_RADIUS){
-          miner.state = "boarded";
-          this.minersRemaining = Math.max(0, this.minersRemaining - 1);
-          const tx = -upy;
-          const ty = upx;
-          const jitter = (Math.random() * 2 - 1) * GAME.MINER_POPUP_TANGENTIAL;
-          this.minerPopups.push({
-            x: miner.x + upx * 0.1,
-            y: miner.y + upy * 0.1,
-            vx: upx * GAME.MINER_POPUP_SPEED + tx * jitter,
-            vy: upy * GAME.MINER_POPUP_SPEED + ty * jitter,
-            life: GAME.MINER_POPUP_LIFE,
-          });
+        const distMax = (landed ? GAME.MINER_RUN_SPEED : GAME.MINER_JOG_SPEED) * dt;
+        if (indexPathMiner < indexPathTarget) {
+          indexPathMiner = moveAlongPathPositive(guidePath.path, indexPathMiner, distMax, indexPathTarget);
+        } else if (indexPathMiner > indexPathTarget) {
+          indexPathMiner = moveAlongPathNegative(guidePath.path, indexPathMiner, distMax, indexPathTarget);
+          console.assert(indexPathMiner >= 0);
         }
+
+        const posNew = posFromPathIndex(guidePath.path, indexPathMiner);
+        const rNew = Math.hypot(posNew.x, posNew.y);
+        const raiseAmount = 0.02; // raise the miner above the path by this to aid in visibility
+        const scalePos = 1 + raiseAmount / rNew;
+        miner.x = posNew.x * scalePos;
+        miner.y = posNew.y * scalePos;
+      }
+
+      const r = Math.hypot(miner.x, miner.y) || 1;
+      const upx = miner.x / r;
+      const upy = miner.y / r;
+      const headX = miner.x + upx * this.MINER_HEAD_OFFSET;
+      const headY = miner.y + upy * this.MINER_HEAD_OFFSET;
+      const hullDist = this._shipHullDistance(headX, headY, this.ship.x, this.ship.y);
+      if (landed && hullDist <= GAME.MINER_BOARD_RADIUS){
+        miner.state = "boarded";
+        this.minersRemaining = Math.max(0, this.minersRemaining - 1);
+        const tx = -upy;
+        const ty = upx;
+        const jitter = (Math.random() * 2 - 1) * GAME.MINER_POPUP_TANGENTIAL;
+        this.minerPopups.push({
+          x: miner.x + upx * 0.1,
+          y: miner.y + upy * 0.1,
+          vx: upx * GAME.MINER_POPUP_SPEED + tx * jitter,
+          vy: upy * GAME.MINER_POPUP_SPEED + ty * jitter,
+          life: GAME.MINER_POPUP_LIFE,
+        });
       }
     }
 
