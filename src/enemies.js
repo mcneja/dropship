@@ -344,8 +344,8 @@ export class Enemies {
           this.debris.push({
             x: e.x + Math.cos(ang) * 0.08,
             y: e.y + Math.sin(ang) * 0.08,
-            vx: Math.cos(ang) * sp,
-            vy: Math.sin(ang) * sp,
+            vx: e.vx + Math.cos(ang) * sp,
+            vy: e.vy + Math.sin(ang) * sp,
             a: Math.random() * Math.PI * 2,
             w: (Math.random() - 0.5) * 6,
             life: 1.1 + Math.random() * 0.8,

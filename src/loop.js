@@ -157,8 +157,6 @@ export class GameLoop {
     if (this.ship.state === "crashed") return;
     this.ship.state = "crashed";
     this.ship.explodeT = 0;
-    this.ship.vx = 0; this.ship.vy = 0;
-    this.debris.length = 0;
     this.lastAimWorld = null;
     this.lastAimScreen = null;
     const pieces = 10;
@@ -191,8 +189,8 @@ export class GameLoop {
     this.shipHitPopups.push({
       x: this.ship.x,
       y: this.ship.y,
-      vx: 0,
-      vy: 0,
+      vx: this.ship.x,
+      vy: this.ship.y,
       life: GAME.SHIP_HIT_POPUP_LIFE,
     });
     if (this.ship.hp <= 0){
@@ -766,6 +764,9 @@ export class GameLoop {
         const vt = this.ship.vx * -ny + this.ship.vy * nx;
 
         if (vn < -GAME.CRASH_SPEED) {
+          const restitution = -vn;
+          this.ship.vx += restitution * nx;
+          this.ship.vy += restitution * ny;
           this._triggerCrash();
         } else {
           // Adjust velocity
