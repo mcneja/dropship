@@ -38,6 +38,7 @@ export const CFG = Object.freeze({
   AIR_DARK:  [0x2b/255, 0x2b/255, 0x2b/255],
   AIR_LIGHT: [0x4a/255, 0x4a/255, 0x4a/255],
   EDGE_DARK: [0x14/255, 0x14/255, 0x14/255],
+  STAR_SATURATION: 2, //1 = baseline, >1 more intense colors
   // SDF supersample levels: 0=off, 1=4x, 2=8x
   SDF_SUPERSAMPLE: 0,
   SDF_FOG_SCALE: 0.8,
