@@ -2,6 +2,7 @@
 
 import { RingMesh } from "./planet_ring_mesh.js";
 import { RadialGraph } from "./navigation.js";
+import { MapGen } from "./mapgen.js";
 
 const surfaceGravityAcceleration = 2.0;
 
@@ -10,19 +11,18 @@ const surfaceGravityAcceleration = 2.0;
  */
 export class Planet {
   /**
-   * @param {typeof import("./config.js").CFG} cfg
-   * @param {typeof import("./config.js").GAME} game
-   * @param {import("./mapgen.js").MapGen} mapgen
+   * @param {{cfg:typeof import("./config.js").CFG, game:typeof import("./config.js").GAME, seed:number}} deps
    */
-  constructor(cfg, game, mapgen){
+  constructor({ cfg, game, seed }){
     this.cfg = cfg;
     this.game = game;
-    this.mapgen = mapgen;
+    this.mapgen = new MapGen(cfg);
+    this.mapgen.regenWorld(seed);
     const rPlanet = cfg.RMAX;
     this.planetRadius = rPlanet;
     this.gravitationalConstant = surfaceGravityAcceleration * rPlanet * rPlanet;
 
-    this.radial = new RingMesh(cfg, mapgen);
+    this.radial = new RingMesh(cfg, this.mapgen);
     this.radial.initFog(game);
 
     /** @type {Array<[number,number,boolean,number]>|null} */
@@ -31,6 +31,28 @@ export class Planet {
     this._radialDebugDirty = true;
     /** @type {boolean} */
     this._radialDirty = false;
+  }
+
+  /**
+   * @returns {number}
+   */
+  getSeed(){
+    return this.mapgen.getWorld().seed;
+  }
+
+  /**
+   * @returns {number}
+   */
+  getFinalAir(){
+    return this.mapgen.getWorld().finalAir;
+  }
+
+  /**
+   * @returns {{seed:number, finalAir:number}}
+   */
+  getWorldMeta(){
+    const world = this.mapgen.getWorld();
+    return { seed: world.seed, finalAir: world.finalAir };
   }
 
   /**

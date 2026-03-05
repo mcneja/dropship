@@ -188,13 +188,11 @@ export class Enemies {
    * Build enemy state and behavior helpers.
    * @param {Object} deps
    * @param {typeof import("./config.js").CFG} deps.cfg Game config constants.
-   * @param {import("./mapgen.js").MapGen} deps.mapgen Map generator.
    * @param {import("./planet.js").Planet} deps.planet Planet (gravity/orbits).
    * @param {import("./types.d.js").CollisionQuery} deps.collision Collision query API.
    */
-  constructor({ cfg, mapgen, planet, collision }){
+  constructor({ cfg, planet, collision }){
     this.cfg = cfg;
-    this.mapgen = mapgen;
     this.planet = planet;
     this.collision = collision;
 
@@ -241,16 +239,17 @@ export class Enemies {
   /**
    * @param {number} total
    * @param {number} level
+   * @param {number} levelSeed
    * @returns {void}
    */
-  spawn(total, level){
-    const { cfg, mapgen, collision, planet } = this;
+  spawn(total, level, levelSeed){
+    const { cfg, collision, planet } = this;
     this.enemies.length = 0;
     this.shots.length = 0;
     this.explosions.length = 0;
     this.debris.length = 0;
     if (total <= 0) return;
-    const seed = this.mapgen.getWorld().seed + level * 133;
+    const seed = levelSeed + level * 133;
     let numEnemiesRemaining = total;
     const hunters = Math.min(numEnemiesRemaining, Math.floor(total * 0.125));
     numEnemiesRemaining -= hunters;

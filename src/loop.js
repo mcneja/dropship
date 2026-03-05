@@ -6,6 +6,7 @@ import { Enemies } from "./enemies.js";
 import { createCollisionRouter } from "./collision-router.js";
 import { CFG } from './config.js';
 import { Mothership, updateMothership, mothershipCollisionInfo } from "./mothership.js";
+import { Planet } from "./planet.js";
 
 /** @typedef {import("./types.d.js").ViewState} ViewState */
 /** @typedef {import("./types.d.js").Ship} Ship */
@@ -17,7 +18,6 @@ export class GameLoop {
    * Main gameplay loop orchestrator.
    * @param {Object} deps
    * @param {typeof import("./config.js").CFG} deps.cfg
-   * @param {import("./mapgen.js").MapGen} deps.mapgen
    * @param {import("./planet.js").Planet} deps.planet
    * @param {import("./rendering.js").Renderer} deps.renderer
    * @param {import("./input.js").Input} deps.input
@@ -26,9 +26,8 @@ export class GameLoop {
    * @param {HTMLCanvasElement|null|undefined} deps.overlay
    * @param {HTMLElement} deps.hud
    */
-  constructor({ cfg, mapgen, planet, renderer, input, ui, canvas, hud, overlay }){
+  constructor({ cfg, planet, renderer, input, ui, canvas, hud, overlay }){
     this.cfg = cfg;
-    this.mapgen = mapgen;
     this.planet = planet;
     this.radial = planet.radial;
     this.renderer = renderer;
@@ -105,13 +104,12 @@ export class GameLoop {
     this.collision = createCollisionRouter(this.planet, () => this.mothership);
     this.enemies = new Enemies({
       cfg,
-      mapgen,
       planet,
       collision: this.collision,
     });
 
     this._spawnMiners();
-    this.enemies.spawn(this._totalEnemiesForLevel(this.level), this.level);
+    this.enemies.spawn(this._totalEnemiesForLevel(this.level), this.level, this.planet.getSeed());
 
     this.lastTime = performance.now();
     this.accumulator = 0;
@@ -454,7 +452,7 @@ export class GameLoop {
    */
   _spawnMiners(){
     const count = GAME.MINERS_PER_LEVEL;
-    const seed = this.mapgen.getWorld().seed + this.level * 97;
+    const seed = this.planet.getSeed() + this.level * 97;
     const rand = mulberry32(seed);
     const rMin = 1.0;
     const rMax = this.cfg.RMAX - 0.8;
@@ -553,15 +551,21 @@ export class GameLoop {
    * @returns {void}
    */
   _beginLevel(seed, advanceLevel){
-    this.mapgen.regenWorld(seed);
-    const newAir = this.planet.regenFromMap();
-    this._syncPlanetRender(newAir);
-    this.radial.resetFog();
+    if (advanceLevel) this.level++;
+    this.planet = new Planet({ cfg: this.cfg, game: GAME, seed });
+    this.radial = this.planet.radial;
+    this.mothership = new Mothership(this.cfg, this.planet);
+    this.collision = createCollisionRouter(this.planet, () => this.mothership);
+    this.enemies = new Enemies({
+      cfg: this.cfg,
+      planet: this.planet,
+      collision: this.collision,
+    });
+    this.renderer.setPlanet(this.planet);
     this._resetShip();
     this.entityExplosions.length = 0;
-    if (advanceLevel) this.level++;
     this._spawnMiners();
-    this.enemies.spawn(this._totalEnemiesForLevel(this.level), this.level);
+    this.enemies.spawn(this._totalEnemiesForLevel(this.level), this.level, this.planet.getSeed());
     this.minerPopups.length = 0;
   }
 
@@ -1369,11 +1373,11 @@ export class GameLoop {
     }
 
     if (inputState.regen){
-      const nextSeed = this.mapgen.getWorld().seed + 1;
+      const nextSeed = this.planet.getSeed() + 1;
       this._beginLevel(nextSeed, false);
     }
     if (inputState.nextLevel){
-      const nextSeed = this.mapgen.getWorld().seed + 1;
+      const nextSeed = this.planet.getSeed() + 1;
       this._beginLevel(nextSeed, true);
     }
 
@@ -1391,7 +1395,7 @@ export class GameLoop {
     }
 
     if (this.minersRemaining === 0 && this.ship.state === "landed" && this.ship._dock){
-      const nextSeed = this.mapgen.getWorld().seed + 1;
+      const nextSeed = this.planet.getSeed() + 1;
       this._beginLevel(nextSeed, true);
     }
 
@@ -1415,7 +1419,7 @@ export class GameLoop {
       debugCollisionSamples: this.debugCollisions ? (this.ship._samples || []) : null,
       debugPoints: (this.debugCollisions && GAME.DEBUG_NODES) ? this.planet.debugPoints() : null,
       fps: this.fps,
-      finalAir: this.mapgen.getWorld().finalAir,
+      finalAir: this.planet.getFinalAir(),
       miners: this.miners,
       minersRemaining: this.minersRemaining,
       level: this.level,
@@ -1440,7 +1444,7 @@ export class GameLoop {
       speed: Math.hypot(this.ship.vx, this.ship.vy),
       shipHp: this.ship.hp,
       verts: this.radial.vertCount,
-      air: this.mapgen.getWorld().finalAir,
+      air: this.planet.getFinalAir(),
       miners: this.minersRemaining,
       minersDead: this.minersDead,
       level: this.level,
