@@ -161,6 +161,18 @@ export class Planet {
   /**
    * @param {number} x
    * @param {number} y
+   * @returns {boolean}
+   */
+  fogSeenAt(x, y){
+    if (this.mode === "sdf") {
+      return true;
+    }
+    return this.radial.fogSeenAt(x, y);
+  }
+
+  /**
+   * @param {number} x
+   * @param {number} y
    * @returns {number}
    */
   fogAlphaAtWorld(x, y){

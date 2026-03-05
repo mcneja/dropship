@@ -568,13 +568,6 @@ function drawFrameImpl(renderer, state, planet){
   const lighten = (c) => Math.min(1, c + 0.3);
   const rockPoint = [1.0, 0.55, 0.12];
   const airPoint = [lighten(cfg.AIR_LIGHT[0]), lighten(cfg.AIR_LIGHT[1]), lighten(cfg.AIR_LIGHT[2])];
-  const losVisibleAt = (x, y) => {
-    if (!mesh || !mesh.lineOfSight) return true;
-    const dx = x - state.ship.x;
-    const dy = y - state.ship.y;
-    if (dx * dx + dy * dy > game.VIS_RANGE * game.VIS_RANGE) return false;
-    return mesh.lineOfSight(state.ship.x, state.ship.y, x, y);
-  };
   if (state.ship.state !== "crashed"){
     for (const [lx, ly] of local){
       const [wx, wy] = rot2(lx, ly, shipRot);
@@ -588,7 +581,7 @@ function drawFrameImpl(renderer, state, planet){
   if (state.miners && state.miners.length){
     for (const miner of state.miners){
       if (miner.state === "boarded") continue;
-      if (miner.state !== "running" && !losVisibleAt(miner.x, miner.y)) continue;
+      if (!planet.fogSeenAt(miner.x, miner.y)) continue;
       if (miner.state === "running"){
         pushMiner(pos, col, miner.x, miner.y, miner.jumpCycle, 0.98, 0.62, 0.2, game.MINER_SCALE);
       } else {
@@ -600,7 +593,7 @@ function drawFrameImpl(renderer, state, planet){
 
   if (state.enemies && state.enemies.length){
     for (const enemy of state.enemies){
-      if (!losVisibleAt(enemy.x, enemy.y)) continue;
+      if (!planet.fogSeenAt(enemy.x, enemy.y)) continue;
       if (enemy.type === "hunter"){
         pushEnemy(pos, col, enemy.x, enemy.y, 0.92, 0.25, 0.2, game.ENEMY_SCALE);
       } else if (enemy.type === "ranger"){
