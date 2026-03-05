@@ -235,12 +235,14 @@ export function dijkstraMap(graph, sources, passable){
  * @param {number} start
  * @param {number} goal
  * @param {Uint8Array} passable
+ * @param {number} [maxCost]
  * @returns {number[]|null}
  */
-export function findPathAStar(graph, start, goal, passable){
+export function findPathAStar(graph, start, goal, passable, maxCost=Infinity){
   const n = graph.nodes.length;
   if (start < 0 || start >= n || goal < 0 || goal >= n) return null;
-  if (!passable[start] || !passable[goal]) return null;
+
+  const costImpassable = 1000; // should be larger than the largest legal path between any two points
 
   const gScore = new Array(n).fill(Infinity);
   gScore[start] = 0;
@@ -262,10 +264,10 @@ export function findPathAStar(graph, start, goal, passable){
     if (!item) break;
     const { node, g } = item;
     if (node === goal) break;
+    if (g > maxCost) return null;
     if (g > gScore[node]) continue;
     for (const edge of graph.neighbors[node]){
-      if (!passable[edge.to]) continue;
-      const tentative = g + edge.cost;
+      const tentative = g + edge.cost + (passable[edge.to] ? 0 : costImpassable);
       if (tentative < gScore[edge.to]){
         gScore[edge.to] = tentative;
         cameFrom[edge.to] = node;

@@ -845,13 +845,7 @@ function drawFrameImpl(renderer, state, planet){
   /*
   if (state.aimWorld) {
     const radialGraph = planet.radialGraph;
-
-    const passable = new Uint8Array(radialGraph.nodes.length);
-    for (let i = 0; i < radialGraph.nodes.length; i++){
-      const n = radialGraph.nodes[i];
-      passable[i] = planet.radial.rings[n.r][n.i].air > 0.5 ? 1 : 0;
-    }
-
+    const passable = planet.airNodesBitmap;
     const nodeShip = nearestRadialNode(radialGraph, planet.radial, state.ship.x, state.ship.y);
     const nodeCursor = nearestRadialNode(radialGraph, planet.radial, state.aimWorld.x, state.aimWorld.y);
 
