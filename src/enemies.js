@@ -165,8 +165,11 @@ export class Enemies {
    * @param {Object} deps
    * @param {import("./planet.js").Planet} deps.planet Planet (gravity/orbits).
    * @param {import("./types.d.js").CollisionQuery} deps.collision Collision query API.
+   * @param {number} deps.total Initial enemy count to spawn.
+   * @param {number} deps.level Current level index.
+   * @param {number} deps.levelSeed Base seed for this level.
    */
-  constructor({ planet, collision }){
+  constructor({ planet, collision, total, level, levelSeed }){
     this.planet = planet;
     this.collision = collision;
 
@@ -197,6 +200,8 @@ export class Enemies {
     this._HUNTER_COLLIDER = circleOffsets(0.22, 6);
     this._RANGER_COLLIDER = circleOffsets(0.22, 6);
     this._CRAWLER_COLLIDER = circleOffsets(0.2, 6);
+
+    this.spawn(total, level, levelSeed);
   }
 
   /**

@@ -102,10 +102,12 @@ export class GameLoop {
     this.enemies = new Enemies({
       planet: this.planet,
       collision: this.collision,
+      total: this._totalEnemiesForLevel(this.level),
+      level: this.level,
+      levelSeed: this.planet.getSeed(),
     });
 
     this._spawnMiners();
-    this.enemies.spawn(this._totalEnemiesForLevel(this.level), this.level, this.planet.getSeed());
 
     this.lastTime = performance.now();
     this.accumulator = 0;
@@ -546,12 +548,14 @@ export class GameLoop {
     this.enemies = new Enemies({
       planet: this.planet,
       collision: this.collision,
+      total: this._totalEnemiesForLevel(this.level),
+      level: this.level,
+      levelSeed: this.planet.getSeed(),
     });
     this.renderer.setPlanet(this.planet);
     this._resetShip();
     this.entityExplosions.length = 0;
     this._spawnMiners();
-    this.enemies.spawn(this._totalEnemiesForLevel(this.level), this.level, this.planet.getSeed());
     this.minerPopups.length = 0;
   }
 
