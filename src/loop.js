@@ -286,7 +286,7 @@ export class GameLoop {
    * @returns {number}
    */
   _aimWorldDistance(screenFrac){
-    const s = GAME.ZOOM / (this.cfg.RMAX + this.cfg.PAD);
+    const s = GAME.PLANETSIDE_ZOOM / (this.cfg.RMAX + this.cfg.PAD);
     return (2 * screenFrac) / s;
   }
 
@@ -294,7 +294,7 @@ export class GameLoop {
    * @returns {ViewState}
    */
   _viewState() {
-    const radiusViewMin = GAME.ZOOM;
+    const radiusViewMin = GAME.PLANETSIDE_ZOOM;
     const rShip = Math.hypot(this.ship.x, this.ship.y);
     const rPlanet = CFG.RMAX + CFG.PAD;
 
@@ -320,10 +320,11 @@ export class GameLoop {
       const dx = this.ship.x - this.mothership.x;
       const dy = this.ship.y - this.mothership.y;
       const d = Math.hypot(dx, dy);
-      const t = Math.max(0, Math.min(1, (12 - d) / 8));
+      let t = Math.max(0, Math.min(1, (12 - d) / 8));
+      t = (3 - 2 * t) * t * t;
       view.xCenter = view.xCenter * (1 - t) + this.ship.x * t;
       view.yCenter = view.yCenter * (1 - t) + this.ship.y * t;
-      view.radius = radiusView * (1 - t) + radiusViewMin * t;
+      view.radius = radiusView * (1 - t) + GAME.MOTHERSHIP_ZOOM * t;
     }
     return view;
   }
@@ -717,8 +718,6 @@ export class GameLoop {
    * @returns {void}
    */
   _step(dt, inputState){
-    const prevShipX = this.ship.x;
-    const prevShipY = this.ship.y;
     if (this.mothership){
       updateMothership(this.mothership, this.planet, dt);
     }
@@ -830,11 +829,8 @@ export class GameLoop {
       }
       */
 
-      const speed = Math.hypot(this.ship.vx, this.ship.vy);
       const eps = this.COLLISION_EPS;
       const shipRadius = this.SHIP_RADIUS;
-      const rCenter = Math.hypot(this.ship.x, this.ship.y);
-      const nearTerrain = (rCenter - shipRadius <= this.TERRAIN_MAX);
 
       let collides = false;
       let { samples, hit, hitSource } = this.collision.sampleCollisionPoints(this._shipCollisionPoints(this.ship.x, this.ship.y));
@@ -1406,12 +1402,9 @@ export class GameLoop {
       steps++;
     }
 
-    if (this.minersRemaining === 0 && this.ship.state === "flying"){
-      const r = Math.hypot(this.ship.x, this.ship.y);
-      if (r > this.cfg.RMAX + GAME.EXIT_MARGIN){
-        const nextSeed = this.mapgen.getWorld().seed + 1;
-        this._beginLevel(nextSeed, true);
-      }
+    if (this.minersRemaining === 0 && this.ship.state === "landed" && this.ship._dock){
+      const nextSeed = this.mapgen.getWorld().seed + 1;
+      this._beginLevel(nextSeed, true);
     }
 
     this.fpsFrames++;

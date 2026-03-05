@@ -67,7 +67,8 @@ export const CFG = Object.freeze({
 });
 
 export const GAME = Object.freeze({
-  ZOOM: 4.5,
+  PLANETSIDE_ZOOM: 4.5,
+  MOTHERSHIP_ZOOM: 3.5,
   SHIP_SCALE: 0.5,
   MINER_SCALE: 0.5,
   ENEMY_SCALE: 0.25,
@@ -94,7 +95,6 @@ export const GAME = Object.freeze({
   MINER_POPUP_LIFE: 0.9,
   MINER_POPUP_SPEED: 0.6,
   MINER_POPUP_TANGENTIAL: 0.18,
-  EXIT_MARGIN: 1.0,
   MAX_TANGENTIAL_SPEED: 4.0,
   SHIP_MAX_HP: 3,
   SHIP_HIT_COOLDOWN: 0.25,
