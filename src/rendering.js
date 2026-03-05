@@ -501,48 +501,13 @@ function drawFrameImpl(renderer, state, planet){
     gl.drawArrays(gl.TRIANGLES, 0, starVertCount);
     gl.bindVertexArray(null);
   }
-  if (renderer.renderMode === "sdf"){
-    gl.useProgram(renderer.sdfProg);
-    gl.bindVertexArray(renderer.sdfVao);
-    gl.uniform2f(renderer.suScale, sx, sy);
-    gl.uniform2f(renderer.suCam, state.view.xCenter, state.view.yCenter);
-    gl.uniform1f(renderer.suRot, camRot);
-    gl.uniform2f(renderer.suWorldMin, renderer._worldMin, renderer._worldMin);
-    gl.uniform1f(renderer.suWorldSize, renderer._worldSize);
-    gl.uniform2f(renderer.suGridSize, renderer._gridSize, renderer._gridSize);
-    gl.uniform2f(renderer.suFogGridSize, renderer._fogGridSize || renderer._gridSize, renderer._fogGridSize || renderer._gridSize);
-    gl.uniform1f(renderer.suSdfSuper, cfg.SDF_SUPERSAMPLE ?? 0.0);
-    gl.uniform1f(renderer.suFogScale, cfg.SDF_FOG_SCALE ?? 1.0);
-    gl.uniform1f(renderer.suFogSeenScale, cfg.SDF_FOG_SEEN_SCALE ?? 1.0);
-    gl.uniform1f(renderer.suFogUnseenScale, cfg.SDF_FOG_UNSEEN_SCALE ?? 1.0);
-    gl.uniform1f(renderer.suMaxR, cfg.RMAX + 0.5);
-    gl.uniform3fv(renderer.suRockDark, cfg.ROCK_DARK);
-    gl.uniform3fv(renderer.suRockLight, cfg.ROCK_LIGHT);
-    gl.uniform3fv(renderer.suAirDark, cfg.AIR_DARK);
-    gl.uniform3fv(renderer.suAirLight, cfg.AIR_LIGHT);
-    gl.uniform3fv(renderer.suFogColor, game.FOG_COLOR);
-    gl.uniform2f(renderer.suViewport, canvas.width, canvas.height);
-    gl.uniform1f(renderer.suUseHwFilter, renderer.sdfUseHwFilter ? 1.0 : 0.0);
-    gl.uniform1f(renderer.suMarchingSquares, cfg.SDF_MARCHING_SQUARES ? 1.0 : 0.0);
-
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, renderer.sdfTex);
-    gl.activeTexture(gl.TEXTURE1);
-    gl.bindTexture(gl.TEXTURE_2D, renderer.shadeTex);
-    gl.activeTexture(gl.TEXTURE2);
-    gl.bindTexture(gl.TEXTURE_2D, renderer.fogTex);
-
-    gl.drawArrays(gl.TRIANGLES, 0, 6);
-    gl.bindVertexArray(null);
-  } else {
-    gl.useProgram(prog);
-    gl.bindVertexArray(vao);
-    gl.uniform2f(uScale, sx, sy);
-    gl.uniform2f(uCam, state.view.xCenter, state.view.yCenter);
-    gl.uniform1f(uRot, camRot);
-    gl.drawArrays(gl.TRIANGLES, 0, vertCount);
-    gl.bindVertexArray(null);
-  }
+  gl.useProgram(prog);
+  gl.bindVertexArray(vao);
+  gl.uniform2f(uScale, sx, sy);
+  gl.uniform2f(uCam, state.view.xCenter, state.view.yCenter);
+  gl.uniform1f(uRot, camRot);
+  gl.drawArrays(gl.TRIANGLES, 0, vertCount);
+  gl.bindVertexArray(null);
 
   const shipHWorld = 0.7 * game.SHIP_SCALE;
   const shipWWorld = 0.5 * game.SHIP_SCALE;
@@ -861,14 +826,14 @@ function drawFrameImpl(renderer, state, planet){
     pos.push(c.x, c.y);
     col.push(1.0, 0.95, 0.2, 1.0);
     pointVerts += 1;
-    if (c.tri && state.renderMode !== "sdf"){
+    if (c.tri){
       const a = c.tri[0], b = c.tri[1], d = c.tri[2];
       pushLine(pos, col, a.x, a.y, b.x, b.y, 1.0, 0.4, 0.2, 0.8);
       pushLine(pos, col, b.x, b.y, d.x, d.y, 1.0, 0.4, 0.2, 0.8);
       pushLine(pos, col, d.x, d.y, a.x, a.y, 1.0, 0.4, 0.2, 0.8);
       lineVerts += 6;
     }
-    if (c.node && state.renderMode !== "sdf"){
+    if (c.node){
       pos.push(c.node.x, c.node.y);
       col.push(0.2, 0.9, 1.0, 0.9);
       pointVerts += 1;
@@ -927,26 +892,6 @@ function drawFrameImpl(renderer, state, planet){
       pushLine(pos, col, state.aimWorld.x, state.aimWorld.y, posClosestOld.x, posClosestOld.y, 1, 1, 0, 1);
       lineVerts += 2;
     }
-  }
-  */
-
-  // Draw a box around the distance field
-  /*
-  {
-    const s = renderer._worldSize;
-    const x0 = renderer._worldMin;
-    const y0 = renderer._worldMin;
-    const x1 = x0 + s;
-    const y1 = y0 + s;
-    const r = 1;
-    const g = 1;
-    const b = 1;
-    const a = 1;
-    pushLine(pos, col, x0, y0, x1, y0, r, g, b, a);
-    pushLine(pos, col, x1, y0, x1, y1, r, g, b, a);
-    pushLine(pos, col, x1, y1, x0, y1, r, g, b, a);
-    pushLine(pos, col, x0, y1, x0, y0, r, g, b, a);
-    lineVerts += 8;
   }
   */
 
@@ -1070,44 +1015,7 @@ export class Renderer {
     this.airBuf = null;
     this.fogBuf = null;
     this.vertCount = 0;
-    this.renderMode = "radial";
-    this.sdfTex = null;
     this.shadeTex = null;
-    this.fogTex = null;
-    this._gridSize = 0;
-    this._fogGridSize = 0;
-    this._worldMin = 0;
-    this._worldSize = 1;
-
-    this.sdfUseHwFilter = false;
-    this.sdfTexInternalFormat = gl.R32F;
-    this.sdfTexFormat = gl.RED;
-    this.sdfTexType = gl.FLOAT;
-    this.sdfTexFilter = gl.NEAREST;
-
-    const sdfFormatRaw = cfg.SDF_TEX_FORMAT ?? "r32f";
-    const sdfFormat = String(sdfFormatRaw).toLowerCase();
-    if (sdfFormat === "r16f"){
-      this.sdfTexInternalFormat = gl.R16F;
-      this.sdfTexFormat = gl.RED;
-      this.sdfTexType = gl.HALF_FLOAT;
-    } else if (sdfFormat !== "r32f"){
-      console.warn(`Unknown SDF_TEX_FORMAT: ${sdfFormatRaw}. Falling back to r32f.`);
-    }
-
-    if (cfg.SDF_HW_FILTER){
-      const hasFloatLinear = !!gl.getExtension("OES_texture_float_linear");
-      const hasHalfFloatLinear = !!gl.getExtension("OES_texture_half_float_linear");
-      const canLinear = (this.sdfTexInternalFormat === gl.R16F)
-        ? (hasHalfFloatLinear || hasFloatLinear)
-        : false;
-      if (canLinear){
-        this.sdfUseHwFilter = true;
-        this.sdfTexFilter = gl.LINEAR;
-      } else {
-        console.warn("SDF_HW_FILTER requested but linear filtering not supported for current SDF format.");
-      }
-    }
 
     const vs = `#version 300 es
   precision highp float;
@@ -1201,217 +1109,6 @@ export class Renderer {
     outColor = vColor;
   }`;
 
-    const sdfVs = `#version 300 es
-  precision highp float;
-  layout(location=0) in vec2 aPos;
-  void main(){
-    gl_Position = vec4(aPos, 0.0, 1.0);
-  }`;
-
-    const sdfFs = `#version 300 es
-  precision highp float;
-  out vec4 outColor;
-
-  uniform vec2 uScale;
-  uniform vec2 uCam;
-  uniform float uRot;
-  uniform vec2 uWorldMin;
-  uniform float uWorldSize;
-  uniform vec2 uGridSize;
-  uniform vec2 uFogGridSize;
-  uniform float uFogScale;
-  uniform float uFogSeenScale;
-  uniform float uFogUnseenScale;
-  uniform float uSdfSuper;
-  uniform float uMaxR;
-  uniform vec3 uRockDark;
-  uniform vec3 uRockLight;
-  uniform vec3 uAirDark;
-  uniform vec3 uAirLight;
-  uniform vec3 uFogColor;
-  uniform vec2 uViewport;
-  uniform float uUseHwFilter;
-  uniform float uMarchingSquares;
-  uniform sampler2D uSdfTex;
-  uniform sampler2D uShadeTex;
-  uniform sampler2D uFogTex;
-
-  vec2 rot(vec2 p, float a){
-    float c = cos(a), s = sin(a);
-    return vec2(c*p.x - s*p.y, s*p.x + c*p.y);
-  }
-
-  float sampleTex(sampler2D tex, vec2 uv, vec2 size){
-    if (uUseHwFilter > 0.5){
-      return texture(tex, uv).r;
-    }
-    vec2 coord = uv * size - 0.5;
-    vec2 i0 = floor(coord);
-    vec2 f = coord - i0;
-    vec2 maxI = size - 1.0;
-    ivec2 i00 = ivec2(clamp(i0, vec2(0.0), maxI));
-    ivec2 i10 = ivec2(clamp(i0 + vec2(1.0, 0.0), vec2(0.0), maxI));
-    ivec2 i01 = ivec2(clamp(i0 + vec2(0.0, 1.0), vec2(0.0), maxI));
-    ivec2 i11 = ivec2(clamp(i0 + vec2(1.0, 1.0), vec2(0.0), maxI));
-    float a = texelFetch(tex, i00, 0).r;
-    float b = texelFetch(tex, i10, 0).r;
-    float c = texelFetch(tex, i01, 0).r;
-    float d = texelFetch(tex, i11, 0).r;
-    float ab = mix(a, b, f.x);
-    float cd = mix(c, d, f.x);
-    return mix(ab, cd, f.y);
-  }
-
-  float sampleSdfSuper(sampler2D tex, vec2 uv, vec2 size, float level){
-    if (level < 0.5){
-      return sampleTex(tex, uv, size);
-    }
-    vec2 px = 1.0 / size;
-    float s0 = sampleTex(tex, uv + vec2(-0.25, -0.25) * px, size);
-    float s1 = sampleTex(tex, uv + vec2(0.25, -0.25) * px, size);
-    float s2 = sampleTex(tex, uv + vec2(-0.25, 0.25) * px, size);
-    float s3 = sampleTex(tex, uv + vec2(0.25, 0.25) * px, size);
-    float base = 0.25 * (s0 + s1 + s2 + s3);
-    if (level < 1.5){
-      return base;
-    }
-    float s4 = sampleTex(tex, uv + vec2(-0.45, 0.0) * px, size);
-    float s5 = sampleTex(tex, uv + vec2(0.45, 0.0) * px, size);
-    float s6 = sampleTex(tex, uv + vec2(0.0, -0.45) * px, size);
-    float s7 = sampleTex(tex, uv + vec2(0.0, 0.45) * px, size);
-    return (base * 4.0 + s4 + s5 + s6 + s7) / 8.0;
-  }
-
-  float sampleTexNearest(sampler2D tex, vec2 uv, vec2 size){
-    vec2 coord = uv * size - 0.5;
-    vec2 i0 = floor(coord + 0.5);
-    vec2 maxI = size - 1.0;
-    ivec2 ii = ivec2(clamp(i0, vec2(0.0), maxI));
-    return texelFetch(tex, ii, 0).r;
-  }
-
-  float sampleFogSmooth(sampler2D tex, vec2 uv, vec2 size){
-    vec2 px = 1.0 / size;
-    float f0 = sampleTex(tex, uv + vec2(-0.25, -0.25) * px, size);
-    float f1 = sampleTex(tex, uv + vec2(0.25, -0.25) * px, size);
-    float f2 = sampleTex(tex, uv + vec2(-0.25, 0.25) * px, size);
-    float f3 = sampleTex(tex, uv + vec2(0.25, 0.25) * px, size);
-    return 0.25 * (f0 + f1 + f2 + f3);
-  }
-
-
-  float segDist(vec2 p, vec2 a, vec2 b){
-    vec2 ab = b - a;
-    float denom = max(1e-6, dot(ab, ab));
-    float t = clamp(dot(p - a, ab) / denom, 0.0, 1.0);
-    vec2 q = a + ab * t;
-    return length(p - q);
-  }
-
-  float sampleSdfMarching(vec2 uv, vec2 size){
-    vec2 coord = uv * size - 0.5;
-    vec2 i0 = floor(coord);
-    vec2 f = coord - i0;
-    vec2 maxI = size - 1.0;
-    ivec2 i00 = ivec2(clamp(i0, vec2(0.0), maxI));
-    ivec2 i10 = ivec2(clamp(i0 + vec2(1.0, 0.0), vec2(0.0), maxI));
-    ivec2 i01 = ivec2(clamp(i0 + vec2(0.0, 1.0), vec2(0.0), maxI));
-    ivec2 i11 = ivec2(clamp(i0 + vec2(1.0, 1.0), vec2(0.0), maxI));
-    float v00 = texelFetch(uSdfTex, i00, 0).r;
-    float v10 = texelFetch(uSdfTex, i10, 0).r;
-    float v01 = texelFetch(uSdfTex, i01, 0).r;
-    float v11 = texelFetch(uSdfTex, i11, 0).r;
-
-    bool top = (v00 > 0.0) != (v10 > 0.0);
-    bool right = (v10 > 0.0) != (v11 > 0.0);
-    bool bottom = (v01 > 0.0) != (v11 > 0.0);
-    bool left = (v00 > 0.0) != (v01 > 0.0);
-
-    vec2 pTop = vec2(0.0);
-    vec2 pRight = vec2(0.0);
-    vec2 pBottom = vec2(0.0);
-    vec2 pLeft = vec2(0.0);
-
-    if (top){
-      float t = v00 / (v00 - v10);
-      pTop = vec2(clamp(t, 0.0, 1.0), 0.0);
-    }
-    if (right){
-      float t = v10 / (v10 - v11);
-      pRight = vec2(1.0, clamp(t, 0.0, 1.0));
-    }
-    if (bottom){
-      float t = v01 / (v01 - v11);
-      pBottom = vec2(clamp(t, 0.0, 1.0), 1.0);
-    }
-    if (left){
-      float t = v00 / (v00 - v01);
-      pLeft = vec2(0.0, clamp(t, 0.0, 1.0));
-    }
-
-    int count = int(top) + int(right) + int(bottom) + int(left);
-    float signVal = sampleTex(uSdfTex, uv, size);
-    float sign = (signVal >= 0.0) ? 1.0 : -1.0;
-
-    if (count < 2){
-      return signVal;
-    }
-
-    float dist = 1e6;
-    if (count == 2){
-      vec2 a = vec2(0.0);
-      vec2 b = vec2(0.0);
-      bool gotA = false;
-      if (top){ a = pTop; gotA = true; }
-      if (right){ if (!gotA){ a = pRight; gotA = true; } else { b = pRight; } }
-      if (bottom){ if (!gotA){ a = pBottom; gotA = true; } else { b = pBottom; } }
-      if (left){ if (!gotA){ a = pLeft; gotA = true; } else { b = pLeft; } }
-      dist = segDist(f, a, b);
-    } else if (count == 4){
-      float center = (v00 + v10 + v01 + v11) * 0.25;
-      if (center > 0.0){
-        float d1 = segDist(f, pTop, pRight);
-        float d2 = segDist(f, pBottom, pLeft);
-        dist = min(d1, d2);
-      } else {
-        float d1 = segDist(f, pTop, pLeft);
-        float d2 = segDist(f, pBottom, pRight);
-        dist = min(d1, d2);
-      }
-    } else {
-      // 3 crossings: fall back to bilinear sample
-      return signVal;
-    }
-
-    return dist * sign;
-  }
-
-  vec3 lerp(vec3 a, vec3 b, float t){ return a + (b-a)*t; }
-
-  void main(){
-    vec2 ndc = (gl_FragCoord.xy / uViewport) * 2.0 - 1.0;
-    vec2 p = ndc / uScale;
-    p = rot(p, -uRot);
-    vec2 world = p + uCam;
-    if (length(world) > uMaxR) discard;
-    vec2 uv = (world - uWorldMin) / uWorldSize;
-    uv = clamp(uv, 0.0, 1.0);
-    float sdf = (uMarchingSquares > 0.5) ? sampleSdfMarching(uv, uGridSize) : sampleSdfSuper(uSdfTex, uv, uGridSize, uSdfSuper);
-    float shade = sampleTex(uShadeTex, uv, uGridSize);
-    float fogRaw = sampleFogSmooth(uFogTex, uv, uFogGridSize);
-    float fog = fogRaw;
-    if (fogRaw > 0.001){
-      float seen = uFogSeenScale;
-      float unseen = uFogUnseenScale;
-      fog = (fogRaw < 0.7) ? (fogRaw * seen) : (fogRaw * unseen);
-    }
-    fog = clamp(fog * uFogScale, 0.0, 1.0);
-    vec3 c = (sdf > 0.0) ? lerp(uAirDark,  uAirLight,  clamp(shade, 0.0, 1.0))
-                         : lerp(uRockDark, uRockLight, clamp(shade, 0.0, 1.0));
-    vec3 fogged = mix(c, uFogColor, clamp(fog, 0.0, 1.0));
-    outColor = vec4(fogged, 1.0);
-  }`;
-
     const starVs = `#version 300 es
   precision highp float;
   layout(location=0) in vec2 aPos;
@@ -1491,17 +1188,6 @@ export class Renderer {
     this.oprog = oprog;
 
     /** @type {WebGLProgram|null} */
-    const sdfProg = gl.createProgram();
-    if (!sdfProg) throw new Error("Failed to create SDF program");
-    gl.attachShader(sdfProg, compile(gl, gl.VERTEX_SHADER, sdfVs));
-    gl.attachShader(sdfProg, compile(gl, gl.FRAGMENT_SHADER, sdfFs));
-    gl.linkProgram(sdfProg);
-    if (!gl.getProgramParameter(sdfProg, gl.LINK_STATUS)){
-      throw new Error(gl.getProgramInfoLog(sdfProg) || "SDF program link failed");
-    }
-    this.sdfProg = sdfProg;
-
-    /** @type {WebGLProgram|null} */
     const starProg = gl.createProgram();
     if (!starProg) throw new Error("Failed to create starfield program");
     gl.attachShader(starProg, compile(gl, gl.VERTEX_SHADER, starVs));
@@ -1517,13 +1203,10 @@ export class Renderer {
     /** @type {WebGLVertexArrayObject|null} */
     const oVao = gl.createVertexArray();
     /** @type {WebGLVertexArrayObject|null} */
-    const sdfVao = gl.createVertexArray();
-    /** @type {WebGLVertexArrayObject|null} */
     const starVao = gl.createVertexArray();
-    if (!vao || !oVao || !sdfVao || !starVao) throw new Error("Failed to create VAO");
+    if (!vao || !oVao || !starVao) throw new Error("Failed to create VAO");
     this.vao = vao;
     this.oVao = oVao;
-    this.sdfVao = sdfVao;
     this.starVao = starVao;
 
     gl.useProgram(prog);
@@ -1586,51 +1269,6 @@ export class Renderer {
     this.ouScale = gl.getUniformLocation(oprog, "uScale");
     this.ouCam = gl.getUniformLocation(oprog, "uCam");
     this.ouRot = gl.getUniformLocation(oprog, "uRot");
-
-    gl.useProgram(sdfProg);
-    this.suScale = gl.getUniformLocation(sdfProg, "uScale");
-    this.suCam = gl.getUniformLocation(sdfProg, "uCam");
-    this.suRot = gl.getUniformLocation(sdfProg, "uRot");
-    this.suWorldMin = gl.getUniformLocation(sdfProg, "uWorldMin");
-    this.suWorldSize = gl.getUniformLocation(sdfProg, "uWorldSize");
-    this.suGridSize = gl.getUniformLocation(sdfProg, "uGridSize");
-    this.suFogGridSize = gl.getUniformLocation(sdfProg, "uFogGridSize");
-    this.suSdfSuper = gl.getUniformLocation(sdfProg, "uSdfSuper");
-    this.suFogScale = gl.getUniformLocation(sdfProg, "uFogScale");
-    this.suFogSeenScale = gl.getUniformLocation(sdfProg, "uFogSeenScale");
-    this.suFogUnseenScale = gl.getUniformLocation(sdfProg, "uFogUnseenScale");
-    this.suMaxR = gl.getUniformLocation(sdfProg, "uMaxR");
-    this.suRockDark = gl.getUniformLocation(sdfProg, "uRockDark");
-    this.suRockLight = gl.getUniformLocation(sdfProg, "uRockLight");
-    this.suAirDark = gl.getUniformLocation(sdfProg, "uAirDark");
-    this.suAirLight = gl.getUniformLocation(sdfProg, "uAirLight");
-    this.suFogColor = gl.getUniformLocation(sdfProg, "uFogColor");
-    this.suViewport = gl.getUniformLocation(sdfProg, "uViewport");
-    this.suUseHwFilter = gl.getUniformLocation(sdfProg, "uUseHwFilter");
-    this.suMarchingSquares = gl.getUniformLocation(sdfProg, "uMarchingSquares");
-    const suSdfTex = gl.getUniformLocation(sdfProg, "uSdfTex");
-    const suShadeTex = gl.getUniformLocation(sdfProg, "uShadeTex");
-    const suFogTex = gl.getUniformLocation(sdfProg, "uFogTex");
-    if (suSdfTex) gl.uniform1i(suSdfTex, 0);
-    if (suShadeTex) gl.uniform1i(suShadeTex, 1);
-    if (suFogTex) gl.uniform1i(suFogTex, 2);
-
-    gl.bindVertexArray(sdfVao);
-    const sdfPos = gl.createBuffer();
-    if (!sdfPos) throw new Error("Failed to create SDF buffer");
-    this.sdfPos = sdfPos;
-    gl.bindBuffer(gl.ARRAY_BUFFER, sdfPos);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
-      -1, -1,
-       1, -1,
-       1,  1,
-      -1, -1,
-       1,  1,
-      -1,  1,
-    ]), gl.STATIC_DRAW);
-    gl.enableVertexAttribArray(0);
-    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
-    gl.bindVertexArray(null);
   }
 
   /**
@@ -1660,29 +1298,7 @@ export class Renderer {
     this.fogBuf = uploadAttrib(gl, 3, fog, 1);
     gl.bindVertexArray(null);
     this.vertCount = mesh.vertCount;
-    this.renderMode = planet.mode;
-
-    const { worldMin, worldSize } = planet.mapgen.grid;
-    this._worldMin = worldMin;
-    this._worldSize = worldSize;
-
-    const rd = planet.renderData();
-    this._gridSize = rd.gridSize;
-    this._fogGridSize = rd.fogSize;
-    this.updateSdfTextures(rd.sdf, rd.shade);
-    const fogGrid = rd.fog || new Float32Array(this._gridSize * this._gridSize);
-    this.updateFogTexture(fogGrid);
-
   }
-
-  /**
-   * @param {"radial"|"sdf"} mode
-   * @returns {void}
-   */
-  setRenderMode(mode){
-    this.renderMode = mode;
-  }
-
 
   /**
    * @param {Float32Array} airFlag
@@ -1704,70 +1320,6 @@ export class Renderer {
     const gl = this.gl;
     gl.bindBuffer(gl.ARRAY_BUFFER, this.fogBuf);
     gl.bufferData(gl.ARRAY_BUFFER, fogAlpha, gl.DYNAMIC_DRAW);
-  }
-
-  /**
-   * @param {Float32Array} sdfGrid
-   * @param {Float32Array} shadeGrid
-   * @returns {void}
-   */
-  updateSdfTextures(sdfGrid, shadeGrid){
-    const gl = this.gl;
-    const len = sdfGrid.length;
-    if (len < 1) return;
-    const G = Math.max(1, Math.floor(Math.sqrt(len)));
-    if (G * G > len){
-      console.warn("SDF grid size mismatch; skipping texture upload.", { len, G });
-      return;
-    }
-    this._gridSize = G;
-    if (shadeGrid.length !== sdfGrid.length){
-      const shadeSize = Math.max(1, Math.floor(Math.sqrt(shadeGrid.length)));
-      shadeGrid = resampleGrid(shadeGrid, shadeSize, G);
-    }
-    if (!this.sdfTex){
-      this.sdfTex = createTexture(gl, G, G, this.sdfTexInternalFormat, this.sdfTexFormat, this.sdfTexType, sdfGrid, this.sdfTexFilter, this.sdfTexFilter);
-    } else {
-      gl.bindTexture(gl.TEXTURE_2D, this.sdfTex);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, this.sdfTexFilter);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, this.sdfTexFilter);
-      gl.texImage2D(gl.TEXTURE_2D, 0, this.sdfTexInternalFormat, G, G, 0, this.sdfTexFormat, this.sdfTexType, ensureTexData(gl, this.sdfTexType, sdfGrid));
-      gl.bindTexture(gl.TEXTURE_2D, null);
-    }
-    if (!this.shadeTex){
-      this.shadeTex = createTexture(gl, G, G, this.sdfTexInternalFormat, this.sdfTexFormat, this.sdfTexType, shadeGrid, this.sdfTexFilter, this.sdfTexFilter);
-    } else {
-      gl.bindTexture(gl.TEXTURE_2D, this.shadeTex);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, this.sdfTexFilter);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, this.sdfTexFilter);
-      gl.texImage2D(gl.TEXTURE_2D, 0, this.sdfTexInternalFormat, G, G, 0, this.sdfTexFormat, this.sdfTexType, ensureTexData(gl, this.sdfTexType, shadeGrid));
-      gl.bindTexture(gl.TEXTURE_2D, null);
-    }
-  }
-
-  /**
-   * @param {Float32Array} fogGrid
-   * @returns {void}
-   */
-  updateFogTexture(fogGrid){
-    const gl = this.gl;
-    const len = fogGrid.length;
-    if (len < 1) return;
-    const G = Math.max(1, Math.floor(Math.sqrt(len)));
-    if (G * G > len){
-      console.warn("Fog grid size mismatch; skipping texture upload.", { len, G });
-      return;
-    }
-    this._fogGridSize = G;
-    if (!this.fogTex){
-      this.fogTex = createTexture(gl, G, G, this.sdfTexInternalFormat, this.sdfTexFormat, this.sdfTexType, fogGrid, this.sdfTexFilter, this.sdfTexFilter);
-    } else {
-      gl.bindTexture(gl.TEXTURE_2D, this.fogTex);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, this.sdfTexFilter);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, this.sdfTexFilter);
-      gl.texImage2D(gl.TEXTURE_2D, 0, this.sdfTexInternalFormat, G, G, 0, this.sdfTexFormat, this.sdfTexType, ensureTexData(gl, this.sdfTexType, fogGrid));
-      gl.bindTexture(gl.TEXTURE_2D, null);
-    }
   }
 
   /**
