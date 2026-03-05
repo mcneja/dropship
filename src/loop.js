@@ -18,7 +18,6 @@ export class GameLoop {
    * Main gameplay loop orchestrator.
    * @param {Object} deps
    * @param {typeof import("./config.js").CFG} deps.cfg
-   * @param {import("./planet.js").Planet} deps.planet
    * @param {import("./rendering.js").Renderer} deps.renderer
    * @param {import("./input.js").Input} deps.input
    * @param {Ui} deps.ui
@@ -26,10 +25,11 @@ export class GameLoop {
    * @param {HTMLCanvasElement|null|undefined} deps.overlay
    * @param {HTMLElement} deps.hud
    */
-  constructor({ cfg, planet, renderer, input, ui, canvas, hud, overlay }){
+  constructor({ cfg, renderer, input, ui, canvas, hud, overlay }){
     this.cfg = cfg;
-    this.planet = planet;
+    this.planet = new Planet({ cfg, game: GAME, seed: cfg.seed });
     this.renderer = renderer;
+    this.renderer.setPlanet(this.planet);
     this.input = input;
     this.ui = ui;
     this.canvas = canvas;
@@ -48,7 +48,7 @@ export class GameLoop {
     this.MINER_HEAD_OFFSET = this.MINER_HEIGHT;
     this.MINER_FOOT_OFFSET = 0.0;
 
-    const mothership = new Mothership(cfg, planet);
+    const mothership = new Mothership(cfg, this.planet);
 
     /** @type {Ship} */
     this.ship = {
@@ -103,7 +103,7 @@ export class GameLoop {
     this.collision = createCollisionRouter(this.planet, () => this.mothership);
     this.enemies = new Enemies({
       cfg,
-      planet,
+      planet: this.planet,
       collision: this.collision,
     });
 
