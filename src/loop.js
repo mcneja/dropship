@@ -320,7 +320,8 @@ export class GameLoop {
       const dx = this.ship.x - this.mothership.x;
       const dy = this.ship.y - this.mothership.y;
       const d = Math.hypot(dx, dy);
-      const t = Math.max(0, Math.min(1, (12 - d) / 8));
+      let t = Math.max(0, Math.min(1, (12 - d) / 8));
+      t = (3 - 2 * t) * t * t;
       view.xCenter = view.xCenter * (1 - t) + this.ship.x * t;
       view.yCenter = view.yCenter * (1 - t) + this.ship.y * t;
       view.radius = radiusView * (1 - t) + radiusViewMin * t;
