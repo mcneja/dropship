@@ -17,18 +17,6 @@ const SHIPMAP = [
 ];
 
 /**
- * @param {number} row
- * @param {number} col
- * @returns {number} 0 = wall, 1 = air
- */
-function cellAirAt(row, col){
-  const rowMask = SHIPMAP[row];
-  if (!rowMask || col < 0 || col >= rowMask.length) return 1;
-  const ch = rowMask[rowMask.length - 1 - col];
-  return (ch === "X" || ch === "x") ? 0 : 1;
-}
-
-/**
  * Triangle tiling: column step is s/2, row step is s*sqrt(3)/2.
  * Parity (col+row) even = up, odd = down.
  * @param {number} col
