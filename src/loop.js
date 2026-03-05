@@ -717,8 +717,6 @@ export class GameLoop {
    * @returns {void}
    */
   _step(dt, inputState){
-    const prevShipX = this.ship.x;
-    const prevShipY = this.ship.y;
     if (this.mothership){
       updateMothership(this.mothership, this.planet, dt);
     }
@@ -830,11 +828,8 @@ export class GameLoop {
       }
       */
 
-      const speed = Math.hypot(this.ship.vx, this.ship.vy);
       const eps = this.COLLISION_EPS;
       const shipRadius = this.SHIP_RADIUS;
-      const rCenter = Math.hypot(this.ship.x, this.ship.y);
-      const nearTerrain = (rCenter - shipRadius <= this.TERRAIN_MAX);
 
       let collides = false;
       let { samples, hit, hitSource } = this.collision.sampleCollisionPoints(this._shipCollisionPoints(this.ship.x, this.ship.y));
@@ -1406,12 +1401,9 @@ export class GameLoop {
       steps++;
     }
 
-    if (this.minersRemaining === 0 && this.ship.state === "flying"){
-      const r = Math.hypot(this.ship.x, this.ship.y);
-      if (r > this.cfg.RMAX + GAME.EXIT_MARGIN){
-        const nextSeed = this.mapgen.getWorld().seed + 1;
-        this._beginLevel(nextSeed, true);
-      }
+    if (this.minersRemaining === 0 && this.ship.state === "landed" && this.ship._dock){
+      const nextSeed = this.mapgen.getWorld().seed + 1;
+      this._beginLevel(nextSeed, true);
     }
 
     this.fpsFrames++;
