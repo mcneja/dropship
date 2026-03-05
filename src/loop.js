@@ -235,6 +235,61 @@ export class GameLoop {
   }
 
   /**
+   * @param {number} aspect
+   * @returns {{xCenter:number,yCenter:number,c:number,s:number,sx:number,sy:number}}
+   */
+  _screenTransform(aspect){
+    const viewState = this._viewState();
+    const camRot = viewState.angle;
+    const s = 1 / viewState.radius;
+    return {
+      xCenter: viewState.xCenter,
+      yCenter: viewState.yCenter,
+      c: Math.cos(camRot),
+      s: Math.sin(camRot),
+      sx: s / aspect,
+      sy: s,
+    };
+  }
+
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @param {{xCenter:number,yCenter:number,c:number,s:number,sx:number,sy:number}} t
+   * @returns {{x:number,y:number}}
+   */
+  _worldToScreenNorm(x, y, t){
+    const dx = x - t.xCenter;
+    const dy = y - t.yCenter;
+    const rx = t.c * dx - t.s * dy;
+    const ry = t.s * dx + t.c * dy;
+    return {
+      x: rx * t.sx * 0.5 + 0.5,
+      y: 0.5 - ry * t.sy * 0.5,
+    };
+  }
+
+  /**
+   * @param {{x:number,y:number}|null|undefined} aim
+   * @returns {{x:number,y:number}|null}
+   */
+  _aimScreenAroundShip(aim){
+    if (!aim) return null;
+    const rect = this.canvas.getBoundingClientRect();
+    const w = Math.max(1, rect.width);
+    const h = Math.max(1, rect.height);
+    const aspect = w / h;
+    const t = this._screenTransform(aspect);
+    const ship = this._worldToScreenNorm(this.ship.x, this.ship.y, t);
+    const ox = aim.x - 0.5;
+    const oy = aim.y - 0.5;
+    return {
+      x: ship.x + ox,
+      y: ship.y + oy,
+    };
+  }
+
+  /**
    * @param {number} screenFrac
    * @returns {number}
    */
@@ -675,7 +730,13 @@ export class GameLoop {
     if (this.mothership){
       updateMothership(this.mothership, this.planet, dt);
     }
-    const { left, right, thrust, down, reset, shoot, bomb, aim, aimShoot, aimBomb, aimShootFrom, aimShootTo, aimBombFrom, aimBombTo } = inputState;
+    let { left, right, thrust, down, reset, shoot, bomb, aim, aimShoot, aimBomb, aimShootFrom, aimShootTo, aimBombFrom, aimBombTo } = inputState;
+    if (inputState.inputType === "gamepad"){
+      const aimAdjusted = this._aimScreenAroundShip(aim);
+      aim = aimAdjusted;
+      aimShoot = aimAdjusted;
+      aimBomb = aimAdjusted;
+    }
     if (reset) this._resetShip(false);
 
     if (this.ship.state === "landed" && this.ship._dock && this.mothership){
@@ -912,7 +973,26 @@ export class GameLoop {
           let nx = 0;
           let ny = 0;
           let nlen = 0;
-          if (hit && this.mothership){
+          if (this.mothership && resample && resample.samples){
+            // Average normals from all colliding sample points to stabilize corner contacts.
+            let sumX = 0;
+            let sumY = 0;
+            let count = 0;
+            for (const [sx, sy, isAir] of resample.samples){
+              if (isAir) continue;
+              const info = mothershipCollisionInfo(this.mothership, sx, sy);
+              if (!info) continue;
+              sumX += info.nx;
+              sumY += info.ny;
+              count++;
+            }
+            if (count > 0){
+              nx = sumX / count;
+              ny = sumY / count;
+              nlen = Math.hypot(nx, ny);
+            }
+          }
+          if (nlen < 1e-4 && hit && this.mothership){
             const info = mothershipCollisionInfo(this.mothership, hit.x, hit.y);
             if (info){
               nx = info.nx;
@@ -1014,10 +1094,8 @@ export class GameLoop {
           let vn = relVx * nx + relVy * ny;
           let vt = relVx * -ny + relVy * nx;
           if (vn > 0){
-            nx = -nx;
-            ny = -ny;
-            vn = -vn;
-            vt = relVx * -ny + relVy * nx;
+            // Already separating along normal; avoid flipping and kicking into adjacent edges.
+            vn = 0;
           }
           if (this._shipCollidesAt(this.ship.x, this.ship.y, shipRadius)){
             this.ship.x = prevShipX;
@@ -1139,7 +1217,7 @@ export class GameLoop {
       }
     }
     this.lastAimWorld = aimWorld;
-    if (inputState.aim) this.lastAimScreen = inputState.aim;
+    if (aim) this.lastAimScreen = aim;
 
     if (this.ship.state === "crashed"){
       this.ship.guidePath = null;
@@ -1605,22 +1683,14 @@ export class GameLoop {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.font = `700 ${Math.max(12, Math.round(16 * dpr))}px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace`;
-    const viewState = this._viewState();
-    const camRot = viewState.angle;
-    const s = 1 / viewState.radius;
-    const sx = s / (w / h);
-    const sy = s;
-    const c = Math.cos(camRot), s2 = Math.sin(camRot);
+    const screenT = this._screenTransform(w / h);
 
     for (const p of this.minerPopups){
       const t = Math.max(0, Math.min(1, p.life / GAME.MINER_POPUP_LIFE));
       const alpha = 0.9 * t;
-      const dx = p.x - viewState.xCenter;
-      const dy = p.y - viewState.yCenter;
-      const rx = c * dx - s2 * dy;
-      const ry = s2 * dx + c * dy;
-      const px = (rx * sx * 0.5 + 0.5) * w;
-      const py = (1 - (ry * sy * 0.5 + 0.5)) * h;
+      const screen = this._worldToScreenNorm(p.x, p.y, screenT);
+      const px = screen.x * w;
+      const py = screen.y * h;
       ctx.globalAlpha = alpha;
       ctx.fillStyle = "rgba(255, 236, 170, 1)";
       ctx.fillText("+1", px, py);
@@ -1628,12 +1698,9 @@ export class GameLoop {
     for (const p of this.shipHitPopups){
       const t = Math.max(0, Math.min(1, p.life / GAME.SHIP_HIT_POPUP_LIFE));
       const alpha = 0.9 * t;
-      const dx = p.x - viewState.xCenter;
-      const dy = p.y - viewState.yCenter;
-      const rx = c * dx - s2 * dy;
-      const ry = s2 * dx + c * dy;
-      const px = (rx * sx * 0.5 + 0.5) * w;
-      const py = (1 - (ry * sy * 0.5 + 0.5)) * h;
+      const screen = this._worldToScreenNorm(p.x, p.y, screenT);
+      const px = screen.x * w;
+      const py = screen.y * h;
       ctx.globalAlpha = alpha;
       ctx.fillStyle = "rgba(255, 80, 80, 1)";
       ctx.fillText("-1", px, py);

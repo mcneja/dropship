@@ -392,6 +392,7 @@ export class Input {
       const ax1 = pad.axes && pad.axes.length > 1 ? pad.axes[1] : 0;
       const ax2 = pad.axes && pad.axes.length > 2 ? pad.axes[2] : 0;
       const ax3 = pad.axes && pad.axes.length > 3 ? pad.axes[3] : 0;
+      const alen = Math.hypot(ax2, ax3);
 
       const left = ax0 < -dead;
       const right = ax0 > dead;
@@ -399,7 +400,6 @@ export class Input {
       const down = (pad.buttons && pad.buttons[1] && pad.buttons[1].pressed) || ax1 > dead;
 
       let aim = null;
-      const alen = Math.hypot(ax2, ax3);
       if (alen > dead){
         const ux = ax2 / alen;
         const uy = ax3 / alen;
@@ -422,8 +422,10 @@ export class Input {
       inputCombined.bomb = inputCombined.bomb || bomb;
       inputCombined.reset = inputCombined.reset || reset;
       if (aim) {
+        const ax = aim.x - 0.5;
+        const ay = aim.y - 0.5;
         if (!inputCombined.aim ||
-          aim.x*aim.x + aim.y*aim.y > inputCombined.aim.x*inputCombined.aim.x + inputCombined.aim.y*inputCombined.aim.y) {
+          ax*ax + ay*ay > (inputCombined.aim.x - 0.5) * (inputCombined.aim.x - 0.5) + (inputCombined.aim.y - 0.5) * (inputCombined.aim.y - 0.5)) {
           inputCombined.aim = aim;
         }
       }
