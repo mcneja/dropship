@@ -12,17 +12,15 @@ const surfaceGravityAcceleration = 2.0;
  */
 export class Planet {
   /**
-   * @param {{game:typeof import("./config.js").GAME, seed:number}} deps
+   * @param {{seed:number}} deps
    */
-  constructor({ game, seed }){
-    this.game = game;
+  constructor({ seed }){
     this.mapgen = new MapGen(seed);
     const rPlanet = CFG.RMAX;
     this.planetRadius = rPlanet;
     this.gravitationalConstant = surfaceGravityAcceleration * rPlanet * rPlanet;
 
     this.radial = new RingMesh(this.mapgen);
-    this.radial.initFog(game);
 
     /** @type {Array<[number,number,boolean,number]>|null} */
     this._radialDebugPoints = null;

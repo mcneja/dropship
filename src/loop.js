@@ -25,7 +25,7 @@ export class GameLoop {
    * @param {HTMLElement} deps.hud
    */
   constructor({ renderer, input, ui, canvas, hud, overlay }){
-    this.planet = new Planet({ game: GAME, seed: CFG.seed });
+    this.planet = new Planet({ seed: CFG.seed });
     this.renderer = renderer;
     this.renderer.setPlanet(this.planet);
     this.input = input;
@@ -542,7 +542,7 @@ export class GameLoop {
    */
   _beginLevel(seed, advanceLevel){
     if (advanceLevel) this.level++;
-    this.planet = new Planet({ game: GAME, seed });
+    this.planet = new Planet({ seed });
     this.mothership = new Mothership(CFG, this.planet);
     this.collision = createCollisionRouter(this.planet, () => this.mothership);
     this.enemies = new Enemies({

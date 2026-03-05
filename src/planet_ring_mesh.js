@@ -1,6 +1,6 @@
 ﻿// @ts-check
 
-import { CFG } from "./config.js";
+import { CFG, GAME } from "./config.js";
 
 export class RingMesh {
   /**
@@ -163,6 +163,8 @@ export class RingMesh {
     this._fogHold = null;
     this._fogCursor = 0;
     this._fogBudgetTris = 200;
+
+    this._initFog();
   }
 
   /**
@@ -291,18 +293,17 @@ export class RingMesh {
 
   /**
    * Initialize fog buffers tied to the mesh triangles.
-   * @param {{VIS_RANGE:number,VIS_STEP:number,FOG_SEEN_ALPHA:number,FOG_UNSEEN_ALPHA:number,FOG_HOLD_FRAMES:number,FOG_LOS_THRESH?:number,FOG_ALPHA_LERP?:number,FOG_BUDGET_TRIS?:number}} game
    * @returns {void}
    */
-  initFog(game){
-    this._fogRange = game.VIS_RANGE;
-    this._fogStep = game.VIS_STEP;
-    this._fogSeenAlpha = game.FOG_SEEN_ALPHA;
-    this._fogUnseenAlpha = game.FOG_UNSEEN_ALPHA;
-    this._fogHoldFrames = game.FOG_HOLD_FRAMES;
-    this._fogLosThresh = game.FOG_LOS_THRESH ?? 0.45;
-    this._fogAlphaLerp = game.FOG_ALPHA_LERP ?? 0.2;
-    this._fogBudgetTris = game.FOG_BUDGET_TRIS ?? 200;
+  _initFog(){
+    this._fogRange = GAME.VIS_RANGE;
+    this._fogStep = GAME.VIS_STEP;
+    this._fogSeenAlpha = GAME.FOG_SEEN_ALPHA;
+    this._fogUnseenAlpha = GAME.FOG_UNSEEN_ALPHA;
+    this._fogHoldFrames = GAME.FOG_HOLD_FRAMES;
+    this._fogLosThresh = GAME.FOG_LOS_THRESH ?? 0.45;
+    this._fogAlphaLerp = GAME.FOG_ALPHA_LERP ?? 0.2;
+    this._fogBudgetTris = GAME.FOG_BUDGET_TRIS ?? 200;
     const total = this.triCount;
     this._fogAlpha = new Float32Array(total * 3);
     this._fogVisible = new Uint8Array(total);
