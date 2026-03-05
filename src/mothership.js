@@ -141,6 +141,27 @@ export class Mothership {
     this.triAir = triAir;
     this.renderPoints = points;
     this.renderTris = tris;
+    this._buildAirGrid();
+  }
+
+  _buildAirGrid(){
+    const cell = Math.max(this.spacing * 0.25, 0.05);
+    const size = Math.max(8, Math.ceil((this.bounds * 2) / cell) + 1);
+    const half = (size - 1) * cell * 0.5;
+    /** @type {Float32Array} */
+    const grid = new Float32Array(size * size);
+    for (let y = 0; y < size; y++){
+      for (let x = 0; x < size; x++){
+        const lx = x * cell - half;
+        const ly = y * cell - half;
+        const v = mothershipAirAtLocal(this, lx, ly);
+        grid[y * size + x] = (v === null) ? 1 : v;
+      }
+    }
+    this.gridCell = cell;
+    this.gridSize = size;
+    this.gridHalf = half;
+    this.gridAir = grid;
   }
 }
 
@@ -220,7 +241,7 @@ export function mothershipAirAtWorld(mothership, x, y){
   const s = Math.sin(-mothership.angle);
   const lx = c * dx - s * dy;
   const ly = s * dx + c * dy;
-  return mothershipAirAtLocal(mothership, lx, ly);
+  return mothershipAirAtLocalGrid(mothership, lx, ly);
 }
 
 /**
@@ -250,65 +271,52 @@ export function mothershipCollisionInfo(mothership, x, y){
   const s = Math.sin(-mothership.angle);
   const lx = c * dx - s * dy;
   const ly = s * dx + c * dy;
-  const points = mothership.points;
-  const tris = mothership.tris;
-  let triHit = null;
-  for (let i = 0; i < tris.length; i++){
-    const tri = tris[i];
-    const a = points[tri[0]];
-    const b = points[tri[1]];
-    const cpt = points[tri[2]];
-    if (pointInTri(lx, ly, a.x, a.y, b.x, b.y, cpt.x, cpt.y)){
-      triHit = [a, b, cpt];
-      break;
-    }
+  const eps = mothership.gridCell || (mothership.spacing * 0.4);
+  let nx = mothershipAirAtLocalGrid(mothership, lx + eps, ly)
+    - mothershipAirAtLocalGrid(mothership, lx - eps, ly);
+  let ny = mothershipAirAtLocalGrid(mothership, lx, ly + eps)
+    - mothershipAirAtLocalGrid(mothership, lx, ly - eps);
+  let nlen = Math.hypot(nx, ny);
+  if (nlen < 1e-4){
+    return null;
   }
-  if (!triHit) return null;
-  const [a, b, cpt] = triHit;
-  const edges = [
-    [a, b],
-    [b, cpt],
-    [cpt, a],
-  ];
-  let bestD = 1e9;
-  let bestN = null;
-  const eps = mothership.spacing * 0.1;
-  for (const [p0, p1] of edges){
-    const dx0 = p1.x - p0.x;
-    const dy0 = p1.y - p0.y;
-    const denom = dx0 * dx0 + dy0 * dy0 || 1;
-    const t = Math.max(0, Math.min(1, ((lx - p0.x) * dx0 + (ly - p0.y) * dy0) / denom));
-    const ex = p0.x + dx0 * t;
-    const ey = p0.y + dy0 * t;
-    const ddx = lx - ex;
-    const ddy = ly - ey;
-    const d2 = ddx * ddx + ddy * ddy;
-    if (d2 < bestD){
-      bestD = d2;
-      // Candidate normal (perp to edge)
-      let nx = -dy0;
-      let ny = dx0;
-      const nlen = Math.hypot(nx, ny) || 1;
-      nx /= nlen;
-      ny /= nlen;
-      // Choose normal that points toward air.
-      const airPos = mothershipAirAtLocal(mothership, lx + nx * eps, ly + ny * eps);
-      const airNeg = mothershipAirAtLocal(mothership, lx - nx * eps, ly - ny * eps);
-      const airPosV = (airPos === null) ? 1 : airPos;
-      const airNegV = (airNeg === null) ? 1 : airNeg;
-      if (airNegV > airPosV){
-        nx = -nx;
-        ny = -ny;
-      }
-      bestN = [nx, ny];
-    }
-  }
-  if (!bestN) return null;
-  let nx = bestN[0];
-  let ny = bestN[1];
+  nx /= nlen;
+  ny /= nlen;
   const c2 = Math.cos(mothership.angle);
   const s2 = Math.sin(mothership.angle);
   const nxw = c2 * nx - s2 * ny;
   const nyw = s2 * nx + c2 * ny;
   return { nx: nxw, ny: nyw, isFloor: false };
+}
+
+/**
+ * @param {Mothership} mothership
+ * @param {number} lx
+ * @param {number} ly
+ * @returns {number}
+ */
+function mothershipAirAtLocalGrid(mothership, lx, ly){
+  const size = mothership.gridSize || 0;
+  const cell = mothership.gridCell || 0;
+  const half = mothership.gridHalf || 0;
+  const grid = mothership.gridAir;
+  if (!grid || size <= 1 || cell <= 0){
+    const v = mothershipAirAtLocal(mothership, lx, ly);
+    return (v === null) ? 1 : v;
+  }
+  const fx = (lx + half) / cell;
+  const fy = (ly + half) / cell;
+  const ix = Math.floor(fx);
+  const iy = Math.floor(fy);
+  if (ix < 0 || iy < 0 || ix >= size - 1 || iy >= size - 1) return 1;
+  const tx = fx - ix;
+  const ty = fy - iy;
+  const idx = iy * size + ix;
+  const v00 = grid[idx];
+  const v10 = grid[idx + 1];
+  const v01 = grid[idx + size];
+  const v11 = grid[idx + size + 1];
+  const vx0 = v00 + (v10 - v00) * tx;
+  const vx1 = v01 + (v11 - v01) * tx;
+  return vx0 + (vx1 - vx0) * ty;
 }
