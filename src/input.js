@@ -381,42 +381,59 @@ export class Input {
    */
   _gamepadState(){
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
-    const pad = pads && pads[0];
-    if (!pad) return { left:false, right:false, thrust:false, down:false, aim:null, shoot:false, bomb:false, reset:false };
 
-    const dead = 0.2;
-    const ax0 = pad.axes && pad.axes.length ? pad.axes[0] : 0;
-    const ax1 = pad.axes && pad.axes.length > 1 ? pad.axes[1] : 0;
-    const ax2 = pad.axes && pad.axes.length > 2 ? pad.axes[2] : 0;
-    const ax3 = pad.axes && pad.axes.length > 3 ? pad.axes[3] : 0;
+    let inputCombined = { left:false, right:false, thrust:false, down:false, aim:null, shoot:false, bomb:false, reset:false };
 
-    const left = ax0 < -dead;
-    const right = ax0 > dead;
-    const thrust = (pad.buttons && pad.buttons[0] && pad.buttons[0].pressed) || ax1 < -dead;
-    const down = (pad.buttons && pad.buttons[1] && pad.buttons[1].pressed) || ax1 > dead;
+    for (const pad of pads) {
+      if (!pad) continue;
 
-    let aim = null;
-    const alen = Math.hypot(ax2, ax3);
-    if (alen > dead){
-      const ux = ax2 / alen;
-      const uy = ax3 / alen;
-      const radius = Math.max(0.25, GAME.AIM_SCREEN_RADIUS || 0.25);
-      aim = { x: 0.5 + ux * radius, y: 0.5 + uy * radius };
+      const dead = 0.2;
+      const ax0 = pad.axes && pad.axes.length ? pad.axes[0] : 0;
+      const ax1 = pad.axes && pad.axes.length > 1 ? pad.axes[1] : 0;
+      const ax2 = pad.axes && pad.axes.length > 2 ? pad.axes[2] : 0;
+      const ax3 = pad.axes && pad.axes.length > 3 ? pad.axes[3] : 0;
+
+      const left = ax0 < -dead;
+      const right = ax0 > dead;
+      const thrust = (pad.buttons && pad.buttons[0] && pad.buttons[0].pressed) || ax1 < -dead;
+      const down = (pad.buttons && pad.buttons[1] && pad.buttons[1].pressed) || ax1 > dead;
+
+      let aim = null;
+      const alen = Math.hypot(ax2, ax3);
+      if (alen > dead){
+        const ux = ax2 / alen;
+        const uy = ax3 / alen;
+        const radius = Math.max(0.25, GAME.AIM_SCREEN_RADIUS || 0.25);
+        aim = { x: 0.5 + ux * radius, y: 0.5 + uy * radius };
+      }
+
+      const rb = !!(pad.buttons && pad.buttons[5] && pad.buttons[5].pressed);
+      const rt = !!(pad.buttons && pad.buttons[7] && (pad.buttons[7].pressed || pad.buttons[7].value > 0.4));
+      const startPressed = !!(pad.buttons && pad.buttons[9] && pad.buttons[9].pressed);
+      const shoot = rb;
+      const bomb = rt;
+      const reset = startPressed;
+
+      inputCombined.left = inputCombined.left || left;
+      inputCombined.right = inputCombined.right || right;
+      inputCombined.thrust = inputCombined.thrust || thrust;
+      inputCombined.down = inputCombined.down || down;
+      inputCombined.shoot = inputCombined.shoot || shoot;
+      inputCombined.bomb = inputCombined.bomb || bomb;
+      inputCombined.reset = inputCombined.reset || reset;
+      if (aim) {
+        if (!inputCombined.aim ||
+          aim.x*aim.x + aim.y*aim.y > inputCombined.aim.x*inputCombined.aim.x + inputCombined.aim.y*inputCombined.aim.y) {
+          inputCombined.aim = aim;
+        }
+      }
     }
 
-    const rb = !!(pad.buttons && pad.buttons[5] && pad.buttons[5].pressed);
-    const rt = !!(pad.buttons && pad.buttons[7] && (pad.buttons[7].pressed || pad.buttons[7].value > 0.4));
-    const startPressed = !!(pad.buttons && pad.buttons[9] && pad.buttons[9].pressed);
-    const shoot = rb && !this.prevPadShoot;
-    const bomb = rt && !this.prevPadBomb;
-    const reset = startPressed && !this.prevPadStart;
-    const anyInput = left || right || thrust || down || aim || rb || rt || startPressed;
-    if (anyInput) this.lastInputType = "gamepad";
-    this.prevPadShoot = rb;
-    this.prevPadBomb = rt;
-    this.prevPadStart = startPressed;
+    if (inputCombined.left || inputCombined.right || inputCombined.thrust || inputCombined.down || inputCombined.shoot || inputCombined.bomb || inputCombined.reset) {
+      this.lastInputType = "gamepad";
+    }
 
-    return { left, right, thrust, down, aim, shoot, bomb, reset };
+    return inputCombined;
   }
 
   /**
@@ -446,9 +463,13 @@ export class Input {
     let right = keyState.right || t.right || g.right;
     let thrust = keyState.thrust || t.thrust || g.thrust;
     let down = keyState.down || t.down || g.down;
-    if (g.shoot) this.oneshot.shoot = true;
-    if (g.bomb) this.oneshot.bomb = true;
-    if (g.reset) this.oneshot.reset = true;
+
+    if (g.shoot && !this.prevPadShoot) this.oneshot.shoot = true;
+    if (g.bomb && !this.prevPadBomb) this.oneshot.bomb = true;
+    if (g.reset && !this.prevPadStart) this.oneshot.reset = true;
+    this.prevPadShoot = g.shoot;
+    this.prevPadBomb = g.bomb;
+    this.prevPadStart = g.reset;
 
     if (!this.gameOver && this.aimTouchShoot && this.laserControl.id !== null){
       if (now - this.laserControl.lastFire >= this.LASER_INTERVAL_MS){
