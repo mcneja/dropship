@@ -16,13 +16,13 @@ export class Planet {
    */
   constructor({ game, seed }){
     this.game = game;
-    this.mapgen = new MapGen(CFG);
+    this.mapgen = new MapGen();
     this.mapgen.regenWorld(seed);
     const rPlanet = CFG.RMAX;
     this.planetRadius = rPlanet;
     this.gravitationalConstant = surfaceGravityAcceleration * rPlanet * rPlanet;
 
-    this.radial = new RingMesh(CFG, this.mapgen);
+    this.radial = new RingMesh(this.mapgen);
     this.radial.initFog(game);
 
     /** @type {Array<[number,number,boolean,number]>|null} */

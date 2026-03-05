@@ -1,23 +1,23 @@
 ﻿// @ts-check
 
+import { CFG } from "./config.js";
+
 export class RingMesh {
   /**
    * Build mesh geometry and sampling helpers from a map source.
-   * @param {typeof import("./config.js").CFG} cfg Mesh config constants.
    * @param {import("./mapgen.js").MapGen} map Map generator.
    */
-  constructor(cfg, map){
-    this._cfg = cfg;
+  constructor(map){
     this._map = map;
     this._OUTER_PAD = 1.0;
-    this._R_MESH = cfg.RMAX + this._OUTER_PAD;
+    this._R_MESH = CFG.RMAX + this._OUTER_PAD;
 
     /**
      * @param {number} r
      */
     function ringCount(r){
       if (r<=0) return 1;
-      return Math.max(cfg.N_MIN, Math.floor(2*Math.PI*r));
+      return Math.max(CFG.N_MIN, Math.floor(2*Math.PI*r));
     }
 
     /**
@@ -87,8 +87,8 @@ export class RingMesh {
     const rings = [];
     /** @type {Array<Array<Array<{x:number,y:number,air:number}>>>} */
     const bandTris = [];
-    for (let r=0;r<=cfg.RMAX;r++) rings.push(ringVertices(r));
-    rings.push(ringVertices(cfg.RMAX + this._OUTER_PAD));
+    for (let r=0;r<=CFG.RMAX;r++) rings.push(ringVertices(r));
+    rings.push(ringVertices(CFG.RMAX + this._OUTER_PAD));
 
     for (const ring of rings){
       for (const v of ring){
@@ -198,7 +198,7 @@ export class RingMesh {
    */
   _sampleAirAtWorldExtended(x, y){
     const r = Math.hypot(x, y);
-    if (r > this._cfg.RMAX) return 1;
+    if (r > CFG.RMAX) return 1;
     return this._map.airBinaryAtWorld(x, y);
   }
 
@@ -252,7 +252,7 @@ export class RingMesh {
    */
   airValueAtWorld(x, y){
     const r = Math.hypot(x, y);
-    if (r > this._cfg.RMAX + this._OUTER_PAD) return 1;
+    if (r > CFG.RMAX + this._OUTER_PAD) return 1;
     const r0 = Math.floor(Math.min(this._R_MESH - 1, Math.max(0, r)));
     if (r0 <= 0){
       return this.rings[0][0].air;
