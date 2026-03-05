@@ -286,7 +286,7 @@ export class GameLoop {
    * @returns {number}
    */
   _aimWorldDistance(screenFrac){
-    const s = GAME.ZOOM / (this.cfg.RMAX + this.cfg.PAD);
+    const s = GAME.PLANETSIDE_ZOOM / (this.cfg.RMAX + this.cfg.PAD);
     return (2 * screenFrac) / s;
   }
 
@@ -294,7 +294,7 @@ export class GameLoop {
    * @returns {ViewState}
    */
   _viewState() {
-    const radiusViewMin = GAME.ZOOM;
+    const radiusViewMin = GAME.PLANETSIDE_ZOOM;
     const rShip = Math.hypot(this.ship.x, this.ship.y);
     const rPlanet = CFG.RMAX + CFG.PAD;
 
@@ -324,7 +324,7 @@ export class GameLoop {
       t = (3 - 2 * t) * t * t;
       view.xCenter = view.xCenter * (1 - t) + this.ship.x * t;
       view.yCenter = view.yCenter * (1 - t) + this.ship.y * t;
-      view.radius = radiusView * (1 - t) + radiusViewMin * t;
+      view.radius = radiusView * (1 - t) + GAME.MOTHERSHIP_ZOOM * t;
     }
     return view;
   }
