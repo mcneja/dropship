@@ -263,7 +263,7 @@ export class Enemies {
     const rHunterRangerMax = cfg.RMAX - 1.0;
     const hunterPts = pickAirPoints(hunters, seed + 1, collision, rHunterRangerMax * 0.5, rHunterRangerMax);
     const rangerPts = pickAirPoints(rangers, seed + 2, collision, rHunterRangerMax * 0.75, rHunterRangerMax);
-    const crawlerPts = pickSurfacePoints(crawlers, seed + 3, collision, cfg.RMAX - 0.6);
+    const crawlerPts = pickAirPoints(crawlers, seed + 3, collision, 0.0, cfg.RMAX - 0.6);
     const turretPts = pickAirPoints(turrets, seed + 4, collision, 0.0, cfg.RMAX + 0.5);
 
     for (const [x, y] of hunterPts){
