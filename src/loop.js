@@ -50,14 +50,14 @@ export class GameLoop {
     this.MINER_HEAD_OFFSET = this.MINER_HEIGHT;
     this.MINER_FOOT_OFFSET = 0.0;
 
-    const {x: shipX, y: shipY, vx: shipVX, vy: shipVY} = planet.orbitStateFromElements(cfg.RMAX + 0.9, 0.5, 1.5, false);
+    const mothership = new Mothership(cfg, planet);
 
     /** @type {Ship} */
     this.ship = {
-      x: shipX,
-      y: shipY,
-      vx: shipVX,
-      vy: shipVY,
+      x: mothership.x,
+      y: mothership.y,
+      vx: mothership.vx,
+      vy: mothership.vy,
       state: "flying",
       explodeT: 0,
       lastAir: 1,
@@ -66,7 +66,7 @@ export class GameLoop {
       guidePath: null,
     };
     this.ship._dock = null;
-    this.mothership = new Mothership(cfg, planet);
+    this.mothership = mothership;
     /** @type {Array<{x:number,y:number,vx:number,vy:number,a:number,w:number,life:number}>} */
     this.debris = [];
     /** @type {Array<{x:number,y:number,vx:number,vy:number,life:number}>} */
@@ -130,21 +130,13 @@ export class GameLoop {
   }
 
   /**
-   * @param {boolean} levelStart
    * @returns {void}
    */
-  _resetShip(levelStart){
-    const rShip = CFG.RMAX + (levelStart ? 0.9 : 8);
-    const eccentricity = levelStart ? 0.5 : 0;
-    const angle = levelStart ? 1.5 : 0;
-    const seed = this.mapgen.getWorld().seed + this.level * 97;
-    const rand = mulberry32(seed);
-    const direction = rand() < 0.5;
-    const {x: shipX, y: shipY, vx: shipVX, vy: shipVY} = this.planet.orbitStateFromElements(rShip, eccentricity, angle, direction);
-    this.ship.x = shipX;
-    this.ship.y = shipY;
-    this.ship.vx = shipVX;
-    this.ship.vy = shipVY;
+  _resetShip(){
+    this.ship.x = this.mothership.x;
+    this.ship.y = this.mothership.y;
+    this.ship.vx = this.mothership.vx;
+    this.ship.vy = this.mothership.vy;
     this.ship.state = "flying";
     this.ship.explodeT = 0;
     this.ship.hp = GAME.SHIP_MAX_HP;
@@ -568,7 +560,7 @@ export class GameLoop {
     const newAir = this.planet.regenFromMap();
     this._syncPlanetRender(newAir);
     this.radial.resetFog();
-    this._resetShip(true);
+    this._resetShip();
     this.entityExplosions.length = 0;
     if (advanceLevel) this.level++;
     this._spawnMiners();
@@ -737,7 +729,7 @@ export class GameLoop {
       aimShoot = aimAdjusted;
       aimBomb = aimAdjusted;
     }
-    if (reset) this._resetShip(false);
+    if (reset) this._resetShip();
 
     if (this.ship.state === "landed" && this.ship._dock && this.mothership){
       if (left || right || thrust){
