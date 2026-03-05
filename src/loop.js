@@ -41,7 +41,7 @@ export class GameLoop {
 
     this.TERRAIN_PAD = 0.5;
     this.TERRAIN_MAX = cfg.RMAX + this.TERRAIN_PAD;
-    this.TERRAIN_IMPACT_RADIUS = 0.6;
+    this.TERRAIN_IMPACT_RADIUS = 0.75;
     this.SHIP_RADIUS = 0.7 * 0.28 * GAME.SHIP_SCALE;
     this.MINER_HEIGHT = 0.36 * GAME.MINER_SCALE;
     this.MINER_SURFACE_EPS = 0.01 * GAME.MINER_SCALE;
