@@ -3,7 +3,7 @@
 import { mulberry32 } from "./rng.js";
 import { lineOfSightAir } from "./navigation.js";
 import { collidesAtOffsets, isAir } from "./collision.js";
-import { GAME } from "./config.js";
+import { CFG, GAME } from "./config.js";
 
 /** @typedef {import("./types.d.js").Vec2} Vec2 */
 /** @typedef {import("./types.d.js").EnemyType} EnemyType */
@@ -163,12 +163,10 @@ export class Enemies {
   /**
    * Build enemy state and behavior helpers.
    * @param {Object} deps
-   * @param {typeof import("./config.js").CFG} deps.cfg Game config constants.
    * @param {import("./planet.js").Planet} deps.planet Planet (gravity/orbits).
    * @param {import("./types.d.js").CollisionQuery} deps.collision Collision query API.
    */
-  constructor({ cfg, planet, collision }){
-    this.cfg = cfg;
+  constructor({ planet, collision }){
     this.planet = planet;
     this.collision = collision;
 
@@ -219,7 +217,7 @@ export class Enemies {
    * @returns {void}
    */
   spawn(total, level, levelSeed){
-    const { cfg, collision, planet } = this;
+    const { collision, planet } = this;
     this.enemies.length = 0;
     this.shots.length = 0;
     this.explosions.length = 0;
@@ -236,11 +234,11 @@ export class Enemies {
     const turrets = numEnemiesRemaining;
     const orbitingTurrets = 8;
 
-    const rHunterRangerMax = cfg.RMAX - 1.0;
+    const rHunterRangerMax = CFG.RMAX - 1.0;
     const hunterPts = pickAirPoints(hunters, seed + 1, collision, rHunterRangerMax * 0.5, rHunterRangerMax);
     const rangerPts = pickAirPoints(rangers, seed + 2, collision, rHunterRangerMax * 0.75, rHunterRangerMax);
-    const crawlerPts = pickAirPoints(crawlers, seed + 3, collision, 0.0, cfg.RMAX - 0.6);
-    const turretPts = pickAirPoints(turrets, seed + 4, collision, 0.0, cfg.RMAX + 0.5);
+    const crawlerPts = pickAirPoints(crawlers, seed + 3, collision, 0.0, CFG.RMAX - 0.6);
+    const turretPts = pickAirPoints(turrets, seed + 4, collision, 0.0, CFG.RMAX + 0.5);
 
     for (const [x, y] of hunterPts){
       this.enemies.push({ type: "hunter", x, y, vx: 0, vy: 0, cooldown: Math.random(), hp: 2 });
@@ -261,7 +259,7 @@ export class Enemies {
     {
       const rand = mulberry32(seed + 5);
       const directionCCW = (rand() < 0.5);
-      const perigee = cfg.RMAX + 2;
+      const perigee = CFG.RMAX + 2;
       const eccentricity = rand() * 0.15;
       let angle = rand() * Math.PI * 2;
       for (let i = 0; i < orbitingTurrets; ++i){

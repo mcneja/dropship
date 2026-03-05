@@ -3,6 +3,7 @@
 import { RingMesh } from "./planet_ring_mesh.js";
 import { RadialGraph } from "./navigation.js";
 import { MapGen } from "./mapgen.js";
+import { CFG } from "./config.js";
 
 const surfaceGravityAcceleration = 2.0;
 
@@ -11,18 +12,17 @@ const surfaceGravityAcceleration = 2.0;
  */
 export class Planet {
   /**
-   * @param {{cfg:typeof import("./config.js").CFG, game:typeof import("./config.js").GAME, seed:number}} deps
+   * @param {{game:typeof import("./config.js").GAME, seed:number}} deps
    */
-  constructor({ cfg, game, seed }){
-    this.cfg = cfg;
+  constructor({ game, seed }){
     this.game = game;
-    this.mapgen = new MapGen(cfg);
+    this.mapgen = new MapGen(CFG);
     this.mapgen.regenWorld(seed);
-    const rPlanet = cfg.RMAX;
+    const rPlanet = CFG.RMAX;
     this.planetRadius = rPlanet;
     this.gravitationalConstant = surfaceGravityAcceleration * rPlanet * rPlanet;
 
-    this.radial = new RingMesh(cfg, this.mapgen);
+    this.radial = new RingMesh(CFG, this.mapgen);
     this.radial.initFog(game);
 
     /** @type {Array<[number,number,boolean,number]>|null} */
