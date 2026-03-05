@@ -201,8 +201,7 @@ export function nearestRadialNode(graph, mesh, x, y){
  */
 export function dijkstraMap(graph, sources, passable){
   const n = graph.nodes.length;
-  const dist = new Float32Array(n);
-  dist.fill(Number.POSITIVE_INFINITY);
+  const dist = new Array(n).fill(Infinity);
   const heap = new MinHeap();
 
   for (const s of sources){
@@ -216,7 +215,7 @@ export function dijkstraMap(graph, sources, passable){
     const item = heap.pop();
     if (!item) break;
     const { node, g } = item;
-    if (g !== dist[node]) continue;
+    if (g > dist[node]) continue;
     for (const edge of graph.neighbors[node]){
       if (!passable[edge.to]) continue;
       const nd = g + edge.cost;
@@ -227,7 +226,7 @@ export function dijkstraMap(graph, sources, passable){
     }
   }
 
-  return dist;
+  return Float32Array.from(dist);
 }
 
 /**
@@ -243,11 +242,9 @@ export function findPathAStar(graph, start, goal, passable){
   if (start < 0 || start >= n || goal < 0 || goal >= n) return null;
   if (!passable[start] || !passable[goal]) return null;
 
-  const gScore = new Float32Array(n);
-  gScore.fill(Number.POSITIVE_INFINITY);
+  const gScore = new Array(n).fill(Infinity);
   gScore[start] = 0;
-  const cameFrom = new Int32Array(n);
-  cameFrom.fill(-1);
+  const cameFrom = new Int32Array(n).fill(-1);
 
   const heap = new MinHeap();
   /**
@@ -265,7 +262,7 @@ export function findPathAStar(graph, start, goal, passable){
     if (!item) break;
     const { node, g } = item;
     if (node === goal) break;
-    if (g !== gScore[node]) continue;
+    if (g > gScore[node]) continue;
     for (const edge of graph.neighbors[node]){
       if (!passable[edge.to]) continue;
       const tentative = g + edge.cost;
