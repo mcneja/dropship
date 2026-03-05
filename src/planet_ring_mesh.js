@@ -231,7 +231,7 @@ export class RingMesh {
    */
   nearestNodeOnRing(x, y){
     const r = Math.hypot(x, y);
-    const ri = Math.max(0, Math.min(this._cfg.RMAX, Math.round(r)));
+    const ri = Math.max(0, Math.min(this.rings.length - 1, Math.round(r)));
     const ring = this.rings[ri];
     if (!ring || ring.length === 0) return null;
     let best = ring[0];
