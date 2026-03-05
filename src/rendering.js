@@ -1,6 +1,7 @@
 ﻿// @ts-check
 
 import { TOUCH_UI } from "./config.js";
+import { buildStarfieldMesh } from "./starfield.js";
 
 /** @typedef {import("./types.d.js").RenderState} RenderState */
 /** @typedef {import("./planet.js").Planet} Planet */
@@ -458,7 +459,12 @@ function vScaleStopping(planet, x, y, vx, vy, thrust) {
  * @returns {void}
  */
 function drawFrameImpl(renderer, state, planet){
-  const { gl, canvas, cfg, game, prog, oprog, vao, oVao, uScale, uCam, uRot, ouScale, ouCam, ouRot, oPos, oCol } = renderer;
+  const {
+    gl, canvas, cfg, game, prog, oprog, vao, oVao, uScale, uCam, uRot,
+    ouScale, ouCam, ouRot, oPos, oCol,
+    starProg, starVao, starRot, starTime, starAspect, starSpan, starSaturation,
+    starVertCount,
+  } = renderer;
   const vertCount = renderer.vertCount;
   const mesh = planet.radial;
   renderer.resize();
@@ -477,6 +483,23 @@ function drawFrameImpl(renderer, state, planet){
   } else {
     sx = s;
     sy = s * canvas.width / canvas.height;
+  }
+  if (starProg && starVao && starVertCount){
+    gl.useProgram(starProg);
+    gl.bindVertexArray(starVao);
+    const aspect = canvas.width / Math.max(1, canvas.height);
+    const span = Math.max(aspect, 1 / aspect) * 1.15;
+    if (starRot) gl.uniform1f(starRot, camRot);
+    if (starAspect){
+      const ax = aspect >= 1 ? 1 / aspect : 1;
+      const ay = aspect >= 1 ? 1 : aspect;
+      gl.uniform2f(starAspect, ax, ay);
+    }
+    if (starSpan) gl.uniform1f(starSpan, span);
+    if (starSaturation) gl.uniform1f(starSaturation, cfg.STAR_SATURATION ?? 1.0);
+    if (starTime) gl.uniform1f(starTime, performance.now() * 0.001);
+    gl.drawArrays(gl.TRIANGLES, 0, starVertCount);
+    gl.bindVertexArray(null);
   }
   if (renderer.renderMode === "sdf"){
     gl.useProgram(renderer.sdfProg);
@@ -1369,6 +1392,62 @@ export class Renderer {
     outColor = vec4(fogged, 1.0);
   }`;
 
+    const starVs = `#version 300 es
+  precision highp float;
+  layout(location=0) in vec2 aPos;
+  layout(location=1) in float aPhase;
+  layout(location=2) in float aRate;
+  layout(location=3) in float aDepth;
+  layout(location=4) in vec3 aColor;
+
+  uniform float uRot;
+  uniform vec2 uAspect;
+  uniform float uSpan;
+
+  out float vPhase;
+  out float vRate;
+  out float vDepth;
+  out vec3 vColor;
+
+  vec2 rot(vec2 p, float a){
+    float c = cos(a), s = sin(a);
+    return vec2(c*p.x - s*p.y, s*p.x + c*p.y);
+  }
+
+  void main(){
+    float depth = clamp(aDepth, 0.0, 1.0);
+    vec2 p = rot(aPos * uSpan, uRot);
+    p.x *= uAspect.x;
+    p.y *= uAspect.y;
+    gl_Position = vec4(p, 0.0, 1.0);
+    vPhase = aPhase;
+    vRate = aRate;
+    vDepth = depth;
+    vColor = aColor;
+  }`;
+
+    const starFs = `#version 300 es
+  precision highp float;
+  in float vPhase;
+  in float vRate;
+  in float vDepth;
+  in vec3 vColor;
+  out vec4 outColor;
+
+  uniform float uTime;
+  uniform float uSaturation;
+
+  void main(){
+    float tw = 0.7 + 0.3 * sin(uTime * vRate + vPhase);
+    float depthBoost = mix(0.6, 1.0, vDepth);
+    float brightness = clamp(tw * depthBoost, 0.0, 1.0);
+    vec3 col = mix(vec3(1.0), vColor, 0.6);
+    float luma = dot(col, vec3(0.299, 0.587, 0.114));
+    float sat = exp2((uSaturation - 1.0) * 2.0);
+    col = mix(vec3(luma), col, sat);
+    outColor = vec4(col * brightness, 1.0);
+  }`;
+
     /** @type {WebGLProgram|null} */
     const prog = gl.createProgram();
     if (!prog) throw new Error("Failed to create program");
@@ -1402,16 +1481,30 @@ export class Renderer {
     }
     this.sdfProg = sdfProg;
 
+    /** @type {WebGLProgram|null} */
+    const starProg = gl.createProgram();
+    if (!starProg) throw new Error("Failed to create starfield program");
+    gl.attachShader(starProg, compile(gl, gl.VERTEX_SHADER, starVs));
+    gl.attachShader(starProg, compile(gl, gl.FRAGMENT_SHADER, starFs));
+    gl.linkProgram(starProg);
+    if (!gl.getProgramParameter(starProg, gl.LINK_STATUS)){
+      throw new Error(gl.getProgramInfoLog(starProg) || "Starfield program link failed");
+    }
+    this.starProg = starProg;
+
     /** @type {WebGLVertexArrayObject|null} */
     const vao = gl.createVertexArray();
     /** @type {WebGLVertexArrayObject|null} */
     const oVao = gl.createVertexArray();
     /** @type {WebGLVertexArrayObject|null} */
     const sdfVao = gl.createVertexArray();
-    if (!vao || !oVao || !sdfVao) throw new Error("Failed to create VAO");
+    /** @type {WebGLVertexArrayObject|null} */
+    const starVao = gl.createVertexArray();
+    if (!vao || !oVao || !sdfVao || !starVao) throw new Error("Failed to create VAO");
     this.vao = vao;
     this.oVao = oVao;
     this.sdfVao = sdfVao;
+    this.starVao = starVao;
 
     gl.useProgram(prog);
     this.uScale = gl.getUniformLocation(prog, "uScale");
@@ -1445,6 +1538,29 @@ export class Renderer {
     gl.bindBuffer(gl.ARRAY_BUFFER, oCol);
     gl.enableVertexAttribArray(1);
     gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 0, 0);
+    gl.bindVertexArray(null);
+
+    const starMesh = buildStarfieldMesh(cfg.seed + 911, {
+      count: 480,
+      sizeMin: 0.0015,
+      sizeMax: 0.005,
+      span: 1.0,
+    });
+    this.starVertCount = starMesh.vertCount;
+
+    gl.useProgram(starProg);
+    this.starRot = gl.getUniformLocation(starProg, "uRot");
+    this.starTime = gl.getUniformLocation(starProg, "uTime");
+    this.starAspect = gl.getUniformLocation(starProg, "uAspect");
+    this.starSpan = gl.getUniformLocation(starProg, "uSpan");
+    this.starSaturation = gl.getUniformLocation(starProg, "uSaturation");
+
+    gl.bindVertexArray(starVao);
+    uploadAttrib(gl, 0, starMesh.positions, 2);
+    uploadAttrib(gl, 1, starMesh.phase, 1);
+    uploadAttrib(gl, 2, starMesh.rate, 1);
+    uploadAttrib(gl, 3, starMesh.depth, 1);
+    uploadAttrib(gl, 4, starMesh.color, 3);
     gl.bindVertexArray(null);
 
     this.ouScale = gl.getUniformLocation(oprog, "uScale");
