@@ -29,7 +29,6 @@ export class GameLoop {
   constructor({ cfg, planet, renderer, input, ui, canvas, hud, overlay }){
     this.cfg = cfg;
     this.planet = planet;
-    this.radial = planet.radial;
     this.renderer = renderer;
     this.input = input;
     this.ui = ui;
@@ -418,8 +417,8 @@ export class GameLoop {
   _sampleMinerCandidate(rand, rMin, rMax){
     const r = Math.max(rMin, Math.min(rMax, rMin + rand() * (rMax - rMin)));
     const ri = Math.max(2, Math.min(this.cfg.RMAX - 1, Math.round(r)));
-    const ring = this.radial.rings[ri];
-    const inner = this.radial.rings[ri - 1];
+    const ring = this.planet.radial.rings[ri];
+    const inner = this.planet.radial.rings[ri - 1];
     if (!ring || !inner || ring.length < 3 || inner.length < 3) return null;
 
     const i = Math.floor(rand() * ring.length);
@@ -553,7 +552,6 @@ export class GameLoop {
   _beginLevel(seed, advanceLevel){
     if (advanceLevel) this.level++;
     this.planet = new Planet({ cfg: this.cfg, game: GAME, seed });
-    this.radial = this.planet.radial;
     this.mothership = new Mothership(this.cfg, this.planet);
     this.collision = createCollisionRouter(this.planet, () => this.mothership);
     this.enemies = new Enemies({
@@ -841,8 +839,8 @@ export class GameLoop {
         this.ship._collision = {
           x: hit.x,
           y: hit.y,
-          tri: this.radial.findTriAtWorld(hit.x, hit.y),
-          node: this.radial.nearestNodeOnRing(hit.x, hit.y),
+          tri: this.planet.radial.findTriAtWorld(hit.x, hit.y),
+          node: this.planet.radial.nearestNodeOnRing(hit.x, hit.y),
         };
       } else {
         this.ship._collision = null;
@@ -1443,7 +1441,7 @@ export class GameLoop {
       state: this.ship.state,
       speed: Math.hypot(this.ship.vx, this.ship.vy),
       shipHp: this.ship.hp,
-      verts: this.radial.vertCount,
+      verts: this.planet.radial.vertCount,
       air: this.planet.getFinalAir(),
       miners: this.minersRemaining,
       minersDead: this.minersDead,
