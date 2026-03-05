@@ -2,6 +2,7 @@
 
 import { TOUCH_UI } from "./config.js";
 import { buildStarfieldMesh } from "./starfield.js";
+import { findPathAStar, nearestRadialNode } from "./navigation.js";
 
 /** @typedef {import("./types.d.js").RenderState} RenderState */
 /** @typedef {import("./planet.js").Planet} Planet */
@@ -466,7 +467,6 @@ function drawFrameImpl(renderer, state, planet){
     starVertCount,
   } = renderer;
   const vertCount = renderer.vertCount;
-  const mesh = planet.radial;
   renderer.resize();
 
   gl.viewport(0,0,canvas.width,canvas.height);
@@ -874,6 +874,33 @@ function drawFrameImpl(renderer, state, planet){
       pointVerts += 1;
     }
   }
+
+  // Test pathfinding
+
+  /*
+  if (state.aimWorld) {
+    const radialGraph = planet.radialGraph;
+
+    const passable = new Uint8Array(radialGraph.nodes.length);
+    for (let i = 0; i < radialGraph.nodes.length; i++){
+      const n = radialGraph.nodes[i];
+      passable[i] = planet.radial.rings[n.r][n.i].air > 0.5 ? 1 : 0;
+    }
+
+    const nodeShip = nearestRadialNode(radialGraph, planet.radial, state.ship.x, state.ship.y);
+    const nodeCursor = nearestRadialNode(radialGraph, planet.radial, state.aimWorld.x, state.aimWorld.y);
+
+    const path = findPathAStar(radialGraph, nodeShip, nodeCursor, passable);
+    if (path) {
+      for (let i = 1; i < path.length; ++i) {
+        const node0 = radialGraph.nodes[path[i-1]];
+        const node1 = radialGraph.nodes[path[i]];
+        pushLine(pos, col, node0.x, node0.y, node1.x, node1.y, 0, 1, 0, 1);
+        lineVerts += 2;
+      }
+    }
+  }
+  */
 
   // Test surface guide path
 
