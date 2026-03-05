@@ -29,28 +29,28 @@ function circleOffsets(radius, points){
 }
 
 /**
- * @param {{ airValueAtWorld:(x:number,y:number)=>number }} planet
+ * @param {{ airValueAtWorld:(x:number,y:number)=>number }} collision
  * @param {number} x
  * @param {number} y
  * @param {number} eps
  * @returns {[number, number]}
  */
-function airGradient(planet, x, y, eps){
-  const gdx = planet.airValueAtWorld(x + eps, y) - planet.airValueAtWorld(x - eps, y);
-  const gdy = planet.airValueAtWorld(x, y + eps) - planet.airValueAtWorld(x, y - eps);
+function airGradient(collision, x, y, eps){
+  const gdx = collision.airValueAtWorld(x + eps, y) - collision.airValueAtWorld(x - eps, y);
+  const gdy = collision.airValueAtWorld(x, y + eps) - collision.airValueAtWorld(x, y - eps);
   return [gdx, gdy];
 }
 
 /**
  * @param {Enemy} e
- * @param {{ airValueAtWorld:(x:number,y:number)=>number }} planet
+ * @param {{ airValueAtWorld:(x:number,y:number)=>number }} collision
  * @param {number} dx
  * @param {number} dy
  * @param {number} speed
  * @param {number} dt
  * @returns {boolean}
  */
-function tryMoveAir(e, planet, dx, dy, speed, dt, collider){
+function tryMoveAir(e, collision, dx, dy, speed, dt, collider){
   const len = Math.hypot(dx, dy);
   if (len < 1e-6) return false;
   const nx = dx / len;
@@ -58,7 +58,7 @@ function tryMoveAir(e, planet, dx, dy, speed, dt, collider){
   const step = speed * dt;
   const tx = e.x + nx * step;
   const ty = e.y + ny * step;
-  if (!collider ? isAir(planet, tx, ty) : !collidesAtOffsets(planet, tx, ty, collider)){
+  if (!collider ? isAir(collision, tx, ty) : !collidesAtOffsets(collision, tx, ty, collider)){
     e.x = tx; e.y = ty;
     e.vx = nx * speed;
     e.vy = ny * speed;
@@ -68,19 +68,19 @@ function tryMoveAir(e, planet, dx, dy, speed, dt, collider){
 }
 
 /**
- * @param {{ airValueAtWorld:(x:number,y:number)=>number }} planet
+ * @param {{ airValueAtWorld:(x:number,y:number)=>number }} collision
  * @param {number} x
  * @param {number} y
  * @returns {[number, number]}
  */
-function nudgeTowardSurface(planet, x, y){
+function nudgeTowardSurface(collision, x, y){
   const eps = 0.12;
-  const [gdx, gdy] = airGradient(planet, x, y, eps);
+  const [gdx, gdy] = airGradient(collision, x, y, eps);
   const nlen = Math.hypot(gdx, gdy);
   if (nlen < 1e-5) return [x, y];
   const nx = gdx / nlen;
   const ny = gdy / nlen;
-  const air = planet.airValueAtWorld(x, y);
+  const air = collision.airValueAtWorld(x, y);
   const push = 0.08;
   if (air > 0.55){
     return [x - nx * push, y - ny * push];
@@ -96,10 +96,10 @@ function nudgeTowardSurface(planet, x, y){
  * @param {number} seed
  * @param {number} minR
  * @param {number} maxR
- * @param {{ airValueAtWorld:(x:number,y:number)=>number }} planet
+ * @param {{ airValueAtWorld:(x:number,y:number)=>number }} collision
  * @returns {Vec2[]}
  */
-function pickAirPoints(count, seed, minR, maxR, planet){
+function pickAirPoints(count, seed, minR, maxR, collision){
   const rand = mulberry32(seed);
   /** @type {Vec2[]} */
   const points = [];
@@ -109,7 +109,7 @@ function pickAirPoints(count, seed, minR, maxR, planet){
     const r = minR + rand() * (maxR - minR);
     const x = r * Math.cos(ang);
     const y = r * Math.sin(ang);
-    if (planet.airValueAtWorld(x, y) <= 0.5) continue;
+    if (collision.airValueAtWorld(x, y) <= 0.5) continue;
     points.push([x, y]);
   }
   return points;
@@ -118,11 +118,11 @@ function pickAirPoints(count, seed, minR, maxR, planet){
 /**
  * @param {number} count
  * @param {number} seed
- * @param {{ airValueAtWorld:(x:number,y:number)=>number }} planet
+ * @param {{ airValueAtWorld:(x:number,y:number)=>number }} collision
  * @param {number} rMax
  * @returns {Vec2[]}
  */
-function pickSurfacePoints(count, seed, planet, rMax){
+function pickSurfacePoints(count, seed, collision, rMax){
   const rand = mulberry32(seed);
   /** @type {Vec2[]} */
   const points = [];
@@ -147,17 +147,17 @@ function pickSurfacePoints(count, seed, planet, rMax){
     const cx = Math.cos(ang);
     const cy = Math.sin(ang);
     let prevR = rMin;
-    let prevAir = planet.airValueAtWorld(cx * prevR, cy * prevR) > 0.5;
+    let prevAir = collision.airValueAtWorld(cx * prevR, cy * prevR) > 0.5;
     for (let i = 1; i <= steps; i++){
       const r = rMin + (i / steps) * (rMax - rMin);
-      const curAir = planet.airValueAtWorld(cx * r, cy * r) > 0.5;
+      const curAir = collision.airValueAtWorld(cx * r, cy * r) > 0.5;
       if (curAir !== prevAir){
         let lo = prevR;
         let hi = r;
         const loAir = prevAir;
         for (let it = 0; it < 8; it++){
           const mid = (lo + hi) * 0.5;
-          const midAir = planet.airValueAtWorld(cx * mid, cy * mid) > 0.5;
+          const midAir = collision.airValueAtWorld(cx * mid, cy * mid) > 0.5;
           if (midAir === loAir){
             lo = mid;
           } else {
@@ -176,7 +176,7 @@ function pickSurfacePoints(count, seed, planet, rMax){
   const attempts = Math.max(200, count * 120);
   for (let i = 0; i < attempts && points.length < count; i++){
     const {x: x, y: y} = posRandomInDisc();
-    if (planet.airValueAtWorld(x, y) <= 0.5) continue;
+    if (collision.airValueAtWorld(x, y) <= 0.5) continue;
     points.push([x, y]);
     /*
     const ang = rand() * Math.PI * 2;
@@ -186,8 +186,8 @@ function pickSurfacePoints(count, seed, planet, rMax){
     const upy = surf.y / (Math.hypot(surf.x, surf.y) || 1);
     const below = surf.r - eps * 2.0;
     const above = surf.r + eps * 2.0;
-    if (planet.airValueAtWorld(upx * below, upy * below) > 0.5) continue;
-    if (planet.airValueAtWorld(upx * above, upy * above) <= 0.5) continue;
+    if (collision.airValueAtWorld(upx * below, upy * below) > 0.5) continue;
+    if (collision.airValueAtWorld(upx * above, upy * above) <= 0.5) continue;
     points.push([surf.x, surf.y]);
     */
   }
@@ -200,12 +200,12 @@ export class Enemies {
    * @param {Object} deps
    * @param {typeof import("./config.js").CFG} deps.cfg Game config constants.
    * @param {import("./mapgen.js").MapGen} deps.mapgen Map generator.
-   * @param {import("./planet.js").Planet} deps.planet Planet query API.
+   * @param {import("./types.d.js").CollisionQuery} deps.collision Collision query API.
    */
-  constructor({ cfg, mapgen, planet }){
+  constructor({ cfg, mapgen, collision }){
     this.cfg = cfg;
     this.mapgen = mapgen;
-    this.planet = planet;
+    this.collision = collision;
 
     /** @type {Enemy[]} */
     this.enemies = [];
@@ -251,7 +251,7 @@ export class Enemies {
    * @returns {void}
    */
   spawn(total, level){
-    const { cfg, mapgen, planet } = this;
+    const { cfg, mapgen, collision } = this;
     this.enemies.length = 0;
     this.shots.length = 0;
     this.explosions.length = 0;
@@ -262,9 +262,9 @@ export class Enemies {
     const rangers = Math.max(0, Math.floor(total * 0.25));
     const crawlers = Math.max(0, total - hunters - rangers);
 
-    const hunterPts = pickAirPoints(hunters, seed + 1, 2.0, cfg.RMAX - 1.0, planet);
-    const rangerPts = pickAirPoints(rangers, seed + 2, 3.0, cfg.RMAX - 1.0, planet);
-    const crawlerPts = pickSurfacePoints(crawlers, seed + 3, planet, cfg.RMAX - 0.6);
+    const hunterPts = pickAirPoints(hunters, seed + 1, 2.0, cfg.RMAX - 1.0, collision);
+    const rangerPts = pickAirPoints(rangers, seed + 2, 3.0, cfg.RMAX - 1.0, collision);
+    const crawlerPts = pickSurfacePoints(crawlers, seed + 3, collision, cfg.RMAX - 0.6);
 
     for (const [x, y] of hunterPts){
       this.enemies.push({ type: "hunter", x, y, vx: 0, vy: 0, cooldown: Math.random(), hp: 2, dir: 1, fuse: 0 });
@@ -286,12 +286,12 @@ export class Enemies {
    * @returns {void}
    */
   update(ship, dt){
-    const { planet } = this;
+    const { collision } = this;
     if (this.debris.length){
       for (let i = this.debris.length - 1; i >= 0; i--){
         const d = this.debris[i];
         const r = Math.hypot(d.x, d.y) || 1;
-        const {x: gx, y: gy} = planet.gravityAt(d.x, d.y);
+        const {x: gx, y: gy} = collision.gravityAt(d.x, d.y);
         d.vx += gx * dt;
         d.vy += gy * dt;
         d.vx *= Math.max(0, 1 - GAME.DRAG * dt);
@@ -308,7 +308,7 @@ export class Enemies {
       s.x += s.vx * dt;
       s.y += s.vy * dt;
       s.life -= dt;
-      if (s.life <= 0 || !isAir(planet, s.x, s.y)){
+      if (s.life <= 0 || !isAir(collision, s.x, s.y)){
         this.shots.splice(i, 1);
       }
     }
@@ -351,29 +351,29 @@ export class Enemies {
       const dist = Math.hypot(dx, dy);
 
       if (e.type === "hunter"){
-        if (!tryMoveAir(e, planet, dx, dy, this._HUNTER_SPEED, dt, this._HUNTER_COLLIDER)){
-          const [gx, gy] = airGradient(planet, e.x, e.y, 0.18);
+        if (!tryMoveAir(e, collision, dx, dy, this._HUNTER_SPEED, dt, this._HUNTER_COLLIDER)){
+          const [gx, gy] = airGradient(collision, e.x, e.y, 0.18);
           const tlen = Math.hypot(gx, gy);
           if (tlen > 1e-4){
             const tx = -gy / tlen;
             const ty = gx / tlen;
-            tryMoveAir(e, planet, tx, ty, this._HUNTER_SPEED, dt, this._HUNTER_COLLIDER) || tryMoveAir(e, planet, -tx, -ty, this._HUNTER_SPEED, dt, this._HUNTER_COLLIDER);
+            tryMoveAir(e, collision, tx, ty, this._HUNTER_SPEED, dt, this._HUNTER_COLLIDER) || tryMoveAir(e, collision, -tx, -ty, this._HUNTER_SPEED, dt, this._HUNTER_COLLIDER);
           }
         }
-        if (e.cooldown <= 0 && dist < 10 && lineOfSightAir(planet, e.x, e.y, ship.x, ship.y, this._LOS_STEP)){
+        if (e.cooldown <= 0 && dist < 10 && lineOfSightAir(collision, e.x, e.y, ship.x, ship.y, this._LOS_STEP)){
           this._shoot(e, dx, dy, this._HUNTER_SHOT_CD);
         }
       } else if (e.type === "ranger"){
         if (dist < this._RANGER_MIN){
-          tryMoveAir(e, planet, -dx, -dy, this._RANGER_SPEED, dt, this._RANGER_COLLIDER);
+          tryMoveAir(e, collision, -dx, -dy, this._RANGER_SPEED, dt, this._RANGER_COLLIDER);
         } else if (dist > this._RANGER_MAX){
-          tryMoveAir(e, planet, dx, dy, this._RANGER_SPEED, dt, this._RANGER_COLLIDER);
+          tryMoveAir(e, collision, dx, dy, this._RANGER_SPEED, dt, this._RANGER_COLLIDER);
         }
-        if (e.cooldown <= 0 && dist > this._RANGER_MIN * 0.8 && lineOfSightAir(planet, e.x, e.y, ship.x, ship.y, this._LOS_STEP)){
+        if (e.cooldown <= 0 && dist > this._RANGER_MIN * 0.8 && lineOfSightAir(collision, e.x, e.y, ship.x, ship.y, this._LOS_STEP)){
           this._shoot(e, dx, dy, this._RANGER_SHOT_CD);
         }
       } else if (e.type === "crawler"){
-        const [gx, gy] = airGradient(planet, e.x, e.y, 0.16);
+        const [gx, gy] = airGradient(collision, e.x, e.y, 0.16);
         const nlen = Math.hypot(gx, gy);
         if (nlen > 1e-4){
           const nx = gx / nlen;
@@ -383,12 +383,12 @@ export class Enemies {
           const step = this._CRAWLER_SPEED * dt;
           const txw = e.x + tx * step;
           const tyw = e.y + ty * step;
-          if (!collidesAtOffsets(planet, txw, tyw, this._CRAWLER_COLLIDER)){
+          if (!collidesAtOffsets(collision, txw, tyw, this._CRAWLER_COLLIDER)){
             e.x = txw;
             e.y = tyw;
           }
-          const nudged = nudgeTowardSurface(planet, e.x, e.y);
-          if (!collidesAtOffsets(planet, nudged[0], nudged[1], this._CRAWLER_COLLIDER)){
+          const nudged = nudgeTowardSurface(collision, e.x, e.y);
+          if (!collidesAtOffsets(collision, nudged[0], nudged[1], this._CRAWLER_COLLIDER)){
             e.x = nudged[0];
             e.y = nudged[1];
           }

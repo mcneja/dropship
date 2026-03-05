@@ -3,8 +3,9 @@
 import { GAME } from "./config.js";
 import { mulberry32 } from "./rng.js";
 import { Enemies } from "./enemies.js";
-import { collidesAtWorldPoints } from "./collision.js";
+import { createCollisionRouter } from "./collision-router.js";
 import { CFG } from './config.js';
+import { Mothership, updateMothership, mothershipCollisionInfo } from "./mothership.js";
 
 /** @typedef {import("./types.d.js").ViewState} ViewState */
 /** @typedef {import("./types.d.js").Ship} Ship */
@@ -63,6 +64,8 @@ export class GameLoop {
       hp: GAME.SHIP_MAX_HP,
       hitCooldown: 0,
     };
+    this.ship._dock = null;
+    this.mothership = new Mothership(cfg, planet);
     /** @type {Array<{x:number,y:number,vx:number,vy:number,a:number,w:number,life:number}>} */
     this.debris = [];
     /** @type {Array<{x:number,y:number,vx:number,vy:number,life:number}>} */
@@ -97,7 +100,13 @@ export class GameLoop {
     this.minersRemaining = 0;
     this.minersDead = 0;
     this.minerCandidates = 0;
-    this.enemies = new Enemies({ cfg, mapgen, planet });
+    /** @type {import("./types.d.js").CollisionQuery} */
+    this.collision = createCollisionRouter(this.planet, () => this.mothership);
+    this.enemies = new Enemies({
+      cfg,
+      mapgen,
+      collision: this.collision,
+    });
 
     this._spawnMiners();
     this.enemies.spawn(this._totalEnemiesForLevel(this.level), this.level);
@@ -140,6 +149,7 @@ export class GameLoop {
     this.ship.explodeT = 0;
     this.ship.hp = GAME.SHIP_MAX_HP;
     this.ship.hitCooldown = 0;
+    this.ship._dock = null;
     this.debris.length = 0;
     this.playerShots.length = 0;
     this.playerBombs.length = 0;
@@ -255,12 +265,22 @@ export class GameLoop {
     const posViewCenterY = scale * this.ship.y;
     const radiusView = (rFramedMax - rFramedMin) / 2;
 
-    return {
+    const view = {
       xCenter: posViewCenterX,
       yCenter: posViewCenterY,
       radius: radiusView,
       angle: Math.atan2(this.ship.x, this.ship.y || 1e-6)
     };
+    if (this.mothership){
+      const dx = this.ship.x - this.mothership.x;
+      const dy = this.ship.y - this.mothership.y;
+      const d = Math.hypot(dx, dy);
+      const t = Math.max(0, Math.min(1, (12 - d) / 8));
+      view.xCenter = view.xCenter * (1 - t) + this.ship.x * t;
+      view.yCenter = view.yCenter * (1 - t) + this.ship.y * t;
+      view.radius = radiusView * (1 - t) + radiusViewMin * t;
+    }
+    return view;
   }
 
   /**
@@ -270,8 +290,19 @@ export class GameLoop {
    */
   _applyBombImpact(x, y){
     const newAir = this.planet.applyAirEdit(x, y, this.TERRAIN_IMPACT_RADIUS, 1);
-    this.renderer.updateAir(newAir);
-    this.planet.syncRenderResources(this.renderer);
+    this._syncPlanetRender(newAir);
+  }
+
+  /**
+   * @param {Float32Array|undefined|null} newAir
+   * @returns {void}
+   */
+  _syncPlanetRender(newAir){
+    if (this.planet.mode === "radial"){
+      if (newAir) this.renderer.updateAir(newAir);
+    } else {
+      this.planet.syncRenderResources(this.renderer);
+    }
   }
 
   /**
@@ -482,8 +513,7 @@ export class GameLoop {
   _beginLevel(seed, advanceLevel){
     this.mapgen.regenWorld(seed);
     const newAir = this.planet.regenFromMap();
-    this.renderer.updateAir(newAir);
-    this.planet.syncRenderResources(this.renderer);
+    this._syncPlanetRender(newAir);
     this.radial.resetFog();
     this._resetShip(true);
     this.entityExplosions.length = 0;
@@ -519,12 +549,14 @@ export class GameLoop {
       const wy = s * lx + c * ly;
       verts.push([x + wx, y + wy]);
     }
-    return [
+    /** @type {Array<[number, number]>} */
+    const samples = [
       verts[0], verts[1], verts[2],
       [(verts[0][0] + verts[1][0]) * 0.5, (verts[0][1] + verts[1][1]) * 0.5],
       [(verts[1][0] + verts[2][0]) * 0.5, (verts[1][1] + verts[2][1]) * 0.5],
       [(verts[2][0] + verts[0][0]) * 0.5, (verts[2][1] + verts[0][1]) * 0.5],
     ];
+    return samples;
   }
 
   /**
@@ -610,11 +642,9 @@ export class GameLoop {
    * @returns {boolean}
    */
   _shipCollidesAt(x, y, shipRadius){
-    const rCenter = Math.hypot(x, y);
-    if (rCenter - shipRadius > this.TERRAIN_MAX) return false;
     const samples = this._shipCollisionPoints(x, y);
     samples.push([x, y]);
-    return collidesAtWorldPoints(this.planet, samples);
+    return this.collision.collidesAtPoints(samples);
   }
 
   /**
@@ -630,7 +660,7 @@ export class GameLoop {
     const footY = y + upy * this.MINER_FOOT_OFFSET;
     const headX = x + upx * this.MINER_HEAD_OFFSET;
     const headY = y + upy * this.MINER_HEAD_OFFSET;
-    return collidesAtWorldPoints(this.planet, [
+    return this.collision.collidesAtPoints([
       [footX, footY],
       [headX, headY],
     ]);
@@ -642,8 +672,49 @@ export class GameLoop {
    * @returns {void}
    */
   _step(dt, inputState){
+    const prevShipX = this.ship.x;
+    const prevShipY = this.ship.y;
+    if (this.mothership){
+      updateMothership(this.mothership, this.planet, dt);
+    }
     const { left, right, thrust, down, reset, shoot, bomb, aim, aimShoot, aimBomb, aimShootFrom, aimShootTo, aimBombFrom, aimBombTo } = inputState;
     if (reset) this._resetShip(false);
+
+    if (this.ship.state === "landed" && this.ship._dock && this.mothership){
+      if (left || right || thrust || down){
+        const pushStep = this.SHIP_RADIUS * 0.35;
+        for (let i = 0; i < 8 && this._shipCollidesAt(this.ship.x, this.ship.y, this.SHIP_RADIUS); i++){
+          const info = mothershipCollisionInfo(this.mothership, this.ship.x, this.ship.y);
+          if (!info) break;
+          this.ship.x += info.nx * pushStep;
+          this.ship.y += info.ny * pushStep;
+        }
+        // Nudge outward so takeoff doesn't scrape the surface.
+        const info = mothershipCollisionInfo(this.mothership, this.ship.x, this.ship.y);
+        if (info){
+          const lift = this.SHIP_RADIUS * 0.25;
+          this.ship.x += info.nx * lift;
+          this.ship.y += info.ny * lift;
+          this.ship.vx += info.nx * 0.05;
+          this.ship.vy += info.ny * 0.05;
+        }
+        this.ship.state = "flying";
+        this.ship._dock = null;
+      } else {
+        const { lx, ly } = this.ship._dock;
+        const c = Math.cos(this.mothership.angle);
+        const s = Math.sin(this.mothership.angle);
+        this.ship.x = this.mothership.x + c * lx - s * ly;
+        this.ship.y = this.mothership.y + s * lx + c * ly;
+        this.ship.vx = this.mothership.vx;
+        this.ship.vy = this.mothership.vy;
+        this.lastAimWorld = null;
+        this.lastAimScreen = null;
+        // Stay locked to the mothership; skip gravity/collision integration.
+        this.enemies.update(this.ship, dt);
+        return;
+      }
+    }
 
     if (this.ship.hitCooldown > 0){
       this.ship.hitCooldown = Math.max(0, this.ship.hitCooldown - dt);
@@ -711,23 +782,12 @@ export class GameLoop {
       const speed = Math.hypot(this.ship.vx, this.ship.vy);
       const eps = this.COLLISION_EPS;
       const shipRadius = this.SHIP_RADIUS;
+      const rCenter = Math.hypot(this.ship.x, this.ship.y);
+      const nearTerrain = (rCenter - shipRadius <= this.TERRAIN_MAX);
 
       let collides = false;
-      /** @type {Array<[number, number, boolean, number]>} */
-      const samples = [];
-      let hit = null;
-      const rCenter = Math.hypot(this.ship.x, this.ship.y);
-      if (rCenter - shipRadius <= this.TERRAIN_MAX){
-        for (const [sx, sy] of this._shipCollisionPoints(this.ship.x, this.ship.y)){
-          const av = this.planet.airValueAtWorld(sx, sy);
-          const air = av > 0.5;
-          samples.push([sx, sy, air, av]);
-          if (!air) {
-            collides = true;
-            if (!hit) hit = { x: sx, y: sy };
-          }
-        }
-      }
+      let { samples, hit, hitSource } = this.collision.sampleCollisionPoints(this._shipCollisionPoints(this.ship.x, this.ship.y));
+      collides = !!hit;
       this.ship._samples = samples;
       this.ship._shipRadius = shipRadius;
       if (hit){
@@ -742,11 +802,91 @@ export class GameLoop {
       }
 
       if (collides){
-        const gdx = this.planet.airValueAtWorld(this.ship.x + eps, this.ship.y) - this.planet.airValueAtWorld(this.ship.x - eps, this.ship.y);
-        const gdy = this.planet.airValueAtWorld(this.ship.x, this.ship.y + eps) - this.planet.airValueAtWorld(this.ship.x, this.ship.y - eps);
-        let nx = gdx;
-        let ny = gdy;
-        let nlen = Math.hypot(nx, ny);
+        // Backtrack along the motion segment to the last non-colliding point.
+        if (this._shipCollidesAt(this.ship.x, this.ship.y, this.SHIP_RADIUS)){
+          let lo = 0;
+          let hi = 1;
+          for (let i = 0; i < 8; i++){
+            const mid = (lo + hi) * 0.5;
+            const tx = prevShipX + (this.ship.x - prevShipX) * mid;
+            const ty = prevShipY + (this.ship.y - prevShipY) * mid;
+            if (this._shipCollidesAt(tx, ty, this.SHIP_RADIUS)){
+              hi = mid;
+            } else {
+              lo = mid;
+            }
+          }
+          this.ship.x = prevShipX + (this.ship.x - prevShipX) * lo;
+          this.ship.y = prevShipY + (this.ship.y - prevShipY) * lo;
+        }
+        // Small outward bias along collision normal to avoid re-penetration.
+        const infoBias = (hitSource === "mothership" && this.mothership && hit)
+          ? mothershipCollisionInfo(this.mothership, this.ship.x, this.ship.y)
+          : null;
+        if (infoBias){
+          this.ship.x += infoBias.nx * (this.SHIP_RADIUS * 0.1);
+          this.ship.y += infoBias.ny * (this.SHIP_RADIUS * 0.1);
+        }
+        // Remove inward normal component so we don't immediately re-penetrate.
+        const infoFinal = (hitSource === "mothership" && this.mothership)
+          ? mothershipCollisionInfo(this.mothership, this.ship.x, this.ship.y)
+          : null;
+        if (infoFinal){
+          const relVx = this.ship.vx - this.mothership.vx;
+          const relVy = this.ship.vy - this.mothership.vy;
+          const vnIn = relVx * infoFinal.nx + relVy * infoFinal.ny;
+          if (vnIn < 0){
+            this.ship.vx -= infoFinal.nx * vnIn;
+            this.ship.vy -= infoFinal.ny * vnIn;
+          }
+        }
+        // Re-sample collision info after backtracking (affects landing).
+        const resample = this.collision.sampleCollisionPoints(this._shipCollisionPoints(this.ship.x, this.ship.y));
+        if (resample && resample.samples){
+          this.ship._samples = resample.samples;
+          if (resample.hit){
+            hit = resample.hit;
+            hitSource = resample.hitSource;
+            collides = true;
+          } else {
+            collides = false;
+          }
+        }
+        let nx = 0;
+        let ny = 0;
+        let nlen = 0;
+        let mothershipHit = false;
+        if (hitSource === "mothership" && hit && this.mothership){
+          const info = mothershipCollisionInfo(this.mothership, hit.x, hit.y);
+          if (info){
+            nx = info.nx;
+            ny = info.ny;
+            nlen = Math.hypot(nx, ny);
+            mothershipHit = true;
+          }
+        }
+        // If we crossed into the wall, back up along velocity until clear.
+        const relBackVx = (mothershipHit && this.mothership) ? (this.ship.vx - this.mothership.vx) : this.ship.vx;
+        const relBackVy = (mothershipHit && this.mothership) ? (this.ship.vy - this.mothership.vy) : this.ship.vy;
+        const backSpeed = Math.hypot(relBackVx, relBackVy);
+        if (backSpeed > 1e-4){
+          const bx = -relBackVx / backSpeed;
+          const by = -relBackVy / backSpeed;
+          const backStep = this.SHIP_RADIUS * 0.25;
+          for (let i = 0; i < 8 && this._shipCollidesAt(this.ship.x, this.ship.y, this.SHIP_RADIUS); i++){
+            this.ship.x += bx * backStep;
+            this.ship.y += by * backStep;
+          }
+        }
+        if (nlen < 1e-4){
+          const gdx = this.collision.airValueAtWorld(this.ship.x + eps, this.ship.y)
+            - this.collision.airValueAtWorld(this.ship.x - eps, this.ship.y);
+          const gdy = this.collision.airValueAtWorld(this.ship.x, this.ship.y + eps)
+            - this.collision.airValueAtWorld(this.ship.x, this.ship.y - eps);
+          nx = gdx;
+          ny = gdy;
+          nlen = Math.hypot(nx, ny);
+        }
         if (nlen < 1e-4){
           const c = this.ship._collision;
           if (c){
@@ -762,9 +902,84 @@ export class GameLoop {
         }
         nx /= nlen;
         ny /= nlen;
+        // If we're still intersecting, push strictly along the normal to get out.
+        if (this._shipCollidesAt(this.ship.x, this.ship.y, shipRadius)){
+          const pushStep = shipRadius * 0.2;
+          let cleared = false;
+          for (let i = 0; i < 8; i++){
+            const tx = this.ship.x + nx * pushStep;
+            const ty = this.ship.y + ny * pushStep;
+            if (!this._shipCollidesAt(tx, ty, shipRadius)){
+              this.ship.x = tx;
+              this.ship.y = ty;
+              cleared = true;
+              break;
+            }
+            this.ship.x = tx;
+            this.ship.y = ty;
+          }
+          if (!cleared){
+            // Try the opposite direction if we pushed deeper.
+            nx = -nx;
+            ny = -ny;
+            for (let i = 0; i < 8; i++){
+              const tx = this.ship.x + nx * pushStep;
+              const ty = this.ship.y + ny * pushStep;
+              if (!this._shipCollidesAt(tx, ty, shipRadius)){
+                this.ship.x = tx;
+                this.ship.y = ty;
+                break;
+              }
+              this.ship.x = tx;
+              this.ship.y = ty;
+            }
+          }
+          // If still stuck (corner), try sliding along the tangent.
+          if (this._shipCollidesAt(this.ship.x, this.ship.y, shipRadius)){
+            const tx = -ny;
+            const ty = nx;
+            const tStep = shipRadius * 0.2;
+            for (const dir of [1, -1]){
+              for (let i = 0; i < 6; i++){
+                const sx = this.ship.x + tx * tStep * dir;
+                const sy = this.ship.y + ty * tStep * dir;
+                if (!this._shipCollidesAt(sx, sy, shipRadius)){
+                  this.ship.x = sx;
+                  this.ship.y = sy;
+                  cleared = true;
+                  break;
+                }
+                this.ship.x = sx;
+                this.ship.y = sy;
+              }
+              if (cleared) break;
+            }
+          }
+        }
         const dotUp = (nx * this.ship.x + ny * this.ship.y) / (Math.hypot(this.ship.x, this.ship.y) || 1);
-        const vn = this.ship.vx * nx + this.ship.vy * ny;
-        const vt = this.ship.vx * -ny + this.ship.vy * nx;
+        const baseVx = (mothershipHit && this.mothership) ? this.mothership.vx : 0;
+        const baseVy = (mothershipHit && this.mothership) ? this.mothership.vy : 0;
+        let relVx = this.ship.vx - baseVx;
+        let relVy = this.ship.vy - baseVy;
+        let vn = relVx * nx + relVy * ny;
+        let vt = relVx * -ny + relVy * nx;
+        // Ensure normal opposes incoming velocity so collisions push outward.
+        if (vn > 0){
+          nx = -nx;
+          ny = -ny;
+          vn = -vn;
+          vt = relVx * -ny + relVy * nx;
+        }
+        // If we still intersect a mothership wall, send back along the incoming segment and reflect.
+        if (mothershipHit && this._shipCollidesAt(this.ship.x, this.ship.y, shipRadius)){
+          this.ship.x = prevShipX;
+          this.ship.y = prevShipY;
+          relVx -= 2 * vn * nx;
+          relVy -= 2 * vn * ny;
+          this.ship.vx = relVx + baseVx;
+          this.ship.vy = relVy + baseVy;
+          this.ship._dock = null;
+        }
 
         if (vn < -GAME.CRASH_SPEED) {
           this._triggerCrash();
@@ -774,26 +989,80 @@ export class GameLoop {
             const maxSlope = 1 - Math.cos(Math.PI / 8); // 22.5 deg
             const landSlope = Math.min((1 - GAME.SURFACE_DOT) + 0.03, maxSlope);
             const clearance = (this.ship._shipRadius || 0.25);
-            if (!this.planet.isLandableAtWorld(this.ship.x, this.ship.y, landSlope, clearance, 0.2)) {
+            let upx = this.ship.x;
+            let upy = this.ship.y;
+            if (mothershipHit && this.mothership){
+              const cUp = Math.cos(this.mothership.angle);
+              const sUp = Math.sin(this.mothership.angle);
+              upx = -sUp;
+              upy = cUp;
+            } else {
+              const upLen = Math.hypot(upx, upy) || 1;
+              upx /= upLen;
+              upy /= upLen;
+            }
+            const dotUpRaw = nx * upx + ny * upy;
+            const slope = mothershipHit ? (1 - Math.abs(dotUpRaw)) : (1 - dotUpRaw);
+            const landable = mothershipHit
+              ? (slope <= landSlope)
+              : (nearTerrain && this.planet.isLandableAtWorld(this.ship.x, this.ship.y, landSlope, clearance, 0.2));
+            const landVn = mothershipHit ? (GAME.LAND_SPEED * 2) : GAME.LAND_SPEED;
+            const landVt = mothershipHit ? 0.8 : 0.5;
+            if (!landable) {
               // Non-landing surface: bounce a bit, no friction
               const restitution = (1 + GAME.BOUNCE_RESTITUTION) * -vn;
-              this.ship.vx += restitution * nx;
-              this.ship.vy += restitution * ny;
-            } else if (vn >= -GAME.LAND_SPEED && Math.abs(vt) < 0.5){
+              relVx += restitution * nx;
+              relVy += restitution * ny;
+            } else if (vn >= -landVn && Math.abs(vt) < landVt){
               // Landed
               this.ship.state = "landed";
-              this.ship.vx = 0;
-              this.ship.vy = 0;
+              if (mothershipHit && this.mothership){
+                // Resolve penetration before docking by backing along the incoming relative velocity.
+                const relVxBack = this.ship.vx - this.mothership.vx;
+                const relVyBack = this.ship.vy - this.mothership.vy;
+                const relBackSpeed = Math.hypot(relVxBack, relVyBack);
+                if (relBackSpeed > 1e-4){
+                  const bx = -relVxBack / relBackSpeed;
+                  const by = -relVyBack / relBackSpeed;
+                  const backStep = this.SHIP_RADIUS * 0.2;
+                  for (let i = 0; i < 12 && this._shipCollidesAt(this.ship.x, this.ship.y, this.SHIP_RADIUS); i++){
+                    this.ship.x += bx * backStep;
+                    this.ship.y += by * backStep;
+                  }
+                }
+                const dx2 = this.ship.x - this.mothership.x;
+                const dy2 = this.ship.y - this.mothership.y;
+                const c2 = Math.cos(-this.mothership.angle);
+                const s2 = Math.sin(-this.mothership.angle);
+                const lx2 = c2 * dx2 - s2 * dy2;
+                const ly2 = s2 * dx2 + c2 * dy2;
+                this.ship._dock = { lx: lx2, ly: ly2 };
+                this.ship.vx = this.mothership.vx;
+                this.ship.vy = this.mothership.vy;
+              } else {
+                this.ship._dock = null;
+                this.ship.vx = 0;
+                this.ship.vy = 0;
+              }
             } else {
               // Contact with landing surface; don't bounce, just prevent moving further in
               const restitution = -vn;
-              this.ship.vx += restitution * nx;
-              this.ship.vy += restitution * ny;
+              relVx += restitution * nx;
+              relVy += restitution * ny;
 
               // On landing surfaces, apply friction to reduce tangent velocity
               const friction = GAME.LAND_FRICTION * -vt;
-              this.ship.vx += friction * -ny;
-              this.ship.vy += friction * nx;
+              relVx += friction * -ny;
+              relVy += friction * nx;
+
+              // On mothership landable surfaces, fully remove inward relative normal velocity.
+              if (mothershipHit && this.mothership){
+                const vn2 = relVx * nx + relVy * ny;
+                if (vn2 < 0){
+                  relVx -= nx * vn2;
+                  relVy -= ny * vn2;
+                }
+              }
 
               /*
               const fast = speed >= (GAME.LAND_SPEED * 1.2);
@@ -808,9 +1077,33 @@ export class GameLoop {
           const maxSteps = 8;
           const stepSize = shipRadius * 0.2;
           for (let i = 0; i < maxSteps && this._shipCollidesAt(this.ship.x, this.ship.y, shipRadius); i++){
-            this.ship.x += nx * stepSize;
-            this.ship.y += ny * stepSize;
+            let rx = nx;
+            let ry = ny;
+            if (hitSource === "mothership" && this.mothership){
+              const info = mothershipCollisionInfo(this.mothership, this.ship.x, this.ship.y);
+              if (info){
+                rx = info.nx;
+                ry = info.ny;
+              }
+            } else {
+              const gdx = this.collision.airValueAtWorld(this.ship.x + eps, this.ship.y)
+                - this.collision.airValueAtWorld(this.ship.x - eps, this.ship.y);
+              const gdy = this.collision.airValueAtWorld(this.ship.x, this.ship.y + eps)
+                - this.collision.airValueAtWorld(this.ship.x, this.ship.y - eps);
+              const glen = Math.hypot(gdx, gdy);
+              if (glen > 1e-4){
+                rx = gdx / glen;
+                ry = gdy / glen;
+              }
+            }
+            this.ship.x += rx * stepSize;
+            this.ship.y += ry * stepSize;
           }
+        }
+        // Apply relative velocity back to world frame.
+        if (mothershipHit && this.mothership && this.ship.state !== "landed"){
+          this.ship.vx = relVx + baseVx;
+          this.ship.vy = relVy + baseVy;
         }
       }
     }
@@ -903,7 +1196,7 @@ export class GameLoop {
         s.x += s.vx * dt;
         s.y += s.vy * dt;
         s.life -= dt;
-        if (s.life <= 0 || this.planet.airValueAtWorld(s.x, s.y) <= 0.5){
+        if (s.life <= 0 || this.collision.airValueAtWorld(s.x, s.y) <= 0.5){
           this.playerShots.splice(i, 1);
           continue;
         }
@@ -944,9 +1237,17 @@ export class GameLoop {
         b.y += b.vy * dt;
         b.life -= dt;
         let hit = false;
-        if (b.life <= 0 || this.planet.airValueAtWorld(b.x, b.y) <= 0.5){
+        let hitSource = "planet";
+        if (b.life <= 0){
           hit = true;
         } else {
+          const sample = this.collision.sampleAtWorld(b.x, b.y);
+          if (sample.air <= 0.5){
+            hit = true;
+            hitSource = sample.source;
+          }
+        }
+        if (!hit){
           for (let j = this.enemies.enemies.length - 1; j >= 0; j--){
             const e = this.enemies.enemies[j];
             const dx = e.x - b.x;
@@ -975,7 +1276,9 @@ export class GameLoop {
         }
         if (hit){
           this.playerBombs.splice(i, 1);
-          this._applyBombImpact(b.x, b.y);
+          if (hitSource === "planet"){
+            this._applyBombImpact(b.x, b.y);
+          }
           this._applyBombDamage(b.x, b.y);
           this.entityExplosions.push({ x: b.x, y: b.y, life: 0.8, radius: this.PLAYER_BOMB_BLAST });
         }
@@ -1133,6 +1436,7 @@ export class GameLoop {
     if (this.ship.state === "landed"){
       if (left || right || thrust){
         this.ship.state = "flying";
+        this.ship._dock = null;
       }
     }
   }
@@ -1168,6 +1472,8 @@ export class GameLoop {
     if (inputState.toggleRender){
       this.planet.toggleMode();
       this.renderer.setRenderMode(this.planet.mode);
+      const newAir = this.planet.ensureModeUpdated();
+      this._syncPlanetRender(newAir);
       this.planet.syncRenderFog(this.renderer, this.ship.x, this.ship.y);
       this._nudgeMinersFromTerrain();
     }
@@ -1201,6 +1507,7 @@ export class GameLoop {
     this.renderer.drawFrame({
       view: this._viewState(),
       ship: this.ship,
+      mothership: this.mothership,
       debris: this.debris,
       input: inputState,
       debugCollisions: this.debugCollisions,

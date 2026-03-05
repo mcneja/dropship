@@ -200,6 +200,27 @@ function pushTri(pos, col, ax, ay, bx, by, cx, cy, r, g, b, a){
  * @param {number} ay
  * @param {number} bx
  * @param {number} by
+ * @param {number} cx
+ * @param {number} cy
+ * @param {number[]} ca
+ * @param {number[]} cb
+ * @param {number[]} cc
+ * @returns {void}
+ */
+function pushTriColored(pos, col, ax, ay, bx, by, cx, cy, ca, cb, cc){
+  pos.push(ax, ay, bx, by, cx, cy);
+  col.push(ca[0], ca[1], ca[2], ca[3]);
+  col.push(cb[0], cb[1], cb[2], cb[3]);
+  col.push(cc[0], cc[1], cc[2], cc[3]);
+}
+
+/**
+ * @param {number[]} pos
+ * @param {number[]} col
+ * @param {number} ax
+ * @param {number} ay
+ * @param {number} bx
+ * @param {number} by
  * @param {number} r
  * @param {number} g
  * @param {number} b
@@ -564,6 +585,51 @@ function drawFrameImpl(renderer, state, planet){
         pushEnemy(pos, col, enemy.x, enemy.y, 0.95, 0.55, 0.2, game.ENEMY_SCALE);
       }
       triVerts += 3;
+    }
+  }
+
+  if (state.mothership){
+    const m = state.mothership;
+    const c = Math.cos(m.angle);
+    const s3 = Math.sin(m.angle);
+    const points = m.renderPoints || m.points;
+    const tris = m.renderTris || m.tris;
+    const drawTri = (tri, isWall) => {
+      const a = points[tri[0]];
+      const b = points[tri[1]];
+      const d = points[tri[2]];
+      const ax = m.x + c * a.x - s3 * a.y;
+      const ay = m.y + s3 * a.x + c * a.y;
+      const bx = m.x + c * b.x - s3 * b.y;
+      const by = m.y + s3 * b.x + c * b.y;
+      const cx = m.x + c * d.x - s3 * d.y;
+      const cy = m.y + s3 * d.x + c * d.y;
+      if (isWall){
+        pushTri(pos, col, ax, ay, bx, by, cx, cy, 0.78, 0.78, 0.78, 0.98);
+      } else {
+        pushTri(pos, col, ax, ay, bx, by, cx, cy, 0.20, 0.20, 0.20, 0.98);
+      }
+      triVerts += 3;
+    };
+    const triIsWall = (tri, idx) => {
+      if (m.triAir && idx < m.triAir.length){
+        return m.triAir[idx] <= 0.5;
+      }
+      const a = points[tri[0]];
+      const b = points[tri[1]];
+      const d = points[tri[2]];
+      const aAir = ("air" in a) ? a.air : 1;
+      const bAir = ("air" in b) ? b.air : 1;
+      const cAir = ("air" in d) ? d.air : 1;
+      return (aAir + bAir + cAir) / 3 <= 0.5;
+    };
+    for (let i = 0; i < tris.length; i++){
+      const tri = tris[i];
+      if (!triIsWall(tri, i)) drawTri(tri, false);
+    }
+    for (let i = 0; i < tris.length; i++){
+      const tri = tris[i];
+      if (triIsWall(tri, i)) drawTri(tri, true);
     }
   }
 

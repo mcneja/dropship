@@ -32,6 +32,12 @@ export class Planet {
     this._radialDebugPoints = null;
     /** @type {boolean} */
     this._radialDebugDirty = true;
+    /** @type {boolean} */
+    this._radialDirty = false;
+    /** @type {boolean} */
+    this._sdfDirty = false;
+    /** @type {boolean} */
+    this._sdfDirtyFull = false;
   }
 
   /**
@@ -85,7 +91,14 @@ export class Planet {
    */
   regenFromMap(){
     const newAir = this.radial.updateAirFlags(true);
-    this.sdf.regenFromMap();
+    if (this.mode === "sdf"){
+      this.sdf.regenFromMap();
+      this._sdfDirty = false;
+      this._sdfDirtyFull = false;
+    } else {
+      this._sdfDirty = true;
+      this._sdfDirtyFull = true;
+    }
     this._radialDebugDirty = true;
     return newAir;
   }
@@ -95,13 +108,20 @@ export class Planet {
    * @param {number} y
    * @param {number} radius
    * @param {0|1} [val]
-   * @returns {Float32Array}
+   * @returns {Float32Array|undefined}
    */
   applyAirEdit(x, y, radius, val = 1){
     this.mapgen.setAirDisk(x, y, radius, val);
-    this.sdf.onMapEdited();
+    let newAir;
+    if (this.mode === "radial"){
+      newAir = this.radial.updateAirFlags(true);
+      this._sdfDirty = true;
+    } else {
+      this.sdf.onMapEdited();
+      this._radialDirty = true;
+    }
     this._radialDebugDirty = true;
-    return this.radial.updateAirFlags(true);
+    return newAir;
   }
 
   /**
@@ -294,10 +314,38 @@ export class Planet {
    * @returns {void}
    */
   syncRenderFog(renderer, shipX, shipY){
-    const fog = this.updateFogForRender(shipX, shipY);
-    if (fog) renderer.updateFog(fog);
+    if (this.mode !== "sdf"){
+      const fog = this.updateFogForRender(shipX, shipY);
+      if (fog) renderer.updateFog(fog);
+      return;
+    }
+    this.updateFogForRender(shipX, shipY);
     const fogGrid = this.sdf.renderData().fog;
     if (fogGrid) renderer.updateFogTexture(fogGrid);
+  }
+
+  /**
+   * Ensure active mode data is up-to-date after deferred edits.
+   * @returns {Float32Array|undefined}
+   */
+  ensureModeUpdated(){
+    if (this.mode === "radial"){
+      if (!this._radialDirty) return undefined;
+      this._radialDirty = false;
+      const newAir = this.radial.updateAirFlags(true);
+      this._radialDebugDirty = true;
+      return newAir;
+    }
+    if (this._sdfDirtyFull){
+      this.sdf.regenFromMap();
+    } else if (this._sdfDirty){
+      this.sdf.onMapEdited();
+    } else {
+      return undefined;
+    }
+    this._sdfDirty = false;
+    this._sdfDirtyFull = false;
+    return undefined;
   }
 
   /**
