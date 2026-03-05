@@ -202,7 +202,7 @@ function pointInTri(px, py, ax, ay, bx, by, cx, cy){
  * @param {Mothership} mothership
  * @param {number} lx
  * @param {number} ly
- * @returns {number}
+ * @returns {number|null}
  */
 function mothershipAirAtLocal(mothership, lx, ly){
   const points = mothership.points;
@@ -215,7 +215,7 @@ function mothershipAirAtLocal(mothership, lx, ly){
     if (!pointInTri(lx, ly, a.x, a.y, b.x, b.y, c.x, c.y)) continue;
     return mothership.triAir ? mothership.triAir[i] : 1;
   }
-  return 1;
+  return null;
 }
 
 /**
@@ -306,7 +306,9 @@ export function mothershipCollisionInfo(mothership, x, y){
       // Choose normal that points toward air.
       const airPos = mothershipAirAtLocal(mothership, lx + nx * eps, ly + ny * eps);
       const airNeg = mothershipAirAtLocal(mothership, lx - nx * eps, ly - ny * eps);
-      if (airNeg > airPos){
+      const airPosV = (airPos === null) ? 1 : airPos;
+      const airNegV = (airNeg === null) ? 1 : airNeg;
+      if (airNegV > airPosV){
         nx = -nx;
         ny = -ny;
       }

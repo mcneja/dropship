@@ -17,8 +17,15 @@ export function createCollisionRouter(planet, getMothership){
   function sampleAtWorld(x, y){
     const mothership = getMothership();
     if (mothership){
-      const v = mothershipAirAtWorld(mothership, x, y);
-      if (v !== null) return { air: v, source: "mothership" };
+      const r = Math.hypot(x, y);
+      const dPlanet = Math.abs(r - planet.planetRadius);
+      const dx = x - mothership.x;
+      const dy = y - mothership.y;
+      const dM = Math.max(0, Math.hypot(dx, dy) - mothership.bounds);
+      if (dM < dPlanet){
+        const v = mothershipAirAtWorld(mothership, x, y);
+        if (v !== null) return { air: v, source: "mothership" };
+      }
     }
     return { air: planet.airValueAtWorld(x, y), source: "planet" };
   }
