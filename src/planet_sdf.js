@@ -322,9 +322,38 @@ export class PlanetSdf {
       sdf[k] = (isAir ? 1 : -1) * d * cell;
     }
 
+    // Verify that the perimeter of the distance field is non-negative;
+    // otherwise we can get some gnarly gradient estimates.
+
+    let minPerimeter = Infinity;
+    for (let i = 0; i < G; ++i) {
+      minPerimeter = Math.min(minPerimeter, sdf[i]);
+      minPerimeter = Math.min(minPerimeter, sdf[(G - 1) * G + i]);
+      minPerimeter = Math.min(minPerimeter, sdf[i * G]);
+      minPerimeter = Math.min(minPerimeter, sdf[i * G + (G - 1)]);
+    }
+    console.assert(minPerimeter >= 0);
+
     this._sdfFull = sdf;
   }
 
+  /**
+   * Interpolate the signed distance field to evaluate at a world position.
+   * 
+   * Outside the defined field, clamp the sample to the field
+   * and then add in the distance to the clamped position.
+   * 
+   * Note that this assumes the distances in the perimeter of the field are
+   * nonnegative, which they should be for a planet where it's all "air"
+   * outside of the field.
+   * 
+   * This is not perfect (it is possible that the distance gradient points
+   * off to the side, in which case it would be shorter to go that direction
+   * outside the field) but it's better than nothing.
+   * @param {number} x 
+   * @param {number} y 
+   * @returns {number}
+   */
   _sampleSdfFullAtWorld(x, y){
     if (!this._sdfFull){
       this._rebuildSdfFull();
@@ -332,11 +361,11 @@ export class PlanetSdf {
     const sdf = this._sdfFull;
     if (!sdf) return 1;
     const { G, worldMin, worldSize } = this.mapgen.grid;
-    const u = (x - worldMin) / worldSize;
-    const v = (y - worldMin) / worldSize;
-    if (u <= 0 || v <= 0 || u >= 1 || v >= 1){
-      return 1;
-    }
+    const uUnclamped = (x - worldMin) / worldSize;
+    const vUnclamped = (y - worldMin) / worldSize;
+    const u = Math.max(0, Math.min(1, uUnclamped));
+    const v = Math.max(0, Math.min(1, vUnclamped));
+    const distExtra = Math.hypot(u - uUnclamped, v - vUnclamped) * worldSize;
     const gx = u * G - 0.5;
     const gy = v * G - 0.5;
     const x0 = Math.max(0, Math.min(G - 1, Math.floor(gx)));
@@ -351,7 +380,7 @@ export class PlanetSdf {
     const i11 = y1 * G + x1;
     const a = sdf[i00] * (1 - fx) + sdf[i10] * fx;
     const b = sdf[i01] * (1 - fx) + sdf[i11] * fx;
-    return a * (1 - fy) + b * fy;
+    return a * (1 - fy) + b * fy + distExtra;
   }
 
   _buildLowResSdf(){
@@ -463,15 +492,22 @@ export class PlanetSdf {
     this._sdfGridLow = this._downsampleSdf(sdfOut, H, G);
   }
 
+  /**
+   * Interpolate the low-res signed distance field to evaluate at a world position.
+   * See notes on _sampleSdfFullAtWorld; they apply here too.
+   * @param {number} x 
+   * @param {number} y 
+   * @returns {number}
+   */
   _sampleLowResSdfAtWorld(x, y){
     const { worldMin, worldSize } = this.mapgen.grid;
     const G = this._sdfSize;
     if (G <= 1 || !this._sdfGridLow) return this._sampleSdfFullAtWorld(x, y);
-    const u = (x - worldMin) / worldSize;
-    const v = (y - worldMin) / worldSize;
-    if (u <= 0 || v <= 0 || u >= 1 || v >= 1){
-      return 1;
-    }
+    const uUnclamped = (x - worldMin) / worldSize;
+    const vUnclamped = (y - worldMin) / worldSize;
+    const u = Math.max(0, Math.min(1, uUnclamped));
+    const v = Math.max(0, Math.min(1, vUnclamped));
+    const distExtra = Math.hypot(u - uUnclamped, v - vUnclamped) * worldSize;
     const gx = u * G - 0.5;
     const gy = v * G - 0.5;
     const x0 = Math.max(0, Math.min(G - 1, Math.floor(gx)));
@@ -486,7 +522,7 @@ export class PlanetSdf {
     const i11 = y1 * G + x1;
     const a = this._sdfGridLow[i00] * (1 - fx) + this._sdfGridLow[i10] * fx;
     const b = this._sdfGridLow[i01] * (1 - fx) + this._sdfGridLow[i11] * fx;
-    return a * (1 - fy) + b * fy;
+    return a * (1 - fy) + b * fy + distExtra;
   }
 
   _buildLowResShade(){

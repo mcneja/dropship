@@ -374,24 +374,26 @@ function pushCircle(pos, col, x, y, radius, r, g, b, a, seg = 24){
  * @param {number[]} col
  * @param {number} x
  * @param {number} y
+ * @param {number} jumpCycle
  * @param {number} r
  * @param {number} g
  * @param {number} b
  * @returns {void}
  */
-function pushMiner(pos, col, x, y, r, g, b, scale){
+function pushMiner(pos, col, x, y, jumpCycle, r, g, b, scale){
   const len = Math.hypot(x, y) || 1;
   const upx = x / len;
   const upy = y / len;
+  const jumpOffset = 0.5 * jumpCycle * (1 - jumpCycle);
   const tx = -upy;
   const ty = upx;
   const s = scale ?? 1;
   const halfW = 0.06 * s;
   const halfH = 0.18 * s;
-  const b0x = x + tx * halfW;
-  const b0y = y + ty * halfW;
-  const b1x = x - tx * halfW;
-  const b1y = y - ty * halfW;
+  const b0x = x + tx * halfW + upx * jumpOffset;
+  const b0y = y + ty * halfW + upy * jumpOffset;
+  const b1x = x - tx * halfW + upx * jumpOffset;
+  const b1y = y - ty * halfW + upy * jumpOffset;
   const t0x = b0x + upx * (2 * halfH);
   const t0y = b0y + upy * (2 * halfH);
   const t1x = b1x + upx * (2 * halfH);
@@ -416,15 +418,14 @@ function pushEnemy(pos, col, x, y, r, g, b, scale){
   const upy = y / len;
   const tx = -upy;
   const ty = upx;
-  const s = (scale ?? 1) * 1.5;
-  const base = 0.18 * s;
-  const height = 0.26 * s;
-  const lx = x - tx * base;
-  const ly = y - ty * base;
-  const rx = x + tx * base;
-  const ry = y + ty * base;
-  const hx = x + upx * height;
-  const hy = y + upy * height;
+  const baseX = scale * 0.866;
+  const baseY = scale * 0.5;
+  const lx = x - tx * baseX - upx * baseY;
+  const ly = y - ty * baseX - upy * baseY;
+  const rx = x + tx * baseX - upx * baseY;
+  const ry = y + ty * baseX - upy * baseY;
+  const hx = x + upx * scale;
+  const hy = y + upy * scale;
   pushTri(pos, col, lx, ly, rx, ry, hx, hy, r, g, b, 1);
 }
 
@@ -564,11 +565,11 @@ function drawFrameImpl(renderer, state, planet){
   if (state.miners && state.miners.length){
     for (const miner of state.miners){
       if (miner.state === "boarded") continue;
-      if (!losVisibleAt(miner.x, miner.y)) continue;
+      if (miner.state !== "running" && !losVisibleAt(miner.x, miner.y)) continue;
       if (miner.state === "running"){
-        pushMiner(pos, col, miner.x, miner.y, 0.98, 0.62, 0.2, game.MINER_SCALE);
+        pushMiner(pos, col, miner.x, miner.y, miner.jumpCycle, 0.98, 0.62, 0.2, game.MINER_SCALE);
       } else {
-        pushMiner(pos, col, miner.x, miner.y, 0.98, 0.85, 0.25, game.MINER_SCALE);
+        pushMiner(pos, col, miner.x, miner.y, miner.jumpCycle, 0.98, 0.85, 0.25, game.MINER_SCALE);
       }
       triVerts += 6;
     }
@@ -581,8 +582,10 @@ function drawFrameImpl(renderer, state, planet){
         pushEnemy(pos, col, enemy.x, enemy.y, 0.92, 0.25, 0.2, game.ENEMY_SCALE);
       } else if (enemy.type === "ranger"){
         pushEnemy(pos, col, enemy.x, enemy.y, 0.2, 0.75, 0.95, game.ENEMY_SCALE);
-      } else {
+      } else if (enemy.type === "crawler") {
         pushEnemy(pos, col, enemy.x, enemy.y, 0.95, 0.55, 0.2, game.ENEMY_SCALE);
+      } else {
+        pushEnemy(pos, col, enemy.x, enemy.y, 0.5, 0.125, 1.0, game.ENEMY_SCALE);
       }
       triVerts += 3;
     }
@@ -637,7 +640,8 @@ function drawFrameImpl(renderer, state, planet){
     const size = 0.10;
     for (const s of state.shots){
       if (s.owner === "hunter") pushDiamond(pos, col, s.x, s.y, size, 1.0, 0.35, 0.3, 0.9);
-      else pushDiamond(pos, col, s.x, s.y, size, 0.3, 0.8, 1.0, 0.9);
+      else if (s.owner === "ranger") pushDiamond(pos, col, s.x, s.y, size, 0.3, 0.8, 1.0, 0.9);
+      else pushDiamond(pos, col, s.x, s.y, size, 0.5, 0.125, 1.0, 0.9);
       triVerts += 6;
     }
   }
@@ -775,7 +779,7 @@ function drawFrameImpl(renderer, state, planet){
 
     if (state.enemyDebris && state.enemyDebris.length){
       for (const d of state.enemyDebris){
-        const len = 0.098 * game.ENEMY_SCALE;
+        const len = 0.2 * game.ENEMY_SCALE;
         const hx = Math.cos(d.a) * len;
         const hy = Math.sin(d.a) * len;
         pushLine(pos, col, d.x - hx, d.y - hy, d.x + hx, d.y + hy, 1.0, 0.5, 0.2, 0.9);
@@ -854,6 +858,54 @@ function drawFrameImpl(renderer, state, planet){
       pointVerts += 1;
     }
   }
+
+  // Test surface guide path
+
+  /*
+  if (state.ship.guidePath) {
+    const path = state.ship.guidePath.path;
+    for (let i = 1; i < path.length; ++i) {
+      pushLine(pos, col, path[i-1].x, path[i-1].y, path[i].x, path[i].y, 1, 0.9, 0, 1);
+      lineVerts += 2;
+    }
+
+    const iShip = state.ship.guidePath.indexClosest;
+    pushLine(pos, col, state.ship.x, state.ship.y, path[iShip].x, path[iShip].y, 1, 0.9, 0, 1);
+    lineVerts += 2;
+  }
+  */
+
+  // Test closest-point-on-planet (use mouse cursor as query point)
+
+  /*
+  if (state.aimWorld) {
+    const posClosestOld = planet.posClosest(state.aimWorld.x, state.aimWorld.y);
+    if (posClosestOld) {
+      pushLine(pos, col, state.aimWorld.x, state.aimWorld.y, posClosestOld.x, posClosestOld.y, 1, 1, 0, 1);
+      lineVerts += 2;
+    }
+  }
+  */
+
+  // Draw a box around the distance field
+  /*
+  {
+    const s = renderer._worldSize;
+    const x0 = renderer._worldMin;
+    const y0 = renderer._worldMin;
+    const x1 = x0 + s;
+    const y1 = y0 + s;
+    const r = 1;
+    const g = 1;
+    const b = 1;
+    const a = 1;
+    pushLine(pos, col, x0, y0, x1, y0, r, g, b, a);
+    pushLine(pos, col, x1, y0, x1, y1, r, g, b, a);
+    pushLine(pos, col, x1, y1, x0, y1, r, g, b, a);
+    pushLine(pos, col, x0, y1, x0, y0, r, g, b, a);
+    lineVerts += 8;
+  }
+  */
 
   // Debug nodes now come from state.debugPoints for both modes.
 

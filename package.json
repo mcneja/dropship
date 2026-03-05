@@ -1,7 +1,7 @@
 {
-  "name": "7drl-2026-space",
+  "name": "dropship",
   "version": "0.0.1",
-  "description": "7DRL Space Demo for 2026",
+  "description": "7DRL Space Game for 2026",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -12,14 +12,14 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/spillz/7drl-2026-space.git"
+    "url": "git+https://github.com/mcneja/dropship.git"
   },
   "author": "spillz",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/spillz/7drl-2026-space/issues"
+    "url": "https://github.com/mcneja/dropship/issues"
   },
-  "homepage": "https://github.com/spillz/7drl-2026-space#readme",
+  "homepage": "https://github.com/mcneja/dropship#readme",
   "dependencies": {
     "eskv": "file:../eskv",
     "howler": "^2.2.4"
