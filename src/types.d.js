@@ -6,6 +6,15 @@
  */
 
 /**
+ * @typedef {Object} CollisionQuery
+ * @property {(x:number,y:number)=>number} airValueAtWorld
+ * @property {(x:number,y:number)=>{x:number,y:number}} gravityAt
+ * @property {(x:number,y:number)=>{air:number, source:"mothership"|"planet"}} sampleAtWorld
+ * @property {(points:Array<[number, number]>)=>boolean} collidesAtPoints
+ * @property {(points:Array<[number, number]>)=>{samples:Array<[number, number, boolean, number]>, hit:{x:number,y:number}|null, hitSource:"mothership"|"planet"|null}} sampleCollisionPoints
+ */
+
+/**
  * @typedef {Object} MapWorld
  * @property {number} seed
  * @property {Uint8Array<ArrayBufferLike>} air
@@ -31,7 +40,17 @@
  * @property {Array<[number,number,boolean,number]>|null} [_samples]
  * @property {{x:number,y:number,tri?:Array<{x:number,y:number}>|null,node?:{x:number,y:number}|null}|null} [_collision]
  * @property {number} [_shipRadius]
+ * @property {{lx:number,ly:number}|null} [_dock]
  */
+
+/**
+ * @typedef {Object} MothershipPoint
+ * @property {number} x
+ * @property {number} y
+ * @property {number} air
+ */
+
+// Mothership typedef removed (now a class in mothership.js).
 
 /**
  * @typedef {Object} ViewState
@@ -99,6 +118,7 @@
  * @typedef {Object} RenderState
  * @property {ViewState} view
  * @property {Ship} ship
+ * @property {import("./mothership.js").Mothership} [mothership]
  * @property {Array<Debris>} debris
  * @property {{left:boolean,right:boolean,thrust:boolean,down:boolean}} input
  * @property {boolean} debugCollisions
