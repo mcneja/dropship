@@ -16,8 +16,7 @@ export class Planet {
    */
   constructor({ game, seed }){
     this.game = game;
-    this.mapgen = new MapGen();
-    this.mapgen.regenWorld(seed);
+    this.mapgen = new MapGen(seed);
     const rPlanet = CFG.RMAX;
     this.planetRadius = rPlanet;
     this.gravitationalConstant = surfaceGravityAcceleration * rPlanet * rPlanet;

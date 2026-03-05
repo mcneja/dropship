@@ -330,15 +330,7 @@ export class GameLoop {
    */
   _applyBombImpact(x, y){
     const newAir = this.planet.applyAirEdit(x, y, this.TERRAIN_IMPACT_RADIUS, 1);
-    this._syncPlanetRender(newAir);
-  }
-
-  /**
-   * @param {Float32Array|undefined|null} newAir
-   * @returns {void}
-   */
-  _syncPlanetRender(newAir){
-    if (newAir) this.renderer.updateAir(newAir);
+    this.renderer.updateAir(newAir);
   }
 
   /**

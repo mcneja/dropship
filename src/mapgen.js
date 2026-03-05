@@ -10,8 +10,9 @@ import { CFG } from "./config.js";
 export class MapGen {
   /**
    * Create a map generator.
+   * @param {number} seed
    */
-  constructor(){
+  constructor(seed){
     const G = CFG.GRID;
     const worldMin = -(CFG.RMAX + CFG.PAD);
     const worldMax = +(CFG.RMAX + CFG.PAD);
@@ -55,7 +56,7 @@ export class MapGen {
     /** @type {MapWorld} */
     this._current = { seed: CFG.seed, air: new Uint8Array(G*G), entrances: [], finalAir: 0 };
 
-    /** @type {Float32Array} */
+    this.regenWorld(seed);
   }
 
   /**
