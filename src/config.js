@@ -39,31 +39,6 @@ export const CFG = Object.freeze({
   AIR_LIGHT: [0x4a/255, 0x4a/255, 0x4a/255],
   EDGE_DARK: [0x14/255, 0x14/255, 0x14/255],
   STAR_SATURATION: 2, //1 = baseline, >1 more intense colors
-  // SDF supersample levels: 0=off, 1=4x, 2=8x
-  SDF_SUPERSAMPLE: 0,
-  SDF_FOG_SCALE: 0.8,
-  SDF_FOG_SEEN_SCALE: 0.7,
-  SDF_FOG_UNSEEN_SCALE: 1.0,
-  // SDF grid sizing: 'relative' (GRID * SDF_GRID_RELATIVE), 'mapgen_full' (GRID), or 'absolute' (SDF_GRID_ABSOLUTE).
-  SDF_GRID_MODE: "relative",
-  // Relative SDF size vs mapgen GRID when SDF_GRID_MODE='relative'.
-  SDF_GRID_RELATIVE: 0.5,
-  // If true, cap SDF relative size by radial node count target.
-  SDF_GRID_CLAMP_TO_NODES: false,
-  // Absolute SDF size when SDF_GRID_MODE='absolute'.
-  SDF_GRID_ABSOLUTE: 256,
-  // SDF source: 'mapgen' (grid truth) or 'radial' (ring mesh).
-  SDF_SOURCE: "radial",
-  // SDF texture format: "r32f" or "r16f"
-  SDF_TEX_FORMAT: "r16f",
-  // Use hardware linear filtering when supported (only for r16f).
-  SDF_HW_FILTER: true,
-  // Use marching squares contouring for SDF boundary (hard edge, smoother angles).
-  SDF_MARCHING_SQUARES: false,
-  // Supersample factor for SDF fog/visibility grid (1, 2, or 4).
-  SDF_FOG_SUPERSAMPLE: 2,
-  // Supersample factor for building SDF render grid (1, 2, or 4).
-  SDF_BUILD_SUPERSAMPLE: 2,
 });
 
 export const GAME = Object.freeze({

@@ -344,11 +344,7 @@ export class GameLoop {
    * @returns {void}
    */
   _syncPlanetRender(newAir){
-    if (this.planet.mode === "radial"){
-      if (newAir) this.renderer.updateAir(newAir);
-    } else {
-      this.planet.syncRenderResources(this.renderer);
-    }
+    if (newAir) this.renderer.updateAir(newAir);
   }
 
   /**
@@ -1384,14 +1380,6 @@ export class GameLoop {
     if (inputState.toggleDebug){
       this.debugCollisions = !this.debugCollisions;
     }
-    if (inputState.toggleRender){
-      this.planet.toggleMode();
-      this.renderer.setRenderMode(this.planet.mode);
-      const newAir = this.planet.ensureModeUpdated();
-      this._syncPlanetRender(newAir);
-      this.planet.syncRenderFog(this.renderer, this.ship.x, this.ship.y);
-      this._nudgeMinersFromTerrain();
-    }
 
     const fixed = 1 / 60;
     const maxSteps = 4;
@@ -1426,7 +1414,6 @@ export class GameLoop {
       debugNodes: GAME.DEBUG_NODES,
       debugCollisionSamples: this.debugCollisions ? (this.ship._samples || []) : null,
       debugPoints: (this.debugCollisions && GAME.DEBUG_NODES) ? this.planet.debugPoints() : null,
-      renderMode: this.planet.mode,
       fps: this.fps,
       finalAir: this.mapgen.getWorld().finalAir,
       miners: this.miners,
@@ -1460,7 +1447,6 @@ export class GameLoop {
       debug: this.debugCollisions,
       minerCandidates: this.minerCandidates,
       inputType: inputState.inputType,
-      renderMode: this.planet.mode,
     });
 
     requestAnimationFrame(() => this._frame());

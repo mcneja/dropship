@@ -1,7 +1,7 @@
 // @ts-check
 
 import { RingMesh } from "./planet_ring_mesh.js";
-import { PlanetSdf } from "./planet_sdf.js";
+import { RadialGraph } from "./navigation.js";
 
 const surfaceGravityAcceleration = 2.0;
 
@@ -18,8 +18,6 @@ export class Planet {
     this.cfg = cfg;
     this.game = game;
     this.mapgen = mapgen;
-    /** @type {"radial"|"sdf"} */
-    this.mode = "radial";
     const rPlanet = cfg.RMAX;
     this.planetRadius = rPlanet;
     this.gravitationalConstant = surfaceGravityAcceleration * rPlanet * rPlanet;
@@ -27,31 +25,12 @@ export class Planet {
     this.radial = new RingMesh(cfg, mapgen);
     this.radial.initFog(game);
 
-    this.sdf = new PlanetSdf(cfg, game, mapgen, () => this._radialNodeCount(), (x, y) => this.radial.airValueAtWorld(x, y));
     /** @type {Array<[number,number,boolean,number]>|null} */
     this._radialDebugPoints = null;
     /** @type {boolean} */
     this._radialDebugDirty = true;
     /** @type {boolean} */
     this._radialDirty = false;
-    /** @type {boolean} */
-    this._sdfDirty = false;
-    /** @type {boolean} */
-    this._sdfDirtyFull = false;
-  }
-
-  /**
-   * @param {"radial"|"sdf"} mode
-   */
-  setMode(mode){
-    this.mode = mode;
-  }
-
-  /**
-   * @returns {void}
-   */
-  toggleMode(){
-    this.mode = this.mode === "radial" ? "sdf" : "radial";
   }
 
   /**
@@ -60,19 +39,13 @@ export class Planet {
    * @returns {number}
    */
   airValueAtWorld(x, y){
-    if (this.mode === "radial"){
-      return this.radial.airValueAtWorld(x, y);
-    }
-    return this.sdf.airValueAtWorld(x, y);
+    return this.radial.airValueAtWorld(x, y);
   }
 
   /**
    * @returns {Array<[number,number,boolean,number]>|null}
    */
   debugPoints(){
-    if (this.mode === "sdf"){
-      return this.sdf.debugPoints();
-    }
     if (this._radialDebugDirty || !this._radialDebugPoints){
       this._buildRadialDebugPoints();
     }
@@ -80,25 +53,10 @@ export class Planet {
   }
 
   /**
-   * @returns {{gridSize:number,fogSize:number,sdf:Float32Array,shade:Float32Array,fog:Float32Array|null}}
-   */
-  renderData(){
-    return this.sdf.renderData();
-  }
-
-  /**
    * @returns {Float32Array}
    */
   regenFromMap(){
     const newAir = this.radial.updateAirFlags(true);
-    if (this.mode === "sdf"){
-      this.sdf.regenFromMap();
-      this._sdfDirty = false;
-      this._sdfDirtyFull = false;
-    } else {
-      this._sdfDirty = true;
-      this._sdfDirtyFull = true;
-    }
     this._radialDebugDirty = true;
     return newAir;
   }
@@ -112,14 +70,7 @@ export class Planet {
    */
   applyAirEdit(x, y, radius, val = 1){
     this.mapgen.setAirDisk(x, y, radius, val);
-    let newAir;
-    if (this.mode === "radial"){
-      newAir = this.radial.updateAirFlags(true);
-      this._sdfDirty = true;
-    } else {
-      this.sdf.onMapEdited();
-      this._radialDirty = true;
-    }
+    let newAir = this.radial.updateAirFlags(true);
     this._radialDebugDirty = true;
     return newAir;
   }
@@ -129,14 +80,9 @@ export class Planet {
    * @param {number} shipY
    * @returns {Float32Array|undefined}
    */
-  updateFog(shipX, shipY, buildGrid = false){
-    if (this.mode !== "sdf"){
-      this.radial.updateFog(shipX, shipY);
-      if (buildGrid) this.sdf.buildFogFromRadial(this.radial);
-      return this.radial.fogAlpha();
-    }
-    this.sdf.updateFog(shipX, shipY, (x, y) => this.airValueAtWorld(x, y));
-    return undefined;
+  updateFog(shipX, shipY){
+    this.radial.updateFog(shipX, shipY);
+    return this.radial.fogAlpha();
   }
 
   /**
@@ -146,7 +92,7 @@ export class Planet {
    * @returns {Float32Array|undefined}
    */
   updateFogForRender(shipX, shipY){
-    return this.updateFog(shipX, shipY, false);
+    return this.updateFog(shipX, shipY);
   }
 
   /**
@@ -164,9 +110,6 @@ export class Planet {
    * @returns {boolean}
    */
   fogSeenAt(x, y){
-    if (this.mode === "sdf") {
-      return true;
-    }
     return this.radial.fogSeenAt(x, y);
   }
 
@@ -181,7 +124,7 @@ export class Planet {
 
   /**
    * Find closest point on world
-   * Note: Does not work very far from the surface in the "radial" mode
+   * Note: Does not work very far from the surface
    * @param {number} x
    * @param {number} y
    * @returns {{x:number, y:number}|null}
@@ -189,25 +132,14 @@ export class Planet {
   posClosest(x, y) {
     const eps = 0.1;
 
-    let dist, gdx, gdy, g;
-
-    if (this.mode === "sdf") {
-      dist = this.sdf.sdfValueAtWorld(x, y);
-      gdx = (this.sdf.sdfValueAtWorld(x + eps, y) - this.sdf.sdfValueAtWorld(x - eps, y)) / (2 * eps);
-      gdy = (this.sdf.sdfValueAtWorld(x, y + eps) - this.sdf.sdfValueAtWorld(x, y - eps)) / (2 * eps);
-      g = Math.hypot(gdx, gdy);
-      if (g < 0.707) {
-        return null;
-      }
-    } else {
-      dist = this.radial.airValueAtWorld(x, y) - 0.5;
-      gdx = this.radial.airValueAtWorld(x + eps, y) - this.radial.airValueAtWorld(x - eps, y);
-      gdy = this.radial.airValueAtWorld(x, y + eps) - this.radial.airValueAtWorld(x, y - eps);
-      g = Math.hypot(gdx, gdy);
-      if (g < 1e-4) {
-        return null;
-      }
+    const dist = this.radial.airValueAtWorld(x, y) - 0.5;
+    const gdx = this.radial.airValueAtWorld(x + eps, y) - this.radial.airValueAtWorld(x - eps, y);
+    const gdy = this.radial.airValueAtWorld(x, y + eps) - this.radial.airValueAtWorld(x, y - eps);
+    const g = Math.hypot(gdx, gdy);
+    if (g < 1e-4) {
+      return null;
     }
+
     const step = -dist / g;
     return {x: x + gdx * step, y: y + gdy * step};
   }
@@ -237,9 +169,7 @@ export class Planet {
      */
     const tryGetNormalAt = (x, y) => {
       const eps = 0.18;
-      return (this.mode === "sdf")
-        ? this.sdfNormalAtWorld(x, y, eps)
-        : this.radialNormalAtWorld(x, y, eps);
+      return this.radialNormalAtWorld(x, y, eps);
     };
 
     /**
@@ -293,9 +223,7 @@ export class Planet {
   surfaceInfoAtWorld(x, y, eps = 0.18){
     const up = this._upDirAt(x, y);
     if (!up) return null;
-    const n = (this.mode === "sdf")
-      ? this.sdfNormalAtWorld(x, y, eps)
-      : this.radialNormalAtWorld(x, y, eps);
+    const n = this.radialNormalAtWorld(x, y, eps);
     if (!n) return null;
     let dot = n.nx * up.ux + n.ny * up.uy;
     if (dot < 0){
@@ -356,9 +284,7 @@ export class Planet {
     let cx = x;
     let cy = y;
     for (let i = 0; i < steps; i++){
-      const n = (this.mode === "sdf")
-        ? this.sdfNormalAtWorld(cx, cy, eps)
-        : this.radialNormalAtWorld(cx, cy, eps);
+      const n = this.radialNormalAtWorld(cx, cy, eps);
       if (!n) break;
       cx += n.nx * step;
       cy += n.ny * step;
@@ -396,47 +322,15 @@ export class Planet {
   }
 
   /**
-   * Normal from SDF gradient.
-   * @param {number} x
-   * @param {number} y
-   * @param {number} eps
-   * @returns {{nx:number,ny:number}|null}
-   */
-  sdfNormalAtWorld(x, y, eps){
-    const gdx = this.sdf.sdfValueAtWorld(x + eps, y) - this.sdf.sdfValueAtWorld(x - eps, y);
-    const gdy = this.sdf.sdfValueAtWorld(x, y + eps) - this.sdf.sdfValueAtWorld(x, y - eps);
-    const len = Math.hypot(gdx, gdy);
-    if (len < 1e-6) return null;
-    return { nx: gdx / len, ny: gdy / len };
-  }
-
-  /**
-   * Update renderer resources for current mode (no-op for radial mode).
-   * @param {{updateSdfTextures:(sdf:Float32Array, shade:Float32Array)=>void}} renderer
-   * @returns {void}
-   */
-  syncRenderResources(renderer){
-    if (this.mode !== "sdf") return;
-    const rd = this.renderData();
-    renderer.updateSdfTextures(rd.sdf, rd.shade);
-  }
-
-  /**
    * Update fog for current mode and push fog resources to renderer.
-   * @param {{updateFog:(fog:Float32Array)=>void, updateFogTexture:(fog:Float32Array)=>void}} renderer
+   * @param {{updateFog:(fog:Float32Array)=>void}} renderer
    * @param {number} shipX
    * @param {number} shipY
    * @returns {void}
    */
   syncRenderFog(renderer, shipX, shipY){
-    if (this.mode !== "sdf"){
-      const fog = this.updateFogForRender(shipX, shipY);
-      if (fog) renderer.updateFog(fog);
-      return;
-    }
-    this.updateFogForRender(shipX, shipY);
-    const fogGrid = this.sdf.renderData().fog;
-    if (fogGrid) renderer.updateFogTexture(fogGrid);
+    const fog = this.updateFogForRender(shipX, shipY);
+    if (fog) renderer.updateFog(fog);
   }
 
   /**
@@ -444,23 +338,11 @@ export class Planet {
    * @returns {Float32Array|undefined}
    */
   ensureModeUpdated(){
-    if (this.mode === "radial"){
-      if (!this._radialDirty) return undefined;
-      this._radialDirty = false;
-      const newAir = this.radial.updateAirFlags(true);
-      this._radialDebugDirty = true;
-      return newAir;
-    }
-    if (this._sdfDirtyFull){
-      this.sdf.regenFromMap();
-    } else if (this._sdfDirty){
-      this.sdf.onMapEdited();
-    } else {
-      return undefined;
-    }
-    this._sdfDirty = false;
-    this._sdfDirtyFull = false;
-    return undefined;
+    if (!this._radialDirty) return undefined;
+    this._radialDirty = false;
+    const newAir = this.radial.updateAirFlags(true);
+    this._radialDebugDirty = true;
+    return newAir;
   }
 
   /**
@@ -554,4 +436,19 @@ export class Planet {
     this._radialDebugPoints = pts;
     this._radialDebugDirty = false;
   }
+}
+
+/**
+ * 
+ * @param {RadialGraph} radialGraph 
+ * @param {RingMesh} ringMesh 
+ * @returns {Uint8Array}
+ */
+function buildPassableMap(radialGraph, ringMesh){
+  const passable = new Uint8Array(radialGraph.nodes.length);
+  for (let i = 0; i < radialGraph.nodes.length; i++){
+    const n = radialGraph.nodes[i];
+    passable[i] = ringMesh.rings[n.r][n.i].air > 0.5 ? 1 : 0;
+  }
+  return passable;
 }

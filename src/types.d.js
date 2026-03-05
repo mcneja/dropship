@@ -23,7 +23,7 @@
  */
 
 /**
- * @typedef {{updateHud:(hud:HTMLElement, stats:{fps:number,state:string,speed:number,verts:number,air:number,miners:number,minersDead:number,level:number,debug:boolean,minerCandidates:number,shipHp:number,inputType:("keyboard"|"mouse"|"touch"|"gamepad"|null|undefined),renderMode?:("radial"|"sdf")})=>void}} Ui
+ * @typedef {{updateHud:(hud:HTMLElement, stats:{fps:number,state:string,speed:number,verts:number,air:number,miners:number,minersDead:number,level:number,debug:boolean,minerCandidates:number,shipHp:number,inputType:("keyboard"|"mouse"|"touch"|"gamepad"|null|undefined)})=>void}} Ui
  */
 
 /**
@@ -127,7 +127,6 @@
  * @property {Array<[number,number,boolean,number]>|null} [debugPoints]
  * @property {number} fps
  * @property {number} finalAir
- * @property {("radial"|"sdf")} [renderMode]
  * @property {Array<Miner>} miners
  * @property {number} minersRemaining
  * @property {number} level
@@ -153,7 +152,6 @@
  * @property {boolean} reset
  * @property {boolean} regen
  * @property {boolean} toggleDebug
- * @property {boolean} toggleRender
  * @property {boolean} nextLevel
  * @property {boolean} shoot
  * @property {boolean} bomb
