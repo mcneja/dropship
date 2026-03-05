@@ -21,6 +21,8 @@ export class Planet {
     this.gravitationalConstant = surfaceGravityAcceleration * rPlanet * rPlanet;
 
     this.radial = new RingMesh(this.mapgen);
+    this.radialGraph = new RadialGraph(this.radial);
+    this.airNodesBitmap = buildAirNodesBitmap(this.radialGraph, this.radial);
 
     /** @type {Array<[number,number,boolean,number]>|null} */
     this._radialDebugPoints = null;
@@ -463,7 +465,7 @@ export class Planet {
  * @param {RingMesh} ringMesh 
  * @returns {Uint8Array}
  */
-function buildPassableMap(radialGraph, ringMesh){
+function buildAirNodesBitmap(radialGraph, ringMesh){
   const passable = new Uint8Array(radialGraph.nodes.length);
   for (let i = 0; i < radialGraph.nodes.length; i++){
     const n = radialGraph.nodes[i];
