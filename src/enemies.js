@@ -69,30 +69,6 @@ function tryMoveAir(e, collision, dx, dy, speed, dt, collider){
 }
 
 /**
- * @param {{ airValueAtWorld:(x:number,y:number)=>number }} collision
- * @param {number} x
- * @param {number} y
- * @returns {[number, number]}
- */
-function nudgeTowardSurface(collision, x, y){
-  const eps = 0.12;
-  const [gdx, gdy] = airGradient(collision, x, y, eps);
-  const nlen = Math.hypot(gdx, gdy);
-  if (nlen < 1e-5) return [x, y];
-  const nx = gdx / nlen;
-  const ny = gdy / nlen;
-  const air = collision.airValueAtWorld(x, y);
-  const push = 0.08;
-  if (air > 0.55){
-    return [x - nx * push, y - ny * push];
-  }
-  if (air < 0.45){
-    return [x + nx * push, y + ny * push];
-  }
-  return [x, y];
-}
-
-/**
  * @param {number} count
  * @param {number} seed
  * @param {{ airValueAtWorld:(x:number,y:number)=>number }} collision
