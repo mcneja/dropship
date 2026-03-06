@@ -904,8 +904,8 @@ function drawFrameImpl(renderer, state, planet){
       const backR = [backCx - px * gunHalfW, backCy - py * gunHalfW];
       const frontL = [frontCx + px * gunHalfW, frontCy + py * gunHalfW];
       const frontR = [frontCx - px * gunHalfW, frontCy - py * gunHalfW];
-      addShipTri(gunTris, backL[0], backL[1], backR[0], backR[1], frontR[0], frontR[1], undefined, false);
-      addShipTri(gunTris, backL[0], backL[1], frontR[0], frontR[1], frontL[0], frontL[1], undefined, false);
+      addShipTri(gunTris, backL[0], backL[1], backR[0], backR[1], frontR[0], frontR[1], undefined, true);
+      addShipTri(gunTris, backL[0], backL[1], frontR[0], frontR[1], frontL[0], frontL[1], undefined, true);
       // Gun strut (vertical post from cargo top to pivot)
       const gstrutW = 0.05;
       const gsb0 = L(-gstrutW, cargoTopN, bodyLiftN);
@@ -1062,10 +1062,6 @@ function drawFrameImpl(renderer, state, planet){
   }
   if (gunTris.length){
     for (const t of gunTris){
-      pushTri(pos, col, t.a[0], t.a[1], t.b[0], t.b[1], t.c[0], t.c[1], t.col[0], t.col[1], t.col[2], t.col[3]);
-      triVerts += 3;
-    }
-    for (const t of gunTris){
       if (!t.outline) continue;
       const ax = t.a[0], ay = t.a[1];
       const bx = t.b[0], by = t.b[1];
@@ -1084,6 +1080,10 @@ function drawFrameImpl(renderer, state, planet){
       const scx = cxm + (cx - cxm) * scaleO;
       const scy = cym + (cy - cym) * scaleO;
       pushTri(pos, col, sax, say, sbx, sby, scx, scy, t.col[0] * 0.55, t.col[1] * 0.55, t.col[2] * 0.55, t.col[3]);
+      triVerts += 3;
+    }
+    for (const t of gunTris){
+      pushTri(pos, col, t.a[0], t.a[1], t.b[0], t.b[1], t.c[0], t.c[1], t.col[0], t.col[1], t.col[2], t.col[3]);
       triVerts += 3;
     }
   }
