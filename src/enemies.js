@@ -121,22 +121,17 @@ export class Enemies {
   spawnDebug(type, x, y){
     const cooldown = Math.random();
     if (type === "hunter"){
-      this.enemies.push({ type, x, y, vx: 0, vy: 0, cooldown, hp: 2, iNodeGoal: 0 });
+      this.enemies.push({ type, x, y, vx: 0, vy: 0, cooldown, hp: 2, iNodeGoal: null });
     } else if (type === "ranger"){
-      const dir = Math.random() * Math.PI * 2;
-      const speed = this._RANGER_SPEED;
-      const vx = Math.cos(dir) * speed;
-      const vy = Math.sin(dir) * speed;
-      const iNodeGoal = this.planet.nearestRadialNodeInAir(x, y);
-      this.enemies.push({ type, x, y, vx, vy, cooldown, hp: 2, iNodeGoal });
+      this.enemies.push({ type, x, y, vx: 0, vy: 0, cooldown, hp: 2, iNodeGoal: null });
     } else if (type === "crawler"){
       const dir = Math.random() * Math.PI * 2;
       const speed = 1.5;
-      this.enemies.push({ type, x, y, vx: Math.cos(dir) * speed, vy: Math.sin(dir) * speed, cooldown: 0, hp: 1, iNodeGoal: 0 });
+      this.enemies.push({ type, x, y, vx: Math.cos(dir) * speed, vy: Math.sin(dir) * speed, cooldown: 0, hp: 1, iNodeGoal: null });
     } else if (type === "turret"){
-      this.enemies.push({ type, x, y, vx: 0, vy: 0, cooldown, hp: 1, iNodeGoal: 0 });
+      this.enemies.push({ type, x, y, vx: 0, vy: 0, cooldown, hp: 1, iNodeGoal: null });
     } else if (type === "orbitingTurret"){
-      this.enemies.push({ type, x, y, vx: 0, vy: 0, cooldown, hp: 1, iNodeGoal: 0 });
+      this.enemies.push({ type, x, y, vx: 0, vy: 0, cooldown, hp: 1, iNodeGoal: null });
     }
   }
 
@@ -202,22 +197,17 @@ export class Enemies {
     }
 
     for (const [x, y] of hunterPts){
-      this.enemies.push({ type: "hunter", x, y, vx: 0, vy: 0, cooldown: Math.random(), hp: 3, iNodeGoal: 0 });
+      this.enemies.push({ type: "hunter", x, y, vx: 0, vy: 0, cooldown: Math.random(), hp: 3, iNodeGoal: null });
     }
     for (const [x, y] of rangerPts){
-      const dir = Math.random() * Math.PI * 2;
-      const speed = this._RANGER_SPEED;
-      const vx = Math.cos(dir) * speed;
-      const vy = Math.sin(dir) * speed;
-      const iNodeGoal = planet.nearestRadialNodeInAir(x, y);
-      this.enemies.push({ type: "ranger", x, y, vx, vy, cooldown: Math.random(), hp: 2, iNodeGoal });
+      this.enemies.push({ type: "ranger", x, y, vx: 0, vy: 0, cooldown: Math.random(), hp: 2, iNodeGoal: null });
     }
     for (const [x, y] of crawlerPts){
       const dir = Math.random() * Math.PI * 2;
       const speed = Math.min(3, level * 0.25 + 0.5);
       const vx = Math.cos(dir) * speed;
       const vy = Math.sin(dir) * speed;
-      this.enemies.push({ type: "crawler", x, y, vx: vx, vy: vy, cooldown: 0, hp: 1, iNodeGoal: 0 });
+      this.enemies.push({ type: "crawler", x, y, vx: vx, vy: vy, cooldown: 0, hp: 1, iNodeGoal: null });
     }
     for (const [x, y] of turretPts){
       let tx = x;
@@ -233,7 +223,7 @@ export class Enemies {
         tx += info.nx * lift;
         ty += info.ny * lift;
       }
-      this.enemies.push({ type: "turret", x: tx, y: ty, vx: 0, vy: 0, cooldown: Math.random(), hp: 1, iNodeGoal: 0 });
+      this.enemies.push({ type: "turret", x: tx, y: ty, vx: 0, vy: 0, cooldown: Math.random(), hp: 1, iNodeGoal: null });
     }
     {
       const rand = mulberry32(seed + 5);
@@ -243,7 +233,7 @@ export class Enemies {
       let angle = rand() * Math.PI * 2;
       for (let i = 0; i < orbitingTurrets; ++i){
         const {x: x, y: y, vx: vx, vy: vy} = planet.orbitStateFromElements(perigee, eccentricity, angle, directionCCW);
-        this.enemies.push({ type: "orbitingTurret", x, y, vx, vy, cooldown: Math.random(), hp: 1, iNodeGoal: 0 });
+        this.enemies.push({ type: "orbitingTurret", x, y, vx, vy, cooldown: Math.random(), hp: 1, iNodeGoal: null });
         angle += 0.1;
       }
     }
@@ -337,46 +327,36 @@ export class Enemies {
    * @returns {void}
    */
   _updateHunter(e, ship, dt) {
-    this._tryMoveHunter(e, ship, dt);
+    if (this._tryMoveHunter(e, ship, dt)) {
+      e.iNodeGoal = null;
+    } else {
+      this._wander(e, this._HUNTER_SPEED, dt);
+    }
 
     this._updateTurret(e, ship, dt);
-
-    /*
-    e.cooldown = Math.max(0, e.cooldown - dt);
-
-    if (!ship) return;
-
-    const dx = ship.x - e.x;
-    const dy = ship.y - e.y;
-    const dist = Math.hypot(dx, dy);
-    if (e.cooldown <= 0 && dist < 10 && lineOfSightAir(this.collision, e.x, e.y, ship.x, ship.y, this._LOS_STEP)){
-      this._shoot(e, this._SHOT_SPEED, dx, dy);
-      e.cooldown = this._HUNTER_SHOT_CD;
-    }
-    */
   }
 
   /**
    * @param {Enemy} e 
    * @param {Ship|null} ship 
    * @param {number} dt 
-   * @returns {void}
+   * @returns {boolean}
    */
   _tryMoveHunter(e, ship, dt) {
-    if (!ship) return;
+    if (!ship) return false;
 
-    if (Math.hypot(ship.x, ship.y) > this.planet.planetRadius + 1.0) return;
+    if (Math.hypot(ship.x, ship.y) > this.planet.planetRadius + 1.0) return false;
 
     const maxPathDist = 16;
 
-    if (Math.hypot(e.x - ship.x, e.y - ship.y) > maxPathDist) return;
+    if (Math.hypot(e.x - ship.x, e.y - ship.y) > maxPathDist) return false;
 
     const radialGraph = this.planet.radialGraph;
 
     const nodeShip = this.planet.nearestRadialNodeInAir(ship.x, ship.y);
     const nodeHunter = this.planet.nearestRadialNodeInAir(e.x, e.y);
     const pathNodes = findPathAStar(radialGraph, nodeHunter, nodeShip, this.planet.airNodesBitmap);
-    if (!pathNodes || pathNodes.length < 2) return;
+    if (!pathNodes || pathNodes.length < 2) return false;
 
     /**
      * @param {number} maxLength 
@@ -394,7 +374,7 @@ export class Enemies {
       return false;
     }
 
-    if (pathLengthExceeds(maxPathDist)) return;
+    if (pathLengthExceeds(maxPathDist)) return false;
 
     const nodeTarget = radialGraph.nodes[pathNodes[1]];
 
@@ -412,6 +392,8 @@ export class Enemies {
     e.y += dy;
     e.vx = dx / dt;
     e.vy = dy / dt;
+
+    return true;
   }
 
   /**
@@ -434,29 +416,40 @@ export class Enemies {
       e.vy *= decay;
       e.x += (vxPrev + e.vx) * (dt / 2);
       e.y += (vyPrev + e.vy) * (dt / 2);
+      e.iNodeGoal = null;
     } else {
-      const iNodeFrom = this.planet.nearestRadialNodeInAir(e.x, e.y);
-      if (iNodeFrom === e.iNodeGoal) {
-        e.iNodeGoal = this._iNodeWanderDirection(iNodeFrom, e.x, e.y, e.vx, e.vy);
-      }
-      const nodeGoal = this.planet.radialGraph.nodes[e.iNodeGoal];
-      let dx = nodeGoal.x - e.x;
-      let dy = nodeGoal.y - e.y;
-      const dist = Math.hypot(dx, dy);
-      const maxMoveDist = this._RANGER_SPEED * dt;
-      if (dist > maxMoveDist) {
-        const scale = maxMoveDist / dist;
-        dx *= scale;
-        dy *= scale;
-      }
-
-      e.x += dx;
-      e.y += dy;
-      e.vx = dx / dt;
-      e.vy = dy / dt;
+      this._wander(e, this._RANGER_SPEED, dt);
     }
 
     this._updateTurret(e, ship, dt);
+  }
+
+  /**
+   * @param {Enemy} e 
+   * @param {number} speed
+   * @param {number} dt 
+   * @returns {void}
+   */
+  _wander(e, speed, dt) {
+    const iNodeFrom = this.planet.nearestRadialNodeInAir(e.x, e.y);
+    if (e.iNodeGoal === null || iNodeFrom === e.iNodeGoal) {
+      e.iNodeGoal = this._iNodeWanderDirection(iNodeFrom, e.x, e.y, e.vx, e.vy);
+    }
+    const nodeGoal = this.planet.radialGraph.nodes[e.iNodeGoal];
+    let dx = nodeGoal.x - e.x;
+    let dy = nodeGoal.y - e.y;
+    const dist = Math.hypot(dx, dy);
+    const maxMoveDist = speed * dt;
+    if (dist > maxMoveDist) {
+      const scale = maxMoveDist / dist;
+      dx *= scale;
+      dy *= scale;
+    }
+
+    e.x += dx;
+    e.y += dy;
+    e.vx = dx / dt;
+    e.vy = dy / dt;
   }
 
   /**

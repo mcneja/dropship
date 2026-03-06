@@ -85,7 +85,7 @@
  * @property {number} vy
  * @property {number} cooldown
  * @property {number} hp
- * @property {number} iNodeGoal
+ * @property {number|null} iNodeGoal
  * @property {number} [hitT]
  */
 
