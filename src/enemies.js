@@ -85,63 +85,66 @@ function pickAirPoints(count, seed, collision, rMin, rMax){
  * @param {number} count
  * @param {number} seed
  * @param {{ airValueAtWorld:(x:number,y:number)=>number }} collision
+ * @param {number} rMin
  * @param {number} rMax
  * @returns {Vec2[]}
  */
-function pickSurfacePoints(count, seed, collision, rMax){
-  const rand = mulberry32(seed);
+function pickSurfacePoints(count, seed, collision, rMin, rMax){
+  if (rMin >= rMax) return [];
+
   /** @type {Vec2[]} */
   const points = [];
-  const eps = 0.12;
-  const rMin = 1.0;
-  const steps = 64;
+
+  const minSpacing = 1.0;
+  const minSpacingSqr = minSpacing*minSpacing;
 
   /**
-   * @param {number} ang
-   * @returns {{x:number,y:number,r:number}|null}
+   * @param {{x:number, y:number}} pos 
+   * @returns {boolean}
    */
-  const findSurface = (ang) => {
-    const cx = Math.cos(ang);
-    const cy = Math.sin(ang);
-    let prevR = rMin;
-    let prevAir = collision.airValueAtWorld(cx * prevR, cy * prevR) > 0.5;
-    for (let i = 1; i <= steps; i++){
-      const r = rMin + (i / steps) * (rMax - rMin);
-      const curAir = collision.airValueAtWorld(cx * r, cy * r) > 0.5;
-      if (curAir !== prevAir){
-        let lo = prevR;
-        let hi = r;
-        const loAir = prevAir;
-        for (let it = 0; it < 8; it++){
-          const mid = (lo + hi) * 0.5;
-          const midAir = collision.airValueAtWorld(cx * mid, cy * mid) > 0.5;
-          if (midAir === loAir){
-            lo = mid;
-          } else {
-            hi = mid;
-          }
-        }
-        const baseR = (lo + hi) * 0.5 + (loAir ? -eps : eps);
-        return { x: cx * baseR, y: cy * baseR, r: baseR };
-      }
-      prevR = r;
-      prevAir = curAir;
+  const posTooCloseToOthers = (pos) => {
+    for (const posOther of points) {
+      const dx = posOther[0] - pos.x;
+      const dy = posOther[1] - pos.y;
+      if (dx*dx + dy*dy < minSpacingSqr) return true;
     }
-    return null;
-  };
+    return false;
+  }
 
-  const attempts = Math.max(200, count * 120);
+  /**
+   * @param {number} x 
+   * @param {number} y 
+   * @param {number} offset 
+   * @returns {{x:number, y:number}|null}
+   */
+  const posOffsetFromSurface = (x, y, offset) => {
+    const eps = 0.1;
+
+    const dist = collision.airValueAtWorld(x, y) - (0.5 + offset);
+    const gdx = collision.airValueAtWorld(x + eps, y) - collision.airValueAtWorld(x - eps, y);
+    const gdy = collision.airValueAtWorld(x, y + eps) - collision.airValueAtWorld(x, y - eps);
+    const g = Math.hypot(gdx, gdy);
+    if (g < 1e-4) return null;
+
+    const step = -dist / g;
+    return {x: x + gdx * step, y: y + gdy * step};
+  }
+
+  const rand = mulberry32(seed);
+
+  const attempts = Math.max(200, count * 80);
   for (let i = 0; i < attempts && points.length < count; i++){
     const ang = rand() * Math.PI * 2;
-    const surf = findSurface(ang);
-    if (!surf) continue;
-    const upx = surf.x / (Math.hypot(surf.x, surf.y) || 1);
-    const upy = surf.y / (Math.hypot(surf.x, surf.y) || 1);
-    const below = surf.r - eps * 2.0;
-    const above = surf.r + eps * 2.0;
-    if (collision.airValueAtWorld(upx * below, upy * below) > 0.5) continue;
-    if (collision.airValueAtWorld(upx * above, upy * above) <= 0.5) continue;
-    points.push([surf.x, surf.y]);
+    const r = Math.sqrt(rMin*rMin + rand() * (rMax*rMax - rMin*rMin));
+    const x = r * Math.cos(ang);
+    const y = r * Math.sin(ang);
+    const air = collision.airValueAtWorld(x, y);
+    if (air < 0.25) continue;
+    if (air > 0.75) continue;
+    const pos = posOffsetFromSurface(x, y, 0.125);
+    if (pos === null) continue;
+    if (posTooCloseToOthers(pos)) continue;
+    points.push([pos.x, pos.y]);
   }
   return points;
 }
@@ -253,7 +256,7 @@ export class Enemies {
     const hunterPts = pickAirPoints(hunters, seed + 1, collision, rHunterRangerMax * 0.5, rHunterRangerMax);
     const rangerPts = pickAirPoints(rangers, seed + 2, collision, rHunterRangerMax * 0.75, rHunterRangerMax);
     const crawlerPts = pickAirPoints(crawlers, seed + 3, collision, 0.0, CFG.RMAX - 0.6);
-    const turretPts = pickAirPoints(turrets, seed + 4, collision, 0.0, CFG.RMAX + 0.5);
+    const turretPts = pickSurfacePoints(turrets, seed + 4, collision, CFG.RMAX/2, CFG.RMAX + 0.5);
 
     for (const [x, y] of hunterPts){
       this.enemies.push({ type: "hunter", x, y, vx: 0, vy: 0, cooldown: Math.random(), hp: 3 });
