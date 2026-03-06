@@ -143,6 +143,7 @@ export class GameLoop {
     this.fpsFrames = 0;
     this.fps = 0;
     this.debugCollisions = GAME.DEBUG_COLLISION;
+    this.levelAdvanceReady = false;
 
     this.featureCallbacks = {
       onExplosion: (info) => {
@@ -1586,7 +1587,11 @@ export class GameLoop {
     this.lastTime = now;
     this.accumulator += dt;
 
+    const levelComplete = this._objectiveComplete();
+    const docked = (this.ship.state === "landed" && this.ship._dock);
+    this.levelAdvanceReady = !!(levelComplete && docked);
     this.input.setGameOver(this.ship.state === "crashed");
+    this.input.setLevelComplete(this.levelAdvanceReady);
     const inputState = this.input.update();
 
     if (this.ship.state === "crashed"){
@@ -1621,14 +1626,9 @@ export class GameLoop {
       steps++;
     }
 
-    if (this.ship.state === "landed" && this.ship._dock){
-      const objType = this.objective ? this.objective.type : "extract";
-      const clearDone = objType === "clear" && this.enemies.enemies.length === 0;
-      const extractDone = objType === "extract" && this.minersRemaining === 0;
-      if (clearDone || extractDone){
-        const nextSeed = this.planet.getSeed() + 1;
-        this._beginLevel(nextSeed, true);
-      }
+    if (this.levelAdvanceReady && inputState.advanceLevel){
+      const nextSeed = this.planet.getSeed() + 1;
+      this._beginLevel(nextSeed, true);
     }
 
     this.fpsFrames++;
@@ -1670,7 +1670,7 @@ export class GameLoop {
       aimOrigin: this._shipGunPivotWorld(),
       planetPalette: this._planetPalette(),
       touchUi: gameOver ? null : inputState.touchUi,
-      touchStart: gameOver && inputState.inputType === "touch",
+      touchStart: (gameOver || this.levelAdvanceReady) && inputState.inputType === "touch",
     }, this.planet);
 
     this._drawMinerPopups();
@@ -1696,10 +1696,40 @@ export class GameLoop {
       this.ui.updatePlanetLabel(this.planetLabel, label ? `${prefix}${label}` : `Level ${this.level}`);
     }
     if (this.objectiveLabel && this.ui.updateObjectiveLabel){
-      this.ui.updateObjectiveLabel(this.objectiveLabel, this._objectiveText());
+      const prompt = this._objectivePromptText(inputState.inputType);
+      this.ui.updateObjectiveLabel(this.objectiveLabel, prompt || this._objectiveText());
     }
 
     requestAnimationFrame(() => this._frame());
+  }
+
+  /**
+   * @param {"keyboard"|"mouse"|"touch"|"gamepad"|null|undefined} inputType
+   * @returns {string}
+   */
+  _objectivePromptText(inputType){
+    const type = inputType || "keyboard";
+    if (this.ship.state === "crashed"){
+      if (type === "touch") return "Game over. Tap restart to play again.";
+      if (type === "gamepad") return "Game over. Press start to play again.";
+      return "Game over. Press R to restart.";
+    }
+    if (this.levelAdvanceReady){
+      if (type === "touch") return "Objective complete. Tap restart to continue.";
+      if (type === "gamepad") return "Objective complete. Press start to continue.";
+      return "Objective complete. Press space to continue.";
+    }
+    return "";
+  }
+
+  /**
+   * @returns {boolean}
+   */
+  _objectiveComplete(){
+    const objType = this.objective ? this.objective.type : "extract";
+    if (objType === "clear") return this.enemies.enemies.length === 0;
+    if (objType === "extract") return this.minersRemaining === 0;
+    return false;
   }
 
   /**

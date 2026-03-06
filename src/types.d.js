@@ -23,7 +23,7 @@
  */
 
 /**
- * @typedef {{updateHud:(hud:HTMLElement, stats:{fps:number,state:string,speed:number,verts:number,air:number,miners:number,minersDead:number,level:number,debug:boolean,minerCandidates:number,shipHp:number,inputType:("keyboard"|"mouse"|"touch"|"gamepad"|null|undefined)})=>void, updatePlanetLabel?:(el:HTMLElement, label:string)=>void, updateObjectiveLabel?:(el:HTMLElement, text:string)=>void}} Ui
+ * @typedef {{updateHud:(hud:HTMLElement, stats:{fps:number,state:string,speed:number,verts:number,air:number,miners:number,minersDead:number,level:number,debug:boolean,minerCandidates:number,shipHp:number,inputType:("keyboard"|"mouse"|"touch"|"gamepad"|null|undefined),levelAdvanceReady?:boolean})=>void, updatePlanetLabel?:(el:HTMLElement, label:string)=>void, updateObjectiveLabel?:(el:HTMLElement, text:string)=>void}} Ui
  */
 
 /**
@@ -163,6 +163,7 @@
  * @property {boolean} togglePlanetView
  * @property {boolean} toggleFog
  * @property {boolean} nextLevel
+ * @property {boolean} advanceLevel
  * @property {boolean} shoot
  * @property {boolean} bomb
  * @property {EnemyType|null} [spawnEnemyType]

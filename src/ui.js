@@ -7,14 +7,7 @@
  */
 export function updateHud(hud, stats){
   if (stats.state === "crashed"){
-    const inputType = stats.inputType || "keyboard";
-    if (inputType === "touch"){
-      hud.textContent = "Game over";
-    } else if (inputType === "gamepad"){
-      hud.textContent = "Game over, press start to play again";
-    } else {
-      hud.textContent = "Game over, press R to restart";
-    }
+    hud.textContent = "Game over";
     return;
   }
   const debugSuffix = stats.debug ? ` | miner candidates: ${stats.minerCandidates}` : "";
