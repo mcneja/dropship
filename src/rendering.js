@@ -1,6 +1,6 @@
 ﻿// @ts-check
 
-import { TOUCH_UI } from "./config.js";
+import { CFG, TOUCH_UI } from "./config.js";
 import { buildStarfieldMesh } from "./starfield.js";
 import { findPathAStar, nearestRadialNode } from "./navigation.js";
 
@@ -647,7 +647,7 @@ function vScaleStopping(planet, x, y, vx, vy, thrust) {
  */
 function drawFrameImpl(renderer, state, planet){
   const {
-    gl, canvas, cfg, game, prog, oprog, vao, oVao, uScale, uCam, uRot,
+    gl, canvas, game, prog, oprog, vao, oVao, uScale, uCam, uRot,
     ouScale, ouCam, ouRot, oPos, oCol,
     starProg, starVao, starRot, starTime, starAspect, starSpan, starSaturation,
     starVertCount,
@@ -682,7 +682,7 @@ function drawFrameImpl(renderer, state, planet){
       gl.uniform2f(starAspect, ax, ay);
     }
     if (starSpan) gl.uniform1f(starSpan, span);
-    if (starSaturation) gl.uniform1f(starSaturation, cfg.STAR_SATURATION ?? 1.0);
+    if (starSaturation) gl.uniform1f(starSaturation, CFG.STAR_SATURATION ?? 1.0);
     if (starTime) gl.uniform1f(starTime, performance.now() * 0.001);
     gl.drawArrays(gl.TRIANGLES, 0, starVertCount);
     gl.bindVertexArray(null);
@@ -712,7 +712,7 @@ function drawFrameImpl(renderer, state, planet){
   const shipRot = -camRot;
   const lighten = (c) => Math.min(1, c + 0.3);
   const rockPoint = [1.0, 0.55, 0.12];
-  const airPoint = [lighten(cfg.AIR_LIGHT[0]), lighten(cfg.AIR_LIGHT[1]), lighten(cfg.AIR_LIGHT[2])];
+  const airPoint = [lighten(CFG.AIR_LIGHT[0]), lighten(CFG.AIR_LIGHT[1]), lighten(CFG.AIR_LIGHT[2])];
   const toShipWorldLocal = (lx, ly) => {
     const [wx, wy] = rot2(lx, ly, shipRot);
     return [state.ship.x + wx, state.ship.y + wy];
@@ -1093,7 +1093,7 @@ function drawFrameImpl(renderer, state, planet){
 
     // Orbit apogee and perigee
     const {rPerigee: rPerigee, rApogee: rApogee} = planet.perigeeAndApogee(state.ship.x, state.ship.y, state.ship.vx, state.ship.vy);
-    const rMin = cfg.RMAX + 0.5;
+    const rMin = CFG.RMAX + 0.5;
     if (rPerigee >= rMin) {
       const r = Math.hypot(state.ship.x, state.ship.y);
       const dirX = state.ship.x / r;
@@ -1241,13 +1241,7 @@ function drawFrameImpl(renderer, state, planet){
   /*
   if (state.aimWorld) {
     const radialGraph = planet.radialGraph;
-
-    const passable = new Uint8Array(radialGraph.nodes.length);
-    for (let i = 0; i < radialGraph.nodes.length; i++){
-      const n = radialGraph.nodes[i];
-      passable[i] = planet.radial.rings[n.r][n.i].air > 0.5 ? 1 : 0;
-    }
-
+    const passable = planet.airNodesBitmap;
     const nodeShip = nearestRadialNode(radialGraph, planet.radial, state.ship.x, state.ship.y);
     const nodeCursor = nearestRadialNode(radialGraph, planet.radial, state.aimWorld.x, state.aimWorld.y);
 
@@ -1393,12 +1387,10 @@ export class Renderer {
   /**
    * WebGL renderer for the game scene.
    * @param {HTMLCanvasElement} canvas Render surface.
-   * @param {typeof import("./config.js").CFG} cfg Render configuration.
    * @param {typeof import("./config.js").GAME} game Gameplay constants used in rendering.
    */
-  constructor(canvas, cfg, game){
+  constructor(canvas, game){
     this.canvas = canvas;
-    this.cfg = cfg;
     this.game = game;
 
     /** @type {WebGL2RenderingContext|null} */
@@ -1616,11 +1608,11 @@ export class Renderer {
     this.uMaxR     = gl.getUniformLocation(prog, "uMaxR");
     this.uFogColor = gl.getUniformLocation(prog, "uFogColor");
 
-    gl.uniform3fv(this.uRockDark, cfg.ROCK_DARK);
-    gl.uniform3fv(this.uRockLight,cfg.ROCK_LIGHT);
-    gl.uniform3fv(this.uAirDark,  cfg.AIR_DARK);
-    gl.uniform3fv(this.uAirLight, cfg.AIR_LIGHT);
-    gl.uniform1f(this.uMaxR, cfg.RMAX + 0.5);
+    gl.uniform3fv(this.uRockDark, CFG.ROCK_DARK);
+    gl.uniform3fv(this.uRockLight,CFG.ROCK_LIGHT);
+    gl.uniform3fv(this.uAirDark,  CFG.AIR_DARK);
+    gl.uniform3fv(this.uAirLight, CFG.AIR_LIGHT);
+    gl.uniform1f(this.uMaxR, CFG.RMAX + 0.5);
     gl.uniform3fv(this.uFogColor, game.FOG_COLOR);
 
     gl.bindVertexArray(oVao);
@@ -1639,7 +1631,7 @@ export class Renderer {
     gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 0, 0);
     gl.bindVertexArray(null);
 
-    const starMesh = buildStarfieldMesh(cfg.seed + 911, {
+    const starMesh = buildStarfieldMesh(CFG.seed + 911, {
       count: 480,
       sizeMin: 0.0015,
       sizeMax: 0.005,

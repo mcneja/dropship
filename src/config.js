@@ -43,7 +43,7 @@ export const CFG = Object.freeze({
 
 export const GAME = Object.freeze({
   PLANETSIDE_ZOOM: 4.5,
-  MOTHERSHIP_ZOOM: 3.5,
+  MOTHERSHIP_ZOOM: 6,
   SHIP_SCALE: 0.5,
   MINER_SCALE: 0.5,
   ENEMY_SCALE: 0.25,

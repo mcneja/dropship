@@ -1,9 +1,9 @@
 // @ts-check
 
 import { mulberry32 } from "./rng.js";
-import { lineOfSightAir } from "./navigation.js";
+import { findPathAStar, lineOfSightAir, nearestRadialNode } from "./navigation.js";
 import { collidesAtOffsets, isAir } from "./collision.js";
-import { GAME } from "./config.js";
+import { CFG, GAME } from "./config.js";
 
 /** @typedef {import("./types.d.js").Vec2} Vec2 */
 /** @typedef {import("./types.d.js").EnemyType} EnemyType */
@@ -30,19 +30,6 @@ function circleOffsets(radius, points){
 }
 
 /**
- * @param {{ airValueAtWorld:(x:number,y:number)=>number }} collision
- * @param {number} x
- * @param {number} y
- * @param {number} eps
- * @returns {[number, number]}
- */
-function airGradient(collision, x, y, eps){
-  const gdx = collision.airValueAtWorld(x + eps, y) - collision.airValueAtWorld(x - eps, y);
-  const gdy = collision.airValueAtWorld(x, y + eps) - collision.airValueAtWorld(x, y - eps);
-  return [gdx, gdy];
-}
-
-/**
  * @param {Enemy} e
  * @param {{ airValueAtWorld:(x:number,y:number)=>number }} collision
  * @param {number} dx
@@ -66,30 +53,6 @@ function tryMoveAir(e, collision, dx, dy, speed, dt, collider){
     return true;
   }
   return false;
-}
-
-/**
- * @param {{ airValueAtWorld:(x:number,y:number)=>number }} collision
- * @param {number} x
- * @param {number} y
- * @returns {[number, number]}
- */
-function nudgeTowardSurface(collision, x, y){
-  const eps = 0.12;
-  const [gdx, gdy] = airGradient(collision, x, y, eps);
-  const nlen = Math.hypot(gdx, gdy);
-  if (nlen < 1e-5) return [x, y];
-  const nx = gdx / nlen;
-  const ny = gdy / nlen;
-  const air = collision.airValueAtWorld(x, y);
-  const push = 0.08;
-  if (air > 0.55){
-    return [x - nx * push, y - ny * push];
-  }
-  if (air < 0.45){
-    return [x + nx * push, y + ny * push];
-  }
-  return [x, y];
 }
 
 /**
@@ -187,14 +150,13 @@ export class Enemies {
   /**
    * Build enemy state and behavior helpers.
    * @param {Object} deps
-   * @param {typeof import("./config.js").CFG} deps.cfg Game config constants.
-   * @param {import("./mapgen.js").MapGen} deps.mapgen Map generator.
    * @param {import("./planet.js").Planet} deps.planet Planet (gravity/orbits).
    * @param {import("./types.d.js").CollisionQuery} deps.collision Collision query API.
+   * @param {number} deps.total Initial enemy count to spawn.
+   * @param {number} deps.level Current level index.
+   * @param {number} deps.levelSeed Base seed for this level.
    */
-  constructor({ cfg, mapgen, planet, collision }){
-    this.cfg = cfg;
-    this.mapgen = mapgen;
+  constructor({ planet, collision, total, level, levelSeed }){
     this.planet = planet;
     this.collision = collision;
 
@@ -207,7 +169,7 @@ export class Enemies {
     /** @type {Debris[]} */
     this.debris = [];
 
-    this._HUNTER_SPEED = 2.3;
+    this._HUNTER_SPEED = 1.0;
     this._RANGER_SPEED = 1.6;
     this._HUNTER_SHOT_CD = 1.2;
     this._RANGER_SHOT_CD = 1.8;
@@ -225,6 +187,8 @@ export class Enemies {
     this._HUNTER_COLLIDER = circleOffsets(0.22, 6);
     this._RANGER_COLLIDER = circleOffsets(0.22, 6);
     this._CRAWLER_COLLIDER = circleOffsets(0.2, 6);
+
+    this.spawn(total, level, levelSeed);
   }
 
   /**
@@ -264,16 +228,17 @@ export class Enemies {
   /**
    * @param {number} total
    * @param {number} level
+   * @param {number} levelSeed
    * @returns {void}
    */
-  spawn(total, level){
-    const { cfg, mapgen, collision, planet } = this;
+  spawn(total, level, levelSeed){
+    const { collision, planet } = this;
     this.enemies.length = 0;
     this.shots.length = 0;
     this.explosions.length = 0;
     this.debris.length = 0;
     if (total <= 0) return;
-    const seed = this.mapgen.getWorld().seed + level * 133;
+    const seed = levelSeed + level * 133;
     let numEnemiesRemaining = total;
     const hunters = Math.min(numEnemiesRemaining, Math.floor(total * 0.125));
     numEnemiesRemaining -= hunters;
@@ -284,14 +249,14 @@ export class Enemies {
     const turrets = numEnemiesRemaining;
     const orbitingTurrets = 8;
 
-    const rHunterRangerMax = cfg.RMAX - 1.0;
+    const rHunterRangerMax = CFG.RMAX - 1.0;
     const hunterPts = pickAirPoints(hunters, seed + 1, collision, rHunterRangerMax * 0.5, rHunterRangerMax);
     const rangerPts = pickAirPoints(rangers, seed + 2, collision, rHunterRangerMax * 0.75, rHunterRangerMax);
-    const crawlerPts = pickSurfacePoints(crawlers, seed + 3, collision, cfg.RMAX - 0.6);
-    const turretPts = pickAirPoints(turrets, seed + 4, collision, 0.0, cfg.RMAX + 0.5);
+    const crawlerPts = pickAirPoints(crawlers, seed + 3, collision, 0.0, CFG.RMAX - 0.6);
+    const turretPts = pickAirPoints(turrets, seed + 4, collision, 0.0, CFG.RMAX + 0.5);
 
     for (const [x, y] of hunterPts){
-      this.enemies.push({ type: "hunter", x, y, vx: 0, vy: 0, cooldown: Math.random(), hp: 2 });
+      this.enemies.push({ type: "hunter", x, y, vx: 0, vy: 0, cooldown: Math.random(), hp: 3 });
     }
     for (const [x, y] of rangerPts){
       this.enemies.push({ type: "ranger", x, y, vx: 0, vy: 0, cooldown: Math.random(), hp: 2 });
@@ -309,7 +274,7 @@ export class Enemies {
     {
       const rand = mulberry32(seed + 5);
       const directionCCW = (rand() < 0.5);
-      const perigee = cfg.RMAX + 2;
+      const perigee = CFG.RMAX + 2;
       const eccentricity = rand() * 0.15;
       let angle = rand() * Math.PI * 2;
       for (let i = 0; i < orbitingTurrets; ++i){
@@ -358,14 +323,15 @@ export class Enemies {
       if (this.explosions[i].life <= 0) this.explosions.splice(i, 1);
     }
 
-    const targetable = ship && ship.state !== "crashed";
-      for (let i = this.enemies.length - 1; i >= 0; i--){
-        const e = this.enemies[i];
-        if (e.hitT && e.hitT > 0){
-          e.hitT = Math.max(0, e.hitT - dt);
-        }
-        if (e.hp <= 0){
-          const pieces = 6;
+    const shipTarget = (ship && ship.state !== "crashed") ? ship : null;
+
+    for (let i = this.enemies.length - 1; i >= 0; i--){
+      const e = this.enemies[i];
+      if (e.hitT && e.hitT > 0){
+        e.hitT = Math.max(0, e.hitT - dt);
+      }
+      if (e.hp <= 0){
+        const pieces = 6;
         for (let k = 0; k < pieces; k++){
           const ang = Math.random() * Math.PI * 2;
           const sp = 1.0 + Math.random() * 2.0;
@@ -384,56 +350,143 @@ export class Enemies {
         continue;
       }
 
-      const dx = ship.x - e.x;
-      const dy = ship.y - e.y;
-      const dist = Math.hypot(dx, dy);
-
       if (e.type === "hunter"){
-        if (!tryMoveAir(e, collision, dx, dy, this._HUNTER_SPEED, dt, this._HUNTER_COLLIDER)){
-          const [gx, gy] = airGradient(collision, e.x, e.y, 0.18);
-          const tlen = Math.hypot(gx, gy);
-          if (tlen > 1e-4){
-            const tx = -gy / tlen;
-            const ty = gx / tlen;
-            tryMoveAir(e, collision, tx, ty, this._HUNTER_SPEED, dt, this._HUNTER_COLLIDER) || tryMoveAir(e, collision, -tx, -ty, this._HUNTER_SPEED, dt, this._HUNTER_COLLIDER);
-          }
-        }
-        e.cooldown = Math.max(0, e.cooldown - dt);
-        if (targetable && e.cooldown <= 0 && dist < 10 && lineOfSightAir(collision, e.x, e.y, ship.x, ship.y, this._LOS_STEP)){
-          this._shoot(e, this._SHOT_SPEED, dx, dy);
-          e.cooldown = this._HUNTER_SHOT_CD;
-        }
+        this._updateHunter(e, shipTarget, dt);
       } else if (e.type === "ranger"){
-        if (dist < this._RANGER_MIN){
-          tryMoveAir(e, collision, -dx, -dy, this._RANGER_SPEED, dt, this._RANGER_COLLIDER);
-        } else if (dist > this._RANGER_MAX){
-          tryMoveAir(e, collision, dx, dy, this._RANGER_SPEED, dt, this._RANGER_COLLIDER);
-        }
-        e.cooldown = Math.max(0, e.cooldown - dt);
-        if (targetable && e.cooldown <= 0 && dist > this._RANGER_MIN * 0.8 && lineOfSightAir(collision, e.x, e.y, ship.x, ship.y, this._LOS_STEP)){
-          this._shoot(e, this._SHOT_SPEED, dx, dy);
-          e.cooldown = this._RANGER_SHOT_CD;
-        }
+        this._updateRanger(e, shipTarget, dt);
       } else if (e.type === "crawler"){
-        if (!this._updateCrawler(e, ship, dt)) {
+        if (!this._updateCrawler(e, shipTarget, dt)) {
           this.enemies.splice(i, 1);
         }
       } else if (e.type === "turret"){
-        this._updateTurret(e, ship, dt);
+        this._updateTurret(e, shipTarget, dt);
       } else if (e.type === "orbitingTurret"){
-        this._updateOrbitingTurret(e, ship, dt);
+        this._updateOrbitingTurret(e, shipTarget, dt);
       }
     }
   }
 
   /**
    * @param {Enemy} e 
-   * @param {Ship} ship 
+   * @param {Ship|null} ship 
+   * @param {number} dt 
+   * @returns {void}
+   */
+  _updateHunter(e, ship, dt) {
+    this._tryMoveHunter(e, ship, dt);
+
+    this._updateTurret(e, ship, dt);
+
+    /*
+    e.cooldown = Math.max(0, e.cooldown - dt);
+
+    if (!ship) return;
+
+    const dx = ship.x - e.x;
+    const dy = ship.y - e.y;
+    const dist = Math.hypot(dx, dy);
+    if (e.cooldown <= 0 && dist < 10 && lineOfSightAir(this.collision, e.x, e.y, ship.x, ship.y, this._LOS_STEP)){
+      this._shoot(e, this._SHOT_SPEED, dx, dy);
+      e.cooldown = this._HUNTER_SHOT_CD;
+    }
+    */
+  }
+
+  /**
+   * @param {Enemy} e 
+   * @param {Ship|null} ship 
+   * @param {number} dt 
+   * @returns {void}
+   */
+  _tryMoveHunter(e, ship, dt) {
+    if (!ship) return;
+
+    if (Math.hypot(ship.x, ship.y) > this.planet.planetRadius + 1.0) return;
+
+    const maxPathDist = 16;
+
+    if (Math.hypot(e.x - ship.x, e.y - ship.y) > maxPathDist) return;
+
+    const radialGraph = this.planet.radialGraph;
+
+    const nodeShip = nearestRadialNode(radialGraph, this.planet.radial, ship.x, ship.y);
+    const nodeHunter = nearestRadialNode(radialGraph, this.planet.radial, e.x, e.y);
+    const pathNodes = findPathAStar(radialGraph, nodeHunter, nodeShip, this.planet.airNodesBitmap);
+    if (!pathNodes || pathNodes.length < 2) return;
+
+    /**
+     * @param {number} maxLength 
+     * @returns {boolean}
+     */
+    const pathLengthExceeds = (maxLength) => {
+      let pathLength = 0;
+      let node0 = radialGraph.nodes[pathNodes[0]];
+      for (let i = 1; i < pathNodes.length; ++i) {
+        const node1 = radialGraph.nodes[pathNodes[i]];
+        pathLength += Math.hypot(node1.x - node0.x, node1.y - node0.y);
+        if (pathLength > maxLength) return true;
+        node0 = node1;
+      }
+      return false;
+    }
+
+    if (pathLengthExceeds(maxPathDist)) return;
+
+    const nodeTarget = radialGraph.nodes[pathNodes[1]];
+
+    let dx = nodeTarget.x - e.x;
+    let dy = nodeTarget.y - e.y;
+    const dist = Math.hypot(dx, dy);
+    const maxMoveDist = this._HUNTER_SPEED * dt;
+    if (dist > maxMoveDist) {
+      const scale = maxMoveDist / dist;
+      dx *= scale;
+      dy *= scale;
+    }
+
+    e.x += dx;
+    e.y += dy;
+    e.vx = dx / dt;
+    e.vy = dy / dt;
+  }
+
+  /**
+   * 
+   * @param {Enemy} e 
+   * @param {Ship|null} ship 
+   * @param {number} dt 
+   * @returns {void}
+   */
+  _updateRanger(e, ship, dt) {
+    e.cooldown = Math.max(0, e.cooldown - dt);
+
+    if (!ship) return;
+
+    const collision = this.collision;
+    const dx = ship.x - e.x;
+    const dy = ship.y - e.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist < this._RANGER_MIN){
+      tryMoveAir(e, collision, -dx, -dy, this._RANGER_SPEED, dt, this._RANGER_COLLIDER);
+    } else if (dist > this._RANGER_MAX){
+      tryMoveAir(e, collision, dx, dy, this._RANGER_SPEED, dt, this._RANGER_COLLIDER);
+    }
+    if (e.cooldown <= 0 && dist > this._RANGER_MIN * 0.8 && lineOfSightAir(collision, e.x, e.y, ship.x, ship.y, this._LOS_STEP)){
+      this._shoot(e, this._SHOT_SPEED, dx, dy);
+      e.cooldown = this._RANGER_SHOT_CD;
+    }
+  }
+
+  /**
+   * @param {Enemy} e 
+   * @param {Ship|null} ship 
    * @param {number} dt 
    * @returns {boolean} keep alive?
    */
   _updateCrawler(e, ship, dt) {
     this._moveCrawler(e, ship, dt);
+
+    if (!ship) return;
 
     const dx = ship.x - e.x;
     const dy = ship.y - e.y;
@@ -448,7 +501,7 @@ export class Enemies {
 
   /**
    * @param {Enemy} e
-   * @param {Ship} ship
+   * @param {Ship|null} ship
    * @param {number} dt 
    */
   _moveCrawler(e, ship, dt) {
@@ -461,11 +514,11 @@ export class Enemies {
 
   /**
    * @param {Enemy} e 
-   * @param {Ship} ship 
+   * @param {Ship|null} ship 
    * @returns {void}
    */
   _approachPlayer(e, ship) {
-    if (!ship || ship.state === "crashed") return;
+    if (!ship) return;
     const dx = ship.x - e.x;
     const dy = ship.y - e.y;
     const dist = Math.hypot(dx, dy);
@@ -535,11 +588,10 @@ export class Enemies {
    * @returns {void}
    */
   _updateTurret(e, ship, dt) {
-    const cooldownNext = Math.max(0, e.cooldown - dt);
-    e.cooldown = cooldownNext;
+    e.cooldown = Math.max(0, e.cooldown - dt);
     if (e.cooldown > 0) return;
 
-    if (!ship || ship.state === "crashed") return;
+    if (!ship) return;
 
     const dx = ship.x - e.x;
     const dy = ship.y - e.y;

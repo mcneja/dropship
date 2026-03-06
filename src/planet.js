@@ -2,6 +2,8 @@
 
 import { RingMesh } from "./planet_ring_mesh.js";
 import { RadialGraph } from "./navigation.js";
+import { MapGen } from "./mapgen.js";
+import { CFG } from "./config.js";
 
 const surfaceGravityAcceleration = 2.0;
 
@@ -10,20 +12,17 @@ const surfaceGravityAcceleration = 2.0;
  */
 export class Planet {
   /**
-   * @param {typeof import("./config.js").CFG} cfg
-   * @param {typeof import("./config.js").GAME} game
-   * @param {import("./mapgen.js").MapGen} mapgen
+   * @param {{seed:number}} deps
    */
-  constructor(cfg, game, mapgen){
-    this.cfg = cfg;
-    this.game = game;
-    this.mapgen = mapgen;
-    const rPlanet = cfg.RMAX;
+  constructor({ seed }){
+    this.mapgen = new MapGen(seed);
+    const rPlanet = CFG.RMAX;
     this.planetRadius = rPlanet;
     this.gravitationalConstant = surfaceGravityAcceleration * rPlanet * rPlanet;
 
-    this.radial = new RingMesh(cfg, mapgen);
-    this.radial.initFog(game);
+    this.radial = new RingMesh(this.mapgen);
+    this.radialGraph = new RadialGraph(this.radial);
+    this.airNodesBitmap = buildAirNodesBitmap(this.radialGraph, this.radial);
 
     /** @type {Array<[number,number,boolean,number]>|null} */
     this._radialDebugPoints = null;
@@ -31,6 +30,28 @@ export class Planet {
     this._radialDebugDirty = true;
     /** @type {boolean} */
     this._radialDirty = false;
+  }
+
+  /**
+   * @returns {number}
+   */
+  getSeed(){
+    return this.mapgen.getWorld().seed;
+  }
+
+  /**
+   * @returns {number}
+   */
+  getFinalAir(){
+    return this.mapgen.getWorld().finalAir;
+  }
+
+  /**
+   * @returns {{seed:number, finalAir:number}}
+   */
+  getWorldMeta(){
+    const world = this.mapgen.getWorld();
+    return { seed: world.seed, finalAir: world.finalAir };
   }
 
   /**
@@ -444,7 +465,7 @@ export class Planet {
  * @param {RingMesh} ringMesh 
  * @returns {Uint8Array}
  */
-function buildPassableMap(radialGraph, ringMesh){
+function buildAirNodesBitmap(radialGraph, ringMesh){
   const passable = new Uint8Array(radialGraph.nodes.length);
   for (let i = 0; i < radialGraph.nodes.length; i++){
     const n = radialGraph.nodes[i];

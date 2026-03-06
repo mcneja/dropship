@@ -6,6 +6,7 @@ import { Enemies } from "./enemies.js";
 import { createCollisionRouter } from "./collision-router.js";
 import { CFG } from './config.js';
 import { Mothership, updateMothership, mothershipCollisionInfo } from "./mothership.js";
+import { Planet } from "./planet.js";
 
 /** @typedef {import("./types.d.js").ViewState} ViewState */
 /** @typedef {import("./types.d.js").Ship} Ship */
@@ -16,9 +17,6 @@ export class GameLoop {
   /**
    * Main gameplay loop orchestrator.
    * @param {Object} deps
-   * @param {typeof import("./config.js").CFG} deps.cfg
-   * @param {import("./mapgen.js").MapGen} deps.mapgen
-   * @param {import("./planet.js").Planet} deps.planet
    * @param {import("./rendering.js").Renderer} deps.renderer
    * @param {import("./input.js").Input} deps.input
    * @param {Ui} deps.ui
@@ -26,12 +24,10 @@ export class GameLoop {
    * @param {HTMLCanvasElement|null|undefined} deps.overlay
    * @param {HTMLElement} deps.hud
    */
-  constructor({ cfg, mapgen, planet, renderer, input, ui, canvas, hud, overlay }){
-    this.cfg = cfg;
-    this.mapgen = mapgen;
-    this.planet = planet;
-    this.radial = planet.radial;
+  constructor({ renderer, input, ui, canvas, hud, overlay }){
+    this.planet = new Planet({ seed: CFG.seed });
     this.renderer = renderer;
+    this.renderer.setPlanet(this.planet);
     this.input = input;
     this.ui = ui;
     this.canvas = canvas;
@@ -40,17 +36,17 @@ export class GameLoop {
     this.overlayCtx = this.overlay ? this.overlay.getContext("2d") : null;
 
     this.TERRAIN_PAD = 0.5;
-    this.TERRAIN_MAX = cfg.RMAX + this.TERRAIN_PAD;
+    this.TERRAIN_MAX = CFG.RMAX + this.TERRAIN_PAD;
     this.TERRAIN_IMPACT_RADIUS = 0.75;
     this.SHIP_RADIUS_BASE = 0.7 * 0.28 * GAME.SHIP_SCALE * 1.5;
     this.MINER_HEIGHT = 0.36 * GAME.MINER_SCALE;
     this.MINER_SURFACE_EPS = 0.01 * GAME.MINER_SCALE;
-    this.SURFACE_EPS = Math.max(0.12, cfg.RMAX / 280);
-    this.COLLISION_EPS = Math.max(0.18, cfg.RMAX / 240);
+    this.SURFACE_EPS = Math.max(0.12, CFG.RMAX / 280);
+    this.COLLISION_EPS = Math.max(0.18, CFG.RMAX / 240);
     this.MINER_HEAD_OFFSET = this.MINER_HEIGHT;
     this.MINER_FOOT_OFFSET = 0.0;
 
-    const mothership = new Mothership(cfg, planet);
+    const mothership = new Mothership(CFG, this.planet);
 
     /** @type {Ship} */
     this.ship = {
@@ -105,14 +101,14 @@ export class GameLoop {
     /** @type {import("./types.d.js").CollisionQuery} */
     this.collision = createCollisionRouter(this.planet, () => this.mothership);
     this.enemies = new Enemies({
-      cfg,
-      mapgen,
-      planet,
+      planet: this.planet,
       collision: this.collision,
+      total: this._totalEnemiesForLevel(this.level),
+      level: this.level,
+      levelSeed: this.planet.getSeed(),
     });
 
     this._spawnMiners();
-    this.enemies.spawn(this._totalEnemiesForLevel(this.level), this.level);
 
     this.lastTime = performance.now();
     this.accumulator = 0;
@@ -287,7 +283,7 @@ export class GameLoop {
    * @returns {number}
    */
   _aimWorldDistance(screenFrac){
-    const s = GAME.PLANETSIDE_ZOOM / (this.cfg.RMAX + this.cfg.PAD);
+    const s = GAME.PLANETSIDE_ZOOM / (CFG.RMAX + CFG.PAD);
     return (2 * screenFrac) / s;
   }
 
@@ -337,15 +333,7 @@ export class GameLoop {
    */
   _applyBombImpact(x, y){
     const newAir = this.planet.applyAirEdit(x, y, this.TERRAIN_IMPACT_RADIUS, 1);
-    this._syncPlanetRender(newAir);
-  }
-
-  /**
-   * @param {Float32Array|undefined|null} newAir
-   * @returns {void}
-   */
-  _syncPlanetRender(newAir){
-    if (newAir) this.renderer.updateAir(newAir);
+    this.renderer.updateAir(newAir);
   }
 
   /**
@@ -420,9 +408,9 @@ export class GameLoop {
    */
   _sampleMinerCandidate(rand, rMin, rMax){
     const r = Math.max(rMin, Math.min(rMax, rMin + rand() * (rMax - rMin)));
-    const ri = Math.max(2, Math.min(this.cfg.RMAX - 1, Math.round(r)));
-    const ring = this.radial.rings[ri];
-    const inner = this.radial.rings[ri - 1];
+    const ri = Math.max(2, Math.min(CFG.RMAX - 1, Math.round(r)));
+    const ring = this.planet.radial.rings[ri];
+    const inner = this.planet.radial.rings[ri - 1];
     if (!ring || !inner || ring.length < 3 || inner.length < 3) return null;
 
     const i = Math.floor(rand() * ring.length);
@@ -455,10 +443,10 @@ export class GameLoop {
    */
   _spawnMiners(){
     const count = GAME.MINERS_PER_LEVEL;
-    const seed = this.mapgen.getWorld().seed + this.level * 97;
+    const seed = this.planet.getSeed() + this.level * 97;
     const rand = mulberry32(seed);
     const rMin = 1.0;
-    const rMax = this.cfg.RMAX - 0.8;
+    const rMax = CFG.RMAX - 0.8;
     const target = count * 3;
     const attempts = Math.max(200, count * 120);
 
@@ -554,15 +542,21 @@ export class GameLoop {
    * @returns {void}
    */
   _beginLevel(seed, advanceLevel){
-    this.mapgen.regenWorld(seed);
-    const newAir = this.planet.regenFromMap();
-    this._syncPlanetRender(newAir);
-    this.radial.resetFog();
+    if (advanceLevel) this.level++;
+    this.planet = new Planet({ seed });
+    this.mothership = new Mothership(CFG, this.planet);
+    this.collision = createCollisionRouter(this.planet, () => this.mothership);
+    this.enemies = new Enemies({
+      planet: this.planet,
+      collision: this.collision,
+      total: this._totalEnemiesForLevel(this.level),
+      level: this.level,
+      levelSeed: this.planet.getSeed(),
+    });
+    this.renderer.setPlanet(this.planet);
     this._resetShip();
     this.entityExplosions.length = 0;
-    if (advanceLevel) this.level++;
     this._spawnMiners();
-    this.enemies.spawn(this._totalEnemiesForLevel(this.level), this.level);
     this.minerPopups.length = 0;
   }
 
@@ -894,8 +888,8 @@ export class GameLoop {
         this.ship._collision = {
           x: hit.x,
           y: hit.y,
-          tri: this.radial.findTriAtWorld(hit.x, hit.y),
-          node: this.radial.nearestNodeOnRing(hit.x, hit.y),
+          tri: this.planet.radial.findTriAtWorld(hit.x, hit.y),
+          node: this.planet.radial.nearestNodeOnRing(hit.x, hit.y),
         };
       } else {
         this.ship._collision = null;
@@ -1430,11 +1424,11 @@ export class GameLoop {
     }
 
     if (inputState.regen){
-      const nextSeed = this.mapgen.getWorld().seed + 1;
+      const nextSeed = this.planet.getSeed() + 1;
       this._beginLevel(nextSeed, false);
     }
     if (inputState.nextLevel){
-      const nextSeed = this.mapgen.getWorld().seed + 1;
+      const nextSeed = this.planet.getSeed() + 1;
       this._beginLevel(nextSeed, true);
     }
 
@@ -1452,7 +1446,7 @@ export class GameLoop {
     }
 
     if (this.minersRemaining === 0 && this.ship.state === "landed" && this.ship._dock){
-      const nextSeed = this.mapgen.getWorld().seed + 1;
+      const nextSeed = this.planet.getSeed() + 1;
       this._beginLevel(nextSeed, true);
     }
 
@@ -1476,7 +1470,7 @@ export class GameLoop {
       debugCollisionSamples: this.debugCollisions ? (this.ship._samples || []) : null,
       debugPoints: (this.debugCollisions && GAME.DEBUG_NODES) ? this.planet.debugPoints() : null,
       fps: this.fps,
-      finalAir: this.mapgen.getWorld().finalAir,
+      finalAir: this.planet.getFinalAir(),
       miners: this.miners,
       minersRemaining: this.minersRemaining,
       level: this.level,
@@ -1501,8 +1495,8 @@ export class GameLoop {
       state: this.ship.state,
       speed: Math.hypot(this.ship.vx, this.ship.vy),
       shipHp: this.ship.hp,
-      verts: this.radial.vertCount,
-      air: this.mapgen.getWorld().finalAir,
+      verts: this.planet.radial.vertCount,
+      air: this.planet.getFinalAir(),
       miners: this.minersRemaining,
       minersDead: this.minersDead,
       level: this.level,
