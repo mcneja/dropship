@@ -26,9 +26,9 @@ import { mulberry32 } from "./rng.js";
 
 /**
  * @param {import("./planet.js").Planet} planet
- * @param {Array<{type:string,x:number,y:number,scale:number,rot:number,rotSpeed?:number,hp?:number,dead?:boolean}>} props
- * @param {{burst:(prop:Object)=>{x:number,y:number,scale:number}|null, hitAt:(x:number,y:number,radius:number)=>Object|null, burstAllInRadius:(x:number,y:number,radius:number)=>Array<{x:number,y:number,scale:number}>, breakIfExposed:(planet:import("./planet.js").Planet, x:number,y:number,radius:number)=>Array<{x:number,y:number,scale:number}>}|null} iceShardHazard
- * @param {{burst:(prop:Object)=>{x:number,y:number,scale:number}|null, hitAt:(x:number,y:number,radius:number)=>Object|null, burstAllInRadius:(x:number,y:number,radius:number)=>Array<{x:number,y:number,scale:number}>}|null} mushroomHazard
+ * @param {PlanetProp[]} props
+ * @param {{burst:(prop:PlanetProp)=>{x:number,y:number,scale:number}|null, hitAt:(x:number,y:number,radius:number)=>PlanetProp|null, burstAllInRadius:(x:number,y:number,radius:number)=>Array<{x:number,y:number,scale:number}>, breakIfExposed:(planet:import("./planet.js").Planet, x:number,y:number,radius:number)=>Array<{x:number,y:number,scale:number}>}|null} iceShardHazard
+ * @param {{burst:(prop:PlanetProp)=>{x:number,y:number,scale:number}|null, hitAt:(x:number,y:number,radius:number)=>PlanetProp|null, burstAllInRadius:(x:number,y:number,radius:number)=>Array<{x:number,y:number,scale:number}>}|null} mushroomHazard
  */
 export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHazard){
   const tuning = {
@@ -412,6 +412,8 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
  * @property {number} [mushT]
  * @property {number} [padNx]
  * @property {number} [padNy]
+ * @property {number} [ventT]
+ * @property {number} [ventHeat]
  */
 
 /**
@@ -482,8 +484,8 @@ function buildProps(mapgen, planetConfig, params, material){
 
   const surface = sampleSurfacePoints(mapgen, params, 120);
 
-  /**@type {(type:string, x:number, y:number, scale:number, rot:number, rotSpeed:number, extra:Object|undefined)=>void} */
-  const add = (type, x, y, scale, rot, rotSpeed, extra=undefined) => {
+  /**@type {(type:string, x:number, y:number, scale:number, rot:number, rotSpeed?:number, extra?:Object)=>void} */
+  const add = (type, x, y, scale, rot, rotSpeed = 0, extra = undefined) => {
     props.push({ type, x, y, scale, rot, rotSpeed, ...(extra || {}) });
   };
 
