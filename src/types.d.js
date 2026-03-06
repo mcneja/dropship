@@ -36,6 +36,7 @@
  * @property {number} explodeT
  * @property {number} lastAir
  * @property {number} hp
+ * @property {number} heat
  * @property {number} hitCooldown
  * @property {number} cabinSide
  * @property {number} [heat]
@@ -84,6 +85,7 @@
  * @property {number} vy
  * @property {number} cooldown
  * @property {number} hp
+ * @property {number} iNodeGoal
  * @property {number} [hitT]
  */
 

@@ -72,6 +72,7 @@ export class GameLoop {
       explodeT: 0,
       lastAir: 1,
       hp: GAME.SHIP_MAX_HP,
+      heat: 0,
       hitCooldown: 0,
       cabinSide: 1,
       guidePath: null,
@@ -259,6 +260,7 @@ export class GameLoop {
     this.ship.state = "landed";
     this.ship.explodeT = 0;
     this.ship.hp = GAME.SHIP_MAX_HP;
+    this.ship.heat = 0;
     this.ship.hitCooldown = 0;
     this.ship._dock = {lx: GAME.MOTHERSHIP_START_DOCK_X, ly: GAME.MOTHERSHIP_START_DOCK_Y};
     this.debris.length = 0;
@@ -271,6 +273,19 @@ export class GameLoop {
     this.minersDead = 0;
     this.lastAimWorld = null;
     this.lastAimScreen = null;
+  }
+
+  /**
+   * @returns {void}
+   */
+  _putShipInLowOrbit(){
+    const orbitState = this.planet.orbitStateFromElements(this.planet.planetRadius + 1, 0, 0, true);
+    this.ship.x = orbitState.x;
+    this.ship.y = orbitState.y;
+    this.ship.vx = orbitState.vx;
+    this.ship.vy = orbitState.vy;
+    this.ship.state = "flying";
+    this.ship._dock = null;
   }
 
   /**
@@ -668,14 +683,11 @@ export class GameLoop {
    */
   _planetConfigFromLevel(level){
     /** @type {PlanetTypeId|undefined} */
-    const planetConfigIdTestOverride = undefined;
+    const configOverride = undefined;
     const planetConfig =
-      (planetConfigIdTestOverride !== undefined) ?
-      pickPlanetConfigById(planetConfigIdTestOverride) :
-      (level === 1) ?
-      pickPlanetConfigById("barren_pickup") :
-      (level === 2) ?
-      pickPlanetConfigById("barren_clear") :
+      (configOverride !== undefined) ? pickPlanetConfigById(configOverride) :
+      (level === 1) ? pickPlanetConfigById("barren_pickup") :
+      (level === 2) ? pickPlanetConfigById("barren_clear") :
       pickPlanetConfig(CFG.seed, this.level);
     return planetConfig;
   }
