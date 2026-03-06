@@ -13,6 +13,8 @@ import { mulberry32 } from "./rng.js";
 /** @typedef {import("./types.d.js").Ship} Ship */
 /** @typedef {import("./types.d.js").Miner} Miner */
 /** @typedef {import("./types.d.js").Ui} Ui */
+/** @typedef {import("./planet_config.js").PlanetTypeId} PlanetTypeId */
+/** @typedef {import("./planet_config.js").PlanetConfig} PlanetConfig */
 
 export class GameLoop {
   /**
@@ -29,11 +31,7 @@ export class GameLoop {
    */
   constructor({ renderer, input, ui, canvas, hud, overlay, planetLabel, objectiveLabel }){
     this.level = 1;
-    const planetConfig = (this.level === 1)
-      ? pickPlanetConfigById("barren_pickup")
-      : (this.level === 2)
-        ? pickPlanetConfigById("barren_clear")
-      : pickPlanetConfig(CFG.seed, this.level);
+    const planetConfig = this._planetConfigFromLevel(this.level);
     const planetParams = resolvePlanetParams(CFG.seed, this.level, planetConfig, GAME);
     this.planet = new Planet({ seed: CFG.seed, planetConfig, planetParams });
     this.planetParams = planetParams;
@@ -652,17 +650,31 @@ export class GameLoop {
   }
 
   /**
+   * @param {number} level 
+   * @returns {PlanetConfig}
+   */
+  _planetConfigFromLevel(level){
+    /** @type {PlanetTypeId|undefined} */
+    const planetConfigIdTestOverride = undefined;
+    const planetConfig =
+      (planetConfigIdTestOverride !== undefined) ?
+      pickPlanetConfigById(planetConfigIdTestOverride) :
+      (level === 1) ?
+      pickPlanetConfigById("barren_pickup") :
+      (level === 2) ?
+      pickPlanetConfigById("barren_clear") :
+      pickPlanetConfig(CFG.seed, this.level);
+    return planetConfig;
+  }
+
+  /**
    * @param {number} seed
    * @param {boolean} advanceLevel
    * @returns {void}
    */
   _beginLevel(seed, advanceLevel){
     if (advanceLevel) this.level++;
-    const planetConfig = (this.level === 1)
-      ? pickPlanetConfigById("barren_pickup")
-      : (this.level === 2)
-        ? pickPlanetConfigById("barren_clear")
-      : pickPlanetConfig(seed, this.level);
+    const planetConfig = this._planetConfigFromLevel(this.level);
     const planetParams = resolvePlanetParams(seed, this.level, planetConfig, GAME);
     this.planet = new Planet({ seed, planetConfig, planetParams });
     this.planetParams = planetParams;
