@@ -624,9 +624,16 @@ export class GameLoop {
         if (placed.length >= count) break;
       }
     } else {
-      placed = this.planet.sampleLandablePoints(count, seed, 0.28, 0.2, "uniform").filter((pt) => {
-        return this.planet.isStandableAtWorld(pt[0], pt[1], 0.28, 0.2, 0.18, 0.25);
-      });
+      const standable = this.planet.getStandablePoints();
+      placed = this.planet.sampleStandablePoints(count, seed, "uniform", GAME.MINER_MIN_SEP, true);
+      if (placed.length < count){
+        console.error("[Level] miners spawn insufficient standable points", {
+          level: this.level,
+          target: count,
+          placed: placed.length,
+          standable: standable.length,
+        });
+      }
     }
     console.log("[Level] miners spawn", { level: this.level, target: count, placed: placed.length });
     this.minerCandidates = placed.length;

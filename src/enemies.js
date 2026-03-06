@@ -187,7 +187,16 @@ export class Enemies {
     const hunterPts = planet.sampleAirPoints(hunters, seed + 1, rHunterRangerMax * 0.5, rHunterRangerMax, placement);
     const rangerPts = planet.sampleAirPoints(rangers, seed + 2, rHunterRangerMax * 0.75, rHunterRangerMax, placement);
     const crawlerPts = planet.sampleAirPoints(crawlers, seed + 3, 0.0, this.params.RMAX - 0.6, placement);
-    const turretPts = planet.sampleTurretPoints(turrets, seed + 4, placement);
+    const turretPts = planet.sampleTurretPoints(turrets, seed + 4, placement, GAME.MINER_MIN_SEP, true);
+    if (turrets > 0 && turretPts.length < turrets){
+      const standable = (planet.getStandablePoints && planet.getStandablePoints()) || [];
+      console.error("[Level] turrets spawn insufficient standable points", {
+        level,
+        target: turrets,
+        placed: turretPts.length,
+        standable: standable.length,
+      });
+    }
 
     for (const [x, y] of hunterPts){
       this.enemies.push({ type: "hunter", x, y, vx: 0, vy: 0, cooldown: Math.random(), hp: 3 });

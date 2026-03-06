@@ -271,6 +271,31 @@ export class RingMesh {
     const r = Math.hypot(x, y);
     if (r > this._params.RMAX + this._OUTER_PAD) return 1;
     const rOuter = this.rings ? (this.rings.length - 1) : this._params.RMAX;
+    if (r > (rOuter - 0.5)) return 1;
+    return this._airValueAtWorldNoOuterClamp(x, y);
+  }
+
+  /**
+   * Air sampling variant for guide-path construction near the outer ring.
+   * Keeps collision sampling unchanged while allowing surface gradients in the outer band.
+   * @param {number} x
+   * @param {number} y
+   * @returns {number}
+   */
+  airValueAtWorldForPath(x, y){
+    const r = Math.hypot(x, y);
+    if (r > this._params.RMAX + this._OUTER_PAD) return 1;
+    return this._airValueAtWorldNoOuterClamp(x, y);
+  }
+
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @returns {number}
+   */
+  _airValueAtWorldNoOuterClamp(x, y){
+    const r = Math.hypot(x, y);
+    const rOuter = this.rings ? (this.rings.length - 1) : this._params.RMAX;
     const r0 = Math.floor(Math.min(this._R_MESH - 1, Math.max(0, r)));
     if (r0 <= 0){
       return this.rings[0][0].air;
