@@ -496,20 +496,20 @@ function buildProps(mapgen, planetConfig, params, material){
       for (let i = 0; i < count; i++){
         const a = (i / count) * Math.PI * 2;
         const r = params.RMAX * 0.98;
-        add("turret_pad", Math.cos(a) * r, Math.sin(a) * r, 0.55, a);
+        add("turret_pad", Math.cos(a) * r, Math.sin(a) * r, 0.55, a, 0);
       }
       break;
     }
     case "no_caves": {
       for (const p of surface){
-        if (rng() < 0.08) add("boulder", p[0], p[1], 0.35 + rng() * 0.3, rng() * Math.PI * 2);
-        if (rng() < 0.05) add("ridge_spike", p[0], p[1], 0.45 + rng() * 0.4, rng() * Math.PI * 2);
+        if (rng() < 0.08) add("boulder", p[0], p[1], 0.35 + rng() * 0.3, rng() * Math.PI * 2, 0);
+        if (rng() < 0.05) add("ridge_spike", p[0], p[1], 0.45 + rng() * 0.4, rng() * Math.PI * 2, 0);
       }
       break;
     }
     case "molten": {
       for (const p of surface){
-        if (rng() < 0.06) add("vent", p[0], p[1], 0.35 + rng() * 0.3, rng() * Math.PI * 2);
+        if (rng() < 0.06) add("vent", p[0], p[1], 0.35 + rng() * 0.3, rng() * Math.PI * 2, 0);
       }
       break;
     }
@@ -525,7 +525,7 @@ function buildProps(mapgen, planetConfig, params, material){
     }
     case "gaia": {
       for (const p of surface){
-        if (rng() < 0.10) add("tree", p[0], p[1], 0.45 + rng() * 0.35, rng() * Math.PI * 2);
+        if (rng() < 0.10) add("tree", p[0], p[1], 0.45 + rng() * 0.35, rng() * Math.PI * 2, 0);
         else if (rng() < 0.08) add("mushroom", p[0], p[1], 0.35 + rng() * 0.25, rng() * Math.PI * 2, 0, { hp: 1 });
       }
       break;
@@ -539,14 +539,14 @@ function buildProps(mapgen, planetConfig, params, material){
     case "cavern": {
       const cave = sampleCaveBoundaryPoints(mapgen, params, 80);
       for (const p of cave){
-        if (rng() < 0.10) add("stalactite", p[0], p[1], 0.35 + rng() * 0.4, rng() * Math.PI * 2);
+        if (rng() < 0.10) add("stalactite", p[0], p[1], 0.35 + rng() * 0.4, rng() * Math.PI * 2, 0);
       }
       break;
     }
     case "mechanized": {
       for (const p of surface){
-        if (rng() < 0.08) add("gate", p[0], p[1], 0.55 + rng() * 0.3, rng() * Math.PI * 2);
-        else if (rng() < 0.06) add("factory", p[0], p[1], 0.55 + rng() * 0.4, rng() * Math.PI * 2);
+        if (rng() < 0.08) add("gate", p[0], p[1], 0.55 + rng() * 0.3, rng() * Math.PI * 2, 0);
+        else if (rng() < 0.06) add("factory", p[0], p[1], 0.55 + rng() * 0.4, rng() * Math.PI * 2, 0);
       }
       break;
     }
