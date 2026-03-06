@@ -233,7 +233,7 @@ export class Enemies {
     const turretPts = pickAirPoints(turrets, seed + 4, collision, 0.0, CFG.RMAX + 0.5);
 
     for (const [x, y] of hunterPts){
-      this.enemies.push({ type: "hunter", x, y, vx: 0, vy: 0, cooldown: Math.random(), hp: 2 });
+      this.enemies.push({ type: "hunter", x, y, vx: 0, vy: 0, cooldown: Math.random(), hp: 3 });
     }
     for (const [x, y] of rangerPts){
       this.enemies.push({ type: "ranger", x, y, vx: 0, vy: 0, cooldown: Math.random(), hp: 2 });
@@ -385,8 +385,26 @@ export class Enemies {
 
     const nodeShip = nearestRadialNode(radialGraph, this.planet.radial, ship.x, ship.y);
     const nodeHunter = nearestRadialNode(radialGraph, this.planet.radial, e.x, e.y);
-    const pathNodes = findPathAStar(radialGraph, nodeHunter, nodeShip, this.planet.airNodesBitmap, maxPathDist);
+    const pathNodes = findPathAStar(radialGraph, nodeHunter, nodeShip, this.planet.airNodesBitmap);
     if (!pathNodes || pathNodes.length < 2) return;
+
+    /**
+     * @param {number} maxLength 
+     * @returns {boolean}
+     */
+    const pathLengthExceeds = (maxLength) => {
+      let pathLength = 0;
+      let node0 = radialGraph.nodes[pathNodes[0]];
+      for (let i = 1; i < pathNodes.length; ++i) {
+        const node1 = radialGraph.nodes[pathNodes[i]];
+        pathLength += Math.hypot(node1.x - node0.x, node1.y - node0.y);
+        if (pathLength > maxLength) return true;
+        node0 = node1;
+      }
+      return false;
+    }
+
+    if (pathLengthExceeds(maxPathDist)) return;
 
     const nodeTarget = radialGraph.nodes[pathNodes[1]];
 
