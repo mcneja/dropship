@@ -577,14 +577,7 @@ export class GameLoop {
       const wy = s * lx + c * ly;
       verts.push([x + wx, y + wy]);
     }
-    /** @type {Array<[number, number]>} */
-    const samples = [...verts];
-    for (let i = 0; i < verts.length; i++){
-      const a = verts[i];
-      const b = verts[(i + 1) % verts.length];
-      samples.push([(a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5]);
-    }
-    return samples;
+    return verts;
   }
 
   /**
@@ -677,34 +670,22 @@ export class GameLoop {
 
   _shipLocalHullPoints(){
     const shipHWorld = 0.7 * GAME.SHIP_SCALE;
-    const shipWWorld = 0.75 * GAME.SHIP_SCALE;
+    const shipWWorld = 0.7 * GAME.SHIP_SCALE;
     const bodyLift = shipHWorld * 0.18;
     const cargoTop = shipHWorld * 0.18;
-    const cargoBottom = -shipHWorld * 0.35;
-    const bottomHalfW = shipWWorld * 0.85;
-    const topHalfW = shipWWorld * 0.6;
+    const cargoBottom = -shipHWorld * 0.4;
+    const bottomHalfW = shipWWorld * 0.87;
+    const topHalfW = shipWWorld * 0.65;
     const cabSide = this.ship.cabinSide || 1;
-    const cabOffset = shipWWorld * 0.75 * cabSide;
-    const cabHalfW = shipWWorld * 0.28;
-    const cabTipY = cargoTop;
-    const cabTipX = cabOffset;
-    const topRight = Math.max(topHalfW, cabOffset + cabHalfW);
-    const topLeft = Math.min(-topHalfW, cabOffset - cabHalfW);
-    if (cabSide >= 0){
-      return [
-        [cabTipX, cabTipY + bodyLift],
-        [topRight, cargoTop + bodyLift],
-        [bottomHalfW, cargoBottom + bodyLift],
-        [-bottomHalfW, cargoBottom + bodyLift],
-        [topLeft, cargoTop + bodyLift],
-      ];
-    }
+    const topRight = topHalfW;
+    const topLeft = -topHalfW;
     return [
-      [cabTipX, cabTipY + bodyLift],
-      [topLeft, cargoTop + bodyLift],
-      [-bottomHalfW, cargoBottom + bodyLift],
-      [bottomHalfW, cargoBottom + bodyLift],
       [topRight, cargoTop + bodyLift],
+      [bottomHalfW, cargoBottom + bodyLift],
+      [0, cargoBottom + bodyLift],
+      [-bottomHalfW, cargoBottom + bodyLift],
+      [topLeft, cargoTop + bodyLift],
+      [0, cargoTop + bodyLift],
     ];
   }
 
