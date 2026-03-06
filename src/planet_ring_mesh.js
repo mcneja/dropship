@@ -155,22 +155,30 @@ export class RingMesh {
     this._triCentroids = new Float32Array(triCentroids);
     this._triList = triList;
 
-    this._fogRange = 0;
-    this._fogStep = 0.25;
-    this._fogSeenAlpha = 0.55;
-    this._fogUnseenAlpha = 0.85;
-    this._fogHoldFrames = 4;
-    this._fogLosThresh = 0.45;
-    this._fogAlphaLerp = 0.2;
-    this._fogAlpha = null;
-    this._fogVisible = null;
-    this._fogSeen = null;
-    this._triIndexOf = null;
-    this._fogHold = null;
     this._fogCursor = 0;
-    this._fogBudgetTris = 200;
-
-    this._initFog();
+    this._fogRange = params.VIS_RANGE;
+    this._fogStep = GAME.VIS_STEP;
+    this._fogSeenAlpha = params.FOG_SEEN_ALPHA;
+    this._fogUnseenAlpha = params.FOG_UNSEEN_ALPHA;
+    this._fogHoldFrames = GAME.FOG_HOLD_FRAMES;
+    this._fogLosThresh = GAME.FOG_LOS_THRESH ?? 0.45;
+    this._fogAlphaLerp = GAME.FOG_ALPHA_LERP ?? 0.2;
+    this._fogBudgetTris = params.FOG_BUDGET_TRIS ?? 200;
+    const total = this.triCount;
+    this._fogAlpha = new Float32Array(total * 3);
+    this._fogVisible = new Uint8Array(total);
+    this._fogSeen = new Uint8Array(total);
+    this._fogHold = new Uint8Array(total);
+    const triIndexOf = new Map();
+    let idx = 0;
+    for (const band of this.bandTris){
+      if (!band) continue;
+      for (const tri of band){
+        triIndexOf.set(tri, idx);
+        idx++;
+      }
+    }
+    this._triIndexOf = triIndexOf;
   }
 
   /**
@@ -298,49 +306,6 @@ export class RingMesh {
   }
 
   /**
-   * Initialize fog buffers tied to the mesh triangles.
-   * @returns {void}
-   */
-  _initFog(){
-    const p = this._params;
-    this._fogRange = p.VIS_RANGE;
-    this._fogStep = GAME.VIS_STEP;
-    this._fogSeenAlpha = p.FOG_SEEN_ALPHA;
-    this._fogUnseenAlpha = p.FOG_UNSEEN_ALPHA;
-    this._fogHoldFrames = GAME.FOG_HOLD_FRAMES;
-    this._fogLosThresh = GAME.FOG_LOS_THRESH ?? 0.45;
-    this._fogAlphaLerp = GAME.FOG_ALPHA_LERP ?? 0.2;
-    this._fogBudgetTris = p.FOG_BUDGET_TRIS ?? 200;
-    const total = this.triCount;
-    this._fogAlpha = new Float32Array(total * 3);
-    this._fogVisible = new Uint8Array(total);
-    this._fogSeen = new Uint8Array(total);
-    this._fogHold = new Uint8Array(total);
-    const triIndexOf = new Map();
-    let idx = 0;
-    for (const band of this.bandTris){
-      if (!band) continue;
-      for (const tri of band){
-        triIndexOf.set(tri, idx);
-        idx++;
-      }
-    }
-    this._triIndexOf = triIndexOf;
-  }
-
-  /**
-   * @returns {void}
-   */
-  resetFog(){
-    if (!this._fogVisible || !this._fogSeen || !this._fogAlpha || !this._fogHold) return;
-    this._fogVisible.fill(0);
-    this._fogSeen.fill(0);
-    this._fogHold.fill(0);
-    this._fogAlpha.fill(this._fogUnseenAlpha);
-    this._fogCursor = 0;
-  }
-
-  /**
    * @param {number} ax
    * @param {number} ay
    * @param {number} bx
@@ -381,7 +346,6 @@ export class RingMesh {
    * @returns {void}
    */
   updateFog(shipX, shipY){
-    if (!this._fogVisible || !this._fogSeen || !this._triCentroids || !this._fogAlpha || !this._fogHold || !this._triList) return;
     if (this._fogCursor === 0){
       this._fogVisible.fill(0);
     }

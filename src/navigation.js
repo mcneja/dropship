@@ -71,76 +71,76 @@ export class RadialGraph {
    * @param {{rings: Array<Point[]>, bandTris: Array<Array<Array<Point>>>}} mesh Mesh rings and band triangles.
    */
   constructor(mesh){
-  const { rings, bandTris } = mesh;
-  /** @type {RadialGraph["nodes"]} */
-  const nodes = [];
-  /** @type {RadialGraph["neighbors"]} */
-  const neighbors = [];
-  /** @type {RadialGraph["ringIndex"]} */
-  const ringIndex = [];
-  /** @type {RadialGraph["nodeOfRef"]} */
-  const nodeOfRef = new Map();
+    const { rings, bandTris } = mesh;
+    /** @type {RadialGraph["nodes"]} */
+    const nodes = [];
+    /** @type {RadialGraph["neighbors"]} */
+    const neighbors = [];
+    /** @type {RadialGraph["ringIndex"]} */
+    const ringIndex = [];
+    /** @type {RadialGraph["nodeOfRef"]} */
+    const nodeOfRef = new Map();
 
-  for (let r = 0; r < rings.length; r++){
-    const ring = rings[r] || [];
-    ringIndex[r] = [];
-    for (let i = 0; i < ring.length; i++){
-      const v = ring[i];
-      const idx = nodes.length;
-      nodes.push({ x: v.x, y: v.y, r, i });
-      neighbors.push([]);
-      ringIndex[r].push(idx);
-      nodeOfRef.set(v, idx);
+    for (let r = 0; r < rings.length; r++){
+      const ring = rings[r] || [];
+      ringIndex[r] = [];
+      for (let i = 0; i < ring.length; i++){
+        const v = ring[i];
+        const idx = nodes.length;
+        nodes.push({ x: v.x, y: v.y, r, i });
+        neighbors.push([]);
+        ringIndex[r].push(idx);
+        nodeOfRef.set(v, idx);
+      }
     }
-  }
 
-  /** @param {number} a @param {number} b */
-  function addEdge(a, b){
-    if (a === b) return;
-    if (a < 0 || b < 0) return;
-    const na = nodes[a];
-    const nb = nodes[b];
-    if (!na || !nb) return;
-    const dx = na.x - nb.x;
-    const dy = na.y - nb.y;
-    const cost = Math.hypot(dx, dy);
-    neighbors[a].push({ to: b, cost });
-    neighbors[b].push({ to: a, cost });
-  }
-
-  // Same-ring adjacencies
-  for (let r = 0; r < rings.length; r++){
-    const ring = rings[r] || [];
-    const n = ring.length;
-    if (n <= 1) continue;
-    for (let i = 0; i < n; i++){
-      const a = ringIndex[r][i];
-      const b = ringIndex[r][(i + 1) % n];
-      addEdge(a, b);
+    /** @param {number} a @param {number} b */
+    function addEdge(a, b){
+      if (a === b) return;
+      if (a < 0 || b < 0) return;
+      const na = nodes[a];
+      const nb = nodes[b];
+      if (!na || !nb) return;
+      const dx = na.x - nb.x;
+      const dy = na.y - nb.y;
+      const cost = Math.hypot(dx, dy);
+      neighbors[a].push({ to: b, cost });
+      neighbors[b].push({ to: a, cost });
     }
-  }
 
-  // Triangulation adjacencies (between rings)
-  for (const tris of bandTris){
-    if (!tris) continue;
-    for (const tri of tris){
-      const ia = nodeOfRef.get(tri[0]);
-      const ib = nodeOfRef.get(tri[1]);
-      const ic = nodeOfRef.get(tri[2]);
-      if (ia === undefined || ib === undefined || ic === undefined) continue;
-      addEdge(ia, ib);
-      addEdge(ib, ic);
-      addEdge(ic, ia);
+    // Same-ring adjacencies
+    for (let r = 0; r < rings.length; r++){
+      const ring = rings[r] || [];
+      const n = ring.length;
+      if (n <= 1) continue;
+      for (let i = 0; i < n; i++){
+        const a = ringIndex[r][i];
+        const b = ringIndex[r][(i + 1) % n];
+        addEdge(a, b);
+      }
     }
-  }
 
-  // Connect center to first ring if needed
-  if (ringIndex[0] && ringIndex[0].length === 1 && ringIndex[1]){
-    const center = ringIndex[0][0];
-    for (const idx of ringIndex[1]){
-      addEdge(center, idx);
+    // Triangulation adjacencies (between rings)
+    for (const tris of bandTris){
+      if (!tris) continue;
+      for (const tri of tris){
+        const ia = nodeOfRef.get(tri[0]);
+        const ib = nodeOfRef.get(tri[1]);
+        const ic = nodeOfRef.get(tri[2]);
+        if (ia === undefined || ib === undefined || ic === undefined) continue;
+        addEdge(ia, ib);
+        addEdge(ib, ic);
+        addEdge(ic, ia);
+      }
     }
-  }
+
+    // Connect center to first ring if needed
+    if (ringIndex[0] && ringIndex[0].length === 1 && ringIndex[1]){
+      const center = ringIndex[0][0];
+      for (const idx of ringIndex[1]){
+        addEdge(center, idx);
+      }
+    }
 
     /** @type {{x:number,y:number,r:number,i:number}[]} */
     this.nodes = nodes;

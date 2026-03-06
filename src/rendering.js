@@ -702,7 +702,7 @@ function vScaleStopping(planet, x, y, vx, vy, thrust) {
  */
 function drawFrameImpl(renderer, state, planet){
   const {
-    gl, canvas, game, prog, oprog, vao, oVao, uScale, uCam, uRot,
+    gl, canvas, game, prog, oprog, vao, oVao, uScale, uCam, uRot, uFog,
     uRockDark, uRockLight, uSurfaceRockDark, uSurfaceRockLight,
     uAirDark, uAirLight, uSurfaceBand, uRmax,
     ouScale, ouCam, ouRot, oPos, oCol,
@@ -749,6 +749,7 @@ function drawFrameImpl(renderer, state, planet){
   gl.uniform2f(uScale, sx, sy);
   gl.uniform2f(uCam, state.view.xCenter, state.view.yCenter);
   gl.uniform1f(uRot, camRot);
+  gl.uniform1f(uFog, state.fogEnabled ? 1 : 0);
   const palette = state.planetPalette || null;
   const rockDark = (palette && palette.rockDark) ? palette.rockDark : CFG.ROCK_DARK;
   const rockLight = (palette && palette.rockLight) ? palette.rockLight : CFG.ROCK_LIGHT;
@@ -785,7 +786,7 @@ function drawFrameImpl(renderer, state, planet){
   let lineVerts = 0;
   let pointVerts = 0;
 
-  const shipRot = -camRot;
+  const shipRot = -Math.atan2(state.ship.x, state.ship.y || 1e-6);
   const lighten = (c) => Math.min(1, c + 0.3);
   const rockPoint = [1.0, 0.55, 0.12];
   const airPoint = [lighten(airLight[0]), lighten(airLight[1]), lighten(airLight[2])];
@@ -953,7 +954,7 @@ function drawFrameImpl(renderer, state, planet){
     const tNow = performance.now() * 0.001;
     const outlineSize = 1/16;
     for (const enemy of state.enemies){
-      if (!planet.fogSeenAt(enemy.x, enemy.y)) continue;
+      if (state.fogEnabled && !planet.fogSeenAt(enemy.x, enemy.y)) continue;
       /** @type {EnemyRender} */
       const enemyRender = enemy;
       /** @type {[number,number,number]} */
@@ -1089,7 +1090,7 @@ function drawFrameImpl(renderer, state, planet){
   if (state.miners && state.miners.length){
     for (const miner of state.miners){
       if (miner.state === "boarded") continue;
-      if (!planet.fogSeenAt(miner.x, miner.y)) continue;
+      if (state.fogEnabled && !planet.fogSeenAt(miner.x, miner.y)) continue;
       if (miner.state === "running"){
         triVerts += pushMiner(pos, col, miner.x, miner.y, miner.jumpCycle, 0.98, 0.62, 0.2, game.MINER_SCALE, false, 1/16) * 3;
       } else {
@@ -1334,7 +1335,7 @@ function drawFrameImpl(renderer, state, planet){
     if (state.input.right) thrustV(1, 0, tc[0], tc[1], tc[2], shipWWorld * 0.5);
   }
 
-  if (state.ship.state !== "crashed"){
+  if (state.ship.state === "flying"){
     // Braking line
     const vscale = vScaleStopping(planet, state.ship.x, state.ship.y, state.ship.vx, state.ship.vy, game.THRUST);
     pushLine(pos, col, state.ship.x, state.ship.y, state.ship.x + state.ship.vx * vscale, state.ship.y + state.ship.vy * vscale, 0.5, 0.84, 1.0, 0.5);
@@ -1683,6 +1684,7 @@ export class Renderer {
   uniform vec2 uScale;
   uniform vec2 uCam;
   uniform float uRot;
+  uniform float uFog;
 
   out float vAir;
   out float vShade;
@@ -1696,7 +1698,7 @@ export class Renderer {
   void main(){
     vAir = aAir;
     vShade = aShade;
-    vFog = aFog;
+    vFog = aFog * uFog;
     vWorld = aPos;
     vec2 p = aPos - uCam;
     p = rot(p, uRot);
@@ -1876,6 +1878,7 @@ export class Renderer {
     this.uScale = gl.getUniformLocation(prog, "uScale");
     this.uCam = gl.getUniformLocation(prog, "uCam");
     this.uRot = gl.getUniformLocation(prog, "uRot");
+    this.uFog = gl.getUniformLocation(prog, "uFog");
     this.uRockDark = gl.getUniformLocation(prog, "uRockDark");
     this.uRockLight= gl.getUniformLocation(prog, "uRockLight");
     this.uSurfaceRockDark = gl.getUniformLocation(prog, "uSurfaceRockDark");

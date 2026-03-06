@@ -170,6 +170,7 @@ export class GameLoop {
       },
     };
     this.planetView = false;
+    this.fogEnabled = true;
   }
 
   /**
@@ -1577,6 +1578,9 @@ export class GameLoop {
     if (inputState.togglePlanetView){
       this.planetView = !this.planetView;
     }
+    if (inputState.toggleFog){
+      this.fogEnabled = !this.fogEnabled;
+    }
 
     const fixed = 1 / 60;
     const maxSteps = 4;
@@ -1616,6 +1620,7 @@ export class GameLoop {
       debugNodes: GAME.DEBUG_NODES,
       debugCollisionSamples: this.debugCollisions ? (this.ship._samples || []) : null,
       debugPoints: (this.debugCollisions && GAME.DEBUG_NODES) ? this.planet.debugPoints() : null,
+      fogEnabled: this.fogEnabled,
       fps: this.fps,
       finalAir: this.planet.getFinalAir(),
       miners: this.miners,

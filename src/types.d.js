@@ -125,6 +125,7 @@
  * @property {{left:boolean,right:boolean,thrust:boolean,down:boolean}} input
  * @property {boolean} debugCollisions
  * @property {boolean} debugNodes
+ * @property {boolean} fogEnabled
  * @property {Array<[number,number,boolean,number]>|null} [debugCollisionSamples]
  * @property {Array<[number,number,boolean,number]>|null} [debugPoints]
  * @property {number} fps
@@ -159,6 +160,7 @@
  * @property {boolean} regen
  * @property {boolean} toggleDebug
  * @property {boolean} togglePlanetView
+ * @property {boolean} toggleFog
  * @property {boolean} nextLevel
  * @property {boolean} shoot
  * @property {boolean} bomb
