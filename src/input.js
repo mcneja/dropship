@@ -34,6 +34,7 @@ export class Input {
       regen: false,
       toggleDebug: false,
       togglePlanetView: false,
+      toggleFog: false,
       reset: false,
       nextLevel: false,
       shoot: false,
@@ -147,6 +148,7 @@ export class Input {
     if (key === "c" || key === "C") this.oneshot.toggleDebug = true;
     if (key === "n" || key === "N") this.oneshot.nextLevel = true;
     if (key === "v" || key === "V") this.oneshot.togglePlanetView = true;
+    if (key === "f" || key === "F") this.oneshot.toggleFog = true;
     if (key >= "1" && key <= "9") this.oneshot.spawnEnemyType = key;
   }
 
@@ -531,6 +533,7 @@ export class Input {
       regen: this.oneshot.regen,
       toggleDebug: this.oneshot.toggleDebug,
       togglePlanetView: this.oneshot.togglePlanetView,
+      toggleFog: this.oneshot.toggleFog,
       nextLevel: this.oneshot.nextLevel,
       shoot: this.oneshot.shoot,
       bomb: this.oneshot.bomb,
@@ -552,6 +555,7 @@ export class Input {
     this.oneshot.regen = false;
     this.oneshot.toggleDebug = false;
     this.oneshot.togglePlanetView = false;
+    this.oneshot.toggleFog = false;
     this.oneshot.nextLevel = false;
     this.oneshot.shoot = false;
     this.oneshot.bomb = false;

@@ -647,7 +647,7 @@ function vScaleStopping(planet, x, y, vx, vy, thrust) {
  */
 function drawFrameImpl(renderer, state, planet){
   const {
-    gl, canvas, game, prog, oprog, vao, oVao, uScale, uCam, uRot,
+    gl, canvas, game, prog, oprog, vao, oVao, uScale, uCam, uRot, uFog,
     ouScale, ouCam, ouRot, oPos, oCol,
     starProg, starVao, starRot, starTime, starAspect, starSpan, starSaturation,
     starVertCount,
@@ -692,6 +692,7 @@ function drawFrameImpl(renderer, state, planet){
   gl.uniform2f(uScale, sx, sy);
   gl.uniform2f(uCam, state.view.xCenter, state.view.yCenter);
   gl.uniform1f(uRot, camRot);
+  gl.uniform1f(uFog, state.fogEnabled ? 1 : 0);
   gl.drawArrays(gl.TRIANGLES, 0, vertCount);
   gl.bindVertexArray(null);
 
@@ -876,7 +877,7 @@ function drawFrameImpl(renderer, state, planet){
     const tNow = performance.now() * 0.001;
     const outlineSize = 1/16;
     for (const enemy of state.enemies){
-      if (!planet.fogSeenAt(enemy.x, enemy.y)) continue;
+      if (state.fogEnabled && !planet.fogSeenAt(enemy.x, enemy.y)) continue;
       /** @type {[number,number,number]} */
       let base;
       if (enemy.type === "hunter"){
@@ -1009,7 +1010,7 @@ function drawFrameImpl(renderer, state, planet){
   if (state.miners && state.miners.length){
     for (const miner of state.miners){
       if (miner.state === "boarded") continue;
-      if (!planet.fogSeenAt(miner.x, miner.y)) continue;
+      if (state.fogEnabled && !planet.fogSeenAt(miner.x, miner.y)) continue;
       if (miner.state === "running"){
         triVerts += pushMiner(pos, col, miner.x, miner.y, miner.jumpCycle, 0.98, 0.62, 0.2, game.MINER_SCALE, false, 1/16) * 3;
       } else {
@@ -1416,6 +1417,7 @@ export class Renderer {
   uniform vec2 uScale;
   uniform vec2 uCam;
   uniform float uRot;
+  uniform float uFog;
 
   out float vAir;
   out float vShade;
@@ -1429,7 +1431,7 @@ export class Renderer {
   void main(){
     vAir = aAir;
     vShade = aShade;
-    vFog = aFog;
+    vFog = aFog * uFog;
     vWorld = aPos;
     vec2 p = aPos - uCam;
     p = rot(p, uRot);
@@ -1601,6 +1603,7 @@ export class Renderer {
     this.uScale = gl.getUniformLocation(prog, "uScale");
     this.uCam = gl.getUniformLocation(prog, "uCam");
     this.uRot = gl.getUniformLocation(prog, "uRot");
+    this.uFog = gl.getUniformLocation(prog, "uFog");
     this.uRockDark = gl.getUniformLocation(prog, "uRockDark");
     this.uRockLight= gl.getUniformLocation(prog, "uRockLight");
     this.uAirDark  = gl.getUniformLocation(prog, "uAirDark");
