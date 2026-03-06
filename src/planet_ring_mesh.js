@@ -11,7 +11,7 @@ export class RingMesh {
   constructor(map, params){
     this._params = params;
     this._map = map;
-    this._OUTER_PAD = 1.0;
+    this._OUTER_PAD = 0.0;
     this._R_MESH = Math.max(0, Math.floor(params.RMAX)) + 1;
 
     /**
@@ -92,20 +92,21 @@ export class RingMesh {
     const bandTris = [];
     const rMaxInt = Math.max(0, Math.floor(params.RMAX));
     for (let r=0;r<=rMaxInt;r++) rings.push(ringVertices(r));
-    rings.push(ringVertices(params.RMAX + this._OUTER_PAD));
     this._R_MESH = rings.length - 1;
 
-    for (const ring of rings){
-      for (const v of ring){
-        v.air = this._sampleAirAtWorldExtended(v.x, v.y);
+      for (let r = 0; r < rings.length; r++){
+        const ring = rings[r];
+        const isOuterRing = (r === rings.length - 1);
+        for (const v of ring){
+          v.air = isOuterRing ? 1 : this._sampleAirAtWorldExtended(v.x, v.y);
+        }
       }
-    }
 
-    for (let r=0;r<this._R_MESH;r++){
-      const inner = rings[r];
-      const outer = rings[r+1];
-      if (!inner || !outer) continue;
-      if (r===0){
+      for (let r=0;r<this._R_MESH;r++){
+        const inner = rings[r];
+        const outer = rings[r+1];
+        if (!inner || !outer) continue;
+        if (r===0){
         const tris = [];
         for (let k=0;k<outer.length;k++){
           const a = {x:0,y:0,air:1};
@@ -122,21 +123,21 @@ export class RingMesh {
           }
         }
         bandTris[r] = tris;
-      } else {
-        const tris = stitchBand(inner, outer);
-        bandTris[r] = tris;
-        for (const tri of tris){
-          triCentroids.push((tri[0].x + tri[1].x + tri[2].x) / 3, (tri[0].y + tri[1].y + tri[2].y) / 3);
-          triList.push(tri);
-          for (const v of tri){
-            positions.push(v.x, v.y);
-            airFlag.push(v.air);
-            vertRefs.push(v);
-            shade.push(shadeAt(v.x, v.y));
+        } else {
+          const tris = stitchBand(inner, outer);
+          bandTris[r] = tris;
+          for (const tri of tris){
+            triCentroids.push((tri[0].x + tri[1].x + tri[2].x) / 3, (tri[0].y + tri[1].y + tri[2].y) / 3);
+            triList.push(tri);
+            for (const v of tri){
+              positions.push(v.x, v.y);
+              airFlag.push(v.air);
+              vertRefs.push(v);
+              shade.push(shadeAt(v.x, v.y));
+            }
           }
         }
       }
-    }
 
     this.vertCount = positions.length / 2;
     this.triCount = triCentroids.length / 2;
@@ -269,6 +270,8 @@ export class RingMesh {
   airValueAtWorld(x, y){
     const r = Math.hypot(x, y);
     if (r > this._params.RMAX + this._OUTER_PAD) return 1;
+    const rOuter = this.rings ? (this.rings.length - 1) : this._params.RMAX;
+    if (r > (rOuter - 0.5)) return 1;
     const r0 = Math.floor(Math.min(this._R_MESH - 1, Math.max(0, r)));
     if (r0 <= 0){
       return this.rings[0][0].air;

@@ -704,7 +704,7 @@ function drawFrameImpl(renderer, state, planet){
   const {
     gl, canvas, game, prog, oprog, vao, oVao, uScale, uCam, uRot, uFog,
     uRockDark, uRockLight, uSurfaceRockDark, uSurfaceRockLight,
-    uAirDark, uAirLight, uSurfaceBand, uRmax,
+      uAirDark, uAirLight, uSurfaceBand, uRmax, uMeshRmax,
     ouScale, ouCam, ouRot, oPos, oCol,
     starProg, starVao, starRot, starTime, starAspect, starSpan, starSaturation,
     starVertCount,
@@ -767,7 +767,8 @@ function drawFrameImpl(renderer, state, planet){
   if (uSurfaceBand) gl.uniform1f(uSurfaceBand, band);
   const params = planet.getPlanetParams ? planet.getPlanetParams() : null;
   const rMax = (params && params.RMAX) ? params.RMAX : CFG.RMAX;
-  if (uRmax) gl.uniform1f(uRmax, rMax);
+    if (uRmax) gl.uniform1f(uRmax, rMax);
+    if (uMeshRmax) gl.uniform1f(uMeshRmax, planet.radial ? (planet.radial.rings.length - 1) : rMax);
   if (renderer.uMaxR) gl.uniform1f(renderer.uMaxR, rMax + 0.5);
   gl.drawArrays(gl.TRIANGLES, 0, vertCount);
   gl.bindVertexArray(null);
@@ -1190,10 +1191,13 @@ function drawFrameImpl(renderer, state, planet){
         }
         const halfW = 0.55 * s;
         const halfH = 0.12 * s;
-        const a0 = toWorld(p.x, p.y, tx, ty, ux, uy, -halfW, -halfH);
-        const a1 = toWorld(p.x, p.y, tx, ty, ux, uy, halfW, -halfH);
-        const a2 = toWorld(p.x, p.y, tx, ty, ux, uy, halfW, halfH);
-        const a3 = toWorld(p.x, p.y, tx, ty, ux, uy, -halfW, halfH);
+          const sink = halfH;
+          const cx = p.x - ux * sink;
+          const cy = p.y - uy * sink;
+          const a0 = toWorld(cx, cy, tx, ty, ux, uy, -halfW, -halfH);
+          const a1 = toWorld(cx, cy, tx, ty, ux, uy, halfW, -halfH);
+          const a2 = toWorld(cx, cy, tx, ty, ux, uy, halfW, halfH);
+          const a3 = toWorld(cx, cy, tx, ty, ux, uy, -halfW, halfH);
         pushTri(pos, col, a0[0], a0[1], a1[0], a1[1], a2[0], a2[1], 0.28, 0.28, 0.30, 0.95);
         pushTri(pos, col, a0[0], a0[1], a2[0], a2[1], a3[0], a3[1], 0.28, 0.28, 0.30, 0.95);
         triVerts += 6;
@@ -1481,6 +1485,14 @@ function drawFrameImpl(renderer, state, planet){
       else col.push(rockPoint[0], rockPoint[1], rockPoint[2], 0.45);
       pointVerts += 1;
     }
+    const outerRing = planet.radial && planet.radial.rings ? planet.radial.rings[planet.radial.rings.length - 1] : null;
+    if (outerRing){
+      for (const v of outerRing){
+        pos.push(v.x, v.y);
+        col.push(0.8, 0.2, 0.9, 0.6);
+        pointVerts += 1;
+      }
+    }
   }
   if (state.debugCollisions && state.ship._collision){
     const c = state.ship._collision;
@@ -1720,20 +1732,25 @@ export class Renderer {
   uniform vec3 uSurfaceRockLight;
   uniform vec3 uAirDark;
   uniform vec3 uAirLight;
-  uniform float uMaxR;
-  uniform float uRmax;
+    uniform float uMaxR;
+    uniform float uRmax;
+    uniform float uMeshRmax;
   uniform float uSurfaceBand;
   uniform vec3 uFogColor;
 
   vec3 lerp(vec3 a, vec3 b, float t){ return a + (b-a)*t; }
 
-  void main(){
-    if (length(vWorld) > uMaxR){
-      discard;
-    }
-    float t = clamp(vShade, 0.0, 1.0);
-    float band = uSurfaceBand * uRmax;
-    bool useSurface = (uSurfaceBand > 0.0) && (length(vWorld) > (uRmax - band));
+    void main(){
+      float r = length(vWorld);
+      if (r > uMaxR){
+        discard;
+      }
+      if (r > (uMeshRmax - 0.5)){
+        discard;
+      }
+      float t = clamp(vShade, 0.0, 1.0);
+      float band = uSurfaceBand * uRmax;
+      bool useSurface = (uSurfaceBand > 0.0) && (length(vWorld) > (uRmax - band));
     vec3 rockDark = useSurface ? uSurfaceRockDark : uRockDark;
     vec3 rockLight = useSurface ? uSurfaceRockLight : uRockLight;
     vec3 c = (vAir > 0.5) ? lerp(uAirDark,  uAirLight,  t)
@@ -1887,6 +1904,7 @@ export class Renderer {
     this.uAirLight = gl.getUniformLocation(prog, "uAirLight");
     this.uMaxR     = gl.getUniformLocation(prog, "uMaxR");
     this.uRmax     = gl.getUniformLocation(prog, "uRmax");
+    this.uMeshRmax = gl.getUniformLocation(prog, "uMeshRmax");
     this.uSurfaceBand = gl.getUniformLocation(prog, "uSurfaceBand");
     this.uFogColor = gl.getUniformLocation(prog, "uFogColor");
 
@@ -1898,6 +1916,7 @@ export class Renderer {
     gl.uniform3fv(this.uAirLight, CFG.AIR_LIGHT);
     gl.uniform1f(this.uMaxR, CFG.RMAX + 0.5);
     if (this.uRmax) gl.uniform1f(this.uRmax, CFG.RMAX);
+    if (this.uMeshRmax) gl.uniform1f(this.uMeshRmax, CFG.RMAX);
     if (this.uSurfaceBand) gl.uniform1f(this.uSurfaceBand, 0);
     gl.uniform3fv(this.uFogColor, game.FOG_COLOR);
 

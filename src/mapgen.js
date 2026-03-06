@@ -279,7 +279,6 @@ export class MapGen {
       }
       const topoDepth = (p.TOPO_BAND && p.TOPO_BAND > 0) ? p.TOPO_BAND : Math.max(1.5, p.RMAX * 0.18);
       this._carveNoCavesTopography(air, topoDepth, p.TOPO_FREQ || 2.8, p.TOPO_OCTAVES || 4);
-      this._carveOuterAirShell(air, Math.max(this.grid.cell * 1.5, 0.35));
       if (p.EXCAVATE_RINGS && p.EXCAVATE_RING_THICKNESS > 0){
         this._carveRings(air, rand, p.EXCAVATE_RINGS, p.EXCAVATE_RING_THICKNESS);
       }
@@ -408,23 +407,6 @@ export class MapGen {
    * @param {number} thickness
    * @returns {void}
    */
-  _carveOuterAirShell(air, thickness){
-    if (thickness <= 0) return;
-    const { G, idx, inside, toWorld } = this.grid;
-    const rInner = Math.max(0, this.params.RMAX - thickness);
-    const rInner2 = rInner * rInner;
-    const rMax2 = this.params.RMAX * this.params.RMAX;
-    for (let j = 0; j < G; j++) for (let i = 0; i < G; i++){
-      const k = idx(i, j);
-      if (!inside[k]) continue;
-      const [x, y] = toWorld(i, j);
-      const r2 = x * x + y * y;
-      if (r2 >= rInner2 && r2 <= rMax2){
-        air[k] = 1;
-      }
-    }
-  }
-
   /**
    * Carve surface topography for no-caves planets by removing air near the surface.
    * @param {Uint8Array} air
