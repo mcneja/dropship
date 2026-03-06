@@ -155,6 +155,7 @@
  * @property {boolean} reset
  * @property {boolean} regen
  * @property {boolean} toggleDebug
+ * @property {boolean} togglePlanetView
  * @property {boolean} nextLevel
  * @property {boolean} shoot
  * @property {boolean} bomb

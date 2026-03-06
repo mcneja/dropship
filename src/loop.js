@@ -119,6 +119,7 @@ export class GameLoop {
     this.fpsFrames = 0;
     this.fps = 0;
     this.debugCollisions = GAME.DEBUG_COLLISION;
+    this.planetView = false;
   }
 
   /**
@@ -296,6 +297,15 @@ export class GameLoop {
    * @returns {ViewState}
    */
   _viewState() {
+    if (this.planetView){
+      return {
+        xCenter: 0,
+        yCenter: 0,
+        radius: (this.planet.planetRadius + CFG.PAD) * 1.05,
+        angle: 0,
+      };
+    }
+
     const radiusViewMin = GAME.PLANETSIDE_ZOOM;
     const rShip = Math.hypot(this.ship.x, this.ship.y);
     const rPlanet = CFG.RMAX + CFG.PAD;
@@ -1420,6 +1430,9 @@ export class GameLoop {
 
     if (inputState.toggleDebug){
       this.debugCollisions = !this.debugCollisions;
+    }
+    if (inputState.togglePlanetView){
+      this.planetView = !this.planetView;
     }
 
     const fixed = 1 / 60;
