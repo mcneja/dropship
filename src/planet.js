@@ -701,7 +701,7 @@ export class Planet {
    * @param {number} maxDistance
    * @returns {{path:Array<{x:number, y:number}>, indexClosest: number}|null}
    */
-  surfaceGuidePathTo(x, y, maxDistance, minDotUp = 0.5) {
+  surfaceGuidePathTo(x, y, maxDistance) {
     const pos = this.posClosest(x, y);
     if (!pos) return null;
 
@@ -733,7 +733,7 @@ export class Planet {
       let n = tryGetNormalAt(px, py);
       if (!n) return null;
         const dotUp = (px * n.nx + py * n.ny) / (Math.hypot(px, py) * Math.hypot(n.nx, n.ny));
-        if (dotUp <= minDotUp) return null;
+        if (dotUp <= 0.5) return null;
       const qx = px + n.ny * -stepSize;
       const qy = py + n.nx *  stepSize;
       const posNext = this.posClosest(qx, qy);

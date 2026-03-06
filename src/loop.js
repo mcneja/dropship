@@ -1210,13 +1210,7 @@ export class GameLoop {
     if (this.ship.state === "crashed"){
       this.ship.guidePath = null;
     } else {
-      const cfg = this.planet.getPlanetConfig ? this.planet.getPlanetConfig() : null;
-      const barren = !!(cfg && cfg.flags && cfg.flags.barrenPerimeter);
-      const callRadius = barren
-        ? Math.max(GAME.MINER_CALL_RADIUS, this.planetParams.RMAX * 6.5)
-        : GAME.MINER_CALL_RADIUS;
-      const minDotUp = barren ? 0.2 : 0.5;
-      this.ship.guidePath = this.planet.surfaceGuidePathTo(this.ship.x, this.ship.y, callRadius, minDotUp);
+      this.ship.guidePath = this.planet.surfaceGuidePathTo(this.ship.x, this.ship.y, GAME.MINER_CALL_RADIUS);
     }
 
     if (this.ship.state !== "crashed"){
@@ -1403,9 +1397,7 @@ export class GameLoop {
     }
 
     // Build bounding box for guide path for quick rejection
-    const cfg = this.planet.getPlanetConfig ? this.planet.getPlanetConfig() : null;
-    const barren = !!(cfg && cfg.flags && cfg.flags.barrenPerimeter);
-    const guidepathMargin = barren ? 2 : 1;
+    const guidepathMargin = 1;
     let guidePathMinX = Infinity;
     let guidePathMinY = Infinity;
     let guidePathMaxX = -Infinity;
