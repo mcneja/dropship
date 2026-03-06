@@ -271,7 +271,6 @@ export class RingMesh {
     const r = Math.hypot(x, y);
     if (r > this._params.RMAX + this._OUTER_PAD) return 1;
     const rOuter = this.rings ? (this.rings.length - 1) : this._params.RMAX;
-    if (r > (rOuter - 0.5)) return 1;
     const r0 = Math.floor(Math.min(this._R_MESH - 1, Math.max(0, r)));
     if (r0 <= 0){
       return this.rings[0][0].air;

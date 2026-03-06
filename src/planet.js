@@ -732,8 +732,13 @@ export class Planet {
     const tryGetStep = (px, py, stepSize) => {
       let n = tryGetNormalAt(px, py);
       if (!n) return null;
-        const dotUp = (px * n.nx + py * n.ny) / (Math.hypot(px, py) * Math.hypot(n.nx, n.ny));
-        if (dotUp <= 0.5) return null;
+      const r = Math.hypot(px, py) || 1;
+      const dotUp = (px * n.nx + py * n.ny) / (r * Math.hypot(n.nx, n.ny));
+      // Allow inward-facing surfaces only near the outer band to avoid "ceiling" paths.
+      if (dotUp <= 0.5) {
+        if (dotUp >= -0.5) return null;
+        if (r < this.planetRadius * 0.92) return null;
+      }
       const qx = px + n.ny * -stepSize;
       const qy = py + n.nx *  stepSize;
       const posNext = this.posClosest(qx, qy);
