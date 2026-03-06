@@ -1350,24 +1350,16 @@ function drawFrameImpl(renderer, state, planet){
       let u = 1;
 
       let projection = (dXMothership * horzX + dYMothership * horzY) / (horzX * horzX + horzY * horzY);
-      if (projection > 1) {
-        u = Math.min(u, 1 / projection);
-      }
+      u = Math.min(u, 1 / (Math.max(1, projection)));
 
       projection = (dXMothership * -horzX + dYMothership * -horzY) / (horzX * horzX + horzY * horzY);
-      if (projection > 1) {
-        u = Math.min(u, 1 / projection);
-      }
+      u = Math.min(u, 1 / (Math.max(1, projection)));
 
       projection = (dXMothership * vertX + dYMothership * vertY) / (vertX * vertX + vertY * vertY);
-      if (projection > 1) {
-        u = Math.min(u, 1 / projection);
-      }
+      u = Math.min(u, 1 / (Math.max(1, projection)));
 
       projection = (dXMothership * -vertX + dYMothership * -vertY) / (vertX * vertX + vertY * vertY);
-      if (projection > 1) {
-        u = Math.min(u, 1 / projection);
-      }
+      u = Math.min(u, 1 / (Math.max(1, projection)));
 
       if (u < 1) {
         const mx = state.view.xCenter + dXMothership * u;
