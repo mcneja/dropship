@@ -342,6 +342,61 @@ function pushSquare(pos, col, x, y, size, r, g, b, a){
  * @param {number} x
  * @param {number} y
  * @param {number} radius
+ * @param {number} rot
+ * @param {number} r
+ * @param {number} g
+ * @param {number} b
+ * @param {number} a
+ * @returns {number}
+ */
+function pushHexOutline(pos, col, x, y, radius, rot, r, g, b, a){
+  const pts = [];
+  for (let i = 0; i < 6; i++){
+    const ang = rot + (i / 6) * Math.PI * 2;
+    pts.push([x + Math.cos(ang) * radius, y + Math.sin(ang) * radius]);
+  }
+  for (let i = 0; i < 6; i++){
+    const p0 = pts[i];
+    const p1 = pts[(i + 1) % 6];
+    pushLine(pos, col, p0[0], p0[1], p1[0], p1[1], r, g, b, a);
+  }
+  return 12;
+}
+
+/**
+ * @param {number[]} pos
+ * @param {number[]} col
+ * @param {number} x
+ * @param {number} y
+ * @param {number} radius
+ * @param {number} sides
+ * @param {number} rot
+ * @param {number} r
+ * @param {number} g
+ * @param {number} b
+ * @param {number} a
+ * @returns {number}
+ */
+function pushPolyFan(pos, col, x, y, radius, sides, rot, r, g, b, a){
+  const pts = [];
+  for (let i = 0; i < sides; i++){
+    const ang = rot + (i / sides) * Math.PI * 2;
+    pts.push([x + Math.cos(ang) * radius, y + Math.sin(ang) * radius]);
+  }
+  for (let i = 0; i < sides; i++){
+    const p0 = pts[i];
+    const p1 = pts[(i + 1) % sides];
+    pushTri(pos, col, x, y, p0[0], p0[1], p1[0], p1[1], r, g, b, a);
+  }
+  return sides;
+}
+
+/**
+ * @param {number[]} pos
+ * @param {number[]} col
+ * @param {number} x
+ * @param {number} y
+ * @param {number} radius
  * @param {number} r
  * @param {number} g
  * @param {number} b
@@ -648,6 +703,8 @@ function vScaleStopping(planet, x, y, vx, vy, thrust) {
 function drawFrameImpl(renderer, state, planet){
   const {
     gl, canvas, game, prog, oprog, vao, oVao, uScale, uCam, uRot,
+    uRockDark, uRockLight, uSurfaceRockDark, uSurfaceRockLight,
+    uAirDark, uAirLight, uSurfaceBand, uRmax,
     ouScale, ouCam, ouRot, oPos, oCol,
     starProg, starVao, starRot, starTime, starAspect, starSpan, starSaturation,
     starVertCount,
@@ -692,6 +749,25 @@ function drawFrameImpl(renderer, state, planet){
   gl.uniform2f(uScale, sx, sy);
   gl.uniform2f(uCam, state.view.xCenter, state.view.yCenter);
   gl.uniform1f(uRot, camRot);
+  const palette = state.planetPalette || null;
+  const rockDark = (palette && palette.rockDark) ? palette.rockDark : CFG.ROCK_DARK;
+  const rockLight = (palette && palette.rockLight) ? palette.rockLight : CFG.ROCK_LIGHT;
+  const airDark = (palette && palette.airDark) ? palette.airDark : CFG.AIR_DARK;
+  const airLight = (palette && palette.airLight) ? palette.airLight : CFG.AIR_LIGHT;
+  const surfaceRockDark = (palette && palette.surfaceRockDark) ? palette.surfaceRockDark : rockDark;
+  const surfaceRockLight = (palette && palette.surfaceRockLight) ? palette.surfaceRockLight : rockLight;
+  const band = (palette && typeof palette.surfaceBand === "number") ? palette.surfaceBand : 0;
+  if (uRockDark) gl.uniform3fv(uRockDark, rockDark);
+  if (uRockLight) gl.uniform3fv(uRockLight, rockLight);
+  if (uSurfaceRockDark) gl.uniform3fv(uSurfaceRockDark, surfaceRockDark);
+  if (uSurfaceRockLight) gl.uniform3fv(uSurfaceRockLight, surfaceRockLight);
+  if (uAirDark) gl.uniform3fv(uAirDark, airDark);
+  if (uAirLight) gl.uniform3fv(uAirLight, airLight);
+  if (uSurfaceBand) gl.uniform1f(uSurfaceBand, band);
+  const params = planet.getPlanetParams ? planet.getPlanetParams() : null;
+  const rMax = (params && params.RMAX) ? params.RMAX : CFG.RMAX;
+  if (uRmax) gl.uniform1f(uRmax, rMax);
+  if (renderer.uMaxR) gl.uniform1f(renderer.uMaxR, rMax + 0.5);
   gl.drawArrays(gl.TRIANGLES, 0, vertCount);
   gl.bindVertexArray(null);
 
@@ -712,7 +788,8 @@ function drawFrameImpl(renderer, state, planet){
   const shipRot = -camRot;
   const lighten = (c) => Math.min(1, c + 0.3);
   const rockPoint = [1.0, 0.55, 0.12];
-  const airPoint = [lighten(CFG.AIR_LIGHT[0]), lighten(CFG.AIR_LIGHT[1]), lighten(CFG.AIR_LIGHT[2])];
+  const airPoint = [lighten(airLight[0]), lighten(airLight[1]), lighten(airLight[2])];
+  const now = performance.now() * 0.001;
   const toShipWorldLocal = (lx, ly) => {
     const [wx, wy] = rot2(lx, ly, shipRot);
     return [state.ship.x + wx, state.ship.y + wy];
@@ -877,6 +954,8 @@ function drawFrameImpl(renderer, state, planet){
     const outlineSize = 1/16;
     for (const enemy of state.enemies){
       if (!planet.fogSeenAt(enemy.x, enemy.y)) continue;
+      /** @type {EnemyRender} */
+      const enemyRender = enemy;
       /** @type {[number,number,number]} */
       let base;
       if (enemy.type === "hunter"){
@@ -889,15 +968,16 @@ function drawFrameImpl(renderer, state, planet){
         base = [0.5, 0.125, 1.0];
       }
       const outline = /** @type {[number,number,number]} */ ([base[0] * 0.55, base[1] * 0.55, base[2] * 0.55]);
-      triVerts += pushEnemyShape(pos, col, enemy, outline, game.ENEMY_SCALE, 1, false, outlineSize) * 3;
-      triVerts += pushEnemyShape(pos, col, enemy, base, game.ENEMY_SCALE, 1, true) * 3;
+      triVerts += pushEnemyShape(pos, col, enemyRender, outline, game.ENEMY_SCALE, 1, false, outlineSize) * 3;
+      triVerts += pushEnemyShape(pos, col, enemyRender, base, game.ENEMY_SCALE, 1, true) * 3;
       if (enemy.hitT && enemy.hitT > 0){
         const pulse = 0.5 + 0.5 * Math.sin(tNow * 14.0);
         const alpha = 0.25 + pulse * 0.45;
-        triVerts += pushEnemyShape(pos, col, enemy, [1.0, 0.2, 0.2], game.ENEMY_SCALE * 1.08, alpha, false) * 3;
+        triVerts += pushEnemyShape(pos, col, enemyRender, [1.0, 0.2, 0.2], game.ENEMY_SCALE * 1.08, alpha, false) * 3;
       }
     }
   }
+
 
   if (state.mothership){
     const m = state.mothership;
@@ -1044,6 +1124,175 @@ function drawFrameImpl(renderer, state, planet){
     }
   }
 
+  const featureParticles = state.featureParticles || null;
+  const lavaParticles = featureParticles ? featureParticles.lava : null;
+  if (lavaParticles && lavaParticles.length){
+    const size = 0.10;
+    for (const p of lavaParticles){
+      pushDiamond(pos, col, p.x, p.y, size, 1.0, 0.25, 0.15, 0.95);
+      triVerts += 6;
+    }
+  }
+  const mushroomParticles = featureParticles ? featureParticles.mushroom : null;
+  if (mushroomParticles && mushroomParticles.length){
+    const size = 0.12;
+    for (const p of mushroomParticles){
+      pushDiamond(pos, col, p.x, p.y, size, 0.95, 0.45, 0.75, 0.95);
+      triVerts += 6;
+    }
+  }
+
+  const coreR = planet.getCoreRadius ? planet.getCoreRadius() : 0;
+  if (coreR > 0){
+    const r0 = coreR;
+    const r1 = coreR + 0.8;
+    triVerts += pushPolyFan(pos, col, 0, 0, r1, 28, 0, 1.0, 0.25, 0.12, 0.35) * 3;
+    triVerts += pushPolyFan(pos, col, 0, 0, r0, 28, 0, 1.0, 0.45, 0.20, 0.85) * 3;
+  }
+
+  const props = planet.props;
+  if (props && props.length){
+    const basisAt = (x, y) => {
+      const len = Math.hypot(x, y) || 1;
+      const ux = x / len;
+      const uy = y / len;
+      const tx = -uy;
+      const ty = ux;
+      return { ux, uy, tx, ty };
+    };
+    const toWorld = (x, y, tx, ty, ux, uy, lx, ly) => {
+      return [x + tx * lx + ux * ly, y + ty * lx + uy * ly];
+    };
+    for (const p of props){
+      if (p.dead || (typeof p.hp === "number" && p.hp <= 0)) continue;
+      if (!planet.fogSeenAt(p.x, p.y)) continue;
+      if (p.type === "bubble_hex") continue;
+      const rot = (p.rot || 0) + (p.rotSpeed ? p.rotSpeed * now : 0);
+      const s = p.scale || 1;
+      if (p.type === "turret_pad"){
+        let ux, uy, tx, ty;
+        if (typeof p.padNx === "number" && typeof p.padNy === "number"){
+          ux = p.padNx;
+          uy = p.padNy;
+        } else {
+          const info = planet.surfaceInfoAtWorld ? planet.surfaceInfoAtWorld(p.x, p.y, 0.18) : null;
+          if (info){
+            ux = info.nx;
+            uy = info.ny;
+          }
+        }
+        if (ux !== undefined && uy !== undefined){
+          tx = -uy;
+          ty = ux;
+        } else {
+          ({ ux, uy, tx, ty } = basisAt(p.x, p.y));
+        }
+        const halfW = 0.55 * s;
+        const halfH = 0.12 * s;
+        const a0 = toWorld(p.x, p.y, tx, ty, ux, uy, -halfW, -halfH);
+        const a1 = toWorld(p.x, p.y, tx, ty, ux, uy, halfW, -halfH);
+        const a2 = toWorld(p.x, p.y, tx, ty, ux, uy, halfW, halfH);
+        const a3 = toWorld(p.x, p.y, tx, ty, ux, uy, -halfW, halfH);
+        pushTri(pos, col, a0[0], a0[1], a1[0], a1[1], a2[0], a2[1], 0.28, 0.28, 0.30, 0.95);
+        pushTri(pos, col, a0[0], a0[1], a2[0], a2[1], a3[0], a3[1], 0.28, 0.28, 0.30, 0.95);
+        triVerts += 6;
+      } else if (p.type === "boulder"){
+        triVerts += pushPolyFan(pos, col, p.x, p.y, 0.3 * s, 7, rot, 0.45, 0.45, 0.48, 0.95) * 3;
+        triVerts += pushPolyFan(pos, col, p.x, p.y, 0.18 * s, 7, rot, 0.35, 0.35, 0.37, 0.95) * 3;
+      } else if (p.type === "ridge_spike"){
+        const { ux, uy, tx, ty } = basisAt(p.x, p.y);
+        const tip = toWorld(p.x, p.y, tx, ty, ux, uy, 0, 0.6 * s);
+        const bl = toWorld(p.x, p.y, tx, ty, ux, uy, -0.18 * s, -0.1 * s);
+        const br = toWorld(p.x, p.y, tx, ty, ux, uy, 0.18 * s, -0.1 * s);
+        pushTri(pos, col, bl[0], bl[1], br[0], br[1], tip[0], tip[1], 0.4, 0.4, 0.42, 0.95);
+        triVerts += 3;
+      } else if (p.type === "vent"){
+        const heat = p.ventHeat ? Math.max(0, Math.min(1, p.ventHeat)) : 0;
+        const cr = 0.6 + heat * 0.4;
+        const cg = 0.2 + heat * 0.05;
+        const cb = 0.1 + heat * 0.05;
+        triVerts += pushPolyFan(pos, col, p.x, p.y, 0.28 * s, 8, rot, cr, cg, cb, 0.95) * 3;
+        triVerts += pushPolyFan(pos, col, p.x, p.y, 0.16 * s, 8, rot, 0.2 + heat * 0.5, 0.05, 0.05, 0.95) * 3;
+      } else if (p.type === "ice_shard"){
+        let ux, uy, tx, ty;
+        const info = planet.surfaceInfoAtWorld ? planet.surfaceInfoAtWorld(p.x, p.y, 0.18) : null;
+        if (info){
+          ux = info.nx;
+          uy = info.ny;
+          tx = -uy;
+          ty = ux;
+        } else {
+          ({ ux, uy, tx, ty } = basisAt(p.x, p.y));
+        }
+        const tip = toWorld(p.x, p.y, tx, ty, ux, uy, 0, 0.7 * s);
+        const bl = toWorld(p.x, p.y, tx, ty, ux, uy, -0.14 * s, -0.05 * s);
+        const br = toWorld(p.x, p.y, tx, ty, ux, uy, 0.14 * s, -0.05 * s);
+        pushTri(pos, col, bl[0], bl[1], br[0], br[1], tip[0], tip[1], 0.75, 0.9, 1.0, 0.95);
+        triVerts += 3;
+      } else if (p.type === "tree"){
+        const { ux, uy, tx, ty } = basisAt(p.x, p.y);
+        const t0 = toWorld(p.x, p.y, tx, ty, ux, uy, -0.06 * s, -0.02 * s);
+        const t1 = toWorld(p.x, p.y, tx, ty, ux, uy, 0.06 * s, -0.02 * s);
+        const t2 = toWorld(p.x, p.y, tx, ty, ux, uy, 0.06 * s, 0.28 * s);
+        const t3 = toWorld(p.x, p.y, tx, ty, ux, uy, -0.06 * s, 0.28 * s);
+        pushTri(pos, col, t0[0], t0[1], t1[0], t1[1], t2[0], t2[1], 0.45, 0.3, 0.18, 0.95);
+        pushTri(pos, col, t0[0], t0[1], t2[0], t2[1], t3[0], t3[1], 0.45, 0.3, 0.18, 0.95);
+        triVerts += 6;
+        const tip = toWorld(p.x, p.y, tx, ty, ux, uy, 0, 0.75 * s);
+        const bl = toWorld(p.x, p.y, tx, ty, ux, uy, -0.3 * s, 0.22 * s);
+        const br = toWorld(p.x, p.y, tx, ty, ux, uy, 0.3 * s, 0.22 * s);
+        pushTri(pos, col, bl[0], bl[1], br[0], br[1], tip[0], tip[1], 0.25, 0.65, 0.25, 0.95);
+        triVerts += 3;
+      } else if (p.type === "mushroom"){
+        const { ux, uy, tx, ty } = basisAt(p.x, p.y);
+        const st0 = toWorld(p.x, p.y, tx, ty, ux, uy, -0.05 * s, 0);
+        const st1 = toWorld(p.x, p.y, tx, ty, ux, uy, 0.05 * s, 0);
+        const st2 = toWorld(p.x, p.y, tx, ty, ux, uy, 0.05 * s, 0.22 * s);
+        const st3 = toWorld(p.x, p.y, tx, ty, ux, uy, -0.05 * s, 0.22 * s);
+        pushTri(pos, col, st0[0], st0[1], st1[0], st1[1], st2[0], st2[1], 0.9, 0.7, 0.9, 0.95);
+        pushTri(pos, col, st0[0], st0[1], st2[0], st2[1], st3[0], st3[1], 0.9, 0.7, 0.9, 0.95);
+        triVerts += 6;
+        const capL = toWorld(p.x, p.y, tx, ty, ux, uy, -0.26 * s, 0.28 * s);
+        const capR = toWorld(p.x, p.y, tx, ty, ux, uy, 0.26 * s, 0.28 * s);
+        const capT = toWorld(p.x, p.y, tx, ty, ux, uy, 0, 0.48 * s);
+        pushTri(pos, col, capL[0], capL[1], capR[0], capR[1], capT[0], capT[1], 0.95, 0.35, 0.75, 0.95);
+        triVerts += 3;
+      } else if (p.type === "stalactite"){
+        const { ux, uy, tx, ty } = basisAt(p.x, p.y);
+        const tip = toWorld(p.x, p.y, tx, ty, ux, uy, 0, -0.6 * s);
+        const bl = toWorld(p.x, p.y, tx, ty, ux, uy, -0.18 * s, 0.1 * s);
+        const br = toWorld(p.x, p.y, tx, ty, ux, uy, 0.18 * s, 0.1 * s);
+        pushTri(pos, col, bl[0], bl[1], br[0], br[1], tip[0], tip[1], 0.45, 0.45, 0.5, 0.95);
+        triVerts += 3;
+      } else if (p.type === "gate"){
+        const { ux, uy, tx, ty } = basisAt(p.x, p.y);
+        const w = 0.35 * s;
+        const h = 0.4 * s;
+        const a0 = toWorld(p.x, p.y, tx, ty, ux, uy, -w, 0);
+        const a1 = toWorld(p.x, p.y, tx, ty, ux, uy, -w * 0.6, h);
+        const a2 = toWorld(p.x, p.y, tx, ty, ux, uy, w * 0.6, h);
+        const a3 = toWorld(p.x, p.y, tx, ty, ux, uy, w, 0);
+        pushTri(pos, col, a0[0], a0[1], a1[0], a1[1], a2[0], a2[1], 0.35, 0.35, 0.38, 0.95);
+        pushTri(pos, col, a0[0], a0[1], a2[0], a2[1], a3[0], a3[1], 0.35, 0.35, 0.38, 0.95);
+        triVerts += 6;
+      } else if (p.type === "factory"){
+        const { ux, uy, tx, ty } = basisAt(p.x, p.y);
+        const w = 0.35 * s;
+        const h = 0.3 * s;
+        const b0 = toWorld(p.x, p.y, tx, ty, ux, uy, -w, 0);
+        const b1 = toWorld(p.x, p.y, tx, ty, ux, uy, w, 0);
+        const b2 = toWorld(p.x, p.y, tx, ty, ux, uy, w, h);
+        const b3 = toWorld(p.x, p.y, tx, ty, ux, uy, -w, h);
+        pushTri(pos, col, b0[0], b0[1], b1[0], b1[1], b2[0], b2[1], 0.28, 0.28, 0.32, 0.95);
+        pushTri(pos, col, b0[0], b0[1], b2[0], b2[1], b3[0], b3[1], 0.28, 0.28, 0.32, 0.95);
+        triVerts += 6;
+      }
+    }
+  }
+
+  // Triangles end here. Lock the triangle vertex count to buffer length.
+  triVerts = pos.length / 2;
+
   /**
    * @param {number} dx
    * @param {number} dy
@@ -1093,7 +1342,7 @@ function drawFrameImpl(renderer, state, planet){
 
     // Orbit apogee and perigee
     const {rPerigee: rPerigee, rApogee: rApogee} = planet.perigeeAndApogee(state.ship.x, state.ship.y, state.ship.vx, state.ship.vy);
-    const rMin = CFG.RMAX + 0.5;
+    const rMin = rMax + 0.5;
     if (rPerigee >= rMin) {
       const r = Math.hypot(state.ship.x, state.ship.y);
       const dirX = state.ship.x / r;
@@ -1199,6 +1448,21 @@ function drawFrameImpl(renderer, state, planet){
     }
   }
 
+  if (props && props.length){
+    for (const p of props){
+      if (p.dead || (typeof p.hp === "number" && p.hp <= 0)) continue;
+      if (p.type !== "bubble_hex") continue;
+      if (!planet.fogSeenAt(p.x, p.y)) continue;
+      const rot = (p.rot || 0) + (p.rotSpeed ? p.rotSpeed * now : 0);
+      const s = p.scale || 1;
+      pushHexOutline(pos, col, p.x, p.y, 0.28 * s, rot, 0.6, 0.95, 1.0, 0.6);
+      lineVerts += 12;
+    }
+  }
+
+  // Lines end here. Lock the line vertex count to buffer length.
+  lineVerts = pos.length / 2 - triVerts;
+
   const dbgSamples = state.debugCollisionSamples || state.ship._samples;
   if (state.debugCollisions && dbgSamples){
     for (const [sxw, syw, air, av] of dbgSamples){
@@ -1235,6 +1499,9 @@ function drawFrameImpl(renderer, state, planet){
       pointVerts += 1;
     }
   }
+
+  // Points end here. Lock the point vertex count to buffer length.
+  pointVerts = pos.length / 2 - triVerts - lineVerts;
 
   // Test pathfinding
 
@@ -1447,9 +1714,13 @@ export class Renderer {
 
   uniform vec3 uRockDark;
   uniform vec3 uRockLight;
+  uniform vec3 uSurfaceRockDark;
+  uniform vec3 uSurfaceRockLight;
   uniform vec3 uAirDark;
   uniform vec3 uAirLight;
   uniform float uMaxR;
+  uniform float uRmax;
+  uniform float uSurfaceBand;
   uniform vec3 uFogColor;
 
   vec3 lerp(vec3 a, vec3 b, float t){ return a + (b-a)*t; }
@@ -1459,8 +1730,12 @@ export class Renderer {
       discard;
     }
     float t = clamp(vShade, 0.0, 1.0);
+    float band = uSurfaceBand * uRmax;
+    bool useSurface = (uSurfaceBand > 0.0) && (length(vWorld) > (uRmax - band));
+    vec3 rockDark = useSurface ? uSurfaceRockDark : uRockDark;
+    vec3 rockLight = useSurface ? uSurfaceRockLight : uRockLight;
     vec3 c = (vAir > 0.5) ? lerp(uAirDark,  uAirLight,  t)
-                          : lerp(uRockDark, uRockLight, t);
+                          : lerp(rockDark, rockLight, t);
     vec3 fogged = mix(c, uFogColor, clamp(vFog, 0.0, 1.0));
     outColor = vec4(fogged, 1.0);
   }`;
@@ -1603,16 +1878,24 @@ export class Renderer {
     this.uRot = gl.getUniformLocation(prog, "uRot");
     this.uRockDark = gl.getUniformLocation(prog, "uRockDark");
     this.uRockLight= gl.getUniformLocation(prog, "uRockLight");
+    this.uSurfaceRockDark = gl.getUniformLocation(prog, "uSurfaceRockDark");
+    this.uSurfaceRockLight = gl.getUniformLocation(prog, "uSurfaceRockLight");
     this.uAirDark  = gl.getUniformLocation(prog, "uAirDark");
     this.uAirLight = gl.getUniformLocation(prog, "uAirLight");
     this.uMaxR     = gl.getUniformLocation(prog, "uMaxR");
+    this.uRmax     = gl.getUniformLocation(prog, "uRmax");
+    this.uSurfaceBand = gl.getUniformLocation(prog, "uSurfaceBand");
     this.uFogColor = gl.getUniformLocation(prog, "uFogColor");
 
     gl.uniform3fv(this.uRockDark, CFG.ROCK_DARK);
     gl.uniform3fv(this.uRockLight,CFG.ROCK_LIGHT);
+    if (this.uSurfaceRockDark) gl.uniform3fv(this.uSurfaceRockDark, CFG.ROCK_DARK);
+    if (this.uSurfaceRockLight) gl.uniform3fv(this.uSurfaceRockLight, CFG.ROCK_LIGHT);
     gl.uniform3fv(this.uAirDark,  CFG.AIR_DARK);
     gl.uniform3fv(this.uAirLight, CFG.AIR_LIGHT);
     gl.uniform1f(this.uMaxR, CFG.RMAX + 0.5);
+    if (this.uRmax) gl.uniform1f(this.uRmax, CFG.RMAX);
+    if (this.uSurfaceBand) gl.uniform1f(this.uSurfaceBand, 0);
     gl.uniform3fv(this.uFogColor, game.FOG_COLOR);
 
     gl.bindVertexArray(oVao);
@@ -1687,6 +1970,7 @@ export class Renderer {
     gl.bindVertexArray(null);
     this.vertCount = mesh.vertCount;
   }
+
 
   /**
    * @param {Float32Array} airFlag

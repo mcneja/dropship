@@ -45,13 +45,13 @@ function triangleVerticesForCell(col, parityCol, row, s){
 }
 
 /**
- * @param {typeof import("./config.js").CFG} cfg
+ * @param {{RMAX:number, MOTHERSHIP_ORBIT_HEIGHT:number}} cfg
  * @param {import("./planet.js").Planet} planet
  * @returns {Mothership}
  */
 export class Mothership {
   /**
-   * @param {typeof import("./config.js").CFG} cfg
+   * @param {{RMAX:number, MOTHERSHIP_ORBIT_HEIGHT:number}} cfg
    * @param {import("./planet.js").Planet} planet
    * @param {string[]} [shipMap]
    */
