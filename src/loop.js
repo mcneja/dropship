@@ -42,7 +42,7 @@ export class GameLoop {
     this.TERRAIN_PAD = 0.5;
     this.TERRAIN_MAX = cfg.RMAX + this.TERRAIN_PAD;
     this.TERRAIN_IMPACT_RADIUS = 0.75;
-    this.SHIP_RADIUS = 0.7 * 0.28 * GAME.SHIP_SCALE;
+    this.SHIP_RADIUS_BASE = 0.7 * 0.28 * GAME.SHIP_SCALE * 1.5;
     this.MINER_HEIGHT = 0.36 * GAME.MINER_SCALE;
     this.MINER_SURFACE_EPS = 0.01 * GAME.MINER_SCALE;
     this.SURFACE_EPS = Math.max(0.12, cfg.RMAX / 280);
@@ -63,6 +63,7 @@ export class GameLoop {
       lastAir: 1,
       hp: GAME.SHIP_MAX_HP,
       hitCooldown: 0,
+      cabinSide: 1,
       guidePath: null,
     };
     this.ship._dock = null;
@@ -573,16 +574,7 @@ export class GameLoop {
   _shipCollisionPoints(x, y){
     const camRot = Math.atan2(x, y || 1e-6);
     const shipRot = -camRot;
-    const shipHWorld = 0.7 * GAME.SHIP_SCALE;
-    const shipWWorld = 0.5 * GAME.SHIP_SCALE;
-    const nose = shipHWorld * 0.6;
-    const tail = shipHWorld * 0.4;
-    /** @type {Array<[number, number]>} */
-    const local = [
-      [0, nose],
-      [shipWWorld * 0.6, -tail],
-      [-shipWWorld * 0.6, -tail],
-    ];
+    const local = this._shipLocalHullPoints();
     /** @type {Array<[number, number]>} */
     const verts = [];
     const c = Math.cos(shipRot), s = Math.sin(shipRot);
@@ -592,12 +584,12 @@ export class GameLoop {
       verts.push([x + wx, y + wy]);
     }
     /** @type {Array<[number, number]>} */
-    const samples = [
-      verts[0], verts[1], verts[2],
-      [(verts[0][0] + verts[1][0]) * 0.5, (verts[0][1] + verts[1][1]) * 0.5],
-      [(verts[1][0] + verts[2][0]) * 0.5, (verts[1][1] + verts[2][1]) * 0.5],
-      [(verts[2][0] + verts[0][0]) * 0.5, (verts[2][1] + verts[0][1]) * 0.5],
-    ];
+    const samples = [...verts];
+    for (let i = 0; i < verts.length; i++){
+      const a = verts[i];
+      const b = verts[(i + 1) % verts.length];
+      samples.push([(a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5]);
+    }
     return samples;
   }
 
@@ -650,16 +642,7 @@ export class GameLoop {
   _shipHullDistance(px, py, shipX, shipY){
     const camRot = Math.atan2(shipX, shipY || 1e-6);
     const shipRot = -camRot;
-    const shipHWorld = 0.7 * GAME.SHIP_SCALE;
-    const shipWWorld = 0.5 * GAME.SHIP_SCALE;
-    const nose = shipHWorld * 0.6;
-    const tail = shipHWorld * 0.4;
-    const local = [
-      [0, nose],
-      [shipWWorld * 0.6, -tail],
-      [0, -tail * 0.6],
-      [-shipWWorld * 0.6, -tail],
-    ];
+    const local = this._shipLocalHullPoints();
     const c = Math.cos(shipRot);
     const s = Math.sin(shipRot);
     const verts = local.map(([lx, ly]) => {
@@ -675,6 +658,60 @@ export class GameLoop {
       if (d < best) best = d;
     }
     return best;
+  }
+
+  _shipRadius(){
+    return this.SHIP_RADIUS_BASE * 1.2;
+  }
+
+  _shipGunPivotWorld(){
+    const shipHWorld = 0.7 * GAME.SHIP_SCALE;
+    const shipWWorld = 0.75 * GAME.SHIP_SCALE;
+    const bodyLiftN = 0.18;
+    const cargoTopN = 0.18;
+    const gstrutHN = 0.12;
+    const gunLiftN = 0.04;
+    const localX = 0;
+    const localY = (cargoTopN + gstrutHN + gunLiftN + bodyLiftN) * shipHWorld;
+    const camRot = Math.atan2(this.ship.x, this.ship.y || 1e-6);
+    const shipRot = -camRot;
+    const c = Math.cos(shipRot), s = Math.sin(shipRot);
+    const wx = c * (localX * shipWWorld) - s * localY;
+    const wy = s * (localX * shipWWorld) + c * localY;
+    return { x: this.ship.x + wx, y: this.ship.y + wy };
+  }
+
+  _shipLocalHullPoints(){
+    const shipHWorld = 0.7 * GAME.SHIP_SCALE;
+    const shipWWorld = 0.75 * GAME.SHIP_SCALE;
+    const bodyLift = shipHWorld * 0.18;
+    const cargoTop = shipHWorld * 0.18;
+    const cargoBottom = -shipHWorld * 0.35;
+    const bottomHalfW = shipWWorld * 0.85;
+    const topHalfW = shipWWorld * 0.6;
+    const cabSide = this.ship.cabinSide || 1;
+    const cabOffset = shipWWorld * 0.75 * cabSide;
+    const cabHalfW = shipWWorld * 0.28;
+    const cabTipY = cargoTop;
+    const cabTipX = cabOffset;
+    const topRight = Math.max(topHalfW, cabOffset + cabHalfW);
+    const topLeft = Math.min(-topHalfW, cabOffset - cabHalfW);
+    if (cabSide >= 0){
+      return [
+        [cabTipX, cabTipY + bodyLift],
+        [topRight, cargoTop + bodyLift],
+        [bottomHalfW, cargoBottom + bodyLift],
+        [-bottomHalfW, cargoBottom + bodyLift],
+        [topLeft, cargoTop + bodyLift],
+      ];
+    }
+    return [
+      [cabTipX, cabTipY + bodyLift],
+      [topLeft, cargoTop + bodyLift],
+      [-bottomHalfW, cargoBottom + bodyLift],
+      [bottomHalfW, cargoBottom + bodyLift],
+      [topRight, cargoTop + bodyLift],
+    ];
   }
 
   /**
@@ -717,7 +754,7 @@ export class GameLoop {
     if (this.mothership){
       updateMothership(this.mothership, this.planet, dt);
     }
-    let { left, right, thrust, down, reset, shoot, bomb, aim, aimShoot, aimBomb, aimShootFrom, aimShootTo, aimBombFrom, aimBombTo } = inputState;
+    let { left, right, thrust, down, reset, shoot, bomb, aim, aimShoot, aimBomb, aimShootFrom, aimShootTo, aimBombFrom, aimBombTo, spawnEnemyType } = inputState;
     if (inputState.inputType === "gamepad"){
       const aimAdjusted = this._aimScreenAroundShip(aim);
       aim = aimAdjusted;
@@ -725,11 +762,31 @@ export class GameLoop {
       aimBomb = aimAdjusted;
     }
     if (reset) this._resetShip();
+    if (spawnEnemyType){
+      const map = {
+        "1": "hunter",
+        "2": "ranger",
+        "3": "crawler",
+        "4": "turret",
+        "5": "orbitingTurret",
+      };
+      const type = map[spawnEnemyType];
+      if (type){
+        const ang = Math.random() * Math.PI * 2;
+        const dist = 10;
+        const sx = this.ship.x + Math.cos(ang) * dist;
+        const sy = this.ship.y + Math.sin(ang) * dist;
+        this.enemies.spawnDebug(type, sx, sy);
+      }
+    }
+    if (left && !right) this.ship.cabinSide = -1;
+    if (right && !left) this.ship.cabinSide = 1;
 
     if (this.ship.state === "landed" && this.ship._dock && this.mothership){
       if (left || right || thrust){
-        const pushStep = this.SHIP_RADIUS * 0.35;
-        for (let i = 0; i < 8 && this._shipCollidesAt(this.ship.x, this.ship.y, this.SHIP_RADIUS); i++){
+        const shipRadius = this._shipRadius();
+        const pushStep = shipRadius * 0.35;
+        for (let i = 0; i < 8 && this._shipCollidesAt(this.ship.x, this.ship.y, shipRadius); i++){
           const info = mothershipCollisionInfo(this.mothership, this.ship.x, this.ship.y);
           if (!info) break;
           this.ship.x += info.nx * pushStep;
@@ -738,7 +795,7 @@ export class GameLoop {
         // Nudge outward so takeoff doesn't scrape the surface.
         const info = mothershipCollisionInfo(this.mothership, this.ship.x, this.ship.y);
         if (info){
-          const lift = this.SHIP_RADIUS * 0.25;
+          const lift = shipRadius * 0.25;
           this.ship.x += info.nx * lift;
           this.ship.y += info.ny * lift;
           this.ship.vx += info.nx * 0.05;
@@ -826,7 +883,7 @@ export class GameLoop {
       */
 
       const eps = this.COLLISION_EPS;
-      const shipRadius = this.SHIP_RADIUS;
+      const shipRadius = this._shipRadius();
 
       let collides = false;
       let { samples, hit, hitSource } = this.collision.sampleCollisionPoints(this._shipCollisionPoints(this.ship.x, this.ship.y));
@@ -964,11 +1021,12 @@ export class GameLoop {
               } else if (vn >= -landVn && Math.abs(vt) < landVt){
                 this.ship.state = "landed";
                 // Nudge outward to avoid immediate re-collision bounce.
-                const lift = this.SHIP_RADIUS * 0.3;
+                const shipRadius = this._shipRadius();
+                const lift = shipRadius * 0.3;
                 this.ship.x += nx * lift;
                 this.ship.y += ny * lift;
-                const clearStep = this.SHIP_RADIUS * 0.2;
-                for (let i = 0; i < 8 && this._shipCollidesAt(this.ship.x, this.ship.y, this.SHIP_RADIUS); i++){
+                const clearStep = shipRadius * 0.2;
+                for (let i = 0; i < 8 && this._shipCollidesAt(this.ship.x, this.ship.y, shipRadius); i++){
                   this.ship.x += nx * clearStep;
                   this.ship.y += ny * clearStep;
                 }
@@ -1013,6 +1071,7 @@ export class GameLoop {
         }
       }
     }
+    const gunOrigin = this._shipGunPivotWorld();
     const aimWorldShoot = this._toWorldFromAim(aimShoot || aim);
     const aimWorldBomb = this._toWorldFromAim(aimBomb || aimShoot || aim);
     let aimWorld = (aimShootTo && this._toWorldFromAim(aimShootTo)) || aimWorldShoot || (aimBombTo && this._toWorldFromAim(aimBombTo)) || aimWorldBomb;
@@ -1028,7 +1087,7 @@ export class GameLoop {
         const dirx = dx / dist;
         const diry = dy / dist;
         const aimLen = Math.max(4.0, this._aimWorldDistance(GAME.AIM_SCREEN_RADIUS || 0.25));
-        aimWorld = { x: this.ship.x + dirx * aimLen, y: this.ship.y + diry * aimLen };
+        aimWorld = { x: gunOrigin.x + dirx * aimLen, y: gunOrigin.y + diry * aimLen };
       }
     }
     this.lastAimWorld = aimWorld;
@@ -1054,16 +1113,16 @@ export class GameLoop {
             diry = dy / dist;
           }
         } else if (aimWorldShoot){
-          const dx = aimWorldShoot.x - this.ship.x;
-          const dy = aimWorldShoot.y - this.ship.y;
+          const dx = aimWorldShoot.x - gunOrigin.x;
+          const dy = aimWorldShoot.y - gunOrigin.y;
           const dist = Math.hypot(dx, dy) || 1;
           dirx = dx / dist;
           diry = dy / dist;
         }
         if (dirx || diry){
           this.playerShots.push({
-            x: this.ship.x + dirx * 0.45,
-            y: this.ship.y + diry * 0.45,
+            x: gunOrigin.x + dirx * 0.45,
+            y: gunOrigin.y + diry * 0.45,
             vx: dirx * this.PLAYER_SHOT_SPEED + this.ship.vx,
             vy: diry * this.PLAYER_SHOT_SPEED + this.ship.vy,
             life: this.PLAYER_SHOT_LIFE,
@@ -1083,16 +1142,16 @@ export class GameLoop {
             diry = dy / dist;
           }
         } else if (aimWorldBomb){
-          const dx = aimWorldBomb.x - this.ship.x;
-          const dy = aimWorldBomb.y - this.ship.y;
+          const dx = aimWorldBomb.x - gunOrigin.x;
+          const dy = aimWorldBomb.y - gunOrigin.y;
           const dist = Math.hypot(dx, dy) || 1;
           dirx = dx / dist;
           diry = dy / dist;
         }
         if (dirx || diry){
           this.playerBombs.push({
-            x: this.ship.x + dirx * 0.45,
-            y: this.ship.y + diry * 0.45,
+            x: gunOrigin.x + dirx * 0.45,
+            y: gunOrigin.y + diry * 0.45,
             vx: dirx * this.PLAYER_BOMB_SPEED + this.ship.vx,
             vy: diry * this.PLAYER_BOMB_SPEED + this.ship.vy,
             life: this.PLAYER_BOMB_LIFE,
@@ -1116,10 +1175,11 @@ export class GameLoop {
           if (e.hp <= 0) continue;
           const dx = e.x - s.x;
           const dy = e.y - s.y;
-          if (dx * dx + dy * dy <= this.PLAYER_SHOT_RADIUS * this.PLAYER_SHOT_RADIUS){
-            e.hp -= 1;
-            this.entityExplosions.push({ x: e.x, y: e.y, life: 0.25, radius: this.ENEMY_HIT_BLAST });
-            this.playerShots.splice(i, 1);
+            if (dx * dx + dy * dy <= this.PLAYER_SHOT_RADIUS * this.PLAYER_SHOT_RADIUS){
+              e.hp -= 1;
+              e.hitT = 0.25;
+              this.entityExplosions.push({ x: e.x, y: e.y, life: 0.25, radius: this.ENEMY_HIT_BLAST });
+              this.playerShots.splice(i, 1);
             if (e.hp <= 0) e.hp = 0;
             break;
           }
@@ -1320,11 +1380,12 @@ export class GameLoop {
     this.enemies.update(this.ship, dt);
 
     if (this.ship.state !== "crashed"){
+      const shipRadius = this._shipRadius();
       for (let i = this.enemies.shots.length - 1; i >= 0; i--){
         const s = this.enemies.shots[i];
         const dx = this.ship.x - s.x;
         const dy = this.ship.y - s.y;
-        if (dx * dx + dy * dy <= this.SHIP_RADIUS * this.SHIP_RADIUS){
+        if (dx * dx + dy * dy <= shipRadius * shipRadius){
           this.enemies.shots.splice(i, 1);
           this._damageShip(s.x, s.y);
           break;
@@ -1428,6 +1489,7 @@ export class GameLoop {
       playerBombs: this.playerBombs,
       entityExplosions: this.entityExplosions,
       aimWorld: this.lastAimWorld,
+      aimOrigin: this._shipGunPivotWorld(),
       touchUi: gameOver ? null : inputState.touchUi,
       touchStart: gameOver && inputState.inputType === "touch",
     }, this.planet);

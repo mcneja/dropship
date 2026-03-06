@@ -239,6 +239,29 @@ export class Enemies {
   }
 
   /**
+   * @param {EnemyType} type
+   * @param {number} x
+   * @param {number} y
+   * @returns {void}
+   */
+  spawnDebug(type, x, y){
+    const cooldown = Math.random();
+    if (type === "hunter"){
+      this.enemies.push({ type, x, y, vx: 0, vy: 0, cooldown, hp: 2 });
+    } else if (type === "ranger"){
+      this.enemies.push({ type, x, y, vx: 0, vy: 0, cooldown, hp: 2 });
+    } else if (type === "crawler"){
+      const dir = Math.random() * Math.PI * 2;
+      const speed = 1.5;
+      this.enemies.push({ type, x, y, vx: Math.cos(dir) * speed, vy: Math.sin(dir) * speed, cooldown: 0, hp: 1 });
+    } else if (type === "turret"){
+      this.enemies.push({ type, x, y, vx: 0, vy: 0, cooldown, hp: 1 });
+    } else if (type === "orbitingTurret"){
+      this.enemies.push({ type, x, y, vx: 0, vy: 0, cooldown, hp: 1 });
+    }
+  }
+
+  /**
    * @param {number} total
    * @param {number} level
    * @returns {void}
@@ -336,10 +359,13 @@ export class Enemies {
     }
 
     const targetable = ship && ship.state !== "crashed";
-    for (let i = this.enemies.length - 1; i >= 0; i--){
-      const e = this.enemies[i];
-      if (e.hp <= 0){
-        const pieces = 6;
+      for (let i = this.enemies.length - 1; i >= 0; i--){
+        const e = this.enemies[i];
+        if (e.hitT && e.hitT > 0){
+          e.hitT = Math.max(0, e.hitT - dt);
+        }
+        if (e.hp <= 0){
+          const pieces = 6;
         for (let k = 0; k < pieces; k++){
           const ang = Math.random() * Math.PI * 2;
           const sp = 1.0 + Math.random() * 2.0;

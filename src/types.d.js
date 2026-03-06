@@ -37,6 +37,7 @@
  * @property {number} lastAir
  * @property {number} hp
  * @property {number} hitCooldown
+ * @property {number} cabinSide
  * @property {{path:Array<{x:number,y:number}>, indexClosest:number}|null} guidePath
  * @property {Array<[number,number,boolean,number]>|null} [_samples]
  * @property {{x:number,y:number,tri?:Array<{x:number,y:number}>|null,node?:{x:number,y:number}|null}|null} [_collision]
@@ -82,6 +83,7 @@
  * @property {number} vy
  * @property {number} cooldown
  * @property {number} hp
+ * @property {number} [hitT]
  */
 
 /**
@@ -131,7 +133,7 @@
  * @property {number} minersRemaining
  * @property {number} level
  * @property {number} minersDead
- * @property {Array<{x:number,y:number,type:string,vx?:number,vy?:number,cooldown?:number,hp?:number,dir?:number,fuse?:number}>} enemies
+ * @property {Array<{x:number,y:number,type:EnemyType,vx?:number,vy?:number,cooldown?:number,hp?:number,hitT?:number,dir?:number,fuse?:number}>} enemies
  * @property {Array<{x:number,y:number,vx?:number,vy?:number,life?:number,owner:string}>} shots
  * @property {Array<{x:number,y:number,life:number,owner:string,radius?:number}>} explosions
  * @property {Array<{x:number,y:number,vx?:number,vy?:number,a:number,w?:number,life:number}>} enemyDebris
@@ -139,6 +141,7 @@
  * @property {Array<{x:number,y:number,vx?:number,vy?:number,life?:number}>} playerBombs
  * @property {Array<{x:number,y:number,life:number,radius?:number}>} entityExplosions
  * @property {{x:number,y:number}|null} aimWorld
+ * @property {{x:number,y:number}|null} [aimOrigin]
  * @property {{leftTouch:{x:number,y:number}|null,laserTouch:{x:number,y:number}|null,bombTouch:{x:number,y:number}|null}|null|undefined} touchUi
  * @property {boolean} [touchStart]
  */
@@ -155,6 +158,7 @@
  * @property {boolean} nextLevel
  * @property {boolean} shoot
  * @property {boolean} bomb
+ * @property {EnemyType|null} [spawnEnemyType]
  * @property {Point|null} [aim]
  * @property {Point|null} [aimShoot]
  * @property {Point|null} [aimBomb]

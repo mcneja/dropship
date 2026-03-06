@@ -6,6 +6,8 @@ import { findPathAStar, nearestRadialNode } from "./navigation.js";
 
 /** @typedef {import("./types.d.js").RenderState} RenderState */
 /** @typedef {import("./planet.js").Planet} Planet */
+/** @typedef {import("./types.d.js").Enemy} Enemy */
+/** @typedef {{x:number,y:number,type:import("./types.d.js").EnemyType,vx?:number,vy?:number}} EnemyRender */
 
 /**
  * @param {WebGL2RenderingContext} gl
@@ -158,13 +160,6 @@ function resampleGrid(src, srcSize, dstSize){
 }
 
 /**
- * @param {number[]} a
- * @param {number[]} b
- * @param {number[]} c
- * @param {number[]} d
- * @returns {Float32Array}
- */
-/**
  * @param {number} x
  * @param {number} y
  * @param {number} a
@@ -204,9 +199,9 @@ function pushTri(pos, col, ax, ay, bx, by, cx, cy, r, g, b, a){
  * @param {number} by
  * @param {number} cx
  * @param {number} cy
- * @param {number[]} ca
- * @param {number[]} cb
- * @param {number[]} cc
+ * @param {[number,number,number,number]} ca
+ * @param {[number,number,number,number]} cb
+ * @param {[number,number,number,number]} cc
  * @returns {void}
  */
 function pushTriColored(pos, col, ax, ay, bx, by, cx, cy, ca, cb, cc){
@@ -380,9 +375,12 @@ function pushCircle(pos, col, x, y, radius, r, g, b, a, seg = 24){
  * @param {number} r
  * @param {number} g
  * @param {number} b
- * @returns {void}
+ * @param {number} scale
+ * @param {boolean} [skipHelmet]
+ * @param {number} [outlineExpand]
+ * @returns {number}
  */
-function pushMiner(pos, col, x, y, jumpCycle, r, g, b, scale){
+function pushMiner(pos, col, x, y, jumpCycle, r, g, b, scale, skipHelmet = false, outlineExpand = 0){
   const len = Math.hypot(x, y) || 1;
   const upx = x / len;
   const upy = y / len;
@@ -390,45 +388,233 @@ function pushMiner(pos, col, x, y, jumpCycle, r, g, b, scale){
   const tx = -upy;
   const ty = upx;
   const s = scale ?? 1;
-  const halfW = 0.06 * s;
-  const halfH = 0.18 * s;
-  const b0x = x + tx * halfW + upx * jumpOffset;
-  const b0y = y + ty * halfW + upy * jumpOffset;
-  const b1x = x - tx * halfW + upx * jumpOffset;
-  const b1y = y - ty * halfW + upy * jumpOffset;
-  const t0x = b0x + upx * (2 * halfH);
-  const t0y = b0y + upy * (2 * halfH);
-  const t1x = b1x + upx * (2 * halfH);
-  const t1y = b1y + upy * (2 * halfH);
-  pushTri(pos, col, t0x, t0y, t1x, t1y, b0x, b0y, r, g, b, 1);
-  pushTri(pos, col, t1x, t1y, b1x, b1y, b0x, b0y, r, g, b, 1);
+  const ox = x + upx * jumpOffset;
+  const oy = y + upy * jumpOffset;
+  const toWorld = (lx, ly) => [ox + tx * lx + upx * ly, oy + ty * lx + upy * ly];
+  let triCount = 0;
+  const darken = (v) => Math.max(0, Math.min(1, v * 0.55));
+  /** @type {Array<{a:[number,number],b:[number,number],c:[number,number],col:[number,number,number],outline:boolean}>} */
+  const tris = [];
+  const emitTri = (ax, ay, bx, by, cx, cy, cr, cg, cb, outline = true) => {
+    tris.push({ a: [ax, ay], b: [bx, by], c: [cx, cy], col: [cr, cg, cb], outline });
+  };
+  const quad = (lx0, ly0, lx1, ly1, qr = r, qg = g, qb = b, outline = true) => {
+    const [ax, ay] = toWorld(lx0, ly0);
+    const [bx, by] = toWorld(lx1, ly0);
+    const [cx, cy] = toWorld(lx1, ly1);
+    const [dx, dy] = toWorld(lx0, ly1);
+    emitTri(ax, ay, bx, by, cx, cy, qr, qg, qb, outline);
+    emitTri(ax, ay, cx, cy, dx, dy, qr, qg, qb, outline);
+  };
+
+  // Legs: two skinny tris side by side, pointing down
+  const legHalfW = 0.028 * s;
+  const legBaseY = 0.08 * s;
+  const legTipY = -0.08 * s;
+  const legCenterOffset = 0.055 * s;
+  const legTri = (cx) => {
+    const [aX, aY] = toWorld(cx - legHalfW, legBaseY);
+    const [bX, bY] = toWorld(cx + legHalfW, legBaseY);
+    const [cX, cY] = toWorld(cx, legTipY);
+    emitTri(aX, aY, bX, bY, cX, cY, r, g, b);
+  };
+  legTri(-legCenterOffset);
+  legTri(legCenterOffset);
+
+  // Torso square on top of legs
+  const torsoHalf = 0.08 * s;
+  const torsoBottom = legBaseY;
+  const torsoTop = torsoBottom + 2 * torsoHalf;
+  quad(-torsoHalf, torsoBottom, torsoHalf, torsoTop);
+
+  // Shoulders: inverted triangle overlapping the torso
+  const shoulderBaseY = torsoTop + 0.02 * s;
+  const shoulderTipY = torsoTop - 0.06 * s;
+  const shoulderHalfW = 0.14 * s;
+  {
+    const [aX, aY] = toWorld(-shoulderHalfW, shoulderBaseY);
+    const [bX, bY] = toWorld(shoulderHalfW, shoulderBaseY);
+    const [cX, cY] = toWorld(0, shoulderTipY);
+    emitTri(aX, aY, bX, bY, cX, cY, r, g, b);
+  }
+
+  // Solid blue square behind the head (shoulder width)
+  const headHalf = 0.045 * s;
+  const headBottom = shoulderBaseY + 0.01 * s;
+  const headTop = headBottom + 2 * headHalf;
+  const glassHalf = shoulderHalfW * 0.85;
+  const glassBottom = shoulderBaseY - 0.005 * s;
+  const glassTop = headTop + 0.06 * s;
+  if (!skipHelmet){
+    const br = 0.25, bg = 0.55, bb = 1.0;
+    quad(-glassHalf, glassBottom, glassHalf, glassTop, br, bg, bb, false);
+
+    // Head square above shoulders
+    quad(-headHalf, headBottom, headHalf, headTop);
+  }
+  if (tris.length){
+    if (outlineExpand > 0){
+      for (const t of tris){
+        if (!t.outline) continue;
+        const ax = t.a[0], ay = t.a[1];
+        const bx = t.b[0], by = t.b[1];
+        const cx = t.c[0], cy = t.c[1];
+        const cxm = (ax + bx + cx) / 3;
+        const cym = (ay + by + cy) / 3;
+        const da = Math.hypot(ax - cxm, ay - cym);
+        const db = Math.hypot(bx - cxm, by - cym);
+        const dc = Math.hypot(cx - cxm, cy - cym);
+        const maxd = Math.max(da, db, dc);
+        if (maxd > 1e-6){
+          const ab = Math.hypot(ax - bx, ay - by);
+          const bc = Math.hypot(bx - cx, by - cy);
+          const ca = Math.hypot(cx - ax, cy - ay);
+          const minEdge = Math.max(1e-6, Math.min(ab, bc, ca));
+          const effExpand = Math.min(outlineExpand, minEdge * 0.35);
+          const scaleO = (maxd + effExpand) / maxd;
+          const sax = cxm + (ax - cxm) * scaleO;
+          const say = cym + (ay - cym) * scaleO;
+          const sbx = cxm + (bx - cxm) * scaleO;
+          const sby = cym + (by - cym) * scaleO;
+          const scx = cxm + (cx - cxm) * scaleO;
+          const scy = cym + (cy - cym) * scaleO;
+          pushTri(pos, col, sax, say, sbx, sby, scx, scy, darken(t.col[0]), darken(t.col[1]), darken(t.col[2]), 1);
+          triCount += 1;
+        }
+      }
+    }
+    for (const t of tris){
+      pushTri(pos, col, t.a[0], t.a[1], t.b[0], t.b[1], t.c[0], t.c[1], t.col[0], t.col[1], t.col[2], 1);
+      triCount += 1;
+    }
+  }
+  return triCount;
 }
 
 /**
  * @param {number[]} pos
  * @param {number[]} col
- * @param {number} x
- * @param {number} y
- * @param {number} r
- * @param {number} g
- * @param {number} b
- * @returns {void}
+ * @param {EnemyRender} enemy
+ * @param {[number,number,number]} baseColor
+ * @param {number} scale
+ * @param {number} alpha
+ * @param {boolean} useGradient
+ * @param {number} [outlineExpand]
+ * @returns {number}
  */
-function pushEnemy(pos, col, x, y, r, g, b, scale){
+function pushEnemyShape(pos, col, enemy, baseColor, scale, alpha, useGradient, outlineExpand = 0){
+  const { x, y } = enemy;
   const len = Math.hypot(x, y) || 1;
-  const upx = x / len;
-  const upy = y / len;
+  let upx = x / len;
+  let upy = y / len;
+  if (enemy.type === "hunter"){
+    const vlen = Math.hypot(enemy.vx || 0, enemy.vy || 0);
+    if (vlen > 1e-4){
+      upx = (enemy.vx || 0) / vlen;
+      upy = (enemy.vy || 0) / vlen;
+    }
+  }
   const tx = -upy;
   const ty = upx;
-  const baseX = scale * 0.866;
-  const baseY = scale * 0.5;
-  const lx = x - tx * baseX - upx * baseY;
-  const ly = y - ty * baseX - upy * baseY;
-  const rx = x + tx * baseX - upx * baseY;
-  const ry = y + ty * baseX - upy * baseY;
-  const hx = x + upx * scale;
-  const hy = y + upy * scale;
-  pushTri(pos, col, lx, ly, rx, ry, hx, hy, r, g, b, 1);
+  const r = baseColor[0];
+  const g = baseColor[1];
+  const b = baseColor[2];
+  const bright = [Math.min(1, r + 0.3), Math.min(1, g + 0.3), Math.min(1, b + 0.3), alpha];
+  const dark = [r * 0.55, g * 0.55, b * 0.55, alpha];
+  const mid = [r * 0.85, g * 0.85, b * 0.85, alpha];
+  const toWorld = (lx, ly) => [x + tx * lx + upx * ly, y + ty * lx + upy * ly];
+  const clamp01 = (v) => Math.max(0, Math.min(1, v));
+  const colorFor = (ly) => {
+    const t = clamp01((ly / (scale || 1)) * 0.5 + 0.5);
+    return /** @type {[number,number,number,number]} */ ([
+      dark[0] + (bright[0] - dark[0]) * t,
+      dark[1] + (bright[1] - dark[1]) * t,
+      dark[2] + (bright[2] - dark[2]) * t,
+      alpha,
+    ]);
+  };
+  const tri = (ax, ay, bx, by, cx, cy) => {
+    if (outlineExpand > 0){
+      const cxm = (ax + bx + cx) / 3;
+      const cym = (ay + by + cy) / 3;
+      const da = Math.hypot(ax - cxm, ay - cym);
+      const db = Math.hypot(bx - cxm, by - cym);
+      const dc = Math.hypot(cx - cxm, cy - cym);
+      const maxd = Math.max(da, db, dc);
+      if (maxd > 1e-6){
+        const scaleO = (maxd + outlineExpand) / maxd;
+        ax = cxm + (ax - cxm) * scaleO;
+        ay = cym + (ay - cym) * scaleO;
+        bx = cxm + (bx - cxm) * scaleO;
+        by = cym + (by - cym) * scaleO;
+        cx = cxm + (cx - cxm) * scaleO;
+        cy = cym + (cy - cym) * scaleO;
+      }
+    }
+    const [axw, ayw] = toWorld(ax, ay);
+    const [bxw, byw] = toWorld(bx, by);
+    const [cxw, cyw] = toWorld(cx, cy);
+    if (useGradient){
+      const ca = colorFor(ay);
+      const cb = colorFor(by);
+      const cc = colorFor(cy);
+      pushTriColored(pos, col, axw, ayw, bxw, byw, cxw, cyw, ca, cb, cc);
+    } else {
+      pushTri(pos, col, axw, ayw, bxw, byw, cxw, cyw, r, g, b, alpha);
+    }
+  };
+
+  let triCount = 0;
+  const s = scale;
+  if (enemy.type === "hunter"){
+    const topY = 1.1 * s;
+    const baseY = -0.55 * s;
+    const halfW = 0.8 * s;
+    tri(0, topY, -halfW, baseY, halfW, baseY);
+    const scale2 = 0.62;
+    const offsetY = -0.64 * s;
+    tri(0, topY * scale2 + offsetY, -halfW * scale2, baseY * scale2 + offsetY, halfW * scale2, baseY * scale2 + offsetY);
+    triCount += 2;
+  } else if (enemy.type === "ranger"){
+    const ds = 0.8;
+    const halfW = 0.75 * s * ds;
+    const halfH = 1.05 * s * ds;
+    const cxOff = halfW * 0.5;
+    const diamond = (cx) => {
+      tri(cx, halfH, cx + halfW, 0, cx, -halfH);
+      tri(cx, -halfH, cx - halfW, 0, cx, halfH);
+    };
+    diamond(-cxOff);
+    diamond(cxOff);
+    triCount += 4;
+  } else if (enemy.type === "crawler"){
+      const tNow = performance.now() * 0.001;
+      const spin = tNow * 1.6;
+      const spikeLen = 1.05 * s;
+      const spikeW = 0.28 * s;
+      const spikeBack = 0.35 * s;
+      for (let i = 0; i < 4; i++){
+        const a = spin + i * Math.PI * 0.5;
+        const [tx1, ty1] = rot2(0, spikeLen, a);
+        const [tx2, ty2] = rot2(-spikeW, -spikeBack, a);
+        const [tx3, ty3] = rot2(spikeW, -spikeBack, a);
+        tri(tx1, ty1, tx2, ty2, tx3, ty3);
+      }
+      triCount += 4;
+    } else if (enemy.type === "turret"){
+    // Two legs (downward triangles) + turret head
+    tri(-0.7 * s, 0.3 * s, 0.0 * s, 0.3 * s, -0.35 * s, -0.75 * s);
+    tri(0.0 * s, 0.3 * s, 0.7 * s, 0.3 * s, 0.35 * s, -0.75 * s);
+    tri(0, 0.05 * s, 0.6 * s, 0.55 * s, -0.6 * s, 0.55 * s);
+    triCount += 3;
+  } else {
+    // Orbiting turret: same body as turret, but legs angle out and point down
+    tri(-0.75 * s, 0.3 * s, 0.0 * s, 0.3 * s, -1.05 * s, -0.95 * s);
+    tri(0.0 * s, 0.3 * s, 0.75 * s, 0.3 * s, 1.05 * s, -0.95 * s);
+    tri(0, 0.05 * s, 0.6 * s, 0.55 * s, -0.6 * s, 0.55 * s);
+    triCount += 3;
+  }
+  return triCount;
 }
 
 /**
@@ -510,9 +696,10 @@ function drawFrameImpl(renderer, state, planet){
   gl.bindVertexArray(null);
 
   const shipHWorld = 0.7 * game.SHIP_SCALE;
-  const shipWWorld = 0.5 * game.SHIP_SCALE;
-  const nose = shipHWorld * 0.6;
-  const tail = shipHWorld * 0.4;
+  const shipWWorld = 0.75 * game.SHIP_SCALE;
+  const bodyLiftN = 0.18;
+  const skiLiftN = 0.0;
+  const cabinSide = state.ship.cabinSide || 1;
 
   /** @type {number[]} */
   const pos = [];
@@ -522,53 +709,193 @@ function drawFrameImpl(renderer, state, planet){
   let lineVerts = 0;
   let pointVerts = 0;
 
-  const local = [
-    [0, nose],
-    [shipWWorld * 0.6, -tail],
-    [0, -tail * 0.6],
-    [-shipWWorld * 0.6, -tail],
-  ];
-  const body = [];
   const shipRot = -camRot;
   const lighten = (c) => Math.min(1, c + 0.3);
   const rockPoint = [1.0, 0.55, 0.12];
   const airPoint = [lighten(cfg.AIR_LIGHT[0]), lighten(cfg.AIR_LIGHT[1]), lighten(cfg.AIR_LIGHT[2])];
-  if (state.ship.state !== "crashed"){
-    for (const [lx, ly] of local){
-      const [wx, wy] = rot2(lx, ly, shipRot);
-      body.push([state.ship.x + wx, state.ship.y + wy]);
-    }
-    pushTri(pos, col, body[0][0], body[0][1], body[1][0], body[1][1], body[2][0], body[2][1], 0.06, 0.08, 0.12, 1);
-    pushTri(pos, col, body[0][0], body[0][1], body[2][0], body[2][1], body[3][0], body[3][1], 0.06, 0.08, 0.12, 1);
-    triVerts += 6;
-  }
+  const toShipWorldLocal = (lx, ly) => {
+    const [wx, wy] = rot2(lx, ly, shipRot);
+    return [state.ship.x + wx, state.ship.y + wy];
+  };
+  // Normalized ship-local coords: x,y in [-0.5..0.5], liftN in ship heights.
+  const L = (x, y, liftN = 0) => {
+    return toShipWorldLocal(x * shipWWorld, (y + liftN) * shipHWorld);
+  };
+  const shipOutlineSize = 1/16;
+  /** @type {Array<{a:[number,number],b:[number,number],c:[number,number],col:[number,number,number,number],outline?:boolean}>} */
+  const shipTris = [];
+  /** @type {Array<{a:[number,number],b:[number,number],c:[number,number],col:[number,number,number,number],outline?:boolean}>} */
+  const gunTris = [];
+  /** @type {Array<{a:[number,number],b:[number,number],c:[number,number],col:[number,number,number,number],outline?:boolean}>} */
+  const windowTris = [];
+  const upLen = Math.hypot(state.ship.x, state.ship.y) || 1;
+  const upx = state.ship.x / upLen;
+  const upy = state.ship.y / upLen;
+  const topY = (0.6 + bodyLiftN) * shipHWorld;
+  const bottomY = (-0.6 + bodyLiftN) * shipHWorld;
+  const silverTop = [0.85, 0.87, 0.9];
+  const silverBottom = [0.55, 0.58, 0.62];
+  const addTri = (list, ax, ay, bx, by, cx, cy, cr, cg, cb, ca = 1, outline = true) => {
+    list.push({
+      a: [ax, ay],
+      b: [bx, by],
+      c: [cx, cy],
+      col: [cr, cg, cb, ca],
+      outline,
+    });
+  };
+  const addShipTri = (list, ax, ay, bx, by, cx, cy, ly, outline = true) => {
+    const mx = (ax + bx + cx) / 3;
+    const my = (ay + by + cy) / 3;
+    const localY = ly ?? ((mx - state.ship.x) * upx + (my - state.ship.y) * upy);
+    const t = Math.max(0, Math.min(1, (localY - bottomY) / Math.max(1e-6, topY - bottomY)));
+    const cr = silverBottom[0] + (silverTop[0] - silverBottom[0]) * t;
+    const cg = silverBottom[1] + (silverTop[1] - silverBottom[1]) * t;
+    const cb = silverBottom[2] + (silverTop[2] - silverBottom[2]) * t;
+    addTri(list, ax, ay, bx, by, cx, cy, cr, cg, cb, 1, outline);
+  };
+  const appendShipGeometry = () => {
+    if (state.ship.state === "crashed") return;
+    {
+      const cargoTopN = 0.18;
+      const cargoBottomN = -0.35;
+      const bottomHalfW = 0.85;
+      const topHalfW = 0.6;
+      const lb = L(-bottomHalfW, cargoBottomN, bodyLiftN);
+      const rb = L(bottomHalfW, cargoBottomN, bodyLiftN);
+      const rt = L(topHalfW, cargoTopN, bodyLiftN);
+      const lt = L(-topHalfW, cargoTopN, bodyLiftN);
+      addShipTri(shipTris, lb[0], lb[1], rb[0], rb[1], rt[0], rt[1]);
+      addShipTri(shipTris, lb[0], lb[1], rt[0], rt[1], lt[0], lt[1]);
 
-  if (state.miners && state.miners.length){
-    for (const miner of state.miners){
-      if (miner.state === "boarded") continue;
-      if (!planet.fogSeenAt(miner.x, miner.y)) continue;
-      if (miner.state === "running"){
-        pushMiner(pos, col, miner.x, miner.y, miner.jumpCycle, 0.98, 0.62, 0.2, game.MINER_SCALE);
+      const cabOffset = 0.75 * cabinSide;
+      const cabHalfW = 0.28;
+      const cabBaseY = cargoBottomN;
+      const cabTipY = cargoTopN;
+      const cabTip = L(cabOffset, cabTipY, bodyLiftN);
+      const cabBL = L(cabOffset - cabHalfW, cabBaseY, bodyLiftN);
+      const cabBR = L(cabOffset + cabHalfW, cabBaseY, bodyLiftN);
+      addShipTri(shipTris, cabBL[0], cabBL[1], cabBR[0], cabBR[1], cabTip[0], cabTip[1]);
+
+      const winHalfW = cabHalfW * 0.5;
+      const winBaseY = cabBaseY + (cabTipY - cabBaseY) * 0.25;
+      const winTipY = cabBaseY + (cabTipY - cabBaseY) * 0.8;
+      const winTip = L(cabOffset, winTipY, bodyLiftN);
+      const winBL = L(cabOffset - winHalfW, winBaseY, bodyLiftN);
+      const winBR = L(cabOffset + winHalfW, winBaseY, bodyLiftN);
+      addTri(windowTris, winBL[0], winBL[1], winBR[0], winBR[1], winTip[0], winTip[1], 0.05, 0.05, 0.05, 1, false);
+
+      const gunLen = shipHWorld * 1.05;
+      const gunHalfW = shipWWorld * 0.09;
+      const mountOffset = gunLen * 0.25;
+      const [mountCx, mountCy] = L(0, cargoTopN + 0.12 + 0.04, bodyLiftN);
+      let dirx = 0;
+      let diry = 0;
+      if (state.aimWorld){
+        const ao = state.aimOrigin || state.ship;
+        dirx = state.aimWorld.x - ao.x;
+        diry = state.aimWorld.y - ao.y;
+        const dlen = Math.hypot(dirx, diry);
+        if (dlen > 1e-4){
+          dirx /= dlen;
+          diry /= dlen;
+        } else {
+          dirx = cabinSide;
+          diry = 0;
+        }
+      } else if (state.ship.state === "landed"){
+        const rightx = upy;
+        const righty = -upx;
+        dirx = rightx * cabinSide;
+        diry = righty * cabinSide;
       } else {
-        pushMiner(pos, col, miner.x, miner.y, miner.jumpCycle, 0.98, 0.85, 0.25, game.MINER_SCALE);
+        const r = Math.hypot(state.ship.x, state.ship.y) || 1;
+        dirx = state.ship.x / r;
+        diry = state.ship.y / r;
       }
-      triVerts += 6;
+      const px = -diry;
+      const py = dirx;
+      const gmx = mountCx;
+      const gmy = mountCy;
+      const backCx = gmx - dirx * mountOffset;
+      const backCy = gmy - diry * mountOffset;
+      const frontCx = backCx + dirx * gunLen;
+      const frontCy = backCy + diry * gunLen;
+      const backL = [backCx + px * gunHalfW, backCy + py * gunHalfW];
+      const backR = [backCx - px * gunHalfW, backCy - py * gunHalfW];
+      const frontL = [frontCx + px * gunHalfW, frontCy + py * gunHalfW];
+      const frontR = [frontCx - px * gunHalfW, frontCy - py * gunHalfW];
+      addShipTri(gunTris, backL[0], backL[1], backR[0], backR[1], frontR[0], frontR[1], undefined, false);
+      addShipTri(gunTris, backL[0], backL[1], frontR[0], frontR[1], frontL[0], frontL[1], undefined, false);
+      // Gun strut (vertical post from cargo top to pivot)
+      const gstrutW = 0.05;
+      const gsb0 = L(-gstrutW, cargoTopN, bodyLiftN);
+      const gsb1 = L(gstrutW, cargoTopN, bodyLiftN);
+      const gst0 = L(-gstrutW, cargoTopN + 0.12, bodyLiftN);
+      const gst1 = L(gstrutW, cargoTopN + 0.12, bodyLiftN);
+      addShipTri(shipTris, gsb0[0], gsb0[1], gsb1[0], gsb1[1], gst1[0], gst1[1], undefined, false);
+      addShipTri(shipTris, gsb0[0], gsb0[1], gst1[0], gst1[1], gst0[0], gst0[1], undefined, false);
+
+      // Landing skis under cargo
+      const skiY0 = cargoBottomN;
+      const skiY1 = skiY0 + 0.05;
+      const skiHalfW = 0.2;
+      const skiOffset = 0.32;
+      const skiL0 = L(-skiOffset - skiHalfW, skiY0, skiLiftN);
+      const skiL1 = L(-skiOffset + skiHalfW, skiY0, skiLiftN);
+      const skiL2 = L(-skiOffset + skiHalfW, skiY1, skiLiftN);
+      const skiL3 = L(-skiOffset - skiHalfW, skiY1, skiLiftN);
+      addShipTri(shipTris, skiL0[0], skiL0[1], skiL1[0], skiL1[1], skiL2[0], skiL2[1]);
+      addShipTri(shipTris, skiL0[0], skiL0[1], skiL2[0], skiL2[1], skiL3[0], skiL3[1]);
+      const skiR0 = L(skiOffset - skiHalfW, skiY0, skiLiftN);
+      const skiR1 = L(skiOffset + skiHalfW, skiY0, skiLiftN);
+      const skiR2 = L(skiOffset + skiHalfW, skiY1, skiLiftN);
+      const skiR3 = L(skiOffset - skiHalfW, skiY1, skiLiftN);
+      addShipTri(shipTris, skiR0[0], skiR0[1], skiR1[0], skiR1[1], skiR2[0], skiR2[1]);
+      addShipTri(shipTris, skiR0[0], skiR0[1], skiR2[0], skiR2[1], skiR3[0], skiR3[1]);
+      // Ski struts
+      const strutW = 0.05;
+      const strutTop = cargoBottomN;
+      const strutBot = skiY1 + 0.01;
+      const sL0 = L(-skiOffset - strutW, strutBot, skiLiftN);
+      const sL1 = L(-skiOffset + strutW, strutBot, skiLiftN);
+      const sL2 = L(-skiOffset + strutW, strutTop, bodyLiftN);
+      const sL3 = L(-skiOffset - strutW, strutTop, bodyLiftN);
+      addShipTri(shipTris, sL0[0], sL0[1], sL1[0], sL1[1], sL2[0], sL2[1], undefined, false);
+      addShipTri(shipTris, sL0[0], sL0[1], sL2[0], sL2[1], sL3[0], sL3[1], undefined, false);
+      const sR0 = L(skiOffset - strutW, strutBot, skiLiftN);
+      const sR1 = L(skiOffset + strutW, strutBot, skiLiftN);
+      const sR2 = L(skiOffset + strutW, strutTop, bodyLiftN);
+      const sR3 = L(skiOffset - strutW, strutTop, bodyLiftN);
+      addShipTri(shipTris, sR0[0], sR0[1], sR1[0], sR1[1], sR2[0], sR2[1], undefined, false);
+      addShipTri(shipTris, sR0[0], sR0[1], sR2[0], sR2[1], sR3[0], sR3[1], undefined, false);
     }
-  }
+  };
 
   if (state.enemies && state.enemies.length){
+    const tNow = performance.now() * 0.001;
+    const outlineSize = 1/16;
     for (const enemy of state.enemies){
       if (!planet.fogSeenAt(enemy.x, enemy.y)) continue;
+      /** @type {[number,number,number]} */
+      let base;
       if (enemy.type === "hunter"){
-        pushEnemy(pos, col, enemy.x, enemy.y, 0.92, 0.25, 0.2, game.ENEMY_SCALE);
+        base = [0.92, 0.25, 0.2];
       } else if (enemy.type === "ranger"){
-        pushEnemy(pos, col, enemy.x, enemy.y, 0.2, 0.75, 0.95, game.ENEMY_SCALE);
+        base = [0.2, 0.75, 0.95];
       } else if (enemy.type === "crawler") {
-        pushEnemy(pos, col, enemy.x, enemy.y, 0.95, 0.55, 0.2, game.ENEMY_SCALE);
+        base = [0.95, 0.55, 0.2];
       } else {
-        pushEnemy(pos, col, enemy.x, enemy.y, 0.5, 0.125, 1.0, game.ENEMY_SCALE);
+        base = [0.5, 0.125, 1.0];
       }
-      triVerts += 3;
+      const outline = /** @type {[number,number,number]} */ ([base[0] * 0.55, base[1] * 0.55, base[2] * 0.55]);
+      triVerts += pushEnemyShape(pos, col, enemy, outline, game.ENEMY_SCALE, 1, false, outlineSize) * 3;
+      triVerts += pushEnemyShape(pos, col, enemy, base, game.ENEMY_SCALE, 1, true) * 3;
+      if (enemy.hitT && enemy.hitT > 0){
+        const pulse = 0.5 + 0.5 * Math.sin(tNow * 14.0);
+        const alpha = 0.25 + pulse * 0.45;
+        triVerts += pushEnemyShape(pos, col, enemy, [1.0, 0.2, 0.2], game.ENEMY_SCALE * 1.08, alpha, false) * 3;
+      }
     }
   }
 
@@ -617,6 +944,80 @@ function drawFrameImpl(renderer, state, planet){
     }
   }
 
+  appendShipGeometry();
+  if (shipTris.length){
+    for (const t of shipTris){
+      if (!t.outline) continue;
+      const ax = t.a[0], ay = t.a[1];
+      const bx = t.b[0], by = t.b[1];
+      const cx = t.c[0], cy = t.c[1];
+      const cxm = (ax + bx + cx) / 3;
+      const cym = (ay + by + cy) / 3;
+      const da = Math.hypot(ax - cxm, ay - cym);
+      const db = Math.hypot(bx - cxm, by - cym);
+      const dc = Math.hypot(cx - cxm, cy - cym);
+      const maxd = Math.max(da, db, dc);
+      const scaleO = maxd > 1e-6 ? (maxd + shipOutlineSize) / maxd : 1;
+      const sax = cxm + (ax - cxm) * scaleO;
+      const say = cym + (ay - cym) * scaleO;
+      const sbx = cxm + (bx - cxm) * scaleO;
+      const sby = cym + (by - cym) * scaleO;
+      const scx = cxm + (cx - cxm) * scaleO;
+      const scy = cym + (cy - cym) * scaleO;
+      pushTri(pos, col, sax, say, sbx, sby, scx, scy, t.col[0] * 0.55, t.col[1] * 0.55, t.col[2] * 0.55, t.col[3]);
+      triVerts += 3;
+    }
+    for (const t of shipTris){
+      pushTri(pos, col, t.a[0], t.a[1], t.b[0], t.b[1], t.c[0], t.c[1], t.col[0], t.col[1], t.col[2], t.col[3]);
+      triVerts += 3;
+    }
+  }
+  if (windowTris.length){
+    for (const t of windowTris){
+      pushTri(pos, col, t.a[0], t.a[1], t.b[0], t.b[1], t.c[0], t.c[1], t.col[0], t.col[1], t.col[2], t.col[3]);
+      triVerts += 3;
+    }
+  }
+  if (gunTris.length){
+    for (const t of gunTris){
+      pushTri(pos, col, t.a[0], t.a[1], t.b[0], t.b[1], t.c[0], t.c[1], t.col[0], t.col[1], t.col[2], t.col[3]);
+      triVerts += 3;
+    }
+    for (const t of gunTris){
+      if (!t.outline) continue;
+      const ax = t.a[0], ay = t.a[1];
+      const bx = t.b[0], by = t.b[1];
+      const cx = t.c[0], cy = t.c[1];
+      const cxm = (ax + bx + cx) / 3;
+      const cym = (ay + by + cy) / 3;
+      const da = Math.hypot(ax - cxm, ay - cym);
+      const db = Math.hypot(bx - cxm, by - cym);
+      const dc = Math.hypot(cx - cxm, cy - cym);
+      const maxd = Math.max(da, db, dc);
+      const scaleO = maxd > 1e-6 ? (maxd + shipOutlineSize) / maxd : 1;
+      const sax = cxm + (ax - cxm) * scaleO;
+      const say = cym + (ay - cym) * scaleO;
+      const sbx = cxm + (bx - cxm) * scaleO;
+      const sby = cym + (by - cym) * scaleO;
+      const scx = cxm + (cx - cxm) * scaleO;
+      const scy = cym + (cy - cym) * scaleO;
+      pushTri(pos, col, sax, say, sbx, sby, scx, scy, t.col[0] * 0.55, t.col[1] * 0.55, t.col[2] * 0.55, t.col[3]);
+      triVerts += 3;
+    }
+  }
+
+  if (state.miners && state.miners.length){
+    for (const miner of state.miners){
+      if (miner.state === "boarded") continue;
+      if (!planet.fogSeenAt(miner.x, miner.y)) continue;
+      if (miner.state === "running"){
+        triVerts += pushMiner(pos, col, miner.x, miner.y, miner.jumpCycle, 0.98, 0.62, 0.2, game.MINER_SCALE, false, 1/16) * 3;
+      } else {
+        triVerts += pushMiner(pos, col, miner.x, miner.y, miner.jumpCycle, 0.98, 0.85, 0.25, game.MINER_SCALE, false, 1/16) * 3;
+      }
+    }
+  }
+
   if (state.shots && state.shots.length){
     const size = 0.10;
     for (const s of state.shots){
@@ -643,14 +1044,6 @@ function drawFrameImpl(renderer, state, planet){
     }
   }
 
-  if (state.ship.state !== "crashed"){
-    pushLine(pos, col, body[0][0], body[0][1], body[1][0], body[1][1], 0.9, 0.9, 0.9, 1);
-    pushLine(pos, col, body[1][0], body[1][1], body[2][0], body[2][1], 0.9, 0.9, 0.9, 1);
-    pushLine(pos, col, body[2][0], body[2][1], body[3][0], body[3][1], 0.9, 0.9, 0.9, 1);
-    pushLine(pos, col, body[3][0], body[3][1], body[0][0], body[0][1], 0.9, 0.9, 0.9, 1);
-    lineVerts += 8;
-  }
-
   /**
    * @param {number} dx
    * @param {number} dy
@@ -661,22 +1054,24 @@ function drawFrameImpl(renderer, state, planet){
    */
   const thrustV = (dx, dy, r, g, b, extraOffset = 0) => {
     const mag = Math.hypot(dx, dy) || 1;
-    const ux = -dx / mag;
-    const uy = -dy / mag;
+    const posUx = -dx / mag;
+    const posUy = -dy / mag;
+    const ux = dx / mag;
+    const uy = dy / mag;
     const len = shipHWorld * 0.28;
     const spread = shipHWorld * 0.12;
     const px = -uy;
     const py = ux;
-    const offset = shipHWorld * 0.55 + extraOffset;
+    const offset = shipHWorld * 0.72 + extraOffset;
     const tipx = ux * len;
     const tipy = uy * len;
     const b1x = -ux * len * 0.45 + px * spread;
     const b1y = -uy * len * 0.45 + py * spread;
     const b2x = -ux * len * 0.45 - px * spread;
     const b2y = -uy * len * 0.45 - py * spread;
-    const [tx, ty] = rot2(tipx + ux * offset, tipy + uy * offset, shipRot);
-    const [p1x, p1y] = rot2(b1x + ux * offset, b1y + uy * offset, shipRot);
-    const [p2x, p2y] = rot2(b2x + ux * offset, b2y + uy * offset, shipRot);
+    const [tx, ty] = rot2(tipx + posUx * offset, tipy + posUy * offset, shipRot);
+    const [p1x, p1y] = rot2(b1x + posUx * offset, b1y + posUy * offset, shipRot);
+    const [p2x, p2y] = rot2(b2x + posUx * offset, b2y + posUy * offset, shipRot);
     pushLine(pos, col, state.ship.x + p1x, state.ship.y + p1y, state.ship.x + tx, state.ship.y + ty, r, g, b, 1);
     pushLine(pos, col, state.ship.x + p2x, state.ship.y + p2y, state.ship.x + tx, state.ship.y + ty, r, g, b, 1);
     lineVerts += 4;
@@ -684,10 +1079,10 @@ function drawFrameImpl(renderer, state, planet){
 
   if (state.ship.state !== "crashed"){
     const tc = [1.0, 0.55, 0.15];
-    if (state.input.thrust) thrustV(0, 1, tc[0], tc[1], tc[2]);
-    if (state.input.down) thrustV(0, -1, tc[0], tc[1], tc[2], shipHWorld * 0.08);
-    if (state.input.left) thrustV(-1, 0, tc[0], tc[1], tc[2]);
-    if (state.input.right) thrustV(1, 0, tc[0], tc[1], tc[2]);
+    if (state.input.thrust) thrustV(0, 1, tc[0], tc[1], tc[2], shipHWorld * 0.2);
+    if (state.input.down) thrustV(0, -1, tc[0], tc[1], tc[2], shipHWorld * 0.35);
+    if (state.input.left) thrustV(-1, 0, tc[0], tc[1], tc[2], shipWWorld * 0.5);
+    if (state.input.right) thrustV(1, 0, tc[0], tc[1], tc[2], shipWWorld * 0.5);
   }
 
   if (state.ship.state !== "crashed"){
@@ -722,7 +1117,8 @@ function drawFrameImpl(renderer, state, planet){
   }
 
   if (state.aimWorld){
-    pushLine(pos, col, state.ship.x, state.ship.y, state.aimWorld.x, state.aimWorld.y, 0.85, 0.9, 1.0, 0.65);
+    const ao = state.aimOrigin || state.ship;
+    pushLine(pos, col, ao.x, ao.y, state.aimWorld.x, state.aimWorld.y, 0.85, 0.9, 1.0, 0.65);
     lineVerts += 2;
   }
 

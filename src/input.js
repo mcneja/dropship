@@ -37,6 +37,7 @@ export class Input {
       nextLevel: false,
       shoot: false,
       bomb: false,
+      spawnEnemyType: null,
     };
     /** @type {boolean} */
     this.prevPadShoot = false;
@@ -144,6 +145,7 @@ export class Input {
     if (key === "m" || key === "M") this.oneshot.regen = true;
     if (key === "c" || key === "C") this.oneshot.toggleDebug = true;
     if (key === "n" || key === "N") this.oneshot.nextLevel = true;
+    if (key >= "1" && key <= "9") this.oneshot.spawnEnemyType = key;
   }
 
   /**
@@ -529,6 +531,7 @@ export class Input {
       nextLevel: this.oneshot.nextLevel,
       shoot: this.oneshot.shoot,
       bomb: this.oneshot.bomb,
+      spawnEnemyType: this.oneshot.spawnEnemyType,
       aim,
       aimShoot,
       aimBomb,
@@ -548,6 +551,7 @@ export class Input {
     this.oneshot.nextLevel = false;
     this.oneshot.shoot = false;
     this.oneshot.bomb = false;
+    this.oneshot.spawnEnemyType = null;
 
     return state;
   }
