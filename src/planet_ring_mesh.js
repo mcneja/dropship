@@ -6,11 +6,13 @@ export class RingMesh {
   /**
    * Build mesh geometry and sampling helpers from a map source.
    * @param {import("./mapgen.js").MapGen} map Map generator.
+   * @param {import("./planet_config.js").PlanetParams} params
    */
-  constructor(map){
+  constructor(map, params){
+    this._params = params;
     this._map = map;
     this._OUTER_PAD = 1.0;
-    this._R_MESH = CFG.RMAX + this._OUTER_PAD;
+    this._R_MESH = Math.max(0, Math.floor(params.RMAX)) + 1;
 
     /**
      * @param {number} r
@@ -28,9 +30,28 @@ export class RingMesh {
       const n = ringCount(r);
       const phase = (0.5/n) * 2*Math.PI;
       const out=[];
+      const useTopo = !!params.NO_CAVES;
+      const topoBand = (params.TOPO_BAND && params.TOPO_BAND > 0)
+        ? params.TOPO_BAND
+        : Math.min(params.RMAX * 0.28, 4.2);
+      const topoAmp = (params.TOPO_AMP && params.TOPO_AMP > 0)
+        ? params.TOPO_AMP
+        : Math.min(params.RMAX * 0.18, 2.4);
+      const topoFreq = (params.TOPO_FREQ && params.TOPO_FREQ > 0) ? params.TOPO_FREQ : 2.9;
+      const topoOctaves = (params.TOPO_OCTAVES && params.TOPO_OCTAVES > 0) ? params.TOPO_OCTAVES : 4;
       for (let k=0;k<n;k++){
         const a = 2*Math.PI*k/n + phase;
-        out.push({x:r*Math.cos(a), y:r*Math.sin(a), air:1});
+        let rr = r;
+        if (useTopo && r >= params.RMAX - topoBand){
+          const t = Math.max(0, Math.min(1, (r - (params.RMAX - topoBand)) / topoBand));
+          const nx = Math.cos(a) * topoFreq;
+          const ny = Math.sin(a) * topoFreq;
+          const nval = map.noise.fbm(nx, ny, topoOctaves, 0.5, 2.3);
+          rr = r + topoAmp * t * nval;
+          // Keep topography within the mapgen radius so terrain edits apply.
+          if (rr > params.RMAX) rr = params.RMAX;
+        }
+        out.push({x:rr*Math.cos(a), y:rr*Math.sin(a), air:1});
       }
       return out;
     }
@@ -87,8 +108,10 @@ export class RingMesh {
     const rings = [];
     /** @type {Array<Array<Array<{x:number,y:number,air:number}>>>} */
     const bandTris = [];
-    for (let r=0;r<=CFG.RMAX;r++) rings.push(ringVertices(r));
-    rings.push(ringVertices(CFG.RMAX + this._OUTER_PAD));
+    const rMaxInt = Math.max(0, Math.floor(params.RMAX));
+    for (let r=0;r<=rMaxInt;r++) rings.push(ringVertices(r));
+    rings.push(ringVertices(params.RMAX + this._OUTER_PAD));
+    this._R_MESH = rings.length - 1;
 
     for (const ring of rings){
       for (const v of ring){
@@ -99,6 +122,7 @@ export class RingMesh {
     for (let r=0;r<this._R_MESH;r++){
       const inner = rings[r];
       const outer = rings[r+1];
+      if (!inner || !outer) continue;
       if (r===0){
         const tris = [];
         for (let k=0;k<outer.length;k++){
@@ -150,14 +174,14 @@ export class RingMesh {
     this._triList = triList;
 
     this._fogCursor = 0;
-    this._fogRange = GAME.VIS_RANGE;
+    this._fogRange = params.VIS_RANGE;
     this._fogStep = GAME.VIS_STEP;
-    this._fogSeenAlpha = GAME.FOG_SEEN_ALPHA;
-    this._fogUnseenAlpha = GAME.FOG_UNSEEN_ALPHA;
+    this._fogSeenAlpha = params.FOG_SEEN_ALPHA;
+    this._fogUnseenAlpha = params.FOG_UNSEEN_ALPHA;
     this._fogHoldFrames = GAME.FOG_HOLD_FRAMES;
     this._fogLosThresh = GAME.FOG_LOS_THRESH ?? 0.45;
     this._fogAlphaLerp = GAME.FOG_ALPHA_LERP ?? 0.2;
-    this._fogBudgetTris = GAME.FOG_BUDGET_TRIS ?? 200;
+    this._fogBudgetTris = params.FOG_BUDGET_TRIS ?? 200;
     const total = this.triCount;
     this._fogAlpha = new Float32Array(total * 3);
     this._fogVisible = new Uint8Array(total);
@@ -208,7 +232,7 @@ export class RingMesh {
    */
   _sampleAirAtWorldExtended(x, y){
     const r = Math.hypot(x, y);
-    if (r > CFG.RMAX) return 1;
+    if (r > this._params.RMAX) return 1;
     return this._map.airBinaryAtWorld(x, y);
   }
 
@@ -262,7 +286,8 @@ export class RingMesh {
    */
   airValueAtWorld(x, y){
     const r = Math.hypot(x, y);
-    if (r > CFG.RMAX + this._OUTER_PAD) return 1;
+    if (this._params.NO_CAVES && r > this._params.RMAX) return 1;
+    if (r > this._params.RMAX + this._OUTER_PAD) return 1;
     const r0 = Math.floor(Math.min(this._R_MESH - 1, Math.max(0, r)));
     if (r0 <= 0){
       return this.rings[0][0].air;

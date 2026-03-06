@@ -55,100 +55,6 @@ function tryMoveAir(e, collision, dx, dy, speed, dt, collider){
   return false;
 }
 
-/**
- * @param {number} count
- * @param {number} seed
- * @param {{ airValueAtWorld:(x:number,y:number)=>number }} collision
- * @param {number} rMin
- * @param {number} rMax
- * @returns {Vec2[]}
- */
-function pickAirPoints(count, seed, collision, rMin, rMax){
-  if (rMin >= rMax) return [];
-  const rand = mulberry32(seed);
-
-  /** @type {Vec2[]} */
-  const points = [];
-  const attempts = Math.max(200, count * 80);
-  for (let i = 0; i < attempts && points.length < count; i++){
-    const ang = rand() * Math.PI * 2;
-    const r = Math.sqrt(rMin*rMin + rand() * (rMax*rMax - rMin*rMin));
-    const x = r * Math.cos(ang);
-    const y = r * Math.sin(ang);
-    if (collision.airValueAtWorld(x, y) <= 0.5) continue;
-    points.push([x, y]);
-  }
-  return points;
-}
-
-/**
- * @param {number} count
- * @param {number} seed
- * @param {{ airValueAtWorld:(x:number,y:number)=>number }} collision
- * @param {number} rMin
- * @param {number} rMax
- * @returns {Vec2[]}
- */
-function pickSurfacePoints(count, seed, collision, rMin, rMax){
-  if (rMin >= rMax) return [];
-
-  /** @type {Vec2[]} */
-  const points = [];
-
-  const minSpacing = 1.0;
-  const minSpacingSqr = minSpacing*minSpacing;
-
-  /**
-   * @param {{x:number, y:number}} pos 
-   * @returns {boolean}
-   */
-  const posTooCloseToOthers = (pos) => {
-    for (const posOther of points) {
-      const dx = posOther[0] - pos.x;
-      const dy = posOther[1] - pos.y;
-      if (dx*dx + dy*dy < minSpacingSqr) return true;
-    }
-    return false;
-  }
-
-  /**
-   * @param {number} x 
-   * @param {number} y 
-   * @param {number} offset 
-   * @returns {{x:number, y:number}|null}
-   */
-  const posOffsetFromSurface = (x, y, offset) => {
-    const eps = 0.1;
-
-    const dist = collision.airValueAtWorld(x, y) - (0.5 + offset);
-    const gdx = collision.airValueAtWorld(x + eps, y) - collision.airValueAtWorld(x - eps, y);
-    const gdy = collision.airValueAtWorld(x, y + eps) - collision.airValueAtWorld(x, y - eps);
-    const g = Math.hypot(gdx, gdy);
-    if (g < 1e-4) return null;
-
-    const step = -dist / g;
-    return {x: x + gdx * step, y: y + gdy * step};
-  }
-
-  const rand = mulberry32(seed);
-
-  const attempts = Math.max(200, count * 80);
-  for (let i = 0; i < attempts && points.length < count; i++){
-    const ang = rand() * Math.PI * 2;
-    const r = Math.sqrt(rMin*rMin + rand() * (rMax*rMax - rMin*rMin));
-    const x = r * Math.cos(ang);
-    const y = r * Math.sin(ang);
-    const air = collision.airValueAtWorld(x, y);
-    if (air < 0.25) continue;
-    if (air > 0.75) continue;
-    const pos = posOffsetFromSurface(x, y, 0.125);
-    if (pos === null) continue;
-    if (posTooCloseToOthers(pos)) continue;
-    points.push([pos.x, pos.y]);
-  }
-  return points;
-}
-
 export class Enemies {
   /**
    * Build enemy state and behavior helpers.
@@ -156,12 +62,14 @@ export class Enemies {
    * @param {import("./planet.js").Planet} deps.planet Planet (gravity/orbits).
    * @param {import("./types.d.js").CollisionQuery} deps.collision Collision query API.
    * @param {number} deps.total Initial enemy count to spawn.
+   * @param {"uniform"|"random"|"clusters"} [deps.placement]
    * @param {number} deps.level Current level index.
    * @param {number} deps.levelSeed Base seed for this level.
    */
-  constructor({ planet, collision, total, level, levelSeed }){
+  constructor({ planet, collision, total, level, levelSeed, placement }){
     this.planet = planet;
     this.collision = collision;
+    this.params = planet.getPlanetParams();
 
     /** @type {Enemy[]} */
     this.enemies = [];
@@ -191,7 +99,8 @@ export class Enemies {
     this._RANGER_COLLIDER = circleOffsets(0.22, 6);
     this._CRAWLER_COLLIDER = circleOffsets(0.2, 6);
 
-    this.spawn(total, level, levelSeed);
+    this._placement = placement || "random";
+    this.spawn(total, level, levelSeed, this._placement);
   }
 
   /**
@@ -234,29 +143,51 @@ export class Enemies {
    * @param {number} levelSeed
    * @returns {void}
    */
-  spawn(total, level, levelSeed){
+  spawn(total, level, levelSeed, placement){
     const { collision, planet } = this;
     this.enemies.length = 0;
     this.shots.length = 0;
     this.explosions.length = 0;
     this.debris.length = 0;
     if (total <= 0) return;
+    const planetCfg = planet.getPlanetConfig ? planet.getPlanetConfig() : null;
+    const allowedSet = new Set((planetCfg && planetCfg.enemyAllow) ? planetCfg.enemyAllow : []);
+    if (allowedSet.size === 0){
+      allowedSet.add("hunter");
+    }
+    /** @type {EnemyType[]} */
+    const fallbackOrder = ["hunter", "ranger", "crawler", "turret"];
+    /** @type {EnemyType} */
+    const fallbackType = fallbackOrder.find((t) => allowedSet.has(t)) || "hunter";
     const seed = levelSeed + level * 133;
     let numEnemiesRemaining = total;
-    const hunters = Math.min(numEnemiesRemaining, Math.floor(total * 0.125));
+    let hunters = Math.min(numEnemiesRemaining, Math.floor(total * 0.125));
     numEnemiesRemaining -= hunters;
-    const rangers = Math.min(numEnemiesRemaining, Math.floor(total * 0.25));
+    let rangers = Math.min(numEnemiesRemaining, Math.floor(total * 0.25));
     numEnemiesRemaining -= rangers;
-    const crawlers = Math.min(numEnemiesRemaining, Math.floor(total * 0.25));
+    let crawlers = Math.min(numEnemiesRemaining, Math.floor(total * 0.25));
     numEnemiesRemaining -= crawlers;
-    const turrets = numEnemiesRemaining;
-    const orbitingTurrets = 8;
+    let turrets = numEnemiesRemaining;
+    let orbitingTurrets = 8;
 
-    const rHunterRangerMax = CFG.RMAX - 1.0;
-    const hunterPts = pickAirPoints(hunters, seed + 1, collision, rHunterRangerMax * 0.5, rHunterRangerMax);
-    const rangerPts = pickAirPoints(rangers, seed + 2, collision, rHunterRangerMax * 0.75, rHunterRangerMax);
-    const crawlerPts = pickAirPoints(crawlers, seed + 3, collision, 0.0, CFG.RMAX - 0.6);
-    const turretPts = pickSurfacePoints(turrets, seed + 4, collision, CFG.RMAX/2, CFG.RMAX + 0.5);
+    let remainder = 0;
+    if (!allowedSet.has("hunter")){ remainder += hunters; hunters = 0; }
+    if (!allowedSet.has("ranger")){ remainder += rangers; rangers = 0; }
+    if (!allowedSet.has("crawler")){ remainder += crawlers; crawlers = 0; }
+    if (!allowedSet.has("turret")){ remainder += turrets; turrets = 0; }
+    if (remainder > 0){
+      if (fallbackType === "hunter") hunters += remainder;
+      else if (fallbackType === "ranger") rangers += remainder;
+      else if (fallbackType === "crawler") crawlers += remainder;
+      else turrets += remainder;
+    }
+    if (!allowedSet.has("orbitingTurret")) orbitingTurrets = 0;
+
+    const rHunterRangerMax = this.params.RMAX - 1.0;
+    const hunterPts = planet.sampleAirPoints(hunters, seed + 1, rHunterRangerMax * 0.5, rHunterRangerMax, placement);
+    const rangerPts = planet.sampleAirPoints(rangers, seed + 2, rHunterRangerMax * 0.75, rHunterRangerMax, placement);
+    const crawlerPts = planet.sampleAirPoints(crawlers, seed + 3, 0.0, this.params.RMAX - 0.6, placement);
+    const turretPts = planet.sampleTurretPoints(turrets, seed + 4, placement);
 
     for (const [x, y] of hunterPts){
       this.enemies.push({ type: "hunter", x, y, vx: 0, vy: 0, cooldown: Math.random(), hp: 3 });
@@ -272,12 +203,25 @@ export class Enemies {
       this.enemies.push({ type: "crawler", x, y, vx: vx, vy: vy, cooldown: 0, hp: 1 });
     }
     for (const [x, y] of turretPts){
-      this.enemies.push({ type: "turret", x, y, vx: 0, vy: 0, cooldown: Math.random(), hp: 1 });
+      let tx = x;
+      let ty = y;
+      const res = planet.nudgeOutOfTerrain(tx, ty, 0.8, 0.08, 0.18);
+      if (res && res.ok){
+        tx = res.x;
+        ty = res.y;
+      }
+      const info = planet.surfaceInfoAtWorld(tx, ty, 0.18);
+      if (info){
+        const lift = 0.18;
+        tx += info.nx * lift;
+        ty += info.ny * lift;
+      }
+      this.enemies.push({ type: "turret", x: tx, y: ty, vx: 0, vy: 0, cooldown: Math.random(), hp: 1 });
     }
     {
       const rand = mulberry32(seed + 5);
       const directionCCW = (rand() < 0.5);
-      const perigee = CFG.RMAX + 2;
+      const perigee = this.params.RMAX + 2;
       const eccentricity = rand() * 0.15;
       let angle = rand() * Math.PI * 2;
       for (let i = 0; i < orbitingTurrets; ++i){
@@ -302,8 +246,8 @@ export class Enemies {
         const {x: gx, y: gy} = collision.gravityAt(d.x, d.y);
         d.vx += gx * dt;
         d.vy += gy * dt;
-        d.vx *= Math.max(0, 1 - GAME.DRAG * dt);
-        d.vy *= Math.max(0, 1 - GAME.DRAG * dt);
+        d.vx *= Math.max(0, 1 - this.params.DRAG * dt);
+        d.vy *= Math.max(0, 1 - this.params.DRAG * dt);
         d.x += d.vx * dt;
         d.y += d.vy * dt;
         d.a += d.w * dt;

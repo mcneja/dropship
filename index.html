@@ -9,6 +9,9 @@
   <link rel="manifest" href="%BASE_URL%manifest.webmanifest" />
   <meta charset="utf-8" />
   <title>Dropship</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Science+Gothic:wght@100..900&display=swap" rel="stylesheet" />
   <style>
     html,body { margin:0; height:100%; background:#000; }
     #gl, #overlay {
@@ -21,12 +24,28 @@
       font: 13px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
       background: rgba(0,0,0,0.35); padding:8px 10px; border:1px solid #111; border-radius:8px;
     }
+    #planet-label {
+      position: fixed; right: 16px; bottom: 12px;
+      color: #dbe7ff; letter-spacing: 0.04em;
+      font: 600 20px "Science Gothic", ui-sans-serif, system-ui, sans-serif;
+      text-shadow: 0 2px 10px rgba(0,0,0,0.6);
+      pointer-events: none; user-select: none;
+    }
+    #objective-label {
+      position: fixed; left: 16px; bottom: 12px;
+      color: #e8f0ff; letter-spacing: 0.03em;
+      font: 600 18px "Science Gothic", ui-sans-serif, system-ui, sans-serif;
+      text-shadow: 0 2px 10px rgba(0,0,0,0.6);
+      pointer-events: none; user-select: none;
+    }
   </style>
 </head>
 <body>
 <canvas id="gl"></canvas>
 <canvas id="overlay"></canvas>
 <div id="hud"></div>
+<div id="planet-label"></div>
+<div id="objective-label"></div>
 
 <script type="module" src="/src/main.js"></script>
 </body>
