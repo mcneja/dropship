@@ -61,11 +61,15 @@ export class Input {
     this.aimTouchBombFrom = null;
     /** @type {Point|null} */
     this.aimTouchBombTo = null;
+    /** @type {Point|null} */
+    this.bombReleaseFrom = null;
+    /** @type {Point|null} */
+    this.bombReleaseTo = null;
     /** @type {"keyboard"|"mouse"|"touch"|"gamepad"|null} */
     this.lastInputType = null;
     this.lastPointerShootTime = 0;
     this.SHOOT_DEBOUNCE_MS = 50;
-    this.LASER_INTERVAL_MS = 500;
+    this.LASER_INTERVAL_MS = 100;
     this.BOMB_INTERVAL_MS = 2000;
     this.pointerLocked = false;
     /** @type {boolean} */
@@ -104,6 +108,8 @@ export class Input {
       this.aimTouchShootTo = null;
       this.aimTouchBombFrom = null;
       this.aimTouchBombTo = null;
+      this.bombReleaseFrom = null;
+      this.bombReleaseTo = null;
       this.leftControl.id = null;
       this.leftControl.pos = null;
       this.leftControl.start = null;
@@ -313,6 +319,18 @@ export class Input {
       this.laserControl.pos = null;
       this.laserControl.start = null;
     } else if (this.bombControl.id === e.pointerId){
+      const start = this.bombControl.start;
+      const pos = this.bombControl.pos;
+      if (start && pos){
+        const dx = pos.x - start.x;
+        const dy = pos.y - start.y;
+        const moved = Math.hypot(dx, dy);
+        if (moved >= TOUCH_UI.dead){
+          this.oneshot.bomb = true;
+          this.bombReleaseFrom = { x: TOUCH_UI.bomb.x, y: TOUCH_UI.bomb.y };
+          this.bombReleaseTo = { x: pos.x, y: pos.y };
+        }
+      }
       this.bombControl.id = null;
       this.bombControl.pos = null;
       this.bombControl.start = null;
@@ -483,13 +501,6 @@ export class Input {
         this.laserControl.lastFire = now;
       }
     }
-    if (!this.gameOver && this.aimTouchBomb && this.bombControl.id !== null){
-      if (now - this.bombControl.lastFire >= this.BOMB_INTERVAL_MS){
-        this.oneshot.bomb = true;
-        this.bombControl.lastFire = now;
-      }
-    }
-
     const touchUiVisible = !this.gameOver && this.lastInputType === "touch";
     const touchUi = touchUiVisible ? {
       leftTouch: this.leftControl.pos,
@@ -500,6 +511,12 @@ export class Input {
     let aimShoot = null;
     let aimBomb = null;
     let aim = null;
+    let aimBombFrom = this.aimTouchBombFrom;
+    let aimBombTo = this.aimTouchBombTo;
+    if (this.bombReleaseFrom && this.bombReleaseTo){
+      aimBombFrom = this.bombReleaseFrom;
+      aimBombTo = this.bombReleaseTo;
+    }
     if (this.gameOver){
       aimShoot = null;
       aimBomb = null;
@@ -543,8 +560,8 @@ export class Input {
       aimBomb,
       aimShootFrom: this.aimTouchShootFrom,
       aimShootTo: this.aimTouchShootTo,
-      aimBombFrom: this.aimTouchBombFrom,
-      aimBombTo: this.aimTouchBombTo,
+      aimBombFrom,
+      aimBombTo,
       touchUi,
       touchUiVisible,
       inputType: this.lastInputType,
@@ -560,6 +577,8 @@ export class Input {
     this.oneshot.shoot = false;
     this.oneshot.bomb = false;
     this.oneshot.spawnEnemyType = null;
+    this.bombReleaseFrom = null;
+    this.bombReleaseTo = null;
 
     return state;
   }

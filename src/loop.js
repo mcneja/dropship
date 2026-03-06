@@ -228,15 +228,21 @@ export class GameLoop {
     if (this.objective.type === "clear"){
       const remaining = this.enemies ? this.enemies.enemies.length : 0;
       const target = this.objective.target || 0;
-      return `Objective: Clear ${remaining}${target ? `/${target}` : ""}`;
+      const done = target ? Math.max(0, target - remaining) : 0;
+      return `Objective: Clear ${done}${target ? `/${target}` : ""}`;
     }
     if (this.objective.type === "extract"){
       const remaining = this.minersRemaining;
       const target = this.objective.target || 0;
-      return `Objective: Extract ${remaining}${target ? `/${target}` : ""} (dead ${this.minersDead})`;
+      const rescued = target ? Math.max(0, target - remaining) : 0;
+      return `Objective: Extract ${rescued}${target ? `/${target}` : ""} (dead ${this.minersDead})`;
     }
     if (this.minerTarget > 0){
-      return `Objective: Clear ${this.enemies.enemies.length} | Rescue ${this.minersRemaining}/${this.minerTarget} (dead ${this.minersDead})`;
+      const remaining = this.enemies ? this.enemies.enemies.length : 0;
+      const clearTarget = this.objective && this.objective.target ? this.objective.target : 0;
+      const cleared = clearTarget ? Math.max(0, clearTarget - remaining) : 0;
+      const rescued = Math.max(0, this.minerTarget - this.minersRemaining);
+      return `Objective: Clear ${cleared}/${clearTarget} | Rescue ${rescued}/${this.minerTarget} (dead ${this.minersDead})`;
     }
     return `Objective: ${this.objective.type}`;
   }
@@ -876,6 +882,11 @@ export class GameLoop {
       aimShoot = aimAdjusted;
       aimBomb = aimAdjusted;
     }
+    if (!aim && this.lastAimScreen){
+      aim = this.lastAimScreen;
+    }
+    if (!aimShoot) aimShoot = aim;
+    if (!aimBomb) aimBomb = aimShoot || aim;
     if (reset) this._resetShip();
     if (spawnEnemyType){
       const map = {
