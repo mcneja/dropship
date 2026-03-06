@@ -61,21 +61,24 @@ export class GameLoop {
 
     const mothership = new Mothership({ RMAX: this.planetParams.RMAX, MOTHERSHIP_ORBIT_HEIGHT: this.planetParams.MOTHERSHIP_ORBIT_HEIGHT }, this.planet);
 
+    const c = Math.cos(mothership.angle);
+    const s = Math.sin(mothership.angle);
+
     /** @type {Ship} */
     this.ship = {
-      x: mothership.x,
-      y: mothership.y,
+      x: mothership.x + c * GAME.MOTHERSHIP_START_DOCK_X - s * GAME.MOTHERSHIP_START_DOCK_Y,
+      y: mothership.y + s * GAME.MOTHERSHIP_START_DOCK_X + c * GAME.MOTHERSHIP_START_DOCK_Y,
       vx: mothership.vx,
       vy: mothership.vy,
-      state: "flying",
+      state: "landed",
       explodeT: 0,
       lastAir: 1,
       hp: GAME.SHIP_MAX_HP,
       hitCooldown: 0,
       cabinSide: 1,
       guidePath: null,
+      _dock: {lx: GAME.MOTHERSHIP_START_DOCK_X, ly: GAME.MOTHERSHIP_START_DOCK_Y},
     };
-    this.ship._dock = null;
     this.mothership = mothership;
     /** @type {Array<{x:number,y:number,vx:number,vy:number,a:number,w:number,life:number}>} */
     this.debris = [];
@@ -166,6 +169,7 @@ export class GameLoop {
         this.minersDead++;
       },
     };
+    this.planetView = false;
   }
 
   /**
@@ -241,15 +245,17 @@ export class GameLoop {
    * @returns {void}
    */
   _resetShip(){
-    this.ship.x = this.mothership.x;
-    this.ship.y = this.mothership.y;
+    const c = Math.cos(this.mothership.angle);
+    const s = Math.sin(this.mothership.angle);
+    this.ship.x = this.mothership.x + c * GAME.MOTHERSHIP_START_DOCK_X - s * GAME.MOTHERSHIP_START_DOCK_Y;
+    this.ship.y = this.mothership.y + s * GAME.MOTHERSHIP_START_DOCK_X + c * GAME.MOTHERSHIP_START_DOCK_Y;
     this.ship.vx = this.mothership.vx;
     this.ship.vy = this.mothership.vy;
-    this.ship.state = "flying";
+    this.ship.state = "landed";
     this.ship.explodeT = 0;
     this.ship.hp = GAME.SHIP_MAX_HP;
     this.ship.hitCooldown = 0;
-    this.ship._dock = null;
+    this.ship._dock = {lx: GAME.MOTHERSHIP_START_DOCK_X, ly: GAME.MOTHERSHIP_START_DOCK_Y};
     this.debris.length = 0;
     this.playerShots.length = 0;
     this.playerBombs.length = 0;
@@ -403,6 +409,15 @@ export class GameLoop {
    * @returns {ViewState}
    */
   _viewState() {
+    if (this.planetView){
+      return {
+        xCenter: 0,
+        yCenter: 0,
+        radius: (this.planet.planetRadius + CFG.PAD) * 1.05,
+        angle: 0,
+      };
+    }
+
     const radiusViewMin = GAME.PLANETSIDE_ZOOM;
     const rShip = Math.hypot(this.ship.x, this.ship.y);
     const rPlanet = this.planetParams.RMAX + this.planetParams.PAD;
@@ -701,14 +716,7 @@ export class GameLoop {
       const wy = s * lx + c * ly;
       verts.push([x + wx, y + wy]);
     }
-    /** @type {Array<[number, number]>} */
-    const samples = [...verts];
-    for (let i = 0; i < verts.length; i++){
-      const a = verts[i];
-      const b = verts[(i + 1) % verts.length];
-      samples.push([(a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5]);
-    }
-    return samples;
+    return verts;
   }
 
   /**
@@ -801,34 +809,22 @@ export class GameLoop {
 
   _shipLocalHullPoints(){
     const shipHWorld = 0.7 * GAME.SHIP_SCALE;
-    const shipWWorld = 0.75 * GAME.SHIP_SCALE;
+    const shipWWorld = 0.7 * GAME.SHIP_SCALE;
     const bodyLift = shipHWorld * 0.18;
     const cargoTop = shipHWorld * 0.18;
-    const cargoBottom = -shipHWorld * 0.35;
-    const bottomHalfW = shipWWorld * 0.85;
-    const topHalfW = shipWWorld * 0.6;
+    const cargoBottom = -shipHWorld * 0.4;
+    const bottomHalfW = shipWWorld * 0.87;
+    const topHalfW = shipWWorld * 0.65;
     const cabSide = this.ship.cabinSide || 1;
-    const cabOffset = shipWWorld * 0.75 * cabSide;
-    const cabHalfW = shipWWorld * 0.28;
-    const cabTipY = cargoTop;
-    const cabTipX = cabOffset;
-    const topRight = Math.max(topHalfW, cabOffset + cabHalfW);
-    const topLeft = Math.min(-topHalfW, cabOffset - cabHalfW);
-    if (cabSide >= 0){
-      return [
-        [cabTipX, cabTipY + bodyLift],
-        [topRight, cargoTop + bodyLift],
-        [bottomHalfW, cargoBottom + bodyLift],
-        [-bottomHalfW, cargoBottom + bodyLift],
-        [topLeft, cargoTop + bodyLift],
-      ];
-    }
+    const topRight = topHalfW;
+    const topLeft = -topHalfW;
     return [
-      [cabTipX, cabTipY + bodyLift],
-      [topLeft, cargoTop + bodyLift],
-      [-bottomHalfW, cargoBottom + bodyLift],
-      [bottomHalfW, cargoBottom + bodyLift],
       [topRight, cargoTop + bodyLift],
+      [bottomHalfW, cargoBottom + bodyLift],
+      [0, cargoBottom + bodyLift],
+      [-bottomHalfW, cargoBottom + bodyLift],
+      [topLeft, cargoTop + bodyLift],
+      [0, cargoTop + bodyLift],
     ];
   }
 
@@ -1585,6 +1581,9 @@ export class GameLoop {
 
     if (inputState.toggleDebug){
       this.debugCollisions = !this.debugCollisions;
+    }
+    if (inputState.togglePlanetView){
+      this.planetView = !this.planetView;
     }
 
     const fixed = 1 / 60;
