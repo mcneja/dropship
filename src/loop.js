@@ -72,6 +72,7 @@ export class GameLoop {
       explodeT: 0,
       lastAir: 1,
       hp: GAME.SHIP_MAX_HP,
+      bombs: GAME.SHIP_MAX_BOMBS,
       heat: 0,
       hitCooldown: 0,
       cabinSide: 1,
@@ -260,6 +261,7 @@ export class GameLoop {
     this.ship.state = "landed";
     this.ship.explodeT = 0;
     this.ship.hp = GAME.SHIP_MAX_HP;
+    this.ship.bombs = GAME.SHIP_MAX_BOMBS;
     this.ship.heat = 0;
     this.ship.hitCooldown = 0;
     this.ship._dock = {lx: GAME.MOTHERSHIP_START_DOCK_X, ly: GAME.MOTHERSHIP_START_DOCK_Y};
@@ -1196,6 +1198,11 @@ export class GameLoop {
                 this.ship._dock = { lx: lx2, ly: ly2 };
                 this.ship.vx = this.mothership.vx;
                 this.ship.vy = this.mothership.vy;
+                // If docked inside the mothership, replenish health and bombs.
+                if (ly2 > 0.5) {
+                  this.ship.hp = GAME.SHIP_MAX_HP;
+                  this.ship.bombs = GAME.SHIP_MAX_BOMBS;
+                }
                 landedNow = true;
               } else {
                 const restitution = -vn;
@@ -1286,7 +1293,7 @@ export class GameLoop {
           });
         }
       }
-      if (bomb){
+      if (bomb && this.ship.bombs > 0){
         let dirx = 0, diry = 0;
         if (aimBombFrom && aimBombTo){
           const wFrom = this._toWorldFromAim(aimBombFrom);
@@ -1306,6 +1313,7 @@ export class GameLoop {
           diry = dy / dist;
         }
         if (dirx || diry){
+          --this.ship.bombs;
           this.playerBombs.push({
             x: gunOrigin.x + dirx * 0.45,
             y: gunOrigin.y + diry * 0.45,
@@ -1692,6 +1700,7 @@ export class GameLoop {
       state: this.ship.state,
       speed: Math.hypot(this.ship.vx, this.ship.vy),
       shipHp: this.ship.hp,
+      bombs: this.ship.bombs,
       verts: this.planet.radial.vertCount,
       air: this.planet.getFinalAir(),
       miners: this.minersRemaining,
