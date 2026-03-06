@@ -28,8 +28,6 @@ export class Planet {
     this._radialDebugPoints = null;
     /** @type {boolean} */
     this._radialDebugDirty = true;
-    /** @type {boolean} */
-    this._radialDirty = false;
   }
 
   /**
@@ -74,15 +72,6 @@ export class Planet {
   }
 
   /**
-   * @returns {Float32Array}
-   */
-  regenFromMap(){
-    const newAir = this.radial.updateAirFlags(true);
-    this._radialDebugDirty = true;
-    return newAir;
-  }
-
-  /**
    * @param {number} x
    * @param {number} y
    * @param {number} radius
@@ -92,6 +81,7 @@ export class Planet {
   applyAirEdit(x, y, radius, val = 1){
     this.mapgen.setAirDisk(x, y, radius, val);
     let newAir = this.radial.updateAirFlags(true);
+    this.airNodesBitmap = buildAirNodesBitmap(this.radialGraph, this.radial);
     this._radialDebugDirty = true;
     return newAir;
   }
@@ -352,18 +342,6 @@ export class Planet {
   syncRenderFog(renderer, shipX, shipY){
     const fog = this.updateFogForRender(shipX, shipY);
     if (fog) renderer.updateFog(fog);
-  }
-
-  /**
-   * Ensure active mode data is up-to-date after deferred edits.
-   * @returns {Float32Array|undefined}
-   */
-  ensureModeUpdated(){
-    if (!this._radialDirty) return undefined;
-    this._radialDirty = false;
-    const newAir = this.radial.updateAirFlags(true);
-    this._radialDebugDirty = true;
-    return newAir;
   }
 
   /**
