@@ -420,8 +420,8 @@ export class Enemies {
 
     e.x += dx;
     e.y += dy;
-    e.vx = 0;
-    e.vy = 0;
+    e.vx = dx / dt;
+    e.vy = dy / dt;
   }
 
   /**
