@@ -710,7 +710,7 @@ function drawFrameImpl(renderer, state, planet){
   let lineVerts = 0;
   let pointVerts = 0;
 
-  const shipRot = -camRot;
+  const shipRot = -Math.atan2(state.ship.x, state.ship.y || 1e-6);
   const lighten = (c) => Math.min(1, c + 0.3);
   const rockPoint = [1.0, 0.55, 0.12];
   const airPoint = [lighten(CFG.AIR_LIGHT[0]), lighten(CFG.AIR_LIGHT[1]), lighten(CFG.AIR_LIGHT[2])];
@@ -1086,7 +1086,7 @@ function drawFrameImpl(renderer, state, planet){
     if (state.input.right) thrustV(1, 0, tc[0], tc[1], tc[2], shipWWorld * 0.5);
   }
 
-  if (state.ship.state !== "crashed"){
+  if (state.ship.state === "flying"){
     // Braking line
     const vscale = vScaleStopping(planet, state.ship.x, state.ship.y, state.ship.vx, state.ship.vy, game.THRUST);
     pushLine(pos, col, state.ship.x, state.ship.y, state.ship.x + state.ship.vx * vscale, state.ship.y + state.ship.vy * vscale, 0.5, 0.84, 1.0, 0.5);
