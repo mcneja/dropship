@@ -35,17 +35,31 @@
  * @property {string} state
  * @property {number} explodeT
  * @property {number} lastAir
- * @property {number} hp
- * @property {number} bombs
+ * @property {number} hpCur
+ * @property {number} bombsCur
  * @property {number} heat
  * @property {number} invertT
  * @property {number} hitCooldown
  * @property {number} cabinSide
  * @property {{path:Array<{x:number,y:number}>, indexClosest:number}|null} guidePath
+ * @property {{lx:number,ly:number}|null} _dock
+ * 
+ * @property {number} dropshipMiners
+ * @property {number} dropshipPilots
+ * @property {number} dropshipEngineers
+ * 
+ * @property {number} mothershipMiners
+ * @property {number} mothershipPilots
+ * @property {number} mothershipEngineers
+ * 
+ * @property {number} hpMax
+ * @property {number} bombsMax
+ * @property {number} thrust
+ * @property {boolean} rescueeDetector
+ * 
  * @property {Array<[number,number,boolean,number]>|null} [_samples]
  * @property {{x:number,y:number,tri?:Array<{x:number,y:number}>|null,node?:{x:number,y:number}|null}|null} [_collision]
  * @property {number} [_shipRadius]
- * @property {{lx:number,ly:number}|null} [_dock]
  */
 
 /**
@@ -70,6 +84,7 @@
  * @property {number} x
  * @property {number} y
  * @property {number} jumpCycle
+ * @property {"miner"|"pilot"|"engineer"} type
  * @property {"idle"|"running"|"boarded"} state
  */
 

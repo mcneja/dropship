@@ -73,14 +73,27 @@ export class GameLoop {
       state: "landed",
       explodeT: 0,
       lastAir: 1,
-      hp: GAME.SHIP_MAX_HP,
-      bombs: GAME.SHIP_MAX_BOMBS,
+      hpCur: GAME.SHIP_STARTING_MAX_HP,
+      bombsCur: GAME.SHIP_STARTING_MAX_BOMBS,
       heat: 0,
       invertT: 0,
       hitCooldown: 0,
       cabinSide: 1,
       guidePath: null,
       _dock: {lx: GAME.MOTHERSHIP_START_DOCK_X, ly: GAME.MOTHERSHIP_START_DOCK_Y},
+
+      dropshipMiners: 0,
+      dropshipPilots: 0,
+      dropshipEngineers: 0,
+
+      mothershipMiners: 0,
+      mothershipPilots: 0,
+      mothershipEngineers: 0,
+
+      hpMax: GAME.SHIP_STARTING_MAX_HP,
+      bombsMax: GAME.SHIP_STARTING_MAX_BOMBS,
+      thrust: 0,
+      rescueeDetector: false,
     };
     this.mothership = mothership;
     /** @type {Array<{x:number,y:number,vx:number,vy:number,a:number,w:number,life:number}>} */
@@ -281,11 +294,14 @@ export class GameLoop {
     this.ship.vy = this.mothership.vy;
     this.ship.state = "landed";
     this.ship.explodeT = 0;
-    this.ship.hp = GAME.SHIP_MAX_HP;
-    this.ship.bombs = GAME.SHIP_MAX_BOMBS;
+    this.ship.hpCur = this.ship.hpMax;
+    this.ship.bombsCur = this.ship.bombsMax;
     this.ship.heat = 0;
     this.ship.invertT = 0;
     this.ship.hitCooldown = 0;
+    this.ship.dropshipMiners = 0;
+    this.ship.dropshipPilots = 0;
+    this.ship.dropshipEngineers = 0;
     this.ship._dock = {lx: GAME.MOTHERSHIP_START_DOCK_X, ly: GAME.MOTHERSHIP_START_DOCK_Y};
     this.debris.length = 0;
     this.playerShots.length = 0;
@@ -346,7 +362,7 @@ export class GameLoop {
   _damageShip(x, y){
     if (this.ship.state === "crashed") return;
     if (this.ship.hitCooldown > 0) return;
-    this.ship.hp = Math.max(0, this.ship.hp - 1);
+    this.ship.hpCur = Math.max(0, this.ship.hpCur - 1);
     this.ship.hitCooldown = GAME.SHIP_HIT_COOLDOWN;
     this.entityExplosions.push({ x, y, life: 0.5, radius: this.SHIP_HIT_BLAST });
     this.shipHitPopups.push({
@@ -356,7 +372,7 @@ export class GameLoop {
       vy: 0,
       life: GAME.SHIP_HIT_POPUP_LIFE,
     });
-    if (this.ship.hp <= 0){
+    if (this.ship.hpCur <= 0){
       this._triggerCrash();
     }
   }
@@ -680,6 +696,7 @@ export class GameLoop {
     /** @type {Array<Miner>} */
     const nudged = [];
     for (const p of placed){
+      const minerType = (nudged.length === 0) ? "pilot" : (nudged.length === 1) ? "engineer" : "miner";
       if (barrenPerimeter){
         let x = p[0];
         let y = p[1];
@@ -688,13 +705,13 @@ export class GameLoop {
           x += info.nx * 0.02;
           y += info.ny * 0.02;
         }
-        nudged.push({ x, y, jumpCycle: Math.random(), state: "idle" });
+        nudged.push({ x, y, jumpCycle: Math.random(), type: minerType, state: "idle" });
       } else {
         const res = this.planet.nudgeOutOfTerrain(p[0], p[1]);
         if (!res.ok){
           continue;
         }
-        nudged.push({ x: res.x, y: res.y, jumpCycle: Math.random(), state: "idle" });
+        nudged.push({ x: res.x, y: res.y, jumpCycle: Math.random(), type: minerType, state: "idle" });
       }
     }
     this.miners = nudged;
@@ -1039,26 +1056,28 @@ export class GameLoop {
       const tx = -ry;
       const ty = rx;
 
+      const thrustMax = this.planetParams.THRUST * (1 + this.ship.thrust * 0.1);
+
       if (left){
-        ax += tx * this.planetParams.THRUST;
-        ay += ty * this.planetParams.THRUST;
+        ax += tx * thrustMax;
+        ay += ty * thrustMax;
       }
       if (right){
-        ax -= tx * this.planetParams.THRUST;
-        ay -= ty * this.planetParams.THRUST;
+        ax -= tx * thrustMax;
+        ay -= ty * thrustMax;
       }
       if (thrust){
-        ax += rx * this.planetParams.THRUST;
-        ay += ry * this.planetParams.THRUST;
+        ax += rx * thrustMax;
+        ay += ry * thrustMax;
       }
       if (down){
-        ax += -rx * this.planetParams.THRUST;
-        ay += -ry * this.planetParams.THRUST;
+        ax += -rx * thrustMax;
+        ay += -ry * thrustMax;
       }
       /*
       const aThrustSqr = ax*ax + ay*ay;
-      if (aThrustSqr > this.planetParams.THRUST * this.planetParams.THRUST) {
-        const thrustScale = this.planetParams.THRUST / Math.sqrt(aThrustSqr);
+      if (aThrustSqr > thrustMax * thrustMax) {
+        const thrustScale = thrustMax / Math.sqrt(aThrustSqr);
         ax *= thrustScale;
         ay *= thrustScale;
       }
@@ -1249,8 +1268,7 @@ export class GameLoop {
                 this.ship.vy = this.mothership.vy;
                 // If docked inside the mothership, replenish health and bombs.
                 if (ly2 > 0.5) {
-                  this.ship.hp = GAME.SHIP_MAX_HP;
-                  this.ship.bombs = GAME.SHIP_MAX_BOMBS;
+                  this._onSuccessfullyDocked();
                 }
                 landedNow = true;
               } else {
@@ -1342,7 +1360,7 @@ export class GameLoop {
           });
         }
       }
-      if (bomb && this.ship.bombs > 0){
+      if (bomb && this.ship.bombsCur > 0){
         let dirx = 0, diry = 0;
         if (aimBombFrom && aimBombTo){
           const wFrom = this._toWorldFromAim(aimBombFrom);
@@ -1362,7 +1380,7 @@ export class GameLoop {
           diry = dy / dist;
         }
         if (dirx || diry){
-          --this.ship.bombs;
+          --this.ship.bombsCur;
           this.playerBombs.push({
             x: gunOrigin.x + dirx * 0.45,
             y: gunOrigin.y + diry * 0.45,
@@ -1566,6 +1584,13 @@ export class GameLoop {
       const hullDist = this._shipHullDistance(headX, headY, this.ship.x, this.ship.y);
       if (landed && hullDist <= GAME.MINER_BOARD_RADIUS){
         miner.state = "boarded";
+        if (miner.type === "miner"){
+          ++this.ship.dropshipMiners;
+        } else if (miner.type === "pilot"){
+          ++this.ship.dropshipPilots;
+        } else if (miner.type === "engineer"){
+          ++this.ship.dropshipEngineers;
+        }
         this.minersRemaining = Math.max(0, this.minersRemaining - 1);
         const tx = -upy;
         const ty = upx;
@@ -1754,8 +1779,8 @@ export class GameLoop {
       fps: this.fps,
       state: this.ship.state,
       speed: Math.hypot(this.ship.vx, this.ship.vy),
-      shipHp: this.ship.hp,
-      bombs: this.ship.bombs,
+      shipHp: this.ship.hpCur,
+      bombs: this.ship.bombsCur,
       verts: this.planet.radial.vertCount,
       air: this.planet.getFinalAir(),
       miners: this.minersRemaining,
@@ -1821,6 +1846,51 @@ export class GameLoop {
    */
   start(){
     requestAnimationFrame(() => this._frame());
+  }
+
+  /**
+   * @returns {void}
+   */
+  _onSuccessfullyDocked(){
+    const rescuedEngineers = this.ship.dropshipEngineers;
+
+    this.ship.mothershipMiners += this.ship.dropshipMiners;
+    this.ship.mothershipPilots += this.ship.dropshipPilots;
+    this.ship.mothershipEngineers += this.ship.dropshipEngineers;
+    this.ship.dropshipMiners = 0;
+    this.ship.dropshipPilots = 0;
+    this.ship.dropshipEngineers = 0;
+
+    // Assign a random perk
+
+    for (let i = 0; i < rescuedEngineers; ++i){
+      const perksAvailable = [];
+      perksAvailable.push("hpMax");
+      perksAvailable.push("bombsMax");
+      if (this.ship.thrust < 3){
+        perksAvailable.push("thrust");
+      }
+      if (!this.ship.rescueeDetector){
+        perksAvailable.push("rescueeDetector");
+      }
+
+      const perk = perksAvailable[Math.floor(Math.random() * perksAvailable.length)];
+      console.log('Gained perk:', perk);
+      if (perk == "hpMax"){
+        ++this.ship.hpMax;
+      } else if (perk == "bombsMax"){
+        ++this.ship.bombsMax;
+      } else if (perk == "thrust"){
+        ++this.ship.thrust;
+      } else if (perk == "rescueeDetector"){
+        this.ship.rescueeDetector = true;
+      }
+    }
+
+    // Now that perks have been awarded, refill the ship's consumables.
+
+    this.ship.hpCur = this.ship.hpMax;
+    this.ship.bombsCur = this.ship.bombsMax;
   }
 
   /**

@@ -695,6 +695,20 @@ function vScaleStopping(planet, x, y, vx, vy, thrust) {
 }
 
 /**
+ * @param {"miner"|"pilot"|"engineer"} minerType 
+ * @returns {[number,number,number]}
+ */
+function minerColor(minerType){
+  if (minerType === "pilot") {
+    return [0.1, 0.25, 0.98];
+  } else if (minerType === "engineer") {
+    return [0.2, 0.98, 0.2];
+  } else {
+    return [0.98, 0.85, 0.25];
+  }
+}
+
+/**
  * @param {Renderer} renderer
  * @param {RenderState} state
  * @param {Planet} planet
@@ -1045,6 +1059,29 @@ function drawFrameImpl(renderer, state, planet){
       const tri = tris[i];
       if (triIsWall(tri, i)) drawTri(tri, true);
     }
+
+    {
+      const rotCos = Math.cos(state.mothership.angle);
+      const rotSin = Math.sin(state.mothership.angle);
+      const minerLocalMinX = 1.0;
+      const minerLocalRangeX = 1.0;
+      const minerLocalY = 0.8;
+      const totalMiners = state.ship.mothershipMiners + state.ship.mothershipPilots + state.ship.mothershipEngineers;
+      const minerLocalStepX = Math.min(0.1, minerLocalRangeX / Math.max(1, (totalMiners - 1)));
+      let x = 0;
+      for (let i = 0; i < totalMiners; ++i) {
+        const minerLocalX = minerLocalMinX + x;
+        const minerWorldX = state.mothership.x + minerLocalX * rotCos - minerLocalY * rotSin;
+        const minerWorldY = state.mothership.y + minerLocalX * rotSin + minerLocalY * rotCos;
+        const minerType =
+          (i < state.ship.mothershipPilots) ? "pilot" :
+          (i < (state.ship.mothershipPilots + state.ship.mothershipEngineers)) ? "engineer" :
+          "miner";
+        const [r, g, b] = minerColor(minerType);
+        triVerts += pushMiner(pos, col, minerWorldX, minerWorldY, 0, r, g, b, game.MINER_SCALE, false, 1/16) * 3;
+        x += minerLocalStepX;
+      }
+    }
   }
 
   appendShipGeometry();
@@ -1113,11 +1150,8 @@ function drawFrameImpl(renderer, state, planet){
     for (const miner of state.miners){
       if (miner.state === "boarded") continue;
       if (state.fogEnabled && !planet.fogSeenAt(miner.x, miner.y)) continue;
-      if (miner.state === "running"){
-        triVerts += pushMiner(pos, col, miner.x, miner.y, miner.jumpCycle, 0.98, 0.62, 0.2, game.MINER_SCALE, false, 1/16) * 3;
-      } else {
-        triVerts += pushMiner(pos, col, miner.x, miner.y, miner.jumpCycle, 0.98, 0.85, 0.25, game.MINER_SCALE, false, 1/16) * 3;
-      }
+      const [r, g, b] = minerColor(miner.type);
+      triVerts += pushMiner(pos, col, miner.x, miner.y, miner.jumpCycle, r, g, b, game.MINER_SCALE, false, 1/16) * 3;
     }
   }
 
@@ -1396,9 +1430,17 @@ function drawFrameImpl(renderer, state, planet){
   };
 
   if (state.ship.state !== "crashed"){
-    if (state.mothership) {
-      const dXMothership = state.mothership.x - state.view.xCenter;
-      const dYMothership = state.mothership.y - state.view.yCenter;
+    /**
+     * 
+     * @param {number} x 
+     * @param {number} y 
+     * @param {number} r 
+     * @param {number} g 
+     * @param {number} b 
+     */
+    const drawOffscreenIndicator = (x, y, r, g, b) => {
+      const dX = x - state.view.xCenter;
+      const dY = y - state.view.yCenter;
 
       const camRotCos = Math.cos(-camRot);
       const camRotSin = Math.sin(-camRot);
@@ -1413,32 +1455,54 @@ function drawFrameImpl(renderer, state, planet){
 
       let u = 1;
 
-      let projection = (dXMothership * horzX + dYMothership * horzY) / (horzX * horzX + horzY * horzY);
+      let projection = (dX * horzX + dY * horzY) / (horzX * horzX + horzY * horzY);
       u = Math.min(u, 1 / (Math.max(1, projection)));
 
-      projection = (dXMothership * -horzX + dYMothership * -horzY) / (horzX * horzX + horzY * horzY);
+      projection = (dX * -horzX + dY * -horzY) / (horzX * horzX + horzY * horzY);
       u = Math.min(u, 1 / (Math.max(1, projection)));
 
-      projection = (dXMothership * vertX + dYMothership * vertY) / (vertX * vertX + vertY * vertY);
+      projection = (dX * vertX + dY * vertY) / (vertX * vertX + vertY * vertY);
       u = Math.min(u, 1 / (Math.max(1, projection)));
 
-      projection = (dXMothership * -vertX + dYMothership * -vertY) / (vertX * vertX + vertY * vertY);
+      projection = (dX * -vertX + dY * -vertY) / (vertX * vertX + vertY * vertY);
       u = Math.min(u, 1 / (Math.max(1, projection)));
 
       if (u < 1) {
-        const mx = state.view.xCenter + dXMothership * u;
-        const my = state.view.yCenter + dYMothership * u;
+        const mx = state.view.xCenter + dX * u;
+        const my = state.view.yCenter + dY * u;
 
-        const n = Math.hypot(dXMothership, dYMothership);
+        const n = Math.hypot(dX, dY);
         const s = state.view.radius * 0.05;
-        const nx = dXMothership / n;
-        const ny = dYMothership / n;
+        const nx = dX / n;
+        const ny = dY / n;
         const tx = -0.5 * ny;
         const ty =  0.5 * nx;
 
-        pushLine(pos, col, mx, my, mx + s * (-nx - tx), my + s * (-ny - ty), 0.5, 0.84, 1.0, 0.5);
-        pushLine(pos, col, mx, my, mx + s * (-nx + tx), my + s * (-ny + ty), 0.5, 0.84, 1.0, 0.5);
+        pushLine(pos, col, mx, my, mx + s * (-nx - tx), my + s * (-ny - ty), r, g, b, 0.5);
+        pushLine(pos, col, mx, my, mx + s * (-nx + tx), my + s * (-ny + ty), r, g, b, 0.5);
         lineVerts += 4;
+      }
+    };
+
+    if (state.mothership) {
+      drawOffscreenIndicator(state.mothership.x, state.mothership.y, 0.5, 0.84, 1.0);
+    }
+
+    if (state.ship.rescueeDetector){
+      let closestRescuee = null;
+      let closestDistSqr = Infinity;
+      for (const miner of state.miners){
+        if (miner.state === "boarded") continue;
+        const dx = miner.x - state.ship.x;
+        const dy = miner.y - state.ship.y;
+        const distSqr = dx*dx + dy*dy;
+        if (distSqr < closestDistSqr){
+          closestDistSqr = distSqr;
+          closestRescuee = miner;
+        }
+      }
+      if (closestRescuee !== null){
+        drawOffscreenIndicator(closestRescuee.x, closestRescuee.y, 0.5, 0.84, 1.0);
       }
     }
 
