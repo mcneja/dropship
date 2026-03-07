@@ -447,8 +447,10 @@ function collectWaterBubbleSources(planet, target){
   const air = planet.airNodesBitmap || null;
   if (!air || air.length !== nodes.length) return [];
 
-  const waterR = Math.max(0.8, params.RMAX * Math.max(0.12, params.WATER_LEVEL || 0.32));
-  const rMin = Math.max(0.5, waterR * 0.2);
+  const rings = (planet && planet.radial && planet.radial.rings) ? planet.radial.rings : null;
+  const outerRingR = (rings && rings.length) ? (rings.length - 1) : Math.floor(params.RMAX);
+  const mediumR = Math.max(0.8, outerRingR - 0.5);
+  const rMin = Math.max(0.7, params.RMAX * 0.12);
   const minDist = 0.65;
   /** @type {Array<{x:number,y:number,nx:number,ny:number}>} */
   const candidates = [];
@@ -456,7 +458,7 @@ function collectWaterBubbleSources(planet, target){
     if (!air[i]) continue;
     const n = nodes[i];
     const r = Math.hypot(n.x, n.y);
-    if (r < rMin || r > waterR) continue;
+    if (r < rMin || r > mediumR) continue;
     const neigh = neighbors[i] || [];
     let rockNeighbor = null;
     let rockDist2 = Infinity;
@@ -478,6 +480,10 @@ function collectWaterBubbleSources(planet, target){
     const nlen = Math.hypot(dxr, dyr) || 1;
     const nx = dxr / nlen;
     const ny = dyr / nlen;
+    const upx = n.x / (r || 1);
+    const upy = n.y / (r || 1);
+    const dotUp = nx * upx + ny * upy;
+    if (dotUp < 0.2) continue;
     let lo = { x: rockNeighbor.x, y: rockNeighbor.y };
     let hi = { x: n.x, y: n.y };
     for (let it = 0; it < 8; it++){
@@ -489,7 +495,12 @@ function collectWaterBubbleSources(planet, target){
         lo = { x: mx, y: my };
       }
     }
-    candidates.push({ x: hi.x - nx * 0.05, y: hi.y - ny * 0.05, nx, ny });
+    const sx = hi.x + nx * 0.06;
+    const sy = hi.y + ny * 0.06;
+    if (Math.hypot(sx, sy) > mediumR - 0.03) continue;
+    if (planet.airValueAtWorld(sx, sy) <= 0.5) continue;
+    if (planet.airValueAtWorld(sx + upx * 0.20, sy + upy * 0.20) <= 0.5) continue;
+    candidates.push({ x: sx, y: sy, nx, ny });
   }
 
   const rand = mulberry32((planet.getSeed() + 14011) | 0);
@@ -584,16 +595,27 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
       confuseTime: 5.0,
     },
     water: {
-      sourceRate: 1.4,
-      sourceJitter: 0.8,
-      shipRateMin: 0.18,
-      shipRateMax: 0.55,
-      rise: 0.95,
-      drift: 0.45,
-      lifeMin: 0.8,
-      lifeMax: 1.6,
-      sizeMin: 0.055,
-      sizeMax: 0.11,
+      sourceRate: 2.1,
+      sourceJitter: 0.45,
+      shipRateMin: 0.07,
+      shipRateMax: 0.22,
+      rise: 1.25,
+      drift: 0.32,
+      lifeMin: 1.2,
+      lifeMax: 2.0,
+      sizeMin: 0.032,
+      sizeMax: 0.072,
+      sourcePropScaleMin: 0.22,
+      sourcePropScaleMax: 0.34,
+      entryBurstCount: 10,
+      entrySprayCount: 8,
+      exitSprayCount: 12,
+      splashLifeMin: 1.34,
+      splashLifeMax: 1.56,
+      splashSizeMin: 0.08,
+      splashSizeMax: 0.15,
+      splashSpeedMin: 1.4,
+      splashSpeedMax: 3.6,
     },
   };
 
@@ -604,6 +626,8 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
     mushroom: [],
     /** @type {Array<{x:number,y:number,vx:number,vy:number,life:number,maxLife:number,size:number,rot:number,spin:number}>} */
     bubbles: [],
+    /** @type {Array<{x:number,y:number,vx:number,vy:number,life:number,maxLife:number,size:number,rot:number,cr:number,cg:number,cb:number}>} */
+    splashes: [],
   };
 
   placeMoltenVents(planet, props || []);
@@ -626,11 +650,28 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
   const waterCfg = planet.getPlanetConfig ? planet.getPlanetConfig() : null;
   const isWater = !!(waterCfg && waterCfg.id === "water");
   const waterParams = planet.getPlanetParams ? planet.getPlanetParams() : null;
-  const waterRadius = (isWater && waterParams)
-    ? Math.max(0, waterParams.RMAX * Math.max(0, waterParams.WATER_LEVEL || 0))
-    : 0;
+  const outerRingR = (planet && planet.radial && planet.radial.rings && planet.radial.rings.length)
+    ? (planet.radial.rings.length - 1)
+    : ((waterParams && typeof waterParams.RMAX === "number") ? Math.floor(waterParams.RMAX) : 0);
+  const waterRadius = isWater ? Math.max(0, outerRingR - 0.5) : 0;
   const bubbleSources = isWater ? collectWaterBubbleSources(planet, 36) : [];
+  if (isWater && bubbleSources.length && props){
+    const rand = mulberry32((planet.getSeed() + 14591) | 0);
+    for (const src of bubbleSources){
+      props.push({
+        type: "bubble_hex",
+        x: src.x - src.nx * 0.02,
+        y: src.y - src.ny * 0.02,
+        scale: tuning.water.sourcePropScaleMin + rand() * (tuning.water.sourcePropScaleMax - tuning.water.sourcePropScaleMin),
+        rot: Math.atan2(src.ny, src.nx),
+        rotSpeed: (rand() * 2 - 1) * 0.10,
+        nx: src.nx,
+        ny: src.ny,
+      });
+    }
+  }
   let shipBubbleT = tuning.water.shipRateMin;
+  let shipUnderwater = false;
 
   /**
    * @param {{x:number,y:number,scale:number}|null} info
@@ -1026,7 +1067,10 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
   const updateWaterBubbles = (dt, state) => {
     if (!isWater) return;
     const bubbles = particles.bubbles;
+    const splashes = particles.splashes;
     const spawnBubble = (x, y, baseUpX, baseUpY) => {
+      if (waterRadius > 0 && Math.hypot(x, y) > waterRadius + 0.02) return;
+      if (planet.airValueAtWorld(x, y) <= 0.5) return;
       const t = Math.random() * 2 - 1;
       const tx = -baseUpY;
       const ty = baseUpX;
@@ -1034,7 +1078,7 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
       const drift = tuning.water.drift * t;
       const vx = baseUpX * rise + tx * drift;
       const vy = baseUpY * rise + ty * drift;
-      const life = tuning.water.lifeMin + Math.random() * tuning.water.lifeMax;
+      const life = tuning.water.lifeMin + Math.random() * (tuning.water.lifeMax - tuning.water.lifeMin);
       const size = tuning.water.sizeMin + Math.random() * (tuning.water.sizeMax - tuning.water.sizeMin);
       bubbles.push({
         x,
@@ -1048,6 +1092,35 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
         spin: (Math.random() * 2 - 1) * 1.6,
       });
     };
+    const spawnSplash = (x, y, baseUpX, baseUpY, baseVx = 0, baseVy = 0, impactSpeed = 0) => {
+      const t = Math.random() * 2 - 1;
+      const tx = -baseUpY;
+      const ty = baseUpX;
+      const spBase = tuning.water.splashSpeedMin + Math.random() * (tuning.water.splashSpeedMax - tuning.water.splashSpeedMin);
+      const impactMul = Math.min(3.5, 1 + Math.max(0, impactSpeed) * 0.28);
+      const sp = spBase * impactMul;
+      const vx = baseVx + baseUpX * sp + tx * (0.9 * t);
+      const vy = baseVy + baseUpY * sp + ty * (0.9 * t);
+      const life = tuning.water.splashLifeMin + Math.random() * (tuning.water.splashLifeMax - tuning.water.splashLifeMin);
+      const size = tuning.water.splashSizeMin + Math.random() * (tuning.water.splashSizeMax - tuning.water.splashSizeMin);
+      const cmix = Math.random();
+      const cr = Math.max(0, Math.min(1, 0.05 + cmix * 0.24 + Math.random() * 0.04));
+      const cg = Math.max(0, Math.min(1, 0.24 + cmix * 0.44 + Math.random() * 0.05));
+      const cb = Math.max(0, Math.min(1, 0.58 + cmix * 0.38 + Math.random() * 0.04));
+      splashes.push({
+        x,
+        y,
+        vx,
+        vy,
+        life,
+        maxLife: life,
+        size,
+        rot: Math.random() * Math.PI * 2,
+        cr,
+        cg,
+        cb,
+      });
+    };
 
     if (bubbleSources.length){
       for (const src of bubbleSources){
@@ -1057,22 +1130,71 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
         const r = Math.hypot(src.x, src.y) || 1;
         const upx = src.x / r;
         const upy = src.y / r;
-        spawnBubble(src.x + src.nx * 0.02, src.y + src.ny * 0.02, upx, upy);
-        if (Math.random() < 0.35){
+        spawnBubble(src.x + src.nx * 0.015, src.y + src.ny * 0.015, upx, upy);
+        if (Math.random() < 0.55){
           spawnBubble(src.x + src.nx * 0.03, src.y + src.ny * 0.03, upx, upy);
         }
       }
     }
 
     const ship = state && state.ship ? state.ship : null;
+    let shipNowUnderwater = false;
     if (ship && ship.state !== "crashed" && waterRadius > 0){
       const sr = Math.hypot(ship.x, ship.y);
-      if (sr <= waterRadius + 0.2){
+      const upx = sr > 1e-6 ? (ship.x / sr) : 1;
+      const upy = sr > 1e-6 ? (ship.y / sr) : 0;
+      const airAtShip = planet.airValueAtWorld(ship.x, ship.y) > 0.5;
+      const nearSurfaceBand = Math.abs(sr - waterRadius) <= 0.35;
+      const shipInSpaceBand = (sr > waterRadius + 0.02) && airAtShip;
+      shipNowUnderwater = (sr <= waterRadius + 0.02 && airAtShip);
+      if (shipNowUnderwater && !shipUnderwater && nearSurfaceBand){
+        const inwardSpeed = Math.max(0, -(ship.vx * upx + ship.vy * upy));
+        const crashSpeed = Math.max(inwardSpeed, Math.hypot(ship.vx, ship.vy) * 0.45);
+        for (let i = 0; i < tuning.water.entrySprayCount; i++){
+          const t = (Math.random() * 2 - 1) * 0.22;
+          const tx = -upy;
+          const ty = upx;
+          spawnSplash(
+            ship.x + tx * t + upx * 0.05,
+            ship.y + ty * t + upy * 0.05,
+            upx,
+            upy,
+            ship.vx * 0.12,
+            ship.vy * 0.12,
+            crashSpeed
+          );
+        }
+        for (let i = 0; i < tuning.water.entryBurstCount; i++){
+          const t = (Math.random() * 2 - 1) * 0.16;
+          const tx = -upy;
+          const ty = upx;
+          spawnBubble(
+            ship.x - upx * (0.16 + Math.random() * 0.14) + tx * t,
+            ship.y - upy * (0.16 + Math.random() * 0.14) + ty * t,
+            upx,
+            upy
+          );
+        }
+      }
+      if (!shipNowUnderwater && shipUnderwater && shipInSpaceBand && nearSurfaceBand){
+        for (let i = 0; i < tuning.water.exitSprayCount; i++){
+          const t = (Math.random() * 2 - 1) * 0.22;
+          const tx = -upy;
+          const ty = upx;
+          spawnSplash(
+            ship.x + tx * t,
+            ship.y + ty * t,
+            upx,
+            upy,
+            ship.vx * 0.18,
+            ship.vy * 0.18
+          );
+        }
+      }
+      if (shipNowUnderwater){
         shipBubbleT -= dt;
         if (shipBubbleT <= 0){
           shipBubbleT = tuning.water.shipRateMin + Math.random() * (tuning.water.shipRateMax - tuning.water.shipRateMin);
-          const upx = sr > 1e-6 ? (ship.x / sr) : 1;
-          const upy = sr > 1e-6 ? (ship.y / sr) : 0;
           spawnBubble(
             ship.x - upx * 0.2 + (Math.random() * 2 - 1) * 0.05,
             ship.y - upy * 0.2 + (Math.random() * 2 - 1) * 0.05,
@@ -1082,25 +1204,51 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
         }
       }
     }
+    shipUnderwater = shipNowUnderwater;
 
-    if (!bubbles.length) return;
-    for (let i = bubbles.length - 1; i >= 0; i--){
-      const p = bubbles[i];
-      const r = Math.hypot(p.x, p.y) || 1;
-      const upx = p.x / r;
-      const upy = p.y / r;
-      p.vx += upx * 0.45 * dt;
-      p.vy += upy * 0.45 * dt;
-      const drag = Math.max(0, 1 - 1.35 * dt);
-      p.vx *= drag;
-      p.vy *= drag;
-      p.x += p.vx * dt;
-      p.y += p.vy * dt;
-      p.rot += p.spin * dt;
-      p.life -= dt;
-      p.size += dt * 0.014;
-      if (p.life <= 0 || planet.airValueAtWorld(p.x, p.y) <= 0.5){
-        bubbles.splice(i, 1);
+    if (bubbles.length){
+      for (let i = bubbles.length - 1; i >= 0; i--){
+        const p = bubbles[i];
+        const r = Math.hypot(p.x, p.y) || 1;
+        const upx = p.x / r;
+        const upy = p.y / r;
+        p.vx += upx * 0.55 * dt;
+        p.vy += upy * 0.55 * dt;
+        const drag = Math.max(0, 1 - 1.5 * dt);
+        p.vx *= drag;
+        p.vy *= drag;
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.rot += p.spin * dt;
+        p.life -= dt;
+        p.size += dt * 0.013;
+        const pr = Math.hypot(p.x, p.y);
+        if (waterRadius > 0 && pr >= waterRadius - 0.03){
+          p.life -= dt * 1.8;
+          p.size += dt * 0.04;
+        }
+        if (p.life <= 0 || planet.airValueAtWorld(p.x, p.y) <= 0.5){
+          bubbles.splice(i, 1);
+        }
+      }
+    }
+
+    if (splashes.length){
+      for (let i = splashes.length - 1; i >= 0; i--){
+        const p = splashes[i];
+        const { x: gx, y: gy } = planet.gravityAt(p.x, p.y);
+        p.vx += gx * dt * 0.55;
+        p.vy += gy * dt * 0.55;
+        const drag = Math.max(0, 1 - 0.75 * dt);
+        p.vx *= drag;
+        p.vy *= drag;
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.rot += dt * 3.2;
+        p.life -= dt;
+        if (p.life <= 0 || planet.airValueAtWorld(p.x, p.y) <= 0.5){
+          splashes.splice(i, 1);
+        }
       }
     }
   };
@@ -1111,6 +1259,7 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
       particles.lava.length = 0;
       particles.mushroom.length = 0;
       particles.bubbles.length = 0;
+      particles.splashes.length = 0;
     },
     reconcile: (state) => {
       if (ventsPruned) return;
@@ -1200,7 +1349,10 @@ export function buildPlanetMaterials(mapgen, planetConfig, params){
         if (!isAir && rf >= 0.58) mat = 3;
         break;
       case "water":
-        if (isAir && rf <= params.WATER_LEVEL) mat = 5;
+        if (isAir){
+          const waterSurfaceR = Math.max(0, Math.floor(params.RMAX) - 0.5);
+          if (r <= waterSurfaceR) mat = 5;
+        }
         break;
       case "mechanized": {
         if (!isAir){

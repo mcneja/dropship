@@ -105,11 +105,12 @@ export class Planet {
    * @returns {{
    *  lava:Array<{x:number,y:number,vx:number,vy:number,life:number}>,
    *  mushroom:Array<{x:number,y:number,vx:number,vy:number,life:number}>,
-   *  bubbles:Array<{x:number,y:number,vx:number,vy:number,life:number,maxLife:number,size:number,rot:number,spin:number}>
+   *  bubbles:Array<{x:number,y:number,vx:number,vy:number,life:number,maxLife:number,size:number,rot:number,spin:number}>,
+   *  splashes:Array<{x:number,y:number,vx:number,vy:number,life:number,maxLife:number,size:number,rot:number,cr:number,cg:number,cb:number}>
    * }}
    */
   getFeatureParticles(){
-    return this.features ? this.features.getParticles() : { lava: [], mushroom: [], bubbles: [] };
+    return this.features ? this.features.getParticles() : { lava: [], mushroom: [], bubbles: [], splashes: [] };
   }
 
   /**
