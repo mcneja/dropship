@@ -2214,7 +2214,7 @@ export class GameLoop {
       if (this.ship.mothershipPilots > 0){
         return resetButtonPrefix + "launch a new dropship.";
       } else {
-        return resetButtonPrefix + "start a new game.";
+        return "No more pilots! " + resetButtonPrefix + "start a new game.";
       }
     } else if (this._isDockedWithMothership()) {
       if (this.pendingPerkChoicesRemaining > 0){
