@@ -40,6 +40,7 @@ export class Input {
       advanceLevel: false,
       shoot: false,
       bomb: false,
+      rescueAll: false,
       spawnEnemyType: null,
     };
     /** @type {boolean} */
@@ -124,6 +125,7 @@ export class Input {
       this.bombControl.start = null;
       this.oneshot.shoot = false;
       this.oneshot.bomb = false;
+      this.oneshot.rescueAll = false;
     }
   }
 
@@ -164,10 +166,12 @@ export class Input {
     if (key === "m" || key === "M") this.oneshot.regen = true;
     if (key === "c" || key === "C") this.oneshot.toggleDebug = true;
     if (key === "n" || key === "N") this.oneshot.nextLevel = true;
+    if (key === "r" || key === "R") this.oneshot.reset = true;
     if (key === "v" || key === "V") this.oneshot.togglePlanetView = true;
     if (key === "f" || key === "F") this.oneshot.toggleFog = true;
     if (key >= "1" && key <= "9") this.oneshot.spawnEnemyType = key;
     if (this.levelComplete && (key === " " || key === "Space")) this.oneshot.advanceLevel = true;
+    if (key === "p" || key === "P") this.oneshot.rescueAll = true;
   }
 
   /**
@@ -493,7 +497,6 @@ export class Input {
       if (KEY_RIGHT.has(k)) keyState.right = true;
       if (KEY_THRUST.has(k)) keyState.thrust = true;
       if (KEY_DOWN.has(k)) keyState.down = true;
-      if (KEY_RESET.has(k)) this.oneshot.reset = true;
     });
 
     const t = this._touchState();
@@ -576,6 +579,7 @@ export class Input {
       advanceLevel: this.oneshot.advanceLevel,
       shoot: this.oneshot.shoot,
       bomb: this.oneshot.bomb,
+      rescueAll: this.oneshot.rescueAll,
       spawnEnemyType: this.oneshot.spawnEnemyType,
       aim,
       aimShoot,
@@ -599,6 +603,7 @@ export class Input {
     this.oneshot.advanceLevel = false;
     this.oneshot.shoot = false;
     this.oneshot.bomb = false;
+    this.oneshot.rescueAll = false;
     this.oneshot.spawnEnemyType = null;
     this.bombReleaseFrom = null;
     this.bombReleaseTo = null;

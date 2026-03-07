@@ -746,7 +746,6 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
     if (state.miners){
       for (let i = state.miners.length - 1; i >= 0; i--){
         const m = state.miners[i];
-        if (m.state === "boarded") continue;
         const r2 = m.x * m.x + m.y * m.y;
         if (r2 <= coreR2){
           state.miners.splice(i, 1);
@@ -847,7 +846,6 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
       if (state.miners){
         for (let j = state.miners.length - 1; j >= 0; j--){
           const m = state.miners[j];
-          if (m.state === "boarded") continue;
           const dx = m.x - p.x;
           const dy = m.y - p.y;
           if (dx * dx + dy * dy <= hitR2){

@@ -1113,19 +1113,23 @@ function drawFrameImpl(renderer, state, planet){
     {
       const rotCos = Math.cos(state.mothership.angle);
       const rotSin = Math.sin(state.mothership.angle);
-      const minerLocalMinX = 1.0;
-      const minerLocalRangeX = 1.0;
+      const minerLocalRangeX = 3;
+      const minerLocalCenterX = 0.55;
       const minerLocalY = 0.8;
-      const totalMiners = state.ship.mothershipMiners + state.ship.mothershipPilots + state.ship.mothershipEngineers;
-      const minerLocalStepX = Math.min(0.1, minerLocalRangeX / Math.max(1, (totalMiners - 1)));
+      const numMinersVisible = Math.min(state.ship.mothershipMiners, 20);
+      const numPilotsVisible = state.ship.mothershipPilots;
+      const numEngineersVisible = Math.min(state.ship.mothershipEngineers, 10);
+      const totalMiners = numMinersVisible + numPilotsVisible + numEngineersVisible;
+      const minerLocalStepX = Math.min(0.15, minerLocalRangeX / Math.max(1, (totalMiners - 1)));
+      const minerLocalMinX = minerLocalCenterX - minerLocalStepX * totalMiners/2;
       let x = 0;
       for (let i = 0; i < totalMiners; ++i) {
         const minerLocalX = minerLocalMinX + x;
         const minerWorldX = state.mothership.x + minerLocalX * rotCos - minerLocalY * rotSin;
         const minerWorldY = state.mothership.y + minerLocalX * rotSin + minerLocalY * rotCos;
         const minerType =
-          (i < state.ship.mothershipPilots) ? "pilot" :
-          (i < (state.ship.mothershipPilots + state.ship.mothershipEngineers)) ? "engineer" :
+          (i < numPilotsVisible) ? "pilot" :
+          (i < (numPilotsVisible + numEngineersVisible)) ? "engineer" :
           "miner";
         const [r, g, b] = minerColor(minerType);
         triVerts += pushMiner(pos, col, minerWorldX, minerWorldY, 0, r, g, b, game.MINER_SCALE, false, 1/16) * 3;
@@ -1198,7 +1202,6 @@ function drawFrameImpl(renderer, state, planet){
 
   if (state.miners && state.miners.length){
     for (const miner of state.miners){
-      if (miner.state === "boarded") continue;
       if (state.fogEnabled && !planet.fogSeenAt(miner.x, miner.y)) continue;
       const [r, g, b] = minerColor(miner.type);
       triVerts += pushMiner(pos, col, miner.x, miner.y, miner.jumpCycle, r, g, b, game.MINER_SCALE, false, 1/16) * 3;
@@ -1598,7 +1601,6 @@ function drawFrameImpl(renderer, state, planet){
       let closestRescuee = null;
       let closestDistSqr = Infinity;
       for (const miner of state.miners){
-        if (miner.state === "boarded") continue;
         const dx = miner.x - state.ship.x;
         const dy = miner.y - state.ship.y;
         const distSqr = dx*dx + dy*dy;

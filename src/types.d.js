@@ -85,7 +85,7 @@
  * @property {number} y
  * @property {number} jumpCycle
  * @property {"miner"|"pilot"|"engineer"} type
- * @property {"idle"|"running"|"boarded"} state
+ * @property {"idle"|"running"} state
  */
 
 /**
@@ -184,6 +184,7 @@
  * @property {boolean} advanceLevel
  * @property {boolean} shoot
  * @property {boolean} bomb
+ * @property {boolean} rescueAll
  * @property {EnemyType|null} [spawnEnemyType]
  * @property {Point|null} [aim]
  * @property {Point|null} [aimShoot]
