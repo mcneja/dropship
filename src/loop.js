@@ -32,9 +32,11 @@ export class GameLoop {
    */
   constructor({ renderer, input, ui, canvas, hud, overlay, planetLabel, objectiveLabel, heatMeter }){
     this.level = 1;
+    // const seed = CFG.seed;
+    const seed = performance.now();
     const planetConfig = this._planetConfigFromLevel(this.level);
-    const planetParams = resolvePlanetParams(CFG.seed, this.level, planetConfig, GAME);
-    this.planet = new Planet({ seed: CFG.seed, planetConfig, planetParams });
+    const planetParams = resolvePlanetParams(seed, this.level, planetConfig, GAME);
+    this.planet = new Planet({ seed: seed, planetConfig, planetParams });
     this.planetParams = planetParams;
     this.renderer = renderer;
     this.renderer.setPlanet(this.planet);
@@ -1266,20 +1268,12 @@ export class GameLoop {
       aimShoot = aimAdjusted;
       aimBomb = aimAdjusted;
     }
-    if (this.ship.invertT > 0){
-      this.ship.invertT = Math.max(0, this.ship.invertT - dt);
-      const tmp = left;
-      left = right;
-      right = tmp;
-      const tmp2 = thrust;
-      thrust = down;
-      down = tmp2;
-    }
     if (!aim && this.lastAimScreen){
       aim = this.lastAimScreen;
     }
     if (!aimShoot) aimShoot = aim;
     if (!aimBomb) aimBomb = aimShoot || aim;
+
     if (reset){
       if (this.ship.state === "crashed"){
         if (this.ship.mothershipPilots > 0){
@@ -1297,10 +1291,24 @@ export class GameLoop {
         }
       }
     }
+
+    // Perk selection
     if (this.pendingPerkChoice !== null){
       this._handlePerkChoiceInput(left, right);
       return;
     }
+
+    // Handle control inversion
+    if (this.ship.invertT > 0){
+      this.ship.invertT = Math.max(0, this.ship.invertT - dt);
+      const tmp = left;
+      left = right;
+      right = tmp;
+      const tmp2 = thrust;
+      thrust = down;
+      down = tmp2;
+    }
+
     if (this.mothership){
       updateMothership(this.mothership, this.planet, dt);
     }
