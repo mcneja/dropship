@@ -93,6 +93,7 @@ export class RingMesh {
     const rMaxInt = Math.max(0, Math.floor(params.RMAX));
     for (let r=0;r<=rMaxInt;r++) rings.push(ringVertices(r));
     this._R_MESH = rings.length - 1;
+    this.rings = rings;
 
       for (let r = 0; r < rings.length; r++){
         const ring = rings[r];
@@ -101,6 +102,7 @@ export class RingMesh {
           v.air = isOuterRing ? 1 : this._sampleAirAtWorldExtended(v.x, v.y);
         }
       }
+      this._applyMoltenOverrides();
 
       for (let r=0;r<this._R_MESH;r++){
         const inner = rings[r];
@@ -108,8 +110,9 @@ export class RingMesh {
         if (!inner || !outer) continue;
         if (r===0){
         const tris = [];
+        const center = inner && inner.length ? inner[0] : {x:0,y:0,air:this._sampleAirAtWorldExtended(0, 0)};
         for (let k=0;k<outer.length;k++){
-          const a = {x:0,y:0,air:1};
+          const a = center;
           const b = outer[k];
           const c = outer[(k+1)%outer.length];
           tris.push([a, b, c]);
@@ -215,6 +218,10 @@ export class RingMesh {
    */
   _sampleAirAtWorldExtended(x, y){
     const r = Math.hypot(x, y);
+    const coreR = (this._params.CORE_RADIUS > 1)
+      ? this._params.CORE_RADIUS
+      : (this._params.CORE_RADIUS * this._params.RMAX);
+    if (coreR > 0 && r <= coreR) return 0;
     if (r > this._params.RMAX) return 1;
     return this._map.airBinaryAtWorld(x, y);
   }
@@ -326,10 +333,33 @@ export class RingMesh {
         }
       }
     }
+    this._applyMoltenOverrides();
     for (let i = 0; i < this.vertCount; i++){
       this.airFlag[i] = this._vertRefs[i].air;
     }
     return new Float32Array(this.airFlag);
+  }
+
+  /**
+   * Override radial air flags for molten band/core to avoid grid aliasing.
+   * @returns {void}
+   */
+  _applyMoltenOverrides(){
+    const params = this._params;
+    const moltenInner = (typeof params.MOLTEN_RING_INNER === "number") ? Math.max(0, params.MOLTEN_RING_INNER) : 0;
+    const moltenOuter = (typeof params.MOLTEN_RING_OUTER === "number") ? params.MOLTEN_RING_OUTER : 0;
+    if (!(moltenOuter > moltenInner)) return;
+    for (let r = 0; r < this.rings.length; r++){
+      const ring = this.rings[r];
+      if (!ring) continue;
+      const inBand = (r >= moltenInner) && (r <= moltenOuter);
+      const inCore = (moltenInner > 0) && (r <= moltenInner);
+      if (!inBand && !inCore) continue;
+      for (const v of ring){
+        if (inBand) v.air = 1;
+        if (inCore) v.air = 0;
+      }
+    }
   }
 
   /**

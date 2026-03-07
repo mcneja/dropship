@@ -126,6 +126,7 @@
  * @property {number} WATER_LEVEL
  * @property {number} MOLTEN_RING_INNER
  * @property {number} MOLTEN_RING_OUTER
+ * @property {number} MOLTEN_VENT_COUNT
  * @property {number} EXCAVATE_RINGS
  * @property {number} EXCAVATE_RING_THICKNESS
  * @property {number} TOPO_BAND
@@ -344,6 +345,10 @@ export const PLANET_CONFIGS = [
       MOLTEN_RING_OUTER: r(0.0, 0.0),
       EXCAVATE_RINGS: r(0, 0),
       EXCAVATE_RING_THICKNESS: r(0.0, 0.0),
+      TOPO_BAND: r(2.8, 4.0),
+      TOPO_AMP: r(1.8, 2.6),
+      TOPO_FREQ: r(2.9, 3.6),
+      TOPO_OCTAVES: r(4, 5),
     },
   },
   {
@@ -397,14 +402,18 @@ export const PLANET_CONFIGS = [
       FOG_SEEN_ALPHA: r(0.52, 0.60),
       FOG_UNSEEN_ALPHA: r(0.82, 0.90),
       FOG_BUDGET_TRIS: r(240, 380),
-      CORE_RADIUS: r(8, 8),
+      CORE_RADIUS: r(5, 5),
       CORE_DPS: r(0.4, 1.0),
       ICE_CRUST_THICKNESS: r(0.0, 0.0),
       WATER_LEVEL: r(0.0, 0.0),
-      MOLTEN_RING_INNER: r(6, 6),
-      MOLTEN_RING_OUTER: r(8, 8),
+      MOLTEN_RING_INNER: r(5.0, 5.0),
+      MOLTEN_RING_OUTER: r(7.0, 7.0),
       EXCAVATE_RINGS: r(0, 0),
       EXCAVATE_RING_THICKNESS: r(0.0, 0.0),
+      TOPO_BAND: r(2.6, 3.6),
+      TOPO_AMP: r(1.6, 2.4),
+      TOPO_FREQ: r(2.6, 3.4),
+      TOPO_OCTAVES: r(4, 5),
     },
   },
   {
@@ -466,6 +475,10 @@ export const PLANET_CONFIGS = [
       MOLTEN_RING_OUTER: r(0.0, 0.0),
       EXCAVATE_RINGS: r(0, 0),
       EXCAVATE_RING_THICKNESS: r(0.0, 0.0),
+      TOPO_BAND: r(2.2, 3.2),
+      TOPO_AMP: r(1.4, 2.2),
+      TOPO_FREQ: r(2.4, 3.2),
+      TOPO_OCTAVES: r(3, 5),
     },
   },
   {
@@ -527,6 +540,10 @@ export const PLANET_CONFIGS = [
       MOLTEN_RING_OUTER: r(0.0, 0.0),
       EXCAVATE_RINGS: r(0, 0),
       EXCAVATE_RING_THICKNESS: r(0.0, 0.0),
+      TOPO_BAND: r(2.4, 3.4),
+      TOPO_AMP: r(1.5, 2.3),
+      TOPO_FREQ: r(2.4, 3.2),
+      TOPO_OCTAVES: r(3, 5),
     },
   },
   {
@@ -588,6 +605,10 @@ export const PLANET_CONFIGS = [
       MOLTEN_RING_OUTER: r(0.0, 0.0),
       EXCAVATE_RINGS: r(0, 0),
       EXCAVATE_RING_THICKNESS: r(0.0, 0.0),
+      TOPO_BAND: r(2.0, 3.0),
+      TOPO_AMP: r(1.2, 2.0),
+      TOPO_FREQ: r(2.2, 3.0),
+      TOPO_OCTAVES: r(3, 4),
     },
   },
   {
@@ -649,6 +670,10 @@ export const PLANET_CONFIGS = [
       MOLTEN_RING_OUTER: r(0.0, 0.0),
       EXCAVATE_RINGS: r(0, 0),
       EXCAVATE_RING_THICKNESS: r(0.0, 0.0),
+      TOPO_BAND: r(2.4, 3.4),
+      TOPO_AMP: r(1.5, 2.3),
+      TOPO_FREQ: r(2.4, 3.2),
+      TOPO_OCTAVES: r(3, 5),
     },
   },
   {
@@ -710,6 +735,10 @@ export const PLANET_CONFIGS = [
       MOLTEN_RING_OUTER: r(0.0, 0.0),
       EXCAVATE_RINGS: r(0, 0),
       EXCAVATE_RING_THICKNESS: r(0.0, 0.0),
+      TOPO_BAND: r(2.2, 3.4),
+      TOPO_AMP: r(1.4, 2.2),
+      TOPO_FREQ: r(2.4, 3.2),
+      TOPO_OCTAVES: r(3, 5),
     },
   },
 ];
@@ -909,6 +938,7 @@ export function resolvePlanetParams(seed, level, cfg, baseGame){
     WATER_LEVEL: roll.WATER_LEVEL ?? 0,
       MOLTEN_RING_INNER: roll.MOLTEN_RING_INNER ?? 0,
       MOLTEN_RING_OUTER: roll.MOLTEN_RING_OUTER ?? 0,
+      MOLTEN_VENT_COUNT: (cfg && cfg.id === "molten") ? Math.max(0, level * 5) : 0,
       EXCAVATE_RINGS: roll.EXCAVATE_RINGS ?? 0,
       EXCAVATE_RING_THICKNESS: roll.EXCAVATE_RING_THICKNESS ?? 0,
       TOPO_BAND: roll.TOPO_BAND ?? 0,

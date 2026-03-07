@@ -1146,10 +1146,22 @@ function drawFrameImpl(renderer, state, planet){
 
   const coreR = planet.getCoreRadius ? planet.getCoreRadius() : 0;
   if (coreR > 0){
-    const r0 = coreR;
-    const r1 = coreR + 0.8;
-    triVerts += pushPolyFan(pos, col, 0, 0, r1, 28, 0, 1.0, 0.25, 0.12, 0.35) * 3;
-    triVerts += pushPolyFan(pos, col, 0, 0, r0, 28, 0, 1.0, 0.45, 0.20, 0.85) * 3;
+    const params = planet.getPlanetParams ? planet.getPlanetParams() : null;
+    const moltenOuter = params && typeof params.MOLTEN_RING_OUTER === "number" ? params.MOLTEN_RING_OUTER : 0;
+    const r0 = coreR + 0.5;
+    const baseOuter = moltenOuter > coreR ? moltenOuter : (coreR + 0.8);
+    const r1 = baseOuter + 0.5;
+    const steps = 7;
+    const pulse = 0.4 + 0.6 * (0.5 + 0.5 * Math.sin(now * 1.6));
+    for (let i = 0; i < steps; i++){
+      const t = (i + 1) / steps;
+      const r = r0 + (r1 - r0) * t;
+      const root = Math.sqrt(Math.max(0, 1 - t));
+      const exp = Math.exp(-2.2 * t);
+      const a = (0.85 * root * exp * pulse);
+      triVerts += pushPolyFan(pos, col, 0, 0, r, 28, 0, 1.0, 0.25, 0.12, a) * 3;
+    }
+    triVerts += pushPolyFan(pos, col, 0, 0, r0, 28, 0, 1.0, 0.45, 0.20, 0.9) * 3;
   }
 
   const props = planet.props;
@@ -1167,7 +1179,7 @@ function drawFrameImpl(renderer, state, planet){
     };
     for (const p of props){
       if (p.dead || (typeof p.hp === "number" && p.hp <= 0)) continue;
-      if (!planet.fogSeenAt(p.x, p.y)) continue;
+      if (state.fogEnabled && !planet.fogSeenAt(p.x, p.y)) continue;
       if (p.type === "bubble_hex") continue;
       const rot = (p.rot || 0) + (p.rotSpeed ? p.rotSpeed * now : 0);
       const s = p.scale || 1;
@@ -1216,8 +1228,36 @@ function drawFrameImpl(renderer, state, planet){
         const cr = 0.6 + heat * 0.4;
         const cg = 0.2 + heat * 0.05;
         const cb = 0.1 + heat * 0.05;
-        triVerts += pushPolyFan(pos, col, p.x, p.y, 0.28 * s, 8, rot, cr, cg, cb, 0.95) * 3;
-        triVerts += pushPolyFan(pos, col, p.x, p.y, 0.16 * s, 8, rot, 0.2 + heat * 0.5, 0.05, 0.05, 0.95) * 3;
+        let ux, uy, tx, ty;
+        if (typeof p.nx === "number" && typeof p.ny === "number"){
+          const nlen = Math.hypot(p.nx, p.ny) || 1;
+          ux = p.nx / nlen;
+          uy = p.ny / nlen;
+          tx = -uy;
+          ty = ux;
+        } else {
+          ({ ux, uy, tx, ty } = basisAt(p.x, p.y));
+        }
+        const h = 0.9 * s;
+        const w0 = 0.28 * s;
+        const w1 = 0.16 * s;
+        const a0 = toWorld(p.x, p.y, tx, ty, ux, uy, -w0, -h * 0.5);
+        const a1 = toWorld(p.x, p.y, tx, ty, ux, uy, w0, -h * 0.5);
+        const a2 = toWorld(p.x, p.y, tx, ty, ux, uy, w1, h * 0.5);
+        const a3 = toWorld(p.x, p.y, tx, ty, ux, uy, -w1, h * 0.5);
+        pushTri(pos, col, a0[0], a0[1], a1[0], a1[1], a2[0], a2[1], cr, cg, cb, 0.95);
+        pushTri(pos, col, a0[0], a0[1], a2[0], a2[1], a3[0], a3[1], cr, cg, cb, 0.95);
+        triVerts += 6;
+        const ih = h * 0.5;
+        const iw0 = w0 * 0.55;
+        const iw1 = w1 * 0.5;
+        const b0 = toWorld(p.x, p.y, tx, ty, ux, uy, -iw0, -ih * 0.5);
+        const b1 = toWorld(p.x, p.y, tx, ty, ux, uy, iw0, -ih * 0.5);
+        const b2 = toWorld(p.x, p.y, tx, ty, ux, uy, iw1, ih * 0.5);
+        const b3 = toWorld(p.x, p.y, tx, ty, ux, uy, -iw1, ih * 0.5);
+        pushTri(pos, col, b0[0], b0[1], b1[0], b1[1], b2[0], b2[1], 0.2 + heat * 0.6, 0.05, 0.05, 0.95);
+        pushTri(pos, col, b0[0], b0[1], b2[0], b2[1], b3[0], b3[1], 0.2 + heat * 0.6, 0.05, 0.05, 0.95);
+        triVerts += 6;
       } else if (p.type === "ice_shard"){
         let ux, uy, tx, ty;
         const info = planet.surfaceInfoAtWorld ? planet.surfaceInfoAtWorld(p.x, p.y, 0.18) : null;

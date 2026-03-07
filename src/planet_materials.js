@@ -12,6 +12,8 @@ import { mulberry32 } from "./rng.js";
  * @property {(info:{x:number,y:number,life:number,radius:number})=>void} [onExplosion]
  * @property {(info:{x:number,y:number,vx:number,vy:number,a:number,w:number,life:number})=>void} [onDebris]
  * @property {(x:number,y:number,radius:number)=>void} [onAreaDamage]
+ * @property {(amount:number)=>void} [onShipHeat]
+ * @property {(x:number,y:number)=>void} [onShipCrash]
  */
 
 /**
@@ -20,6 +22,7 @@ import { mulberry32 } from "./rng.js";
  * @property {Array<{x:number,y:number,hp:number,hitT?:number}>} enemies
  * @property {import("./types.d.js").Miner[]} miners
  * @property {(x:number,y:number)=>void} [onShipDamage]
+ * @property {(amount:number)=>void} [onShipHeat]
  * @property {(enemy:{x:number,y:number,hp:number,hitT?:number}, x:number, y:number)=>void} [onEnemyHit]
  * @property {(miner:import("./types.d.js").Miner)=>void} [onMinerKilled]
  */
@@ -31,7 +34,7 @@ import { mulberry32 } from "./rng.js";
  * @param {{burst:(prop:PlanetProp)=>{x:number,y:number,scale:number}|null, hitAt:(x:number,y:number,radius:number)=>PlanetProp|null, burstAllInRadius:(x:number,y:number,radius:number)=>Array<{x:number,y:number,scale:number}>}|null} mushroomHazard
  */
 export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHazard){
-  const tuning = {
+ const tuning = {
     iceShard: {
       blast: 0.8,
       damage: 0.9,
@@ -48,8 +51,11 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
       burstRate: 18,
       flashDuration: 2.0,
       ventPeriod: 6.5,
+      heatHit: 14,
     },
     coreHeatRadius: 2.0,
+    coreHeatRise: 22,
+    coreHeatDecay: 10,
     mushroom: {
       life: 1.0,
       speed: 4.0,
@@ -126,6 +132,33 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
    */
   const handleShipContact = (x, y, radius, callbacks) => {
     let hit = false;
+    if (props && props.length){
+      for (const p of props){
+        if (p.type !== "vent" || p.dead) continue;
+        const info = planet.surfaceInfoAtWorld ? planet.surfaceInfoAtWorld(p.x, p.y, 0.18) : null;
+        const nx = info ? info.nx : (p.x / (Math.hypot(p.x, p.y) || 1));
+        const ny = info ? info.ny : (p.y / (Math.hypot(p.x, p.y) || 1));
+        const tx = -ny;
+        const ty = nx;
+        const dx = x - p.x;
+        const dy = y - p.y;
+        const localX = dx * tx + dy * ty;
+        const localY = dx * nx + dy * ny;
+        const s = p.scale || 1;
+        const halfH = 0.45 * s;
+        const halfW0 = 0.22 * s;
+        const halfW1 = 0.12 * s;
+        if (localY < -halfH - radius || localY > halfH + radius) continue;
+        const t = Math.max(0, Math.min(1, (localY + halfH) / (2 * halfH || 1)));
+        const halfW = halfW0 + (halfW1 - halfW0) * t;
+        if (Math.abs(localX) <= halfW + radius){
+          p.dead = true;
+          if (callbacks.onShipCrash) callbacks.onShipCrash(p.x, p.y);
+          hit = true;
+          break;
+        }
+      }
+    }
     if (iceShardHazard){
       const hitProp = iceShardHazard.hitAt(x, y, radius);
       if (hitProp){
@@ -216,13 +249,9 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
       if (ship.heat === undefined) ship.heat = 0;
       if (inHeat){
         const t = Math.max(0, Math.min(1, 1 - (shipR - coreR) / Math.max(0.001, tuning.coreHeatRadius)));
-        ship.heat = Math.min(1.5, ship.heat + t * 0.6 * dt);
-        if (ship.heat >= 1.0){
-          if (state.onShipDamage) state.onShipDamage(ship.x, ship.y);
-          ship.heat = 0.6;
-        }
+        ship.heat = Math.min(100, ship.heat + tuning.coreHeatRise * t * dt);
       } else {
-        ship.heat = Math.max(0, ship.heat - 0.25 * dt);
+        ship.heat = Math.max(0, ship.heat - tuning.coreHeatDecay * dt);
       }
     }
 
@@ -263,9 +292,16 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
       const emitCount = Math.max(0, Math.floor(rate));
       const frac = rate - emitCount;
       const total = emitCount + (Math.random() < frac ? 1 : 0);
-      const info = planet.surfaceInfoAtWorld ? planet.surfaceInfoAtWorld(p.x, p.y, 0.18) : null;
-      const nx = info ? info.nx : (p.x / (Math.hypot(p.x, p.y) || 1));
-      const ny = info ? info.ny : (p.y / (Math.hypot(p.x, p.y) || 1));
+      let nx = (typeof p.nx === "number") ? p.nx : 0;
+      let ny = (typeof p.ny === "number") ? p.ny : 0;
+      if (!nx && !ny){
+        const info = planet.surfaceInfoAtWorld ? planet.surfaceInfoAtWorld(p.x, p.y, 0.18) : null;
+        nx = info ? info.nx : (p.x / (Math.hypot(p.x, p.y) || 1));
+        ny = info ? info.ny : (p.y / (Math.hypot(p.x, p.y) || 1));
+      }
+      const nlen = Math.hypot(nx, ny) || 1;
+      nx /= nlen;
+      ny /= nlen;
       const tx = -ny;
       const ty = nx;
       for (let i = 0; i < total; i++){
@@ -308,7 +344,7 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
         const dxs = state.ship.x - p.x;
         const dys = state.ship.y - p.y;
         if (dxs * dxs + dys * dys <= hitR2){
-          if (state.onShipDamage) state.onShipDamage(p.x, p.y);
+          if (state.onShipHeat) state.onShipHeat(tuning.lava.heatHit);
           lava.splice(i, 1);
           continue;
         }
@@ -414,6 +450,8 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
  * @property {number} [padNy]
  * @property {number} [ventT]
  * @property {number} [ventHeat]
+ * @property {number} [nx]
+ * @property {number} [ny]
  */
 
 /**
@@ -508,9 +546,6 @@ function buildProps(mapgen, planetConfig, params, material){
       break;
     }
     case "molten": {
-      for (const p of surface){
-        if (rng() < 0.06) add("vent", p[0], p[1], 0.35 + rng() * 0.3, rng() * Math.PI * 2, 0);
-      }
       break;
     }
     case "ice": {

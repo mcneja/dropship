@@ -41,6 +41,7 @@ export class Planet {
     this._spreadIceShardsUniform();
     this._snapIceShardsToSurface();
     this._alignTurretPadsToSurface();
+    this._placeMoltenVents();
     this._alignVentsToSurface();
     this._alignGaiaFlora();
     this._spawnReservations = [];
@@ -125,6 +126,7 @@ export class Planet {
    *  enemies: Array<{x:number,y:number,hp:number,hitT?:number}>,
    *  miners: import("./types.d.js").Miner[],
    *  onShipDamage?: (x:number, y:number)=>void,
+   *  onShipHeat?: (amount:number)=>void,
    *  onEnemyHit?: (enemy:{x:number,y:number,hp:number,hitT?:number}, x:number, y:number)=>void,
    *  onMinerKilled?: (miner:import("./types.d.js").Miner)=>void,
    * }} state
@@ -198,6 +200,8 @@ export class Planet {
    * @returns {void}
    */
   _alignVentsToSurface(){
+    const cfg = this.getPlanetConfig ? this.getPlanetConfig() : null;
+    if (cfg && cfg.id === "molten") return;
     if (!this.props || !this.props.length) return;
     const vents = [];
     for (const p of this.props){
@@ -214,6 +218,177 @@ export class Planet {
       p.x = pt[0];
       p.y = pt[1];
     }
+  }
+
+  /**
+   * Place molten vents along cave walls using the radial graph.
+   * @returns {void}
+   */
+  _placeMoltenVents(){
+    const cfg = this.getPlanetConfig ? this.getPlanetConfig() : null;
+    if (!cfg || cfg.id !== "molten") return;
+    const target = Math.max(0, this.planetParams.MOLTEN_VENT_COUNT || 0);
+    if (target <= 0) return;
+    if (!this.props) this.props = [];
+
+    for (let i = this.props.length - 1; i >= 0; i--){
+      if (this.props[i].type === "vent") this.props.splice(i, 1);
+    }
+
+    const nodes = this.radialGraph.nodes;
+    const neighbors = this.radialGraph.neighbors;
+    const air = this.airNodesBitmap;
+    const moltenOuter = this.planetParams.MOLTEN_RING_OUTER || 0;
+    const rMin = Math.max(0, moltenOuter + 0.6);
+    const rMax = Math.max(rMin + 0.5, this.planetParams.RMAX - 0.6);
+    const minDist = 0.9;
+    /** @type {Array<{x:number,y:number,r:number}>} */
+    const reservations = [];
+    const baseReserve = Math.max(0.4, GAME.MINER_MIN_SEP * 0.6);
+    for (const p of this.props){
+      if (p.dead) continue;
+      if (p.type === "vent") continue;
+      if (p.type === "turret_pad") continue;
+      reservations.push({ x: p.x, y: p.y, r: baseReserve });
+    }
+
+    const candidates = [];
+    for (let i = 0; i < nodes.length; i++){
+      if (!air[i]) continue;
+      const n = nodes[i];
+      const r = Math.hypot(n.x, n.y);
+      if (r < rMin || r > rMax) continue;
+      if (!this._isFarFromReservations(n.x, n.y, minDist, reservations)) continue;
+      const neigh = neighbors[i] || [];
+      let airCount = 0;
+      let rockNeighbor = null;
+      let rockDist2 = Infinity;
+      for (const e of neigh){
+        if (air[e.to]) airCount++;
+        else {
+          const nb = nodes[e.to];
+          if (nb){
+            const dx = n.x - nb.x;
+            const dy = n.y - nb.y;
+            const d2 = dx * dx + dy * dy;
+            if (d2 < rockDist2){
+              rockDist2 = d2;
+              rockNeighbor = nb;
+            }
+          }
+        }
+      }
+      if (airCount < 3 || !rockNeighbor) continue;
+      const dxr = n.x - rockNeighbor.x;
+      const dyr = n.y - rockNeighbor.y;
+      const nlen = Math.hypot(dxr, dyr) || 1;
+      const nx = dxr / nlen;
+      const ny = dyr / nlen;
+      candidates.push({ n, rockNeighbor, nx, ny });
+    }
+    console.log("[Vents] molten candidates", {
+      target,
+      totalCandidates: candidates.length,
+      rMin,
+      rMax,
+      moltenOuter,
+      nodes: nodes.length,
+    });
+    const rand = mulberry32((this.mapgen.getWorld().seed + 991) | 0);
+    for (let i = candidates.length - 1; i > 0; i--){
+      const j = Math.floor(rand() * (i + 1));
+      const tmp = candidates[i];
+      candidates[i] = candidates[j];
+      candidates[j] = tmp;
+    }
+    /** @type {Array<{n:{x:number,y:number,r:number,i:number},rockNeighbor:{x:number,y:number,r:number,i:number}|null,nx:number,ny:number}>} */
+    const picked = [];
+    for (const c of candidates){
+      const n = c.n;
+      let tooClose = false;
+      for (const p of picked){
+        const dx = n.x - p.n.x;
+        const dy = n.y - p.n.y;
+        if (dx * dx + dy * dy < minDist * minDist){
+          tooClose = true;
+          break;
+        }
+      }
+      if (tooClose) continue;
+      picked.push(c);
+      if (picked.length >= target) break;
+    }
+    const recess = 0.08;
+    console.log("[Vents] molten picked", { picked: picked.length });
+    for (const entry of picked){
+      if (!entry.rockNeighbor) continue;
+      const n = entry.n;
+      const rn = entry.rockNeighbor;
+      const nx = entry.nx;
+      const ny = entry.ny;
+      let lo = { x: rn.x, y: rn.y };
+      let hi = { x: n.x, y: n.y };
+      for (let i = 0; i < 8; i++){
+        const mx = (lo.x + hi.x) * 0.5;
+        const my = (lo.y + hi.y) * 0.5;
+        if (this.airValueAtWorld(mx, my) > 0.5){
+          hi = { x: mx, y: my };
+        } else {
+          lo = { x: mx, y: my };
+        }
+      }
+      const bx = hi.x - nx * recess;
+      const by = hi.y - ny * recess;
+      const rot = Math.atan2(ny, nx) - Math.PI * 0.5;
+      const scale = 0.55 + rand() * 0.25;
+      this.props.push({ type: "vent", x: bx, y: by, scale, rot, nx, ny });
+    }
+  }
+
+  /**
+   * Remove molten vents that would fire directly into target points.
+   * @param {Array<{x:number,y:number}>} points
+   * @returns {number} number removed
+   */
+  pruneMoltenVentsAgainstPoints(points){
+    if (!this.props || !this.props.length) return 0;
+    const cfg = this.getPlanetConfig ? this.getPlanetConfig() : null;
+    if (!cfg || cfg.id !== "molten") return 0;
+    if (!points || !points.length) return 0;
+    const inFront = (vx, vy, nx, ny, px, py, maxDist, cosLimit, maxSide) => {
+      const dx = px - vx;
+      const dy = py - vy;
+      const d2 = dx * dx + dy * dy;
+      if (d2 <= 1e-6 || d2 > maxDist * maxDist) return false;
+      const d = Math.sqrt(d2);
+      const dir = (dx * nx + dy * ny) / d;
+      if (dir < cosLimit) return false;
+      const side = Math.abs(dx * -ny + dy * nx);
+      return side <= maxSide;
+    };
+    let removed = 0;
+    for (let i = this.props.length - 1; i >= 0; i--){
+      const p = this.props[i];
+      if (p.type !== "vent" || p.dead) continue;
+      const nx = (typeof p.nx === "number") ? p.nx : 0;
+      const ny = (typeof p.ny === "number") ? p.ny : 0;
+      const nlen = Math.hypot(nx, ny) || 1;
+      const ux = nx / nlen;
+      const uy = ny / nlen;
+      let bad = false;
+      for (const t of points){
+        if (inFront(p.x, p.y, ux, uy, t.x, t.y, 7.5, 0.6, 0.9)){
+          bad = true;
+          break;
+        }
+      }
+      if (bad){
+        this.props.splice(i, 1);
+        removed++;
+      }
+    }
+    console.log("[Vents] molten pruned", { removed, remaining: this.props.filter((p) => p.type === "vent").length });
+    return removed;
   }
 
   /**
@@ -408,46 +583,26 @@ export class Planet {
       if (p.type === "turret_pad") pads.push(p);
     }
     if (!pads.length) return;
+    if (!this._standablePoints || !this._standablePoints.length){
+      this._standablePoints = this._buildStandablePoints();
+    }
     const seed = (this.mapgen.getWorld().seed | 0) + 913;
-    const rand = mulberry32(seed);
-    const placed = [];
-    const rMin = 1.0;
-    const rMax = this.planetParams.RMAX + 1.2;
-    const minDist = 0.9;
+    const minDist = GAME.MINER_MIN_SEP;
+    const placed = this.sampleStandablePoints(pads.length, seed, "uniform", minDist, false);
     for (let i = 0; i < pads.length; i++){
       const p = pads[i];
-      let placedOk = false;
-      const base = (i / Math.max(1, pads.length)) * Math.PI * 2;
-      for (let attempt = 0; attempt < 10 && !placedOk; attempt++){
-        const ang = base + (rand() - 0.5) * 0.6;
-        const surf = this._findSurfaceAtAngle(ang, rMin, rMax);
-        if (!surf) continue;
-        const info = this.surfaceInfoAtWorld(surf.x, surf.y, 0.18);
-        if (!info || info.slope > 0.08) continue;
-        if (!this.isStandableAtWorld(surf.x, surf.y, 0.08, 0.3, 0.18, 0.28)) continue;
-        let tooClose = false;
-        for (const pt of placed){
-          const dx = pt[0] - surf.x;
-          const dy = pt[1] - surf.y;
-          if (dx * dx + dy * dy < minDist * minDist){
-            tooClose = true;
-            break;
-          }
-        }
-        if (tooClose) continue;
-        p.x = surf.x;
-        p.y = surf.y;
-        const up = this._upDirAt(p.x, p.y);
-        if (up){
-          p.padNx = up.ux;
-          p.padNy = up.uy;
-        }
-        placed.push([p.x, p.y]);
-        placedOk = true;
-      }
-      if (!placedOk){
+      const pt = placed[i];
+      if (!pt){
         p.dead = true;
         p.hp = 0;
+        continue;
+      }
+      p.x = pt[0];
+      p.y = pt[1];
+      const up = this._upDirAt(p.x, p.y);
+      if (up){
+        p.padNx = up.ux;
+        p.padNy = up.uy;
       }
     }
   }
@@ -631,6 +786,8 @@ export class Planet {
     const base = Math.max(0.4, GAME.MINER_MIN_SEP * 0.6);
     for (const p of this.props){
       if (p.dead) continue;
+      // Turret pads are intended spawn targets on barren perimeter maps.
+      if (p.type === "turret_pad") continue;
       this._spawnReservations.push({ x: p.x, y: p.y, r: base });
     }
   }
@@ -928,7 +1085,20 @@ export class Planet {
         return out;
       }
     }
-    return this.sampleStandablePoints(count, seed, placement, minDist, reserve);
+    const pool = this.sampleStandablePoints(Math.max(count * 3, count), seed, placement, minDist, false);
+    const coreR = this.getCoreRadius ? this.getCoreRadius() : 0;
+    const moltenOuter = this.planetParams && typeof this.planetParams.MOLTEN_RING_OUTER === "number"
+      ? this.planetParams.MOLTEN_RING_OUTER
+      : 0;
+    const minR = Math.max(0, Math.max(coreR, moltenOuter) + 0.6);
+    const out = (minR > 0)
+      ? pool.filter((p) => (Math.hypot(p[0], p[1]) >= minR)).slice(0, count)
+      : pool.slice(0, count);
+    if (reserve && out.length){
+      const reservePoints = out.map((pt) => ({ x: pt[0], y: pt[1] }));
+      this.reserveSpawnPoints(reservePoints, minDist);
+    }
+    return out;
   }
 
   /**

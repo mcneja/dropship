@@ -11,8 +11,9 @@ export function updateHud(hud, stats){
     return;
   }
   const debugSuffix = stats.debug ? ` | miner candidates: ${stats.minerCandidates}` : "";
-  hud.textContent =
+  const base =
     `fps: ${stats.fps} | hull: ${stats.shipHp} | level: ${stats.level} | state: ${stats.state} | speed: ${stats.speed.toFixed(2)} | miners: ${stats.miners} | dead: ${stats.minersDead} | verts: ${stats.verts.toLocaleString()} | air: ${stats.air.toFixed(3)}${debugSuffix} | LMB: shoot | RMB: bomb | M: new map | N: next level | C: debug collisions | R: restart`;
+  hud.textContent = base;
 }
 
 /**
@@ -31,4 +32,27 @@ export function updatePlanetLabel(el, label){
  */
 export function updateObjectiveLabel(el, text){
   el.textContent = text || "";
+}
+
+/**
+ * @param {HTMLElement} el
+ * @param {number} heat
+ * @param {boolean} show
+ * @param {boolean} flashing
+ * @returns {void}
+ */
+export function updateHeatMeter(el, heat, show, flashing){
+  if (!el) return;
+  if (!show){
+    el.style.display = "none";
+    el.classList.remove("heat-flash");
+    return;
+  }
+  el.style.display = "block";
+  el.classList.toggle("heat-flash", !!flashing);
+  const value = Math.max(0, Math.min(100, Math.round(heat)));
+  const text = el.querySelector(".heat-text");
+  if (text) text.textContent = `Heat ${value}`;
+  const fill = el.querySelector(".heat-bar-fill");
+  if (fill) fill.style.width = `${value}%`;
 }

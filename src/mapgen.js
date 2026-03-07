@@ -344,9 +344,11 @@ export class MapGen {
         if (x*x + y*y <= coreR2) airFinal[k] = 0;
       }
     }
-    if (p.MOLTEN_RING_INNER > 0 && p.MOLTEN_RING_OUTER > p.MOLTEN_RING_INNER){
-      const r0 = p.MOLTEN_RING_INNER;
-      const r1 = p.MOLTEN_RING_OUTER;
+    const moltenInner = (typeof p.MOLTEN_RING_INNER === "number") ? Math.max(0, p.MOLTEN_RING_INNER) : 0;
+    const moltenOuter = (typeof p.MOLTEN_RING_OUTER === "number") ? p.MOLTEN_RING_OUTER : 0;
+    if (moltenOuter > moltenInner){
+      const r0 = moltenInner;
+      const r1 = moltenOuter;
       const r02 = r0 * r0;
       const r12 = r1 * r1;
       for (let j=0;j<G;j++) for (let i=0;i<G;i++){
@@ -356,6 +358,14 @@ export class MapGen {
         const rr = x*x + y*y;
         if (rr >= r02 && rr <= r12){
           airFinal[k] = 1;
+        }
+      }
+      if (r0 > 0){
+        for (let j=0;j<G;j++) for (let i=0;i<G;i++){
+          const k=idx(i,j);
+          if (!inside[k]) continue;
+          const [x,y] = toWorld(i,j);
+          if ((x*x + y*y) <= r02) airFinal[k] = 0;
         }
       }
     }

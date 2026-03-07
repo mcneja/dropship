@@ -28,8 +28,9 @@ export class GameLoop {
    * @param {HTMLElement} deps.hud
    * @param {HTMLElement} [deps.planetLabel]
    * @param {HTMLElement} [deps.objectiveLabel]
+   * @param {HTMLElement} [deps.heatMeter]
    */
-  constructor({ renderer, input, ui, canvas, hud, overlay, planetLabel, objectiveLabel }){
+  constructor({ renderer, input, ui, canvas, hud, overlay, planetLabel, objectiveLabel, heatMeter }){
     this.level = 1;
     const planetConfig = this._planetConfigFromLevel(this.level);
     const planetParams = resolvePlanetParams(CFG.seed, this.level, planetConfig, GAME);
@@ -43,6 +44,7 @@ export class GameLoop {
     this.hud = hud;
     this.planetLabel = planetLabel || null;
     this.objectiveLabel = objectiveLabel || null;
+    this.heatMeter = heatMeter || null;
     this.overlay = overlay || null;
     this.overlayCtx = this.overlay ? this.overlay.getContext("2d") : null;
 
@@ -72,6 +74,7 @@ export class GameLoop {
       explodeT: 0,
       lastAir: 1,
       hp: GAME.SHIP_MAX_HP,
+      heat: 0,
       hitCooldown: 0,
       cabinSide: 1,
       guidePath: null,
@@ -136,6 +139,7 @@ export class GameLoop {
     });
 
     this._spawnMiners();
+    this._pruneMoltenVents();
 
     this.lastTime = performance.now();
     this.accumulator = 0;
@@ -144,6 +148,7 @@ export class GameLoop {
     this.fps = 0;
     this.debugCollisions = GAME.DEBUG_COLLISION;
     this.levelAdvanceReady = false;
+    this.lastHeat = 0;
 
     this.featureCallbacks = {
       onExplosion: (info) => {
@@ -157,6 +162,13 @@ export class GameLoop {
       },
       onShipDamage: (x, y) => {
         this._damageShip(x, y);
+      },
+      onShipHeat: (amount) => {
+        if (this.ship.state === "crashed") return;
+        this.ship.heat = Math.min(100, (this.ship.heat || 0) + Math.max(0, amount));
+      },
+      onShipCrash: () => {
+        this._triggerCrash();
       },
       onEnemyHit: (enemy, x, y) => {
         enemy.hp = Math.max(0, enemy.hp - 1);
@@ -260,6 +272,7 @@ export class GameLoop {
     this.ship.state = "landed";
     this.ship.explodeT = 0;
     this.ship.hp = GAME.SHIP_MAX_HP;
+    this.ship.heat = 0;
     this.ship.hitCooldown = 0;
     this.ship._dock = {lx: GAME.MOTHERSHIP_START_DOCK_X, ly: GAME.MOTHERSHIP_START_DOCK_Y};
     this.debris.length = 0;
@@ -272,6 +285,7 @@ export class GameLoop {
     this.minersDead = 0;
     this.lastAimWorld = null;
     this.lastAimScreen = null;
+    this.lastHeat = 0;
   }
 
   /**
@@ -493,11 +507,8 @@ export class GameLoop {
    * @returns {void}
    */
   _applyBombImpact(x, y){
-    const before = this.planet.airValueAtWorld(x, y);
-    const newAir = this.planet.applyAirEdit(x, y, this.TERRAIN_IMPACT_RADIUS, 1);
-    this.renderer.updateAir(newAir);
-    const after = this.planet.airValueAtWorld(x, y);
-    console.log("[Bomb] impact", { level: this.level, x, y, before, after });
+    // Bombs do not modify terrain.
+    return;
   }
 
   /**
@@ -625,6 +636,11 @@ export class GameLoop {
     } else {
       const standable = this.planet.getStandablePoints();
       placed = this.planet.sampleStandablePoints(count, seed, "uniform", GAME.MINER_MIN_SEP, true);
+      if (cfg && cfg.id === "molten"){
+        const moltenOuter = this.planetParams.MOLTEN_RING_OUTER || 0;
+        const minR = moltenOuter + 0.6;
+        placed = placed.filter((p) => (Math.hypot(p[0], p[1]) >= minR));
+      }
       if (placed.length < count){
         console.error("[Level] miners spawn insufficient standable points", {
           level: this.level,
@@ -661,6 +677,23 @@ export class GameLoop {
     const missed = Math.max(0, count - this.miners.length);
     this.minersDead = missed;
     this.minerTarget = count;
+  }
+
+  /**
+   * @returns {void}
+   */
+  _pruneMoltenVents(){
+    const cfg = this.planet.getPlanetConfig ? this.planet.getPlanetConfig() : null;
+    if (!cfg || cfg.id !== "molten") return;
+    const points = [];
+    for (const e of (this.enemies ? this.enemies.enemies : [])){
+      points.push({ x: e.x, y: e.y });
+    }
+    for (const m of this.miners){
+      points.push({ x: m.x, y: m.y });
+    }
+    console.log("[Vents] prune inputs", { enemies: this.enemies.enemies.length, miners: this.miners.length });
+    this.planet.pruneMoltenVentsAgainstPoints(points);
   }
 
   /**
@@ -722,6 +755,7 @@ export class GameLoop {
     this._resetShip();
     this.entityExplosions.length = 0;
     this._spawnMiners();
+    this._pruneMoltenVents();
     this.minerPopups.length = 0;
     this.planet.clearFeatureParticles();
   }
@@ -1316,9 +1350,16 @@ export class GameLoop {
       enemies: this.enemies.enemies,
       miners: this.miners,
       onShipDamage: this.featureCallbacks.onShipDamage,
+      onShipHeat: this.featureCallbacks.onShipHeat,
       onEnemyHit: this.featureCallbacks.onEnemyHit,
       onMinerKilled: this.featureCallbacks.onMinerKilled,
     });
+    if (this.ship.state !== "crashed"){
+      const cfg = this.planet.getPlanetConfig ? this.planet.getPlanetConfig() : null;
+      if (cfg && cfg.id === "molten" && (this.ship.heat || 0) >= 100){
+        this._triggerCrash();
+      }
+    }
 
     if (this.playerShots.length){
       for (let i = this.playerShots.length - 1; i >= 0; i--){
@@ -1689,6 +1730,14 @@ export class GameLoop {
       minerCandidates: this.minerCandidates,
       inputType: inputState.inputType,
     });
+    const cfg = this.planet.getPlanetConfig ? this.planet.getPlanetConfig() : null;
+    const heat = this.ship.heat || 0;
+    const showHeat = !!(cfg && cfg.id === "molten");
+    const heating = showHeat && (heat > this.lastHeat + 0.1);
+    this.lastHeat = heat;
+    if (this.heatMeter && this.ui.updateHeatMeter){
+      this.ui.updateHeatMeter(this.heatMeter, heat, showHeat, heating);
+    }
     if (this.planetLabel && this.ui.updatePlanetLabel){
       const cfg = this.planet.getPlanetConfig();
       const label = cfg ? cfg.label : "";
