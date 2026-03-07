@@ -278,7 +278,13 @@ export class MapGen {
         air[k] = 0;
       }
       const topoDepth = (p.TOPO_BAND && p.TOPO_BAND > 0) ? p.TOPO_BAND : Math.max(1.5, p.RMAX * 0.18);
-      this._carveNoCavesTopography(air, topoDepth, p.TOPO_FREQ || 2.8, p.TOPO_OCTAVES || 4);
+      this._carveNoCavesTopography(
+        air,
+        topoDepth,
+        p.TOPO_FREQ || 1.4,
+        p.TOPO_OCTAVES || 4,
+        (typeof p.TOPO_AMP === "number") ? p.TOPO_AMP : (topoDepth * 0.65)
+      );
       if (p.EXCAVATE_RINGS && p.EXCAVATE_RING_THICKNESS > 0){
         this._carveRings(air, rand, p.EXCAVATE_RINGS, p.EXCAVATE_RING_THICKNESS);
       }
@@ -423,23 +429,37 @@ export class MapGen {
    * @param {number} depth
    * @param {number} freq
    * @param {number} octaves
+   * @param {number} amp
    * @returns {void}
    */
-  _carveNoCavesTopography(air, depth, freq, octaves){
+  _carveNoCavesTopography(air, depth, freq, octaves, amp){
     if (depth <= 0) return;
     const { G, idx, inside, toWorld } = this.grid;
     const rMax = this.params.RMAX;
-    const rInner = Math.max(0, rMax - depth);
+    const maxDepth = Math.max(0.05, depth);
+    const ampClamped = Math.max(0, Math.min(maxDepth * 0.95, amp || 0));
+    const meanDepth = Math.max(0, Math.min(maxDepth, maxDepth * 0.42));
+    const waveFreq = Math.max(0.2, freq || 1.2);
+    const waveOctaves = Math.max(1, Math.round(octaves || 3));
     for (let j = 0; j < G; j++) for (let i = 0; i < G; i++){
       const k = idx(i, j);
       if (!inside[k]) continue;
       const [x, y] = toWorld(i, j);
       const r = Math.hypot(x, y);
-      if (r < rInner || r > rMax) continue;
-      const t = Math.max(0, Math.min(1, (r - rInner) / Math.max(1e-6, depth)));
-      const n = 0.5 + 0.5 * this.noise.fbm(x * freq, y * freq, octaves, 0.55, 2.0);
-      const thresh = 0.65 - 0.35 * t;
-      if (n > thresh) air[k] = 1;
+      if (r > rMax) continue;
+      const len = Math.max(1e-6, r);
+      const ux = x / len;
+      const uy = y / len;
+      // Periodic angular profile on the unit circle gives coherent hills/valleys.
+      const profile = this.noise.fbm(ux * waveFreq, uy * waveFreq, waveOctaves, 0.55, 2.0);
+      const detail = this.noise.fbm((ux + 13.7) * waveFreq * 2.1, (uy - 7.1) * waveFreq * 2.1, 2, 0.55, 2.0);
+      const shape = Math.max(-1, Math.min(1, profile * 0.8 + detail * 0.2));
+      // Allow cut depth to reach 0 at some angles so terrain uses the full rim extent.
+      const cutDepth = Math.max(0, Math.min(maxDepth, meanDepth + shape * ampClamped));
+      const surfaceR = rMax - cutDepth;
+      if (r >= surfaceR){
+        air[k] = 1;
+      }
     }
   }
 

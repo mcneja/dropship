@@ -133,6 +133,7 @@ export class GameLoop {
     /** @type {import("./types.d.js").CollisionQuery} */
     this.collision = createCollisionRouter(this.planet, () => this.mothership);
     this.objective = this._buildObjective(planetConfig, this.level);
+    this.clearObjectiveTotal = 0;
     console.log("[Level] init", {
       level: this.level,
       planetId: planetConfig.id,
@@ -152,6 +153,7 @@ export class GameLoop {
       levelSeed: this.planet.getSeed(),
       placement: planetConfig.enemyPlacement || "random",
     });
+    this._initializeClearObjectiveTracking();
 
     this._spawnMiners();
     this.planet.reconcileFeatures({
@@ -262,13 +264,73 @@ export class GameLoop {
   }
 
   /**
+   * @returns {boolean}
+   */
+  _isMechanizedLevel(){
+    const cfg = this.planet && this.planet.getPlanetConfig ? this.planet.getPlanetConfig() : null;
+    return !!(cfg && cfg.id === "mechanized");
+  }
+
+  /**
+   * @returns {Array<any>}
+   */
+  _factoryPropsAlive(){
+    const out = [];
+    if (!this.planet || !this.planet.props || !this.planet.props.length) return out;
+    for (const p of this.planet.props){
+      if (p.type !== "factory") continue;
+      if (p.dead || (typeof p.hp === "number" && p.hp <= 0)) continue;
+      out.push(p);
+    }
+    return out;
+  }
+
+  /**
+   * @returns {number}
+   */
+  _remainingCombatEnemies(){
+    if (!this.enemies || !this.enemies.enemies) return 0;
+    let c = 0;
+    for (const e of this.enemies.enemies){
+      if (!e || e.hp <= 0) continue;
+      c++;
+    }
+    return c;
+  }
+
+  /**
+   * @returns {number}
+   */
+  _remainingClearTargets(){
+    let remaining = this._remainingCombatEnemies();
+    if (this._isMechanizedLevel()){
+      remaining += this._factoryPropsAlive().length;
+    }
+    return remaining;
+  }
+
+  /**
+   * Recompute clear-objective totals at level init.
+   * @returns {void}
+   */
+  _initializeClearObjectiveTracking(){
+    if (!this.objective || this.objective.type !== "clear"){
+      this.clearObjectiveTotal = 0;
+      return;
+    }
+    const remaining = this._remainingClearTargets();
+    this.clearObjectiveTotal = Math.max(this.objective.target || 0, remaining);
+    this.objective.target = this.clearObjectiveTotal;
+  }
+
+  /**
    * @returns {string}
    */
   _objectiveText(){
     if (!this.objective) return "";
     if (this.objective.type === "clear"){
-      const remaining = this.enemies ? this.enemies.enemies.length : 0;
-      const target = this.objective.target || 0;
+      const remaining = this._remainingClearTargets();
+      const target = Math.max(this.objective.target || 0, this.clearObjectiveTotal || 0, remaining);
       const done = target ? Math.max(0, target - remaining) : 0;
       return `Objective: Clear ${done}${target ? `/${target}` : ""}`;
     }
@@ -598,6 +660,7 @@ export class GameLoop {
         this.minersDead++;
       }
     }
+    this._damageFactoriesAt(x, y, this.PLAYER_BOMB_DAMAGE, 999, true);
   }
 
   /**
@@ -633,6 +696,199 @@ export class GameLoop {
         this.miners.splice(j, 1);
         this.minersRemaining = Math.max(0, this.minersRemaining - 1);
         this.minersDead++;
+      }
+    }
+  }
+
+  /**
+   * @param {{x:number,y:number,nx?:number,ny?:number}} p
+   * @returns {{nx:number,ny:number,tx:number,ty:number}}
+   */
+  _propBasis(p){
+    let nx = (typeof p.nx === "number") ? p.nx : 0;
+    let ny = (typeof p.ny === "number") ? p.ny : 0;
+    if (!nx && !ny){
+      const r = Math.hypot(p.x, p.y) || 1;
+      nx = p.x / r;
+      ny = p.y / r;
+    } else {
+      const len = Math.hypot(nx, ny) || 1;
+      nx /= len;
+      ny /= len;
+    }
+    return { nx, ny, tx: -ny, ty: nx };
+  }
+
+  /**
+   * @param {any} p
+   * @returns {number}
+   */
+  _factoryHitRadius(p){
+    const s = p && p.scale ? p.scale : 1;
+    return 0.42 * s;
+  }
+
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @param {number} radius
+   * @param {number} damage
+   * @param {boolean} forceKill
+   * @returns {boolean}
+   */
+  _damageFactoriesAt(x, y, radius, damage = 1, forceKill = false){
+    if (!this._isMechanizedLevel()) return false;
+    if (!this.planet || !this.planet.props || !this.planet.props.length) return false;
+    let hit = false;
+    for (const p of this.planet.props){
+      if (p.type !== "factory") continue;
+      if (p.dead || (typeof p.hp === "number" && p.hp <= 0)) continue;
+      const rr = radius + this._factoryHitRadius(p);
+      const dx = p.x - x;
+      const dy = p.y - y;
+      if (dx * dx + dy * dy > rr * rr) continue;
+      hit = true;
+      if (forceKill){
+        p.hp = 0;
+      } else {
+        const cur = (typeof p.hp === "number") ? p.hp : 5;
+        p.hp = Math.max(0, cur - Math.max(0.1, damage));
+      }
+      if ((p.hp || 0) <= 0){
+        p.dead = true;
+        this.entityExplosions.push({ x: p.x, y: p.y, life: 0.65, radius: 0.95 * (p.scale || 1) });
+      } else {
+        this.entityExplosions.push({ x: p.x, y: p.y, life: 0.25, radius: 0.35 * (p.scale || 1) });
+      }
+    }
+    return hit;
+  }
+
+  /**
+   * @param {any} factory
+   * @returns {boolean}
+   */
+  _spawnEnemyFromFactory(factory){
+    if (!factory || factory.dead || (factory.hp || 0) <= 0) return false;
+    if (!this.enemies || !this.enemies.enemies) return false;
+    const cfg = this.planet && this.planet.getPlanetConfig ? this.planet.getPlanetConfig() : null;
+    const allow = (cfg && cfg.enemyAllow) ? cfg.enemyAllow : [];
+    const pool = allow.filter((t) => t === "hunter" || t === "ranger" || t === "crawler");
+    const type = pool.length ? pool[Math.floor(Math.random() * pool.length)] : "hunter";
+    const { nx, ny, tx, ty } = this._propBasis(factory);
+    const s = factory.scale || 1;
+    let x = factory.x + nx * (0.58 * s + 0.28);
+    let y = factory.y + ny * (0.58 * s + 0.28);
+    x += tx * ((Math.random() * 2 - 1) * 0.16);
+    y += ty * ((Math.random() * 2 - 1) * 0.16);
+    if (this.collision.airValueAtWorld(x, y) <= 0.5){
+      const nudge = this.planet.nudgeOutOfTerrain(x, y, 0.9, 0.08, 0.18);
+      if (!nudge.ok) return false;
+      x = nudge.x;
+      y = nudge.y;
+      if (this.collision.airValueAtWorld(x, y) <= 0.5) return false;
+    }
+    const cooldown = Math.random();
+    if (type === "hunter"){
+      this.enemies.enemies.push({ type, x, y, vx: 0, vy: 0, cooldown, hp: 3, iNodeGoal: null });
+    } else if (type === "ranger"){
+      this.enemies.enemies.push({ type, x, y, vx: 0, vy: 0, cooldown, hp: 2, iNodeGoal: null });
+    } else {
+      const ang = Math.random() * Math.PI * 2;
+      const speed = Math.min(3, this.level * 0.25 + 0.5);
+      this.enemies.enemies.push({ type: "crawler", x, y, vx: Math.cos(ang) * speed, vy: Math.sin(ang) * speed, cooldown: 0, hp: 1, iNodeGoal: null });
+    }
+    if (this.objective && this.objective.type === "clear"){
+      this.clearObjectiveTotal = Math.max(this.clearObjectiveTotal || 0, this._remainingClearTargets()) + 1;
+      this.objective.target = this.clearObjectiveTotal;
+    }
+    this.entityExplosions.push({ x, y, life: 0.35, radius: 0.45 });
+    return true;
+  }
+
+  /**
+   * @param {number} dt
+   * @returns {void}
+   */
+  _updateFactorySpawns(dt){
+    if (!this._isMechanizedLevel()) return;
+    const factories = this._factoryPropsAlive();
+    if (!factories.length) return;
+    for (const p of factories){
+      p.spawnCd = (typeof p.spawnCd === "number" && p.spawnCd > 0) ? p.spawnCd : (6.5 + Math.random() * 4.0);
+      p.spawnT = (typeof p.spawnT === "number") ? (p.spawnT + dt) : (Math.random() * p.spawnCd);
+      if (p.spawnT < p.spawnCd) continue;
+      p.spawnT -= p.spawnCd;
+      p.spawnCd = 6.5 + Math.random() * 4.0;
+      this._spawnEnemyFromFactory(p);
+    }
+  }
+
+  /**
+   * @param {any} p
+   * @param {number} x
+   * @param {number} y
+   * @param {number} radius
+   * @returns {{nx:number,ny:number,depth:number}|null}
+   */
+  _solidPropPenetration(p, x, y, radius){
+    if (!p || p.dead) return null;
+    if (p.type !== "gate" && p.type !== "factory") return null;
+    const { nx, ny, tx, ty } = this._propBasis(p);
+    const dx = x - p.x;
+    const dy = y - p.y;
+    const lx = dx * tx + dy * ty;
+    const ly = dx * nx + dy * ny;
+    const s = p.scale || 1;
+    const halfW = (p.type === "gate" ? 0.62 : 0.45) * s;
+    const halfN = (p.type === "gate" ? 0.12 : 0.20) * s;
+    const overX = (halfW + radius) - Math.abs(lx);
+    const overY = (halfN + radius) - Math.abs(ly);
+    if (overX <= 0 || overY <= 0) return null;
+    const sign = (ly >= 0) ? 1 : -1;
+    return { nx: nx * sign, ny: ny * sign, depth: overY };
+  }
+
+  /**
+   * @returns {void}
+   */
+  _resolveShipSolidPropCollisions(){
+    if (!this._isMechanizedLevel()) return;
+    if (!this.planet || !this.planet.props || !this.planet.props.length) return;
+    if (this.ship.state === "crashed") return;
+    const radius = this._shipRadius();
+    for (const p of this.planet.props){
+      const hit = this._solidPropPenetration(p, this.ship.x, this.ship.y, radius);
+      if (!hit) continue;
+      this.ship.x += hit.nx * (hit.depth + 0.01);
+      this.ship.y += hit.ny * (hit.depth + 0.01);
+      const vn = this.ship.vx * hit.nx + this.ship.vy * hit.ny;
+      if (vn < 0){
+        this.ship.vx -= hit.nx * vn;
+        this.ship.vy -= hit.ny * vn;
+      }
+    }
+  }
+
+  /**
+   * @returns {void}
+   */
+  _resolveEnemySolidPropCollisions(){
+    if (!this._isMechanizedLevel()) return;
+    if (!this.planet || !this.planet.props || !this.planet.props.length) return;
+    if (!this.enemies || !this.enemies.enemies || !this.enemies.enemies.length) return;
+    const radius = 0.24 * GAME.ENEMY_SCALE;
+    for (const e of this.enemies.enemies){
+      for (const p of this.planet.props){
+        const hit = this._solidPropPenetration(p, e.x, e.y, radius);
+        if (!hit) continue;
+        e.x += hit.nx * (hit.depth + 0.01);
+        e.y += hit.ny * (hit.depth + 0.01);
+        const vn = e.vx * hit.nx + e.vy * hit.ny;
+        if (vn < 0){
+          e.vx -= hit.nx * vn;
+          e.vy -= hit.ny * vn;
+        }
       }
     }
   }
@@ -804,6 +1060,7 @@ export class GameLoop {
       levelSeed: this.planet.getSeed(),
       placement: planetConfig.enemyPlacement || "random",
     });
+    this._initializeClearObjectiveTracking();
     console.log("[Level] enemies spawned", { level: this.level, enemies: this.enemies.enemies.length });
     this.renderer.setPlanet(this.planet);
     this._resetShip();
@@ -1050,6 +1307,7 @@ export class GameLoop {
     }
     if (left && !right) this.ship.cabinSide = -1;
     if (right && !left) this.ship.cabinSide = 1;
+    const planetCfg = this.planet && this.planet.getPlanetConfig ? this.planet.getPlanetConfig() : null;
 
     if (this.ship.state === "landed" && this.ship._dock && this.mothership){
       if (left || right || thrust){
@@ -1118,6 +1376,14 @@ export class GameLoop {
         ax += -rx * thrustMax;
         ay += -ry * thrustMax;
       }
+
+      if (planetCfg && planetCfg.id === "water"){
+        const waterR = Math.max(0, this.planetParams.RMAX * Math.max(0, this.planetParams.WATER_LEVEL || 0));
+        let buoyancy = Math.max(0, this.planetParams.SURFACE_G * 0.45);
+        if (waterR > 0 && r <= waterR + 0.2) buoyancy = Math.max(buoyancy, this.planetParams.SURFACE_G * 0.95);
+        ax += rx * buoyancy;
+        ay += ry * buoyancy;
+      }
       /*
       const aThrustSqr = ax*ax + ay*ay;
       if (aThrustSqr > thrustMax * thrustMax) {
@@ -1142,6 +1408,11 @@ export class GameLoop {
       this.ship.vx *= drag;
       this.ship.vy *= drag;
       */
+      if (planetCfg && planetCfg.id === "water"){
+        const drag = Math.max(0, 1 - this.planetParams.DRAG * 1.15 * dt);
+        this.ship.vx *= drag;
+        this.ship.vy *= drag;
+      }
 
       /*
       const vt = this.ship.vx * tx + this.ship.vy * ty;
@@ -1373,6 +1644,7 @@ export class GameLoop {
     } else {
       this.ship.guidePath = this.planet.surfaceGuidePathTo(this.ship.x, this.ship.y, GAME.MINER_CALL_RADIUS);
     }
+    this._resolveShipSolidPropCollisions();
 
     if (this.ship.state !== "crashed"){
       if (shoot){
@@ -1452,8 +1724,7 @@ export class GameLoop {
       onMinerKilled: this.featureCallbacks.onMinerKilled,
     });
     if (this.ship.state !== "crashed"){
-      const cfg = this.planet.getPlanetConfig ? this.planet.getPlanetConfig() : null;
-      if (cfg && cfg.id === "molten" && (this.ship.heat || 0) >= 100){
+      if (planetCfg && planetCfg.id === "molten" && (this.ship.heat || 0) >= 100){
         this._triggerCrash();
       }
     }
@@ -1471,6 +1742,26 @@ export class GameLoop {
         if (this.planet.handleFeatureShot(s.x, s.y, this.PLAYER_SHOT_RADIUS, this.featureCallbacks)){
           this.playerShots.splice(i, 1);
           continue;
+        }
+        if (this._isMechanizedLevel()){
+          let blocked = false;
+          if (this.planet && this.planet.props){
+            for (const p of this.planet.props){
+              if (p.type !== "gate" || p.dead) continue;
+              if (this._solidPropPenetration(p, s.x, s.y, this.PLAYER_SHOT_RADIUS * 0.5)){
+                blocked = true;
+                break;
+              }
+            }
+          }
+          if (blocked){
+            this.playerShots.splice(i, 1);
+            continue;
+          }
+          if (this._damageFactoriesAt(s.x, s.y, this.PLAYER_SHOT_RADIUS, 1, false)){
+            this.playerShots.splice(i, 1);
+            continue;
+          }
         }
         for (let j = this.enemies.enemies.length - 1; j >= 0; j--){
           const e = this.enemies.enemies[j];
@@ -1517,6 +1808,19 @@ export class GameLoop {
           if (sample.air <= 0.5){
             hit = true;
             hitSource = sample.source;
+          }
+        }
+        if (!hit){
+          if (this._isMechanizedLevel() && this.planet && this.planet.props){
+            for (const p of this.planet.props){
+              if (p.dead) continue;
+              if (p.type !== "gate" && p.type !== "factory") continue;
+              if (this._solidPropPenetration(p, b.x, b.y, this.PLAYER_BOMB_RADIUS * 0.8)){
+                hit = true;
+                hitSource = "planet";
+                break;
+              }
+            }
           }
         }
         if (!hit){
@@ -1686,6 +1990,8 @@ export class GameLoop {
     }
 
     this.enemies.update(this.ship, dt);
+    this._updateFactorySpawns(dt);
+    this._resolveEnemySolidPropCollisions();
 
     if (this.ship.state !== "crashed"){
       const shipRadius = this._shipRadius();
@@ -1894,7 +2200,7 @@ export class GameLoop {
    */
   _objectiveComplete(){
     const objType = this.objective ? this.objective.type : "extract";
-    if (objType === "clear") return this.enemies.enemies.length === 0;
+    if (objType === "clear") return this._remainingClearTargets() === 0;
     if (objType === "extract") return this.minersRemaining === 0;
     return false;
   }

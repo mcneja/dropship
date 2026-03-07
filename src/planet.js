@@ -40,14 +40,22 @@ export class Planet {
     this.props = mats.props;
     this.iceShardHazard = createIceShardHazard(this.props || []);
     this.mushroomHazard = createMushroomHazard(this.props || []);
+    /** @type {Array<[number,number,number,number]>} */
+    this._standablePoints = [];
+    /** @type {Array<{x:number,y:number,r:number}>} */
+    this._spawnReservations = [];
     this._spreadIceShardsUniform();
     this._snapIceShardsToSurface();
     this._alignTurretPadsToSurface();
     this._alignVentsToSurface();
     this._alignGaiaFlora();
-    this._spawnReservations = [];
+    this._alignSurfaceDebris();
+    this._alignCavernDebris();
+    this._alignMechanizedStructures();
     this._reserveSpawnPointsFromProps();
-    this._standablePoints = this._buildStandablePoints();
+    if (!this._standablePoints || !this._standablePoints.length){
+      this._standablePoints = this._buildStandablePoints();
+    }
 
     this.features = createPlanetFeatures(this, this.props || [], this.iceShardHazard, this.mushroomHazard);
 
@@ -94,10 +102,14 @@ export class Planet {
   }
 
   /**
-   * @returns {{lava:Array<{x:number,y:number,vx:number,vy:number,life:number}>,mushroom:Array<{x:number,y:number,vx:number,vy:number,life:number}>}}
+   * @returns {{
+   *  lava:Array<{x:number,y:number,vx:number,vy:number,life:number}>,
+   *  mushroom:Array<{x:number,y:number,vx:number,vy:number,life:number}>,
+   *  bubbles:Array<{x:number,y:number,vx:number,vy:number,life:number,maxLife:number,size:number,rot:number,spin:number}>
+   * }}
    */
   getFeatureParticles(){
-    return this.features ? this.features.getParticles() : { lava: [], mushroom: [] };
+    return this.features ? this.features.getParticles() : { lava: [], mushroom: [], bubbles: [] };
   }
 
   /**
@@ -358,6 +370,238 @@ export class Planet {
         const pt = points[i];
         p.x = pt[0];
         p.y = pt[1];
+      }
+    }
+  }
+
+  /**
+   * Align no-caves/water debris onto standable surface using radial-graph standable points.
+   * @returns {void}
+   */
+  _alignSurfaceDebris(){
+    const cfg = this.getPlanetConfig ? this.getPlanetConfig() : null;
+    if (!cfg || (cfg.id !== "no_caves" && cfg.id !== "water")) return;
+    if (!this.props || !this.props.length) return;
+    const debris = [];
+    for (const p of this.props){
+      if (p.type === "boulder" || p.type === "ridge_spike") debris.push(p);
+    }
+    if (!debris.length) return;
+    if (!this._standablePoints || !this._standablePoints.length){
+      this._standablePoints = this._buildStandablePoints();
+    }
+    const seed = (this.mapgen.getWorld().seed | 0) + ((cfg.id === "no_caves") ? 1207 : 1239);
+    const placement = (cfg.id === "no_caves") ? "uniform" : "random";
+    const minDist = (cfg.id === "no_caves") ? 0.5 : 0.4;
+    const points = this.sampleStandablePoints(debris.length, seed, placement, minDist, false);
+    for (let i = 0; i < debris.length; i++){
+      const p = debris[i];
+      const pt = points[i];
+      if (!pt){
+        p.dead = true;
+        continue;
+      }
+      p.x = pt[0];
+      p.y = pt[1];
+      const info = this.surfaceInfoAtWorld(p.x, p.y, 0.18);
+      if (!info) continue;
+      p.nx = info.nx;
+      p.ny = info.ny;
+      const sink = (p.type === "boulder") ? (0.06 * (p.scale || 1)) : (0.035 * (p.scale || 1));
+      p.x -= info.nx * sink;
+      p.y -= info.ny * sink;
+      p.rot = Math.atan2(info.ny, info.nx) - Math.PI * 0.5;
+    }
+  }
+
+  /**
+   * Sample cave-wall attachment points from radial graph air/rock boundaries.
+   * @param {number} count
+   * @param {number} seed
+   * @param {number} minDist
+   * @returns {Array<{x:number,y:number,nx:number,ny:number}>}
+   */
+  _sampleCaveAttachmentPoints(count, seed, minDist = 0.45){
+    if (count <= 0) return [];
+    const graph = this.radialGraph;
+    const nodes = graph && graph.nodes ? graph.nodes : [];
+    const neighbors = graph && graph.neighbors ? graph.neighbors : [];
+    const air = this.airNodesBitmap;
+    if (!nodes.length || !neighbors.length || !air || air.length !== nodes.length){
+      return [];
+    }
+    const cfg = this.getPlanetConfig ? this.getPlanetConfig() : null;
+    const surfaceBand = (cfg && cfg.defaults && typeof cfg.defaults.SURFACE_BAND === "number")
+      ? cfg.defaults.SURFACE_BAND
+      : 0;
+    const surfaceR = this.planetParams.RMAX * (1 - surfaceBand);
+    const rMin = Math.max(0.7, this.planetParams.RMAX * 0.12);
+    const rMax = Math.max(rMin + 0.8, Math.min(this.planetParams.RMAX - 0.5, surfaceR - 0.25));
+    /** @type {Array<{x:number,y:number,nx:number,ny:number}>} */
+    const candidates = [];
+    for (let i = 0; i < nodes.length; i++){
+      if (!air[i]) continue;
+      const n = nodes[i];
+      const r = Math.hypot(n.x, n.y);
+      if (r < rMin || r > rMax) continue;
+      const neigh = neighbors[i] || [];
+      let rockNeighbor = null;
+      let rockDist2 = Infinity;
+      for (const e of neigh){
+        if (air[e.to]) continue;
+        const nb = nodes[e.to];
+        if (!nb) continue;
+        const dx = n.x - nb.x;
+        const dy = n.y - nb.y;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < rockDist2){
+          rockDist2 = d2;
+          rockNeighbor = nb;
+        }
+      }
+      if (!rockNeighbor) continue;
+      const dxr = n.x - rockNeighbor.x;
+      const dyr = n.y - rockNeighbor.y;
+      const len = Math.hypot(dxr, dyr) || 1;
+      const nx = dxr / len;
+      const ny = dyr / len;
+      let lo = { x: rockNeighbor.x, y: rockNeighbor.y };
+      let hi = { x: n.x, y: n.y };
+      for (let it = 0; it < 8; it++){
+        const mx = (lo.x + hi.x) * 0.5;
+        const my = (lo.y + hi.y) * 0.5;
+        if (this.airValueAtWorld(mx, my) > 0.5){
+          hi = { x: mx, y: my };
+        } else {
+          lo = { x: mx, y: my };
+        }
+      }
+      candidates.push({ x: hi.x, y: hi.y, nx, ny });
+    }
+    const rand = mulberry32(seed);
+    for (let i = candidates.length - 1; i > 0; i--){
+      const j = Math.floor(rand() * (i + 1));
+      const tmp = candidates[i];
+      candidates[i] = candidates[j];
+      candidates[j] = tmp;
+    }
+    /** @type {Array<{x:number,y:number,nx:number,ny:number}>} */
+    const picked = [];
+    for (const c of candidates){
+      let tooClose = false;
+      for (const p of picked){
+        const dx = c.x - p.x;
+        const dy = c.y - p.y;
+        if (dx * dx + dy * dy < minDist * minDist){
+          tooClose = true;
+          break;
+        }
+      }
+      if (tooClose) continue;
+      picked.push(c);
+      if (picked.length >= count) break;
+    }
+    return picked;
+  }
+
+  /**
+   * Align cavern debris to cave walls with normals from radial graph boundaries.
+   * @returns {void}
+   */
+  _alignCavernDebris(){
+    const cfg = this.getPlanetConfig ? this.getPlanetConfig() : null;
+    if (!cfg || cfg.id !== "cavern") return;
+    if (!this.props || !this.props.length) return;
+    const stal = [];
+    const boulders = [];
+    const spikes = [];
+    for (const p of this.props){
+      if (p.type === "stalactite") stal.push(p);
+      else if (p.type === "boulder") boulders.push(p);
+      else if (p.type === "ridge_spike") spikes.push(p);
+    }
+    const total = stal.length + boulders.length + spikes.length;
+    if (!total) return;
+    const seed = (this.mapgen.getWorld().seed | 0) + 1327;
+    const points = this._sampleCaveAttachmentPoints(total, seed, 0.45);
+    let cursor = 0;
+    const applyAttach = (p, sinkMul) => {
+      const pt = points[cursor++];
+      if (!pt){
+        p.dead = true;
+        return;
+      }
+      p.nx = pt.nx;
+      p.ny = pt.ny;
+      p.rot = Math.atan2(pt.ny, pt.nx) - Math.PI * 0.5;
+      const sink = sinkMul * (p.scale || 1);
+      p.x = pt.x - pt.nx * sink;
+      p.y = pt.y - pt.ny * sink;
+    };
+    for (const p of stal) applyAttach(p, 0.025);
+    for (const p of boulders) applyAttach(p, 0.10);
+    for (const p of spikes) applyAttach(p, 0.05);
+  }
+
+  /**
+   * Align mechanized factories/gates to standable landable surfaces.
+   * @returns {void}
+   */
+  _alignMechanizedStructures(){
+    const cfg = this.getPlanetConfig ? this.getPlanetConfig() : null;
+    if (!cfg || cfg.id !== "mechanized") return;
+    if (!this.props || !this.props.length) return;
+    const factories = [];
+    const gates = [];
+    for (const p of this.props){
+      if (p.type === "factory") factories.push(p);
+      else if (p.type === "gate") gates.push(p);
+    }
+    if (!factories.length && !gates.length) return;
+    if (!this._standablePoints || !this._standablePoints.length){
+      this._standablePoints = this._buildStandablePoints();
+    }
+    const seed = (this.mapgen.getWorld().seed | 0) + 1907;
+    const rand = mulberry32(seed + 31);
+    const factoryPts = this.sampleStandablePoints(factories.length, seed, "uniform", 1.5, false);
+    const gatePts = this.sampleStandablePoints(gates.length, seed + 97, "clusters", 2.0, false);
+    for (let i = 0; i < factories.length; i++){
+      const p = factories[i];
+      const pt = factoryPts[i];
+      if (!pt){
+        p.dead = true;
+        continue;
+      }
+      p.x = pt[0];
+      p.y = pt[1];
+      const info = this.surfaceInfoAtWorld(p.x, p.y, 0.18);
+      if (info){
+        p.nx = info.nx;
+        p.ny = info.ny;
+        p.x -= info.nx * (0.05 * (p.scale || 1));
+        p.y -= info.ny * (0.05 * (p.scale || 1));
+        p.rot = Math.atan2(info.ny, info.nx) - Math.PI * 0.5;
+      }
+      p.hp = (typeof p.hp === "number") ? Math.max(1, p.hp) : 5;
+      p.spawnCd = 6.5 + rand() * 4.0;
+      p.spawnT = rand() * p.spawnCd;
+    }
+    for (let i = 0; i < gates.length; i++){
+      const p = gates[i];
+      const pt = gatePts[i];
+      if (!pt){
+        p.dead = true;
+        continue;
+      }
+      p.x = pt[0];
+      p.y = pt[1];
+      const info = this.surfaceInfoAtWorld(p.x, p.y, 0.18);
+      if (info){
+        p.nx = info.nx;
+        p.ny = info.ny;
+        p.x -= info.nx * (0.03 * (p.scale || 1));
+        p.y -= info.ny * (0.03 * (p.scale || 1));
+        p.rot = Math.atan2(info.ny, info.nx) - Math.PI * 0.5;
       }
     }
   }

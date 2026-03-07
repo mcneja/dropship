@@ -1327,10 +1327,21 @@ function drawFrameImpl(renderer, state, planet){
         triVerts += pushPolyFan(pos, col, p.x, p.y, 0.3 * s, 7, rot, 0.45, 0.45, 0.48, 0.95) * 3;
         triVerts += pushPolyFan(pos, col, p.x, p.y, 0.18 * s, 7, rot, 0.35, 0.35, 0.37, 0.95) * 3;
       } else if (p.type === "ridge_spike"){
-        const { ux, uy, tx, ty } = basisAt(p.x, p.y);
-        const tip = toWorld(p.x, p.y, tx, ty, ux, uy, 0, 0.6 * s);
-        const bl = toWorld(p.x, p.y, tx, ty, ux, uy, -0.18 * s, -0.1 * s);
-        const br = toWorld(p.x, p.y, tx, ty, ux, uy, 0.18 * s, -0.1 * s);
+        let ux, uy, tx, ty;
+        if (typeof p.nx === "number" && typeof p.ny === "number"){
+          const nlen = Math.hypot(p.nx, p.ny) || 1;
+          ux = p.nx / nlen;
+          uy = p.ny / nlen;
+          tx = -uy;
+          ty = ux;
+        } else {
+          ({ ux, uy, tx, ty } = basisAt(p.x, p.y));
+        }
+        const cx = p.x - ux * 0.02 * s;
+        const cy = p.y - uy * 0.02 * s;
+        const tip = toWorld(cx, cy, tx, ty, ux, uy, 0, 0.62 * s);
+        const bl = toWorld(cx, cy, tx, ty, ux, uy, -0.18 * s, -0.08 * s);
+        const br = toWorld(cx, cy, tx, ty, ux, uy, 0.18 * s, -0.08 * s);
         pushTri(pos, col, bl[0], bl[1], br[0], br[1], tip[0], tip[1], 0.4, 0.4, 0.42, 0.95);
         triVerts += 3;
       } else if (p.type === "vent"){
@@ -1469,33 +1480,96 @@ function drawFrameImpl(renderer, state, planet){
         pushTri(pos, col, capL[0], capL[1], capR[0], capR[1], capT[0], capT[1], 0.95, 0.35, 0.75, 0.95);
         triVerts += 3;
       } else if (p.type === "stalactite"){
-        const { ux, uy, tx, ty } = basisAt(p.x, p.y);
-        const tip = toWorld(p.x, p.y, tx, ty, ux, uy, 0, -0.6 * s);
-        const bl = toWorld(p.x, p.y, tx, ty, ux, uy, -0.18 * s, 0.1 * s);
-        const br = toWorld(p.x, p.y, tx, ty, ux, uy, 0.18 * s, 0.1 * s);
+        let ux, uy, tx, ty;
+        if (typeof p.nx === "number" && typeof p.ny === "number"){
+          const nlen = Math.hypot(p.nx, p.ny) || 1;
+          ux = p.nx / nlen;
+          uy = p.ny / nlen;
+          tx = -uy;
+          ty = ux;
+        } else {
+          ({ ux, uy, tx, ty } = basisAt(p.x, p.y));
+        }
+        const cx = p.x - ux * 0.02 * s;
+        const cy = p.y - uy * 0.02 * s;
+        const tip = toWorld(cx, cy, tx, ty, ux, uy, 0, 0.62 * s);
+        const bl = toWorld(cx, cy, tx, ty, ux, uy, -0.18 * s, -0.10 * s);
+        const br = toWorld(cx, cy, tx, ty, ux, uy, 0.18 * s, -0.10 * s);
         pushTri(pos, col, bl[0], bl[1], br[0], br[1], tip[0], tip[1], 0.45, 0.45, 0.5, 0.95);
         triVerts += 3;
       } else if (p.type === "gate"){
-        const { ux, uy, tx, ty } = basisAt(p.x, p.y);
-        const w = 0.35 * s;
-        const h = 0.4 * s;
-        const a0 = toWorld(p.x, p.y, tx, ty, ux, uy, -w, 0);
-        const a1 = toWorld(p.x, p.y, tx, ty, ux, uy, -w * 0.6, h);
-        const a2 = toWorld(p.x, p.y, tx, ty, ux, uy, w * 0.6, h);
-        const a3 = toWorld(p.x, p.y, tx, ty, ux, uy, w, 0);
-        pushTri(pos, col, a0[0], a0[1], a1[0], a1[1], a2[0], a2[1], 0.35, 0.35, 0.38, 0.95);
-        pushTri(pos, col, a0[0], a0[1], a2[0], a2[1], a3[0], a3[1], 0.35, 0.35, 0.38, 0.95);
+        let ux, uy, tx, ty;
+        if (typeof p.nx === "number" && typeof p.ny === "number"){
+          const nlen = Math.hypot(p.nx, p.ny) || 1;
+          ux = p.nx / nlen;
+          uy = p.ny / nlen;
+          tx = -uy;
+          ty = ux;
+        } else {
+          ({ ux, uy, tx, ty } = basisAt(p.x, p.y));
+        }
+        const cx = p.x - ux * 0.02 * s;
+        const cy = p.y - uy * 0.02 * s;
+        const hw = 0.62 * s;
+        const hh = 0.14 * s;
+        const a0 = toWorld(cx, cy, tx, ty, ux, uy, -hw, -hh);
+        const a1 = toWorld(cx, cy, tx, ty, ux, uy, hw, -hh);
+        const a2 = toWorld(cx, cy, tx, ty, ux, uy, hw, hh);
+        const a3 = toWorld(cx, cy, tx, ty, ux, uy, -hw, hh);
+        pushTri(pos, col, a0[0], a0[1], a1[0], a1[1], a2[0], a2[1], 0.32, 0.33, 0.36, 0.96);
+        pushTri(pos, col, a0[0], a0[1], a2[0], a2[1], a3[0], a3[1], 0.32, 0.33, 0.36, 0.96);
+        triVerts += 6;
+        const iw = hw * 0.82;
+        const ih = hh * 0.38;
+        const b0 = toWorld(cx, cy, tx, ty, ux, uy, -iw, -ih);
+        const b1 = toWorld(cx, cy, tx, ty, ux, uy, iw, -ih);
+        const b2 = toWorld(cx, cy, tx, ty, ux, uy, iw, ih);
+        const b3 = toWorld(cx, cy, tx, ty, ux, uy, -iw, ih);
+        pushTri(pos, col, b0[0], b0[1], b1[0], b1[1], b2[0], b2[1], 0.16, 0.17, 0.19, 0.95);
+        pushTri(pos, col, b0[0], b0[1], b2[0], b2[1], b3[0], b3[1], 0.16, 0.17, 0.19, 0.95);
         triVerts += 6;
       } else if (p.type === "factory"){
-        const { ux, uy, tx, ty } = basisAt(p.x, p.y);
-        const w = 0.35 * s;
-        const h = 0.3 * s;
-        const b0 = toWorld(p.x, p.y, tx, ty, ux, uy, -w, 0);
-        const b1 = toWorld(p.x, p.y, tx, ty, ux, uy, w, 0);
-        const b2 = toWorld(p.x, p.y, tx, ty, ux, uy, w, h);
-        const b3 = toWorld(p.x, p.y, tx, ty, ux, uy, -w, h);
-        pushTri(pos, col, b0[0], b0[1], b1[0], b1[1], b2[0], b2[1], 0.28, 0.28, 0.32, 0.95);
-        pushTri(pos, col, b0[0], b0[1], b2[0], b2[1], b3[0], b3[1], 0.28, 0.28, 0.32, 0.95);
+        let ux, uy, tx, ty;
+        if (typeof p.nx === "number" && typeof p.ny === "number"){
+          const nlen = Math.hypot(p.nx, p.ny) || 1;
+          ux = p.nx / nlen;
+          uy = p.ny / nlen;
+          tx = -uy;
+          ty = ux;
+        } else {
+          ({ ux, uy, tx, ty } = basisAt(p.x, p.y));
+        }
+        const sink = 0.08 * s;
+        const cx = p.x - ux * sink;
+        const cy = p.y - uy * sink;
+        const halfBase = 0.46 * s;
+        const halfTop = 0.30 * s;
+        const h = 0.56 * s;
+        const a0 = toWorld(cx, cy, tx, ty, ux, uy, -halfBase, 0);
+        const a1 = toWorld(cx, cy, tx, ty, ux, uy, halfBase, 0);
+        const a2 = toWorld(cx, cy, tx, ty, ux, uy, halfTop, h);
+        const a3 = toWorld(cx, cy, tx, ty, ux, uy, -halfTop, h);
+        pushTri(pos, col, a0[0], a0[1], a1[0], a1[1], a2[0], a2[1], 0.38, 0.39, 0.42, 0.98);
+        pushTri(pos, col, a0[0], a0[1], a2[0], a2[1], a3[0], a3[1], 0.38, 0.39, 0.42, 0.98);
+        triVerts += 6;
+        const doorW = 0.11 * s;
+        const doorH = 0.22 * s;
+        const d0 = toWorld(cx, cy, tx, ty, ux, uy, -doorW, 0.02 * s);
+        const d1 = toWorld(cx, cy, tx, ty, ux, uy, doorW, 0.02 * s);
+        const d2 = toWorld(cx, cy, tx, ty, ux, uy, doorW, doorH);
+        const d3 = toWorld(cx, cy, tx, ty, ux, uy, -doorW, doorH);
+        pushTri(pos, col, d0[0], d0[1], d1[0], d1[1], d2[0], d2[1], 0.14, 0.15, 0.17, 0.96);
+        pushTri(pos, col, d0[0], d0[1], d2[0], d2[1], d3[0], d3[1], 0.14, 0.15, 0.17, 0.96);
+        triVerts += 6;
+        const sx = halfTop * 0.55;
+        const sw = 0.07 * s;
+        const sh = 0.26 * s;
+        const st0 = toWorld(cx, cy, tx, ty, ux, uy, sx - sw, h);
+        const st1 = toWorld(cx, cy, tx, ty, ux, uy, sx + sw, h);
+        const st2 = toWorld(cx, cy, tx, ty, ux, uy, sx + sw, h + sh);
+        const st3 = toWorld(cx, cy, tx, ty, ux, uy, sx - sw, h + sh);
+        pushTri(pos, col, st0[0], st0[1], st1[0], st1[1], st2[0], st2[1], 0.30, 0.31, 0.34, 0.95);
+        pushTri(pos, col, st0[0], st0[1], st2[0], st2[1], st3[0], st3[1], 0.30, 0.31, 0.34, 0.95);
         triVerts += 6;
       }
     }
@@ -1743,6 +1817,17 @@ function drawFrameImpl(renderer, state, planet){
       const rot = (p.rot || 0) + (p.rotSpeed ? p.rotSpeed * now : 0);
       const s = p.scale || 1;
       pushHexOutline(pos, col, p.x, p.y, 0.28 * s, rot, 0.6, 0.95, 1.0, 0.6);
+      lineVerts += 12;
+    }
+  }
+  const bubbleParticles = featureParticles ? featureParticles.bubbles : null;
+  if (bubbleParticles && bubbleParticles.length){
+    for (const p of bubbleParticles){
+      if (state.fogEnabled && !planet.fogSeenAt(p.x, p.y)) continue;
+      const lifeN = (p.maxLife && p.maxLife > 0) ? Math.max(0, Math.min(1, p.life / p.maxLife)) : 1;
+      const radius = (p.size || 0.08) * (1 + (1 - lifeN) * 0.35);
+      const alpha = 0.25 + 0.55 * lifeN;
+      pushHexOutline(pos, col, p.x, p.y, radius, p.rot || 0, 0.58, 0.86, 1.0, alpha);
       lineVerts += 12;
     }
   }

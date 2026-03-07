@@ -431,6 +431,101 @@ function pruneMoltenVentsAgainstPoints(planet, props, points){
 }
 
 /**
+ * Build rock-attached bubble emitters for water worlds using radial graph boundaries.
+ * @param {import("./planet.js").Planet} planet
+ * @param {number} target
+ * @returns {Array<{x:number,y:number,nx:number,ny:number,t:number}>}
+ */
+function collectWaterBubbleSources(planet, target){
+  const cfg = planet.getPlanetConfig ? planet.getPlanetConfig() : null;
+  if (!cfg || cfg.id !== "water") return [];
+  const params = planet.getPlanetParams ? planet.getPlanetParams() : null;
+  if (!params || target <= 0) return [];
+  if (!planet.radialGraph || !planet.radialGraph.nodes || !planet.radialGraph.neighbors) return [];
+  const nodes = planet.radialGraph.nodes;
+  const neighbors = planet.radialGraph.neighbors;
+  const air = planet.airNodesBitmap || null;
+  if (!air || air.length !== nodes.length) return [];
+
+  const waterR = Math.max(0.8, params.RMAX * Math.max(0.12, params.WATER_LEVEL || 0.32));
+  const rMin = Math.max(0.5, waterR * 0.2);
+  const minDist = 0.65;
+  /** @type {Array<{x:number,y:number,nx:number,ny:number}>} */
+  const candidates = [];
+  for (let i = 0; i < nodes.length; i++){
+    if (!air[i]) continue;
+    const n = nodes[i];
+    const r = Math.hypot(n.x, n.y);
+    if (r < rMin || r > waterR) continue;
+    const neigh = neighbors[i] || [];
+    let rockNeighbor = null;
+    let rockDist2 = Infinity;
+    for (const e of neigh){
+      if (air[e.to]) continue;
+      const nb = nodes[e.to];
+      if (!nb) continue;
+      const dx = n.x - nb.x;
+      const dy = n.y - nb.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < rockDist2){
+        rockDist2 = d2;
+        rockNeighbor = nb;
+      }
+    }
+    if (!rockNeighbor) continue;
+    const dxr = n.x - rockNeighbor.x;
+    const dyr = n.y - rockNeighbor.y;
+    const nlen = Math.hypot(dxr, dyr) || 1;
+    const nx = dxr / nlen;
+    const ny = dyr / nlen;
+    let lo = { x: rockNeighbor.x, y: rockNeighbor.y };
+    let hi = { x: n.x, y: n.y };
+    for (let it = 0; it < 8; it++){
+      const mx = (lo.x + hi.x) * 0.5;
+      const my = (lo.y + hi.y) * 0.5;
+      if (planet.airValueAtWorld(mx, my) > 0.5){
+        hi = { x: mx, y: my };
+      } else {
+        lo = { x: mx, y: my };
+      }
+    }
+    candidates.push({ x: hi.x - nx * 0.05, y: hi.y - ny * 0.05, nx, ny });
+  }
+
+  const rand = mulberry32((planet.getSeed() + 14011) | 0);
+  for (let i = candidates.length - 1; i > 0; i--){
+    const j = Math.floor(rand() * (i + 1));
+    const tmp = candidates[i];
+    candidates[i] = candidates[j];
+    candidates[j] = tmp;
+  }
+
+  /** @type {Array<{x:number,y:number,nx:number,ny:number,t:number}>} */
+  const picked = [];
+  for (const c of candidates){
+    let tooClose = false;
+    for (const p of picked){
+      const dx = c.x - p.x;
+      const dy = c.y - p.y;
+      if (dx * dx + dy * dy < minDist * minDist){
+        tooClose = true;
+        break;
+      }
+    }
+    if (tooClose) continue;
+    picked.push({
+      x: c.x,
+      y: c.y,
+      nx: c.nx,
+      ny: c.ny,
+      t: rand() * 2.2,
+    });
+    if (picked.length >= target) break;
+  }
+  return picked;
+}
+
+/**
  * @typedef {Object} FeatureCallbacks
  * @property {(info:{x:number,y:number,life:number,radius:number})=>void} [onExplosion]
  * @property {(info:{x:number,y:number,vx:number,vy:number,a:number,w:number,life:number})=>void} [onDebris]
@@ -488,6 +583,18 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
       pieces: 12,
       confuseTime: 5.0,
     },
+    water: {
+      sourceRate: 1.4,
+      sourceJitter: 0.8,
+      shipRateMin: 0.18,
+      shipRateMax: 0.55,
+      rise: 0.95,
+      drift: 0.45,
+      lifeMin: 0.8,
+      lifeMax: 1.6,
+      sizeMin: 0.055,
+      sizeMax: 0.11,
+    },
   };
 
   const particles = {
@@ -495,6 +602,8 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
     lava: [],
     /** @type {Array<{x:number,y:number,vx:number,vy:number,life:number}>} */
     mushroom: [],
+    /** @type {Array<{x:number,y:number,vx:number,vy:number,life:number,maxLife:number,size:number,rot:number,spin:number}>} */
+    bubbles: [],
   };
 
   placeMoltenVents(planet, props || []);
@@ -514,6 +623,14 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
     planet.reserveSpawnPoints(mushReserve, 0.5);
   }
   let ventsPruned = false;
+  const waterCfg = planet.getPlanetConfig ? planet.getPlanetConfig() : null;
+  const isWater = !!(waterCfg && waterCfg.id === "water");
+  const waterParams = planet.getPlanetParams ? planet.getPlanetParams() : null;
+  const waterRadius = (isWater && waterParams)
+    ? Math.max(0, waterParams.RMAX * Math.max(0, waterParams.WATER_LEVEL || 0))
+    : 0;
+  const bubbleSources = isWater ? collectWaterBubbleSources(planet, 36) : [];
+  let shipBubbleT = tuning.water.shipRateMin;
 
   /**
    * @param {{x:number,y:number,scale:number}|null} info
@@ -902,11 +1019,98 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
     }
   };
 
+  /**
+   * @param {number} dt
+   * @param {FeatureUpdateState} state
+   */
+  const updateWaterBubbles = (dt, state) => {
+    if (!isWater) return;
+    const bubbles = particles.bubbles;
+    const spawnBubble = (x, y, baseUpX, baseUpY) => {
+      const t = Math.random() * 2 - 1;
+      const tx = -baseUpY;
+      const ty = baseUpX;
+      const rise = tuning.water.rise * (0.75 + Math.random() * 0.5);
+      const drift = tuning.water.drift * t;
+      const vx = baseUpX * rise + tx * drift;
+      const vy = baseUpY * rise + ty * drift;
+      const life = tuning.water.lifeMin + Math.random() * tuning.water.lifeMax;
+      const size = tuning.water.sizeMin + Math.random() * (tuning.water.sizeMax - tuning.water.sizeMin);
+      bubbles.push({
+        x,
+        y,
+        vx,
+        vy,
+        life,
+        maxLife: life,
+        size,
+        rot: Math.random() * Math.PI * 2,
+        spin: (Math.random() * 2 - 1) * 1.6,
+      });
+    };
+
+    if (bubbleSources.length){
+      for (const src of bubbleSources){
+        src.t -= dt;
+        if (src.t > 0) continue;
+        src.t = (1 / tuning.water.sourceRate) + Math.random() * tuning.water.sourceJitter;
+        const r = Math.hypot(src.x, src.y) || 1;
+        const upx = src.x / r;
+        const upy = src.y / r;
+        spawnBubble(src.x + src.nx * 0.02, src.y + src.ny * 0.02, upx, upy);
+        if (Math.random() < 0.35){
+          spawnBubble(src.x + src.nx * 0.03, src.y + src.ny * 0.03, upx, upy);
+        }
+      }
+    }
+
+    const ship = state && state.ship ? state.ship : null;
+    if (ship && ship.state !== "crashed" && waterRadius > 0){
+      const sr = Math.hypot(ship.x, ship.y);
+      if (sr <= waterRadius + 0.2){
+        shipBubbleT -= dt;
+        if (shipBubbleT <= 0){
+          shipBubbleT = tuning.water.shipRateMin + Math.random() * (tuning.water.shipRateMax - tuning.water.shipRateMin);
+          const upx = sr > 1e-6 ? (ship.x / sr) : 1;
+          const upy = sr > 1e-6 ? (ship.y / sr) : 0;
+          spawnBubble(
+            ship.x - upx * 0.2 + (Math.random() * 2 - 1) * 0.05,
+            ship.y - upy * 0.2 + (Math.random() * 2 - 1) * 0.05,
+            upx,
+            upy
+          );
+        }
+      }
+    }
+
+    if (!bubbles.length) return;
+    for (let i = bubbles.length - 1; i >= 0; i--){
+      const p = bubbles[i];
+      const r = Math.hypot(p.x, p.y) || 1;
+      const upx = p.x / r;
+      const upy = p.y / r;
+      p.vx += upx * 0.45 * dt;
+      p.vy += upy * 0.45 * dt;
+      const drag = Math.max(0, 1 - 1.35 * dt);
+      p.vx *= drag;
+      p.vy *= drag;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.rot += p.spin * dt;
+      p.life -= dt;
+      p.size += dt * 0.014;
+      if (p.life <= 0 || planet.airValueAtWorld(p.x, p.y) <= 0.5){
+        bubbles.splice(i, 1);
+      }
+    }
+  };
+
   return {
     getParticles: () => particles,
     clearParticles: () => {
       particles.lava.length = 0;
       particles.mushroom.length = 0;
+      particles.bubbles.length = 0;
     },
     reconcile: (state) => {
       if (ventsPruned) return;
@@ -931,6 +1135,7 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
       updateVents(dt);
       updateLavaParticles(dt, state);
       updateMushroomParticles(dt, state);
+      updateWaterBubbles(dt, state);
     },
     handleShipContact,
     handleShot,
@@ -957,6 +1162,8 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
  * @property {number} [ventHeat]
  * @property {number} [nx]
  * @property {number} [ny]
+ * @property {number} [spawnT]
+ * @property {number} [spawnCd]
  */
 
 /**
@@ -1044,9 +1251,14 @@ function buildProps(mapgen, planetConfig, params, material){
       break;
     }
     case "no_caves": {
-      for (const p of surface){
-        if (rng() < 0.08) add("boulder", p[0], p[1], 0.35 + rng() * 0.3, rng() * Math.PI * 2, 0);
-        if (rng() < 0.05) add("ridge_spike", p[0], p[1], 0.45 + rng() * 0.4, rng() * Math.PI * 2, 0);
+      const base = Math.max(18, Math.round(params.RMAX * 2.2));
+      const boulderCount = Math.max(8, Math.round(base * 0.50));
+      const spikeCount = Math.max(6, Math.round(base * 0.35));
+      for (let i = 0; i < boulderCount; i++){
+        add("boulder", 0, 0, 0.35 + rng() * 0.35, rng() * Math.PI * 2, 0);
+      }
+      for (let i = 0; i < spikeCount; i++){
+        add("ridge_spike", 0, 0, 0.45 + rng() * 0.45, rng() * Math.PI * 2, 0);
       }
       break;
     }
@@ -1063,22 +1275,39 @@ function buildProps(mapgen, planetConfig, params, material){
       break;
     }
     case "water": {
-      for (const p of surface){
-        if (rng() < 0.10) add("bubble_hex", p[0], p[1], 0.35 + rng() * 0.3, rng() * Math.PI * 2, (rng() * 1.6 - 0.8));
+      const boulderCount = Math.max(10, Math.round(params.RMAX * 1.1));
+      const spikeCount = Math.max(6, Math.round(params.RMAX * 0.6));
+      for (let i = 0; i < boulderCount; i++){
+        add("boulder", 0, 0, 0.30 + rng() * 0.32, rng() * Math.PI * 2, 0);
+      }
+      for (let i = 0; i < spikeCount; i++){
+        add("ridge_spike", 0, 0, 0.40 + rng() * 0.36, rng() * Math.PI * 2, 0);
       }
       break;
     }
     case "cavern": {
-      const cave = sampleCaveBoundaryPoints(mapgen, params, 80);
-      for (const p of cave){
-        if (rng() < 0.10) add("stalactite", p[0], p[1], 0.35 + rng() * 0.4, rng() * Math.PI * 2, 0);
+      const stalCount = Math.max(40, Math.round(params.RMAX * 2.3));
+      const boulderCount = Math.max(12, Math.round(params.RMAX * 0.95));
+      const spikeCount = Math.max(10, Math.round(params.RMAX * 0.8));
+      for (let i = 0; i < stalCount; i++){
+        add("stalactite", 0, 0, 0.34 + rng() * 0.42, rng() * Math.PI * 2, 0);
+      }
+      for (let i = 0; i < boulderCount; i++){
+        add("boulder", 0, 0, 0.28 + rng() * 0.28, rng() * Math.PI * 2, 0);
+      }
+      for (let i = 0; i < spikeCount; i++){
+        add("ridge_spike", 0, 0, 0.36 + rng() * 0.32, rng() * Math.PI * 2, 0);
       }
       break;
     }
     case "mechanized": {
-      for (const p of surface){
-        if (rng() < 0.08) add("gate", p[0], p[1], 0.55 + rng() * 0.3, rng() * Math.PI * 2, 0);
-        else if (rng() < 0.06) add("factory", p[0], p[1], 0.55 + rng() * 0.4, rng() * Math.PI * 2, 0);
+      const base = Math.max(5, Math.round((planetConfig.platformCount || 10) * 0.7));
+      const gateCount = Math.max(2, Math.round(base * 0.5));
+      for (let i = 0; i < base; i++){
+        add("factory", 0, 0, 0.62 + rng() * 0.36, rng() * Math.PI * 2, 0, { hp: 5, spawnT: 0, spawnCd: 0 });
+      }
+      for (let i = 0; i < gateCount; i++){
+        add("gate", 0, 0, 0.68 + rng() * 0.30, rng() * Math.PI * 2, 0);
       }
       break;
     }
