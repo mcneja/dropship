@@ -1068,6 +1068,19 @@ export class GameLoop {
     });
     this.minerPopups.length = 0;
     this.planet.clearFeatureParticles();
+
+    // Reset progression when starting the first level
+    if (level === 1){
+      this.ship.mothershipMiners = 0;
+      this.ship.mothershipPilots = 0;
+      this.ship.mothershipEngineers = 0;
+      this.ship.hpMax = GAME.SHIP_STARTING_MAX_HP;
+      this.ship.hpCur = GAME.SHIP_STARTING_MAX_HP;
+      this.ship.bombsMax = GAME.SHIP_STARTING_MAX_BOMBS;
+      this.ship.bombsCur = GAME.SHIP_STARTING_MAX_BOMBS;
+      this.ship.thrust = 0;
+      this.ship.rescueeDetector = false;
+    }
   }
 
   /**
@@ -1281,7 +1294,8 @@ export class GameLoop {
         if (this.ship.mothershipPilots > 0){
           this._restartWithNewPilot();
         } else {
-          // TOOD: Start new game at level 1
+          const nextSeed = this.planet.getSeed() + 1;
+          this._beginLevel(nextSeed, 1);
         }
       } else if (this._isDockedWithMothership()) {
         if (this.pendingPerkChoicesRemaining){
@@ -2186,7 +2200,9 @@ export class GameLoop {
         if (type === "gamepad") return "Press Start to launch a new dropship.";
         return "Press R to launch a new dropship.";
       } else {
-        return "Game Over! No more pilots. Reload page to restart.";
+        if (type === "touch") return "No more pilots! Tap Restart to start a new game.";
+        else if (type === "gamepad") return "No more pilots! Press Start to start a new game.";
+        else return "No more pilots! Press R to start a new game.";
       }
     } else if (this._isDockedWithMothership()) {
       if (this.pendingPerkChoicesRemaining > 0){
