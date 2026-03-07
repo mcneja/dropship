@@ -16,8 +16,6 @@ import { mulberry32 } from "./rng.js";
 /** @typedef {import("./planet_config.js").PlanetTypeId} PlanetTypeId */
 /** @typedef {import("./planet_config.js").PlanetConfig} PlanetConfig */
 
-const USE_SKI_COLLISION = false;
-
 export class GameLoop {
   /**
    * Main gameplay loop orchestrator.
@@ -1215,8 +1213,8 @@ export class GameLoop {
     const cargoBottomN = -0.35;
     const cargoHeightN = (0.18 - cargoBottomN) * cargoHeightScale;
     const cargoTopN = cargoBottomN + cargoHeightN;
-    const cargoBottom = USE_SKI_COLLISION ? (shipHWorld * cargoBottomN - bodyLift) : (shipHWorld * cargoBottomN);
-    const cargoTop = USE_SKI_COLLISION ? (shipHWorld * cargoTopN - bodyLift) : (shipHWorld * cargoTopN);
+    const cargoBottom = shipHWorld * cargoBottomN - bodyLift;
+    const cargoTop = shipHWorld * cargoTopN - bodyLift;
     const bottomHalfW = shipWWorld * 0.87 * cargoWidthScale;
     const topHalfW = shipWWorld * 0.65 * cargoWidthScale * 0.8;
     const topRight = topHalfW;
