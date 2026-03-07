@@ -811,6 +811,56 @@ function drawFrameImpl(renderer, state, planet){
   let lineVerts = 0;
   let pointVerts = 0;
 
+  // Atmosphere ring around the planet (configurable per-planet).
+  {
+    const cfg = planet.getPlanetConfig ? planet.getPlanetConfig() : null;
+    const atmo = (cfg && cfg.defaults && cfg.defaults.ATMOSPHERE) ? cfg.defaults.ATMOSPHERE : null;
+    if (!atmo) {
+      // no atmosphere for this planet
+    } else {
+    const rings = planet.radial && planet.radial.rings ? planet.radial.rings : null;
+    let outerR = rMax;
+    let ringStep = 1.0;
+    if (rings && rings.length >= 2){
+      const ringOuter = rings[rings.length - 1];
+      const ringInner = rings[rings.length - 2];
+      if (ringOuter && ringOuter.length){
+        let acc = 0;
+        for (const v of ringOuter) acc += Math.hypot(v.x, v.y);
+        outerR = acc / ringOuter.length;
+      }
+      if (ringInner && ringInner.length){
+        let acc = 0;
+        for (const v of ringInner) acc += Math.hypot(v.x, v.y);
+        const innerR = acc / ringInner.length;
+        ringStep = Math.max(0.5, outerR - innerR);
+      }
+    }
+    const ringCount = Math.max(1, atmo.ringCount || 1);
+    const ringOffset = atmo.ringOffset || 0;
+    const innerR = outerR + ringStep * ringOffset;
+    const outerR2 = innerR + ringStep * ringCount;
+    const segs = 96;
+    const cIn = atmo.inner || [0.45, 0.72, 1.0, 0.22];
+    const cOut = atmo.outer || [0.45, 0.72, 1.0, 0.0];
+    for (let i = 0; i < segs; i++){
+      const a0 = (i / segs) * Math.PI * 2;
+      const a1 = ((i + 1) / segs) * Math.PI * 2;
+      const x0i = Math.cos(a0) * innerR;
+      const y0i = Math.sin(a0) * innerR;
+      const x1i = Math.cos(a1) * innerR;
+      const y1i = Math.sin(a1) * innerR;
+      const x0o = Math.cos(a0) * outerR2;
+      const y0o = Math.sin(a0) * outerR2;
+      const x1o = Math.cos(a1) * outerR2;
+      const y1o = Math.sin(a1) * outerR2;
+      pushTriColored(pos, col, x0i, y0i, x0o, y0o, x1o, y1o, cIn, cOut, cOut);
+      pushTriColored(pos, col, x0i, y0i, x1o, y1o, x1i, y1i, cIn, cOut, cIn);
+      triVerts += 6;
+    }
+    }
+  }
+
   const shipRot = -Math.atan2(state.ship.x, state.ship.y || 1e-6);
   const lighten = (c) => Math.min(1, c + 0.3);
   const rockPoint = [1.0, 0.55, 0.12];
@@ -1317,14 +1367,22 @@ function drawFrameImpl(renderer, state, planet){
         triVerts += 6;
       } else if (p.type === "ice_shard"){
         let ux, uy, tx, ty;
-        const info = planet.surfaceInfoAtWorld ? planet.surfaceInfoAtWorld(p.x, p.y, 0.18) : null;
-        if (info){
-          ux = info.nx;
-          uy = info.ny;
+        if (typeof p.nx === "number" && typeof p.ny === "number"){
+          const nlen = Math.hypot(p.nx, p.ny) || 1;
+          ux = p.nx / nlen;
+          uy = p.ny / nlen;
           tx = -uy;
           ty = ux;
         } else {
-          ({ ux, uy, tx, ty } = basisAt(p.x, p.y));
+          const info = planet.surfaceInfoAtWorld ? planet.surfaceInfoAtWorld(p.x, p.y, 0.18) : null;
+          if (info){
+            ux = info.nx;
+            uy = info.ny;
+            tx = -uy;
+            ty = ux;
+          } else {
+            ({ ux, uy, tx, ty } = basisAt(p.x, p.y));
+          }
         }
         const tip = toWorld(p.x, p.y, tx, ty, ux, uy, 0, 0.7 * s);
         const bl = toWorld(p.x, p.y, tx, ty, ux, uy, -0.14 * s, -0.05 * s);
@@ -1332,31 +1390,79 @@ function drawFrameImpl(renderer, state, planet){
         pushTri(pos, col, bl[0], bl[1], br[0], br[1], tip[0], tip[1], 0.75, 0.9, 1.0, 0.95);
         triVerts += 3;
       } else if (p.type === "tree"){
-        const { ux, uy, tx, ty } = basisAt(p.x, p.y);
-        const t0 = toWorld(p.x, p.y, tx, ty, ux, uy, -0.06 * s, -0.02 * s);
-        const t1 = toWorld(p.x, p.y, tx, ty, ux, uy, 0.06 * s, -0.02 * s);
-        const t2 = toWorld(p.x, p.y, tx, ty, ux, uy, 0.06 * s, 0.28 * s);
-        const t3 = toWorld(p.x, p.y, tx, ty, ux, uy, -0.06 * s, 0.28 * s);
+        let ux, uy, tx, ty;
+        if (typeof p.nx === "number" && typeof p.ny === "number"){
+          const nlen = Math.hypot(p.nx, p.ny) || 1;
+          ux = p.nx / nlen;
+          uy = p.ny / nlen;
+          tx = -uy;
+          ty = ux;
+        } else {
+          ({ ux, uy, tx, ty } = basisAt(p.x, p.y));
+        }
+        if (planet.airValueAtWorld && planet.airValueAtWorld(p.x + ux * 0.25, p.y + uy * 0.25) <= 0.5){
+          ux = -ux;
+          uy = -uy;
+          tx = -uy;
+          ty = ux;
+        }
+        const trunkW = 0.07 * s;
+        const trunkH = 0.60 * s;
+        const t0 = toWorld(p.x, p.y, tx, ty, ux, uy, -trunkW, -0.02 * s);
+        const t1 = toWorld(p.x, p.y, tx, ty, ux, uy, trunkW, -0.02 * s);
+        const t2 = toWorld(p.x, p.y, tx, ty, ux, uy, trunkW, trunkH);
+        const t3 = toWorld(p.x, p.y, tx, ty, ux, uy, -trunkW, trunkH);
         pushTri(pos, col, t0[0], t0[1], t1[0], t1[1], t2[0], t2[1], 0.45, 0.3, 0.18, 0.95);
         pushTri(pos, col, t0[0], t0[1], t2[0], t2[1], t3[0], t3[1], 0.45, 0.3, 0.18, 0.95);
         triVerts += 6;
-        const tip = toWorld(p.x, p.y, tx, ty, ux, uy, 0, 0.75 * s);
-        const bl = toWorld(p.x, p.y, tx, ty, ux, uy, -0.3 * s, 0.22 * s);
-        const br = toWorld(p.x, p.y, tx, ty, ux, uy, 0.3 * s, 0.22 * s);
-        pushTri(pos, col, bl[0], bl[1], br[0], br[1], tip[0], tip[1], 0.25, 0.65, 0.25, 0.95);
-        triVerts += 3;
+        const seed = Math.abs(Math.sin(p.x * 12.9898 + p.y * 78.233) * 43758.5453);
+        const tierCount = 3 + Math.floor((seed % 1) * 3);
+        const tierStep = 0.44 * s;
+        const tierOverlap = 0.12 * s;
+        const tierHeight = 0.52 * s;
+        const baseStart = 0.36 * s;
+        for (let i = 0; i < tierCount; i++){
+          const t = i / Math.max(1, tierCount);
+          const halfW = (0.38 - 0.18 * t) * s;
+          const baseY = baseStart + i * Math.max(0.05 * s, tierStep - tierOverlap);
+          const tipY = baseY + tierHeight;
+          const bl = toWorld(p.x, p.y, tx, ty, ux, uy, -halfW, baseY);
+          const br = toWorld(p.x, p.y, tx, ty, ux, uy, halfW, baseY);
+          const tip = toWorld(p.x, p.y, tx, ty, ux, uy, 0, tipY);
+          const shade = 0.25 + 0.08 * (tierCount - i);
+          pushTri(pos, col, bl[0], bl[1], br[0], br[1], tip[0], tip[1], 0.18, 0.52 + shade, 0.20, 0.95);
+          triVerts += 3;
+        }
       } else if (p.type === "mushroom"){
-        const { ux, uy, tx, ty } = basisAt(p.x, p.y);
-        const st0 = toWorld(p.x, p.y, tx, ty, ux, uy, -0.05 * s, 0);
-        const st1 = toWorld(p.x, p.y, tx, ty, ux, uy, 0.05 * s, 0);
-        const st2 = toWorld(p.x, p.y, tx, ty, ux, uy, 0.05 * s, 0.22 * s);
-        const st3 = toWorld(p.x, p.y, tx, ty, ux, uy, -0.05 * s, 0.22 * s);
+        let ux, uy, tx, ty;
+        if (typeof p.nx === "number" && typeof p.ny === "number"){
+          const nlen = Math.hypot(p.nx, p.ny) || 1;
+          ux = p.nx / nlen;
+          uy = p.ny / nlen;
+          tx = -uy;
+          ty = ux;
+        } else {
+          ({ ux, uy, tx, ty } = basisAt(p.x, p.y));
+        }
+        if (planet.airValueAtWorld && planet.airValueAtWorld(p.x + ux * 0.25, p.y + uy * 0.25) <= 0.5){
+          ux = -ux;
+          uy = -uy;
+          tx = -uy;
+          ty = ux;
+        }
+        const sink = 0.05 * s;
+        const cx = p.x - ux * sink;
+        const cy = p.y - uy * sink;
+        const st0 = toWorld(cx, cy, tx, ty, ux, uy, -0.05 * s, 0);
+        const st1 = toWorld(cx, cy, tx, ty, ux, uy, 0.05 * s, 0);
+        const st2 = toWorld(cx, cy, tx, ty, ux, uy, 0.05 * s, 0.22 * s);
+        const st3 = toWorld(cx, cy, tx, ty, ux, uy, -0.05 * s, 0.22 * s);
         pushTri(pos, col, st0[0], st0[1], st1[0], st1[1], st2[0], st2[1], 0.9, 0.7, 0.9, 0.95);
         pushTri(pos, col, st0[0], st0[1], st2[0], st2[1], st3[0], st3[1], 0.9, 0.7, 0.9, 0.95);
         triVerts += 6;
-        const capL = toWorld(p.x, p.y, tx, ty, ux, uy, -0.26 * s, 0.28 * s);
-        const capR = toWorld(p.x, p.y, tx, ty, ux, uy, 0.26 * s, 0.28 * s);
-        const capT = toWorld(p.x, p.y, tx, ty, ux, uy, 0, 0.48 * s);
+        const capL = toWorld(cx, cy, tx, ty, ux, uy, -0.26 * s, 0.28 * s);
+        const capR = toWorld(cx, cy, tx, ty, ux, uy, 0.26 * s, 0.28 * s);
+        const capT = toWorld(cx, cy, tx, ty, ux, uy, 0, 0.48 * s);
         pushTri(pos, col, capL[0], capL[1], capR[0], capR[1], capT[0], capT[1], 0.95, 0.35, 0.75, 0.95);
         triVerts += 3;
       } else if (p.type === "stalactite"){

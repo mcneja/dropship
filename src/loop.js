@@ -676,18 +676,30 @@ export class GameLoop {
       }
     } else {
       const standable = this.planet.getStandablePoints();
-      placed = this.planet.sampleStandablePoints(count, seed, "uniform", GAME.MINER_MIN_SEP, true);
       if (cfg && cfg.id === "molten"){
         const moltenOuter = this.planetParams.MOLTEN_RING_OUTER || 0;
         const minR = moltenOuter + 0.6;
-        placed = placed.filter((p) => (Math.hypot(p[0], p[1]) >= minR));
+        placed = this.planet.sampleStandablePointsMinRadius
+          ? this.planet.sampleStandablePointsMinRadius(count, seed, "uniform", GAME.MINER_MIN_SEP, true, minR)
+          : this.planet.sampleStandablePoints(count, seed, "uniform", GAME.MINER_MIN_SEP, true)
+            .filter((p) => (Math.hypot(p[0], p[1]) >= minR));
+      } else {
+        placed = this.planet.sampleStandablePoints(count, seed, "uniform", GAME.MINER_MIN_SEP, true);
       }
       if (placed.length < count){
+        const availability = this.planet.debugAvailableStandableCount
+          ? this.planet.debugAvailableStandableCount(GAME.MINER_MIN_SEP)
+          : { standable: standable.length, available: standable.length, reservations: 0 };
+        const propCounts = this.planet.debugPropCounts ? this.planet.debugPropCounts() : null;
         console.error("[Level] miners spawn insufficient standable points", {
           level: this.level,
           target: count,
           placed: placed.length,
           standable: standable.length,
+          available: availability.available,
+          reservations: availability.reservations,
+          props: propCounts,
+          moltenFiltered: 0,
         });
       }
     }

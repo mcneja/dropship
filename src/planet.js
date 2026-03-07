@@ -284,12 +284,69 @@ export class Planet {
     }
     if (trees.length){
       const seed = (this.mapgen.getWorld().seed | 0) + 811;
-      const points = this.sampleLandablePoints(trees.length, seed, 0.30, 0.2, "uniform");
-      for (let i = 0; i < trees.length && i < points.length; i++){
+      const surfaceBand = (cfg.defaults && typeof cfg.defaults.SURFACE_BAND === "number") ? cfg.defaults.SURFACE_BAND : 0;
+      const surfaceR = this.planetParams.RMAX * (1 - surfaceBand);
+      const rMax = this.planetParams.RMAX - 0.2;
+      const eps = 0.18;
+      const minDist = 0.35;
+      const rand = mulberry32(seed);
+      const standable = (this._standablePoints && this._standablePoints.length)
+        ? this._standablePoints
+        : this._buildStandablePoints();
+      const bandPoints = standable.filter((p) => p[3] >= surfaceR && p[3] <= rMax);
+      const flatPoints = bandPoints.filter((p) => {
+        const info = this.surfaceInfoAtWorld(p[0], p[1], eps);
+        if (!info) return false;
+        const r = Math.hypot(p[0], p[1]) || 1;
+        const nx = p[0] / r;
+        const ny = p[1] / r;
+        const dot = info.nx * nx + info.ny * ny;
+        return dot >= 0.98;
+      });
+      const pool = flatPoints.length ? flatPoints : (bandPoints.length ? bandPoints : standable);
+      /** @type {Array<[number,number,number,number]>} */
+      const shuffled = pool.slice();
+      for (let i = shuffled.length - 1; i > 0; i--){
+        const j = Math.floor(rand() * (i + 1));
+        const tmp = shuffled[i];
+        shuffled[i] = shuffled[j];
+        shuffled[j] = tmp;
+      }
+      /** @type {Array<[number,number]>} */
+      const points = [];
+      for (const sp of shuffled){
+        if (points.length >= trees.length) break;
+        const x = sp[0];
+        const y = sp[1];
+        let ok = true;
+        for (const q of points){
+          const dx = x - q[0];
+          const dy = y - q[1];
+          if (dx * dx + dy * dy < minDist * minDist){
+            ok = false;
+            break;
+          }
+        }
+        if (!ok) continue;
+        points.push([x, y]);
+      }
+      for (let i = 0; i < trees.length; i++){
         const p = trees[i];
+        if (i >= points.length){
+          p.dead = true;
+          continue;
+        }
         const pt = points[i];
         p.x = pt[0];
         p.y = pt[1];
+        const info = this.surfaceInfoAtWorld(p.x, p.y, eps);
+        if (info){
+          p.nx = info.nx;
+          p.ny = info.ny;
+          const recess = 0.02;
+          p.x -= info.nx * recess;
+          p.y -= info.ny * recess;
+        }
       }
     }
     if (mush.length){
@@ -655,6 +712,38 @@ export class Planet {
   }
 
   /**
+   * Debug helper: count standable points that are not blocked by reservations.
+   * @param {number} minDist
+   * @returns {{standable:number, available:number, reservations:number}}
+   */
+  debugAvailableStandableCount(minDist = 0){
+    const points = this.getStandablePoints();
+    const reservations = this._spawnReservations || [];
+    let available = 0;
+    for (const p of points){
+      if (this._isFarFromReservations(p[0], p[1], minDist, reservations)){
+        available++;
+      }
+    }
+    return { standable: points.length, available, reservations: reservations.length };
+  }
+
+  /**
+   * Debug helper: count prop types.
+   * @returns {Record<string, number>}
+   */
+  debugPropCounts(){
+    /** @type {Record<string, number>} */
+    const counts = {};
+    if (!this.props || !this.props.length) return counts;
+    for (const p of this.props){
+      const key = p.type || "unknown";
+      counts[key] = (counts[key] || 0) + 1;
+    }
+    return counts;
+  }
+
+  /**
    * Reserve prop locations so spawns avoid them.
    * @returns {void}
    */
@@ -681,7 +770,7 @@ export class Planet {
     for (const rsv of reservations){
       const dx = x - rsv.x;
       const dy = y - rsv.y;
-      const rr = minDist + (rsv.r || 0);
+      const rr = Math.max(minDist, rsv.r || 0);
       if (dx * dx + dy * dy < rr * rr) return false;
     }
     return true;
@@ -712,6 +801,222 @@ export class Planet {
   sampleStandablePoints(count, seed, placement = "random", minDist = 0, reserve = false){
     if (count <= 0) return [];
     const points = this.getStandablePoints();
+    if (!points.length) return [];
+    const rand = mulberry32(seed);
+    const rMax = (this.planetParams.RMAX || CFG.RMAX) || 1;
+    const bias = 0.35;
+    const take = Math.min(count, points.length);
+    /** @type {Array<[number,number]>} */
+    const out = [];
+    /** @type {Array<number>} */
+    const indices = points.map((_, i) => i);
+    const used = new Set();
+    /** @type {Array<{x:number,y:number,r:number}>} */
+    const reservations = this._spawnReservations || [];
+    if (placement === "uniform"){
+      indices.sort((a, b) => points[a][2] - points[b][2]);
+      const offset = rand();
+      const step = (Math.PI * 2) / take;
+      const window = step * 0.65;
+      for (let i = 0; i < take; i++){
+        const target = (i + offset) * step;
+        let picked = -1;
+        let pickedScore = Infinity;
+        for (const idx of indices){
+          const p = points[idx];
+          const ang = p[2];
+          let d = Math.abs(ang - target);
+          d = Math.min(d, Math.abs(d - Math.PI * 2));
+          if (d > window) continue;
+          if (used.has(idx)) continue;
+          if (!this._isFarFromReservations(p[0], p[1], minDist, reservations)) continue;
+          let ok = true;
+          for (const q of out){
+            const dx = p[0] - q[0];
+            const dy = p[1] - q[1];
+            if (dx * dx + dy * dy < minDist * minDist){
+              ok = false;
+              break;
+            }
+          }
+          if (!ok) continue;
+          const r = p[3];
+          const biasScore = (r / rMax) * bias;
+          const score = d / window + biasScore;
+          if (score < pickedScore){
+            pickedScore = score;
+            picked = idx;
+          }
+        }
+        if (picked >= 0){
+          const p = points[picked];
+          used.add(picked);
+          out.push([p[0], p[1]]);
+          if (out.length >= take) break;
+        }
+      }
+      if (out.length < take){
+        for (const idx of indices){
+          if (out.length >= take) break;
+          if (used.has(idx)) continue;
+          const p = points[idx];
+          if (!this._isFarFromReservations(p[0], p[1], minDist, reservations)) continue;
+          let ok = true;
+          for (const q of out){
+            const dx = p[0] - q[0];
+            const dy = p[1] - q[1];
+            if (dx * dx + dy * dy < minDist * minDist){
+              ok = false;
+              break;
+            }
+          }
+          if (!ok) continue;
+          used.add(idx);
+          out.push([p[0], p[1]]);
+        }
+      }
+    } else {
+      if (placement === "clusters"){
+        const clusterCount = Math.max(1, Math.floor(Math.sqrt(take)));
+        /** @type {number[]} */
+        const centers = [];
+        for (let i = 0; i < indices.length && centers.length < clusterCount; i++){
+          const idx = indices[Math.floor(rand() * indices.length)];
+          centers.push(points[idx][2]);
+        }
+        let clusterIndex = 0;
+        const window = (Math.PI * 2) / Math.max(6, clusterCount * 2);
+        for (let i = 0; i < take; i++){
+          const target = centers[clusterIndex % centers.length];
+          clusterIndex++;
+          let picked = -1;
+          let pickedScore = Infinity;
+          for (const idx of indices){
+            if (used.has(idx)) continue;
+            const p = points[idx];
+            let d = Math.abs(p[2] - target);
+            d = Math.min(d, Math.abs(d - Math.PI * 2));
+            if (d > window) continue;
+            if (!this._isFarFromReservations(p[0], p[1], minDist, reservations)) continue;
+            let ok = true;
+            for (const q of out){
+              const dx = p[0] - q[0];
+              const dy = p[1] - q[1];
+              if (dx * dx + dy * dy < minDist * minDist){
+                ok = false;
+                break;
+              }
+            }
+            if (!ok) continue;
+            const r = p[3];
+            const biasScore = (r / rMax) * bias;
+            const score = d / window + biasScore;
+            if (score < pickedScore){
+              pickedScore = score;
+              picked = idx;
+            }
+          }
+          if (picked >= 0){
+            const p = points[picked];
+            used.add(picked);
+            out.push([p[0], p[1]]);
+            if (out.length >= take) break;
+          }
+        }
+        if (out.length < take){
+          for (const idx of indices){
+            if (out.length >= take) break;
+            if (used.has(idx)) continue;
+            const p = points[idx];
+            if (!this._isFarFromReservations(p[0], p[1], minDist, reservations)) continue;
+            let ok = true;
+            for (const q of out){
+              const dx = p[0] - q[0];
+              const dy = p[1] - q[1];
+              if (dx * dx + dy * dy < minDist * minDist){
+                ok = false;
+                break;
+              }
+            }
+            if (!ok) continue;
+            used.add(idx);
+            out.push([p[0], p[1]]);
+          }
+        }
+      } else {
+        for (let i = indices.length - 1; i > 0; i--){
+          const j = Math.floor(rand() * (i + 1));
+          const tmp = indices[i];
+          indices[i] = indices[j];
+          indices[j] = tmp;
+        }
+        for (const idx of indices){
+          const p = points[idx];
+          if (used.has(idx)) continue;
+          if (!this._isFarFromReservations(p[0], p[1], minDist, reservations)) continue;
+          let ok = true;
+          for (const q of out){
+            const dx = p[0] - q[0];
+            const dy = p[1] - q[1];
+            if (dx * dx + dy * dy < minDist * minDist){
+              ok = false;
+              break;
+            }
+          }
+          if (!ok) continue;
+          // Slight interior bias for random selection.
+          const r = p[3];
+          const w = 1 + bias * Math.max(0, 1 - r / rMax);
+          const maxW = 1 + bias;
+          if (rand() > (w / maxW)) continue;
+          used.add(idx);
+          out.push([p[0], p[1]]);
+          if (out.length >= take) break;
+        }
+        if (out.length < take){
+          for (const idx of indices){
+            if (out.length >= take) break;
+            if (used.has(idx)) continue;
+            const p = points[idx];
+            if (!this._isFarFromReservations(p[0], p[1], minDist, reservations)) continue;
+            let ok = true;
+            for (const q of out){
+              const dx = p[0] - q[0];
+              const dy = p[1] - q[1];
+              if (dx * dx + dy * dy < minDist * minDist){
+                ok = false;
+                break;
+              }
+            }
+            if (!ok) continue;
+            used.add(idx);
+            out.push([p[0], p[1]]);
+          }
+        }
+      }
+    }
+    if (reserve && out.length){
+      const reservePoints = out.map((p) => ({ x: p[0], y: p[1] }));
+      this.reserveSpawnPoints(reservePoints, minDist);
+    }
+    return out;
+  }
+
+  /**
+   * Sample standable points with a minimum radius constraint.
+   * @param {number} count
+   * @param {number} seed
+   * @param {"uniform"|"random"|"clusters"} [placement]
+   * @param {number} [minDist]
+   * @param {boolean} [reserve]
+   * @param {number} [minR]
+   * @returns {Array<[number,number]>}
+   */
+  sampleStandablePointsMinRadius(count, seed, placement = "random", minDist = 0, reserve = false, minR = 0){
+    if (count <= 0) return [];
+    const basePoints = this.getStandablePoints();
+    if (!basePoints.length) return [];
+    const points = (minR > 0) ? basePoints.filter((p) => p[3] >= minR) : basePoints;
     if (!points.length) return [];
     const rand = mulberry32(seed);
     const rMax = (this.planetParams.RMAX || CFG.RMAX) || 1;

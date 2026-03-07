@@ -95,6 +95,7 @@
  * @property {[number, number, number]} SURFACE_ROCK_DARK
  * @property {[number, number, number]} SURFACE_ROCK_LIGHT
  * @property {number} SURFACE_BAND
+ * @property {{inner:[number,number,number,number], outer:[number,number,number,number], ringCount:number, ringOffset:number}} [ATMOSPHERE]
  */
 
 /**
@@ -437,7 +438,7 @@ export const PLANET_CONFIGS = [
       AIR_LIGHT: [0.40, 0.52, 0.62],
       SURFACE_ROCK_DARK: [0.55, 0.70, 0.86],
       SURFACE_ROCK_LIGHT: [0.82, 0.92, 0.98],
-      SURFACE_BAND: 0.12,
+      SURFACE_BAND: 0.2,
     },
     ranges: {
       RMAX: r(15, 23),
@@ -502,10 +503,16 @@ export const PLANET_CONFIGS = [
       AIR_LIGHT: [0.38, 0.50, 0.40],
       SURFACE_ROCK_DARK: [0.08, 0.30, 0.12],
       SURFACE_ROCK_LIGHT: [0.18, 0.55, 0.22],
-      SURFACE_BAND: 0.12,
+      SURFACE_BAND: 0.25,
+      ATMOSPHERE: {
+        inner: [0.45, 0.72, 1.0, 0.22],
+        outer: [0.45, 0.72, 1.0, 0.0],
+        ringCount: 4,
+        ringOffset: -1,
+      },
     },
     ranges: {
-      RMAX: r(16, 22),
+      RMAX: r(20, 25),
       PAD: r(1.0, 1.5),
       MOTHERSHIP_ORBIT_HEIGHT: r(12, 18),
       SURFACE_G: r(1.8, 2.4),

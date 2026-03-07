@@ -150,6 +150,240 @@ function placeMoltenVents(planet, props){
 }
 
 /**
+ * Place ice shards along cave walls using the radial graph.
+ * @param {import("./planet.js").Planet} planet
+ * @param {PlanetProp[]} props
+ * @returns {void}
+ */
+function placeIceShards(planet, props){
+  const cfg = planet.getPlanetConfig ? planet.getPlanetConfig() : null;
+  if (!cfg || cfg.id !== "ice") return;
+  const params = planet.getPlanetParams ? planet.getPlanetParams() : null;
+  if (!params) return;
+
+  for (let i = props.length - 1; i >= 0; i--){
+    if (props[i].type === "ice_shard") props.splice(i, 1);
+  }
+
+  const nodes = planet.radialGraph.nodes;
+  const neighbors = planet.radialGraph.neighbors;
+  const air = planet.airNodesBitmap;
+  const surfaceBand = (cfg && cfg.defaults && typeof cfg.defaults.SURFACE_BAND === "number") ? cfg.defaults.SURFACE_BAND : 0;
+  const surfaceR = params.RMAX * (1 - surfaceBand);
+  const surfaceExclude = Math.max(2.0, params.RMAX * 0.08);
+  const rMax = Math.max(0.5, Math.min(params.RMAX - 0.6, surfaceR - surfaceExclude));
+  const minDist = 0.55;
+  /** @type {Array<{x:number,y:number,r:number}>} */
+  const reservations = [];
+  for (const p of props){
+    if (p.dead) continue;
+    if (p.type === "turret_pad") continue;
+    reservations.push({ x: p.x, y: p.y, r: 0.35 });
+  }
+
+  /** @type {Array<{n:{x:number,y:number,r:number,i:number},rockNeighbor:{x:number,y:number,r:number,i:number}|null,nx:number,ny:number}>} */
+  const candidates = [];
+  for (let i = 0; i < nodes.length; i++){
+    if (!air[i]) continue;
+    const n = nodes[i];
+    const r = Math.hypot(n.x, n.y);
+    if (r > rMax) continue;
+    if (!isFarFromReservations(n.x, n.y, minDist, reservations)) continue;
+    const neigh = neighbors[i] || [];
+    let rockNeighbor = null;
+    let rockDist2 = Infinity;
+    for (const e of neigh){
+      if (air[e.to]) continue;
+      const nb = nodes[e.to];
+      if (!nb) continue;
+      const dx = n.x - nb.x;
+      const dy = n.y - nb.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < rockDist2){
+        rockDist2 = d2;
+        rockNeighbor = nb;
+      }
+    }
+    if (!rockNeighbor) continue;
+    if (Math.hypot(rockNeighbor.x, rockNeighbor.y) >= surfaceR - surfaceExclude) continue;
+    const dxr = n.x - rockNeighbor.x;
+    const dyr = n.y - rockNeighbor.y;
+    const nlen = Math.hypot(dxr, dyr) || 1;
+    const nx = dxr / nlen;
+    const ny = dyr / nlen;
+    candidates.push({ n, rockNeighbor, nx, ny });
+  }
+
+  const rand = mulberry32((planet.getSeed() + 7331) | 0);
+  for (let i = candidates.length - 1; i > 0; i--){
+    const j = Math.floor(rand() * (i + 1));
+    const tmp = candidates[i];
+    candidates[i] = candidates[j];
+    candidates[j] = tmp;
+  }
+
+  const target = Math.max(70, Math.min(270, Math.floor(candidates.length * 0.525)));
+  /** @type {Array<{n:{x:number,y:number,r:number,i:number},rockNeighbor:{x:number,y:number,r:number,i:number}|null,nx:number,ny:number}>} */
+  const picked = [];
+  for (const c of candidates){
+    const n = c.n;
+    let tooClose = false;
+    for (const p of picked){
+      const dx = n.x - p.n.x;
+      const dy = n.y - p.n.y;
+      if (dx * dx + dy * dy < minDist * minDist){
+        tooClose = true;
+        break;
+      }
+    }
+    if (tooClose) continue;
+    picked.push(c);
+    if (picked.length >= target) break;
+  }
+
+  const recess = 0.06;
+  for (const entry of picked){
+    if (!entry.rockNeighbor) continue;
+    const n = entry.n;
+    const rn = entry.rockNeighbor;
+    const nx = entry.nx;
+    const ny = entry.ny;
+    let lo = { x: rn.x, y: rn.y };
+    let hi = { x: n.x, y: n.y };
+    for (let i = 0; i < 8; i++){
+      const mx = (lo.x + hi.x) * 0.5;
+      const my = (lo.y + hi.y) * 0.5;
+      if (planet.airValueAtWorld(mx, my) > 0.5){
+        hi = { x: mx, y: my };
+      } else {
+        lo = { x: mx, y: my };
+      }
+    }
+    const bx = hi.x - nx * recess;
+    const by = hi.y - ny * recess;
+    const rot = Math.atan2(ny, nx) - Math.PI * 0.5;
+    const scale = 0.32 + rand() * 0.45;
+    props.push({ type: "ice_shard", x: bx, y: by, scale, rot, nx, ny, hp: 1 });
+  }
+}
+
+/**
+ * Place mushrooms along cave walls using the radial graph.
+ * @param {import("./planet.js").Planet} planet
+ * @param {PlanetProp[]} props
+ * @returns {void}
+ */
+function placeMushrooms(planet, props){
+  const cfg = planet.getPlanetConfig ? planet.getPlanetConfig() : null;
+  if (!cfg || cfg.id !== "gaia") return;
+  const params = planet.getPlanetParams ? planet.getPlanetParams() : null;
+  if (!params) return;
+
+  for (let i = props.length - 1; i >= 0; i--){
+    if (props[i].type === "mushroom") props.splice(i, 1);
+  }
+
+  const nodes = planet.radialGraph.nodes;
+  const neighbors = planet.radialGraph.neighbors;
+  const air = planet.airNodesBitmap;
+  const surfaceBand = (cfg.defaults && typeof cfg.defaults.SURFACE_BAND === "number") ? cfg.defaults.SURFACE_BAND : 0;
+  const surfaceR = params.RMAX * (1 - surfaceBand);
+  const rMax = Math.max(0.5, surfaceR - 0.5);
+  const minDist = 0.7;
+  /** @type {Array<{x:number,y:number,r:number}>} */
+  const reservations = [];
+  for (const p of props){
+    if (p.dead) continue;
+    if (p.type === "turret_pad") continue;
+    reservations.push({ x: p.x, y: p.y, r: 0.45 });
+  }
+
+  /** @type {Array<{n:{x:number,y:number,r:number,i:number},rockNeighbor:{x:number,y:number,r:number,i:number}|null,nx:number,ny:number}>} */
+  const candidates = [];
+  for (let i = 0; i < nodes.length; i++){
+    if (!air[i]) continue;
+    const n = nodes[i];
+    const r = Math.hypot(n.x, n.y);
+    if (r > rMax) continue;
+    if (!isFarFromReservations(n.x, n.y, minDist, reservations)) continue;
+    const neigh = neighbors[i] || [];
+    let rockNeighbor = null;
+    let rockDist2 = Infinity;
+    for (const e of neigh){
+      if (air[e.to]) continue;
+      const nb = nodes[e.to];
+      if (!nb) continue;
+      const dx = n.x - nb.x;
+      const dy = n.y - nb.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < rockDist2){
+        rockDist2 = d2;
+        rockNeighbor = nb;
+      }
+    }
+    if (!rockNeighbor) continue;
+    const dxr = n.x - rockNeighbor.x;
+    const dyr = n.y - rockNeighbor.y;
+    const nlen = Math.hypot(dxr, dyr) || 1;
+    const nx = dxr / nlen;
+    const ny = dyr / nlen;
+    candidates.push({ n, rockNeighbor, nx, ny });
+  }
+
+  const rand = mulberry32((planet.getSeed() + 3313) | 0);
+  for (let i = candidates.length - 1; i > 0; i--){
+    const j = Math.floor(rand() * (i + 1));
+    const tmp = candidates[i];
+    candidates[i] = candidates[j];
+    candidates[j] = tmp;
+  }
+
+  const target = Math.max(30, Math.min(120, Math.floor(candidates.length * 0.18)));
+  /** @type {Array<{n:{x:number,y:number,r:number,i:number},rockNeighbor:{x:number,y:number,r:number,i:number}|null,nx:number,ny:number}>} */
+  const picked = [];
+  for (const c of candidates){
+    const n = c.n;
+    let tooClose = false;
+    for (const p of picked){
+      const dx = n.x - p.n.x;
+      const dy = n.y - p.n.y;
+      if (dx * dx + dy * dy < minDist * minDist){
+        tooClose = true;
+        break;
+      }
+    }
+    if (tooClose) continue;
+    picked.push(c);
+    if (picked.length >= target) break;
+  }
+
+  const recess = 0.04;
+  for (const entry of picked){
+    if (!entry.rockNeighbor) continue;
+    const n = entry.n;
+    const rn = entry.rockNeighbor;
+    const nx = entry.nx;
+    const ny = entry.ny;
+    let lo = { x: rn.x, y: rn.y };
+    let hi = { x: n.x, y: n.y };
+    for (let i = 0; i < 8; i++){
+      const mx = (lo.x + hi.x) * 0.5;
+      const my = (lo.y + hi.y) * 0.5;
+      if (planet.airValueAtWorld(mx, my) > 0.5){
+        hi = { x: mx, y: my };
+      } else {
+        lo = { x: mx, y: my };
+      }
+    }
+    const bx = hi.x + nx * recess;
+    const by = hi.y + ny * recess;
+    const rot = Math.atan2(ny, nx) - Math.PI * 0.5;
+    const scale = 0.28 + rand() * 0.24;
+    props.push({ type: "mushroom", x: bx, y: by, scale, rot, nx, ny, hp: 1 });
+  }
+}
+
+/**
  * Remove molten vents that would fire directly into target points.
  * @param {import("./planet.js").Planet} planet
  * @param {PlanetProp[]} props
@@ -221,7 +455,7 @@ function pruneMoltenVentsAgainstPoints(planet, props, points){
  * @param {import("./planet.js").Planet} planet
  * @param {PlanetProp[]} props
  * @param {{burst:(prop:PlanetProp)=>{x:number,y:number,scale:number}|null, hitAt:(x:number,y:number,radius:number)=>PlanetProp|null, burstAllInRadius:(x:number,y:number,radius:number)=>Array<{x:number,y:number,scale:number}>, breakIfExposed:(planet:import("./planet.js").Planet, x:number,y:number,radius:number)=>Array<{x:number,y:number,scale:number}>}|null} iceShardHazard
- * @param {{burst:(prop:PlanetProp)=>{x:number,y:number,scale:number}|null, hitAt:(x:number,y:number,radius:number)=>PlanetProp|null, burstAllInRadius:(x:number,y:number,radius:number)=>Array<{x:number,y:number,scale:number}>}|null} mushroomHazard
+ * @param {{burst:(prop:PlanetProp)=>{x:number,y:number,scale:number}|null, hitAt:(x:number,y:number,radius:number)=>PlanetProp|null, burstAllInRadius:(x:number,y:number,radius:number)=>Array<{x:number,y:number,scale:number}>, breakIfExposed:(planet:import("./planet.js").Planet, x:number,y:number,radius:number)=>Array<{x:number,y:number,scale:number}>}|null} mushroomHazard
  */
 export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHazard){
  const tuning = {
@@ -267,6 +501,16 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
   if (ventReserve.length && planet.reserveSpawnPoints){
     const minDist = Math.max(0.4, GAME.MINER_MIN_SEP * 0.6);
     planet.reserveSpawnPoints(ventReserve, minDist);
+  }
+  placeIceShards(planet, props || []);
+  const iceReserve = (props || []).filter((p) => p.type === "ice_shard").map((p) => ({ x: p.x, y: p.y }));
+  if (iceReserve.length && planet.reserveSpawnPoints){
+    planet.reserveSpawnPoints(iceReserve, 0.5);
+  }
+  placeMushrooms(planet, props || []);
+  const mushReserve = (props || []).filter((p) => p.type === "mushroom").map((p) => ({ x: p.x, y: p.y }));
+  if (mushReserve.length && planet.reserveSpawnPoints){
+    planet.reserveSpawnPoints(mushReserve, 0.5);
   }
   let ventsPruned = false;
 
@@ -322,6 +566,22 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
     }
   };
 
+  const mushroomProximityRadius = 3.0;
+  const mushroomProximityRadius2 = mushroomProximityRadius * mushroomProximityRadius;
+  /**
+   * @param {{x:number,y:number,scale:number}|null} info
+   */
+  const triggerMushroomBurst = (info) => {
+    if (!info) return;
+    spawnMushroomBurst(info);
+    if (!mushroomHazard || mushroomProximityRadius <= 0) return;
+    const nearby = mushroomHazard.burstAllInRadius(info.x, info.y, mushroomProximityRadius);
+    if (!nearby.length) return;
+    for (const next of nearby){
+      spawnMushroomBurst(next);
+    }
+  };
+
   /**
    * @param {number} x
    * @param {number} y
@@ -362,9 +622,17 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
       const hitProp = mushroomHazard.hitAt(x, y, radius);
       if (hitProp){
         const info = mushroomHazard.burst(hitProp);
-        if (info) spawnMushroomBurst(info);
+        triggerMushroomBurst(info);
         if (callbacks.onShipConfuse) callbacks.onShipConfuse(tuning.mushroom.confuseTime);
         hit = true;
+      }
+    }
+    if (mushroomHazard && !hit){
+      const bursts = mushroomHazard.burstAllInRadius(x, y, mushroomProximityRadius);
+      if (bursts.length){
+        hit = true;
+        for (const info of bursts) triggerMushroomBurst(info);
+        if (callbacks.onShipConfuse) callbacks.onShipConfuse(tuning.mushroom.confuseTime);
       }
     }
     if (iceShardHazard){
@@ -399,7 +667,7 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
       const hitProp = mushroomHazard.hitAt(x, y, radius);
       if (hitProp){
         const info = mushroomHazard.burst(hitProp);
-        if (info) spawnMushroomBurst(info);
+        triggerMushroomBurst(info);
         hit = true;
       }
     }
@@ -429,10 +697,10 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
       }
     }
     if (mushroomHazard){
-      const bursts = mushroomHazard.burstAllInRadius(x, y, bombRadius);
+      const bursts = mushroomHazard.burstAllInRadius(x, y, Math.max(bombRadius, mushroomProximityRadius));
       if (bursts.length){
         hit = true;
-        for (const info of bursts) spawnMushroomBurst(info);
+        for (const info of bursts) triggerMushroomBurst(info);
       }
     }
     return hit;
@@ -775,19 +1043,11 @@ function buildProps(mapgen, planetConfig, params, material){
       break;
     }
     case "ice": {
-      const iceSurface = sampleSurfacePointsByMaterial(mapgen, material, 1, params, 140);
-      for (const p of iceSurface){
-        if (rng() < 0.14) {
-          const rot = Math.atan2(p[1], p[0]);
-          add("ice_shard", p[0], p[1], 0.35 + rng() * 0.4, rot, 0, { hp: 1 });
-        }
-      }
       break;
     }
     case "gaia": {
       for (const p of surface){
-        if (rng() < 0.10) add("tree", p[0], p[1], 0.45 + rng() * 0.35, rng() * Math.PI * 2, 0);
-        else if (rng() < 0.08) add("mushroom", p[0], p[1], 0.35 + rng() * 0.25, rng() * Math.PI * 2, 0, { hp: 1 });
+        if (rng() < 0.30) add("tree", p[0], p[1], 0.45 + rng() * 0.35, rng() * Math.PI * 2, 0);
       }
       break;
     }
@@ -894,7 +1154,12 @@ export function createIceShardHazard(props){
 
 /**
  * @param {PlanetProp[]} props
- * @returns {{burst:(prop:PlanetProp)=>{x:number,y:number,scale:number}|null, hitAt:(x:number,y:number,radius:number)=>PlanetProp|null, burstAllInRadius:(x:number,y:number,radius:number)=>Array<{x:number,y:number,scale:number}>}}
+ * @returns {{
+ *  burst:(prop:PlanetProp)=>{x:number,y:number,scale:number}|null,
+ *  hitAt:(x:number,y:number,radius:number)=>PlanetProp|null,
+ *  burstAllInRadius:(x:number,y:number,radius:number)=>Array<{x:number,y:number,scale:number}>,
+ *  breakIfExposed:(planet:import("./planet.js").Planet, x:number,y:number,radius:number)=>Array<{x:number,y:number,scale:number}>
+ * }}
  */
 export function createMushroomHazard(props){
   const isAlive = (p) => p.type === "mushroom" && !p.dead && !(typeof p.hp === "number" && p.hp <= 0);
@@ -929,6 +1194,23 @@ export function createMushroomHazard(props){
         const dy = p.y - y;
         const r2 = (radius + sr) * (radius + sr);
         if (dx * dx + dy * dy <= r2){
+          const info = burstProp(p);
+          if (info) bursts.push(info);
+        }
+      }
+      return bursts;
+    },
+    breakIfExposed: (planet, x, y, radius) => {
+      /** @type {Array<{x:number,y:number,scale:number}>} */
+      const bursts = [];
+      for (const p of props){
+        if (!isAlive(p)) continue;
+        const sr = 0.28 * (p.scale || 1);
+        const dx = p.x - x;
+        const dy = p.y - y;
+        const r2 = (radius + sr) * (radius + sr);
+        if (dx * dx + dy * dy > r2) continue;
+        if (planet.airValueAtWorld(p.x, p.y) > 0.5){
           const info = burstProp(p);
           if (info) bursts.push(info);
         }
