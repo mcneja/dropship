@@ -55,6 +55,7 @@
  * @property {number} hpMax
  * @property {number} bombsMax
  * @property {number} thrust
+ * @property {number} gunPower
  * @property {boolean} rescueeDetector
  * @property {boolean} planetScanner
  * 

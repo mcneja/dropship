@@ -94,7 +94,8 @@ export class GameLoop {
 
       hpMax: GAME.SHIP_STARTING_MAX_HP,
       bombsMax: GAME.SHIP_STARTING_MAX_BOMBS,
-      thrust: 0,
+      thrust: GAME.SHIP_STARTING_THRUST,
+      gunPower: GAME.SHIP_STARTING_GUN_POWER,
       rescueeDetector: false,
       planetScanner: false,
     };
@@ -684,7 +685,7 @@ export class GameLoop {
       const dx = e.x - x;
       const dy = e.y - y;
       if (dx * dx + dy * dy <= r2){
-        e.hp = Math.max(0, e.hp - 1);
+        e.hp = Math.max(0, e.hp - this.ship.gunPower);
         e.hitT = 0.25;
         this.entityExplosions.push({ x: e.x, y: e.y, life: 0.25, radius: this.ENEMY_HIT_BLAST });
       }
@@ -1083,7 +1084,8 @@ export class GameLoop {
       this.ship.hpCur = GAME.SHIP_STARTING_MAX_HP;
       this.ship.bombsMax = GAME.SHIP_STARTING_MAX_BOMBS;
       this.ship.bombsCur = GAME.SHIP_STARTING_MAX_BOMBS;
-      this.ship.thrust = 0;
+      this.ship.thrust = GAME.SHIP_STARTING_THRUST;
+      this.ship.gunPower = GAME.SHIP_STARTING_GUN_POWER;
       this.ship.rescueeDetector = false;
       this.ship.planetScanner = false;
     }
@@ -1806,7 +1808,7 @@ export class GameLoop {
           const dx = e.x - s.x;
           const dy = e.y - s.y;
             if (dx * dx + dy * dy <= this.PLAYER_SHOT_RADIUS * this.PLAYER_SHOT_RADIUS){
-              e.hp -= 1;
+              e.hp -= this.ship.gunPower;
               e.hitT = 0.25;
               this.entityExplosions.push({ x: e.x, y: e.y, life: 0.25, radius: this.ENEMY_HIT_BLAST });
               this.playerShots.splice(i, 1);
@@ -2286,6 +2288,9 @@ export class GameLoop {
     if (this.ship.thrust < 3){
       perksAvailable.push("thrust");
     }
+    if (this.ship.gunPower < 2){
+      perksAvailable.push("gunPower");
+    }
     if (!this.ship.rescueeDetector){
       perksAvailable.push("rescueeDetector");
     }
@@ -2300,12 +2305,7 @@ export class GameLoop {
    * @returns {Array<string>}
    */
   _pickPerkChoices(perksAvailable){
-    if (!perksAvailable.length){
-      return ["hpMax", "bombsMax"];
-    }
-    if (perksAvailable.length === 1){
-      return [perksAvailable[0], perksAvailable[0]];
-    }
+    console.assert(perksAvailable.length >= 2);
     const idx0 = Math.floor(Math.random() * perksAvailable.length);
     let idx1 = Math.floor(Math.random() * (perksAvailable.length - 1));
     if (idx1 >= idx0) idx1 += 1;
@@ -2320,6 +2320,7 @@ export class GameLoop {
     if (perk === "hpMax") return "Reinforced hull: +1 max HP";
     if (perk === "bombsMax") return "Expanded payload bay: +1 max bomb";
     if (perk === "thrust") return "Engine tune-up: +10% thrust power";
+    if (perk === "gunPower") return "Firepower: +1 HP damage";
     if (perk === "rescueeDetector") return "Rescuee detector: locate stranded crew";
     if (perk === "planetScanner") return "Planet scanner: scan planet from mothership";
     return perk;
@@ -2350,6 +2351,8 @@ export class GameLoop {
       this.ship.bombsCur = this.ship.bombsMax;
     } else if (perk === "thrust"){
       ++this.ship.thrust;
+    } else if (perk === "gunPower"){
+      ++this.ship.gunPower;
     } else if (perk === "rescueeDetector"){
       this.ship.rescueeDetector = true;
     } else if (perk === "planetScanner"){
