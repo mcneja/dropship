@@ -1557,6 +1557,37 @@ function drawFrameImpl(renderer, state, planet){
         const br = toWorld(cx, cy, tx, ty, ux, uy, 0.18 * s, -0.10 * s);
         pushTri(pos, col, bl[0], bl[1], br[0], br[1], tip[0], tip[1], 0.45, 0.45, 0.5, 0.95);
         triVerts += 3;
+      } else if (p.type === "tether"){
+        let ux, uy, tx, ty;
+        if (typeof p.nx === "number" && typeof p.ny === "number"){
+          const nlen = Math.hypot(p.nx, p.ny) || 1;
+          ux = p.nx / nlen;
+          uy = p.ny / nlen;
+          tx = -uy;
+          ty = ux;
+        } else {
+          ({ ux, uy, tx, ty } = basisAt(p.x, p.y));
+        }
+        const halfL = (typeof p.halfLength === "number" && p.halfLength > 0) ? p.halfLength : (0.9 * s);
+        const halfW = (typeof p.halfWidth === "number" && p.halfWidth > 0) ? p.halfWidth : (0.12 * s);
+        const locked = !!p.locked;
+        const bodyCol = locked ? [0.28, 0.31, 0.38] : [0.78, 0.38, 0.20];
+        const coreCol = locked ? [0.14, 0.17, 0.22] : [1.0, 0.68, 0.32];
+        const a0 = toWorld(p.x, p.y, tx, ty, ux, uy, -halfW, -halfL);
+        const a1 = toWorld(p.x, p.y, tx, ty, ux, uy, halfW, -halfL);
+        const a2 = toWorld(p.x, p.y, tx, ty, ux, uy, halfW, halfL);
+        const a3 = toWorld(p.x, p.y, tx, ty, ux, uy, -halfW, halfL);
+        pushTri(pos, col, a0[0], a0[1], a1[0], a1[1], a2[0], a2[1], bodyCol[0], bodyCol[1], bodyCol[2], 0.98);
+        pushTri(pos, col, a0[0], a0[1], a2[0], a2[1], a3[0], a3[1], bodyCol[0], bodyCol[1], bodyCol[2], 0.98);
+        triVerts += 6;
+        const iw = halfW * 0.45;
+        const i0 = toWorld(p.x, p.y, tx, ty, ux, uy, -iw, -halfL);
+        const i1 = toWorld(p.x, p.y, tx, ty, ux, uy, iw, -halfL);
+        const i2 = toWorld(p.x, p.y, tx, ty, ux, uy, iw, halfL);
+        const i3 = toWorld(p.x, p.y, tx, ty, ux, uy, -iw, halfL);
+        pushTri(pos, col, i0[0], i0[1], i1[0], i1[1], i2[0], i2[1], coreCol[0], coreCol[1], coreCol[2], locked ? 0.65 : 0.95);
+        pushTri(pos, col, i0[0], i0[1], i2[0], i2[1], i3[0], i3[1], coreCol[0], coreCol[1], coreCol[2], locked ? 0.65 : 0.95);
+        triVerts += 6;
       } else if (p.type === "gate"){
         let ux, uy, tx, ty;
         if (typeof p.nx === "number" && typeof p.ny === "number"){

@@ -874,8 +874,9 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
    */
   const updateCoreHeat = (dt, state) => {
     const cfg = planet.getPlanetConfig ? planet.getPlanetConfig() : null;
-    if (!cfg || cfg.id !== "molten") return;
     const coreR = planet.getCoreRadius();
+    const coreHeatWorld = !!(cfg && (cfg.id === "molten" || (cfg.id === "mechanized" && coreR > 0.5)));
+    if (!coreHeatWorld) return;
     if (coreR <= 0) return;
     const heatR = coreR + tuning.coreHeatRadius;
     const heatR2 = heatR * heatR;
@@ -1313,6 +1314,11 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
  * @property {number} [ny]
  * @property {number} [spawnT]
  * @property {number} [spawnCd]
+ * @property {number} [propId]
+ * @property {number} [protectedBy]
+ * @property {number} [halfLength]
+ * @property {number} [halfWidth]
+ * @property {boolean} [locked]
  */
 
 /**
@@ -1383,6 +1389,7 @@ function buildProps(mapgen, planetConfig, params, material){
   const rng = mulberry32((mapgen.getWorld().seed + params.RMAX * 97) | 0);
   /** @type {PlanetProp[]} */
   const props = [];
+  const coreR = (params.CORE_RADIUS > 1) ? params.CORE_RADIUS : (params.CORE_RADIUS * params.RMAX);
 
   const surface = sampleSurfacePoints(mapgen, params, 120);
 
@@ -1456,13 +1463,24 @@ function buildProps(mapgen, planetConfig, params, material){
       break;
     }
     case "mechanized": {
-      const base = Math.max(5, Math.round((planetConfig.platformCount || 10) * 0.7));
-      const gateCount = Math.max(2, Math.round(base * 0.5));
-      for (let i = 0; i < base; i++){
-        add("factory", 0, 0, 0.62 + rng() * 0.36, rng() * Math.PI * 2, 0, { hp: 5, spawnT: 0, spawnCd: 0 });
-      }
-      for (let i = 0; i < gateCount; i++){
-        add("gate", 0, 0, 0.68 + rng() * 0.30, rng() * Math.PI * 2, 0);
+      if (coreR > 0.5){
+        const base = Math.max(3, Math.round((planetConfig.platformCount || 10) * 0.32));
+        const tetherCount = Math.max(3, Math.min(8, base + Math.floor(rng() * 2)));
+        for (let i = 0; i < tetherCount; i++){
+          add("factory", 0, 0, 0.68 + rng() * 0.24, rng() * Math.PI * 2, 0, { hp: 6, spawnT: 0, spawnCd: 0 });
+        }
+        for (let i = 0; i < tetherCount; i++){
+          add("tether", 0, 0, 1, 0, 0, { hp: 1, halfLength: 1.2 + rng() * 0.8, halfWidth: 0.12 + rng() * 0.05 });
+        }
+      } else {
+        const base = Math.max(5, Math.round((planetConfig.platformCount || 10) * 0.7));
+        const gateCount = Math.max(2, Math.round(base * 0.5));
+        for (let i = 0; i < base; i++){
+          add("factory", 0, 0, 0.62 + rng() * 0.36, rng() * Math.PI * 2, 0, { hp: 5, spawnT: 0, spawnCd: 0 });
+        }
+        for (let i = 0; i < gateCount; i++){
+          add("gate", 0, 0, 0.68 + rng() * 0.30, rng() * Math.PI * 2, 0);
+        }
       }
       break;
     }

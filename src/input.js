@@ -36,12 +36,17 @@ export class Input {
       toggleDevHud: false,
       togglePlanetView: false,
       toggleFog: false,
+      toggleMusic: false,
+      toggleCombatMusic: false,
+      musicVolumeUp: false,
+      musicVolumeDown: false,
       reset: false,
       nextLevel: false,
       prevLevel: false,
       shoot: false,
       bomb: false,
       rescueAll: false,
+      killAllEnemies: false,
       spawnEnemyType: null,
     };
     /** @type {boolean} */
@@ -125,6 +130,9 @@ export class Input {
       this.oneshot.shoot = false;
       this.oneshot.bomb = false;
       this.oneshot.rescueAll = false;
+      this.oneshot.killAllEnemies = false;
+      this.oneshot.musicVolumeUp = false;
+      this.oneshot.musicVolumeDown = false;
     }
   }
 
@@ -149,23 +157,46 @@ export class Input {
    */
   _onKeyDown(e){
     const key = e.key;
+    const debugChord = e.ctrlKey;
+    const debugShortcut =
+      debugChord && (
+        key === "m" || key === "M" ||
+        key === "c" || key === "C" ||
+        key === "n" || key === "N" ||
+        key === "v" || key === "V" ||
+        key === "f" || key === "F" ||
+        key === "p" || key === "P" ||
+        key === "x" || key === "X" ||
+        (key >= "1" && key <= "9") ||
+        e.code === "Backslash" || key === "\\"
+      );
     if (["ArrowLeft","ArrowRight","ArrowUp","ArrowDown"," ","Space"].includes(key)) e.preventDefault();
+    if (debugShortcut) e.preventDefault();
     if (!this.keys.has(key)) this.justPressed.add(key);
     this.keys.add(key);
     this.lastInputType = "keyboard";
 
-    if (key === "m" || key === "M") this.oneshot.regen = true;
-    if (key === "c" || key === "C") this.oneshot.toggleDebug = true;
-    if (key === "n" || key === "N"){
+    if (debugChord && (key === "m" || key === "M")) this.oneshot.regen = true;
+    if (debugChord && (key === "c" || key === "C")) this.oneshot.toggleDebug = true;
+    if (debugChord && (key === "n" || key === "N")){
       if (e.shiftKey) this.oneshot.prevLevel = true;
       else this.oneshot.nextLevel = true;
     }
     if (key === "r" || key === "R") this.oneshot.reset = true;
-    if (key === "v" || key === "V") this.oneshot.togglePlanetView = true;
-    if (key === "f" || key === "F") this.oneshot.toggleFog = true;
-    if (e.code === "Backslash" || key === "\\") this.oneshot.toggleDevHud = true;
-    if (key >= "1" && key <= "9") this.oneshot.spawnEnemyType = key;
-    if (key === "p" || key === "P") this.oneshot.rescueAll = true;
+    if (debugChord && (key === "v" || key === "V")) this.oneshot.togglePlanetView = true;
+    if (debugChord && (key === "f" || key === "F")) this.oneshot.toggleFog = true;
+    if ((key === "-" || key === "_") && !e.ctrlKey && !e.metaKey && !e.altKey){
+      this.oneshot.musicVolumeDown = true;
+    }
+    if ((key === "=" || key === "+") && !e.ctrlKey && !e.metaKey && !e.altKey){
+      this.oneshot.musicVolumeUp = true;
+    }
+    if (key === "b" || key === "B") this.oneshot.toggleMusic = true;
+    if (key === "j" || key === "J") this.oneshot.toggleCombatMusic = true;
+    if (debugChord && (e.code === "Backslash" || key === "\\")) this.oneshot.toggleDevHud = true;
+    if (debugChord && key >= "1" && key <= "9") this.oneshot.spawnEnemyType = key;
+    if (debugChord && (key === "p" || key === "P")) this.oneshot.rescueAll = true;
+    if (debugChord && (key === "x" || key === "X")) this.oneshot.killAllEnemies = true;
   }
 
   /**
@@ -573,11 +604,16 @@ export class Input {
       toggleDevHud: this.oneshot.toggleDevHud,
       togglePlanetView: this.oneshot.togglePlanetView,
       toggleFog: this.oneshot.toggleFog,
+      toggleMusic: this.oneshot.toggleMusic,
+      toggleCombatMusic: this.oneshot.toggleCombatMusic,
+      musicVolumeUp: this.oneshot.musicVolumeUp,
+      musicVolumeDown: this.oneshot.musicVolumeDown,
       nextLevel: this.oneshot.nextLevel,
       prevLevel: this.oneshot.prevLevel,
       shoot: this.oneshot.shoot,
       bomb: this.oneshot.bomb,
       rescueAll: this.oneshot.rescueAll,
+      killAllEnemies: this.oneshot.killAllEnemies,
       spawnEnemyType: this.oneshot.spawnEnemyType,
       aim,
       aimShoot,
@@ -598,11 +634,16 @@ export class Input {
     this.oneshot.toggleDevHud = false;
     this.oneshot.togglePlanetView = false;
     this.oneshot.toggleFog = false;
+    this.oneshot.toggleMusic = false;
+    this.oneshot.toggleCombatMusic = false;
+    this.oneshot.musicVolumeUp = false;
+    this.oneshot.musicVolumeDown = false;
     this.oneshot.nextLevel = false;
     this.oneshot.prevLevel = false;
     this.oneshot.shoot = false;
     this.oneshot.bomb = false;
     this.oneshot.rescueAll = false;
+    this.oneshot.killAllEnemies = false;
     this.oneshot.spawnEnemyType = null;
     this.bombReleaseFrom = null;
     this.bombReleaseTo = null;

@@ -66,11 +66,15 @@ export class Enemies {
    * @param {number} [deps.orbitingTurretCount]
    * @param {number} deps.level Current level index.
    * @param {number} deps.levelSeed Base seed for this level.
+   * @param {(enemy:Enemy)=>void} [deps.onEnemyShot]
+   * @param {(enemy:Enemy)=>void} [deps.onEnemyDestroyed]
    */
-  constructor({ planet, collision, total, level, levelSeed, placement, orbitingTurretCount }){
+  constructor({ planet, collision, total, level, levelSeed, placement, orbitingTurretCount, onEnemyShot, onEnemyDestroyed }){
     this.planet = planet;
     this.collision = collision;
     this.params = planet.getPlanetParams();
+    this.onEnemyShot = (typeof onEnemyShot === "function") ? onEnemyShot : null;
+    this.onEnemyDestroyed = (typeof onEnemyDestroyed === "function") ? onEnemyDestroyed : null;
 
     /** @type {Enemy[]} */
     this.enemies = [];
@@ -293,6 +297,9 @@ export class Enemies {
         e.hitT = Math.max(0, e.hitT - dt);
       }
       if (e.hp <= 0){
+        if (this.onEnemyDestroyed){
+          this.onEnemyDestroyed(e);
+        }
         const pieces = 6;
         for (let k = 0; k < pieces; k++){
           const ang = Math.random() * Math.PI * 2;
@@ -318,6 +325,9 @@ export class Enemies {
         this._updateRanger(e, shipTarget, dt);
       } else if (e.type === "crawler"){
         if (!this._updateCrawler(e, shipTarget, dt)) {
+          if (this.onEnemyDestroyed){
+            this.onEnemyDestroyed(e);
+          }
           this.enemies.splice(i, 1);
         }
       } else if (e.type === "turret"){
@@ -687,6 +697,9 @@ export class Enemies {
       life: this._SHOT_LIFE,
       owner: e.type
     });
+    if (this.onEnemyShot){
+      this.onEnemyShot(e);
+    }
   }
 }
 

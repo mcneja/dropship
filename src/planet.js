@@ -44,6 +44,9 @@ export class Planet {
     this._standablePoints = [];
     /** @type {Array<{x:number,y:number,r:number}>} */
     this._spawnReservations = [];
+    /** @type {Uint8Array|null} */
+    this._spawnReachableMask = null;
+    this._rebuildSpawnReachabilityMask();
     this._spreadIceShardsUniform();
     this._snapIceShardsToSurface();
     this._alignTurretPadsToSurface();
@@ -545,27 +548,212 @@ export class Planet {
   }
 
   /**
-   * Align mechanized factories/gates to standable landable surfaces.
+   * Align mechanized factories/gates/tethers to standable surfaces.
    * @returns {void}
    */
   _alignMechanizedStructures(){
     const cfg = this.getPlanetConfig ? this.getPlanetConfig() : null;
     if (!cfg || cfg.id !== "mechanized") return;
     if (!this.props || !this.props.length) return;
+    const coreR = this.getCoreRadius ? this.getCoreRadius() : 0;
     const factories = [];
     const gates = [];
+    const tethers = [];
     for (const p of this.props){
       if (p.type === "factory") factories.push(p);
       else if (p.type === "gate") gates.push(p);
+      else if (p.type === "tether") tethers.push(p);
     }
-    if (!factories.length && !gates.length) return;
+    if (!factories.length && !gates.length && !tethers.length) return;
     if (!this._standablePoints || !this._standablePoints.length){
       this._standablePoints = this._buildStandablePoints();
     }
     const seed = (this.mapgen.getWorld().seed | 0) + 1907;
     const rand = mulberry32(seed + 31);
+    const coreMode = coreR > 0.5 && tethers.length > 0;
+    if (coreMode){
+      for (const p of gates){
+        p.dead = true;
+      }
+      const innerR = Math.max(0.6, coreR + 0.55);
+      const outerCap = Math.max(innerR + 0.8, this.planetParams.RMAX - 0.5);
+      const standable = this._filterReachableStandable(this.getStandablePoints())
+        .filter((p) => p[3] >= innerR + 0.9);
+      // Prefer true landable sites so each tether's factory has a practical landing zone above it.
+      const landableStandable = standable.filter((p) => this.isLandableAtWorld(p[0], p[1], 0.32, 0.2, 0.18));
+      const factorySites = landableStandable.length ? landableStandable : standable;
+      const usedAngles = [];
+      const usedSites = new Set();
+      const wrapDiff = (a, b) => {
+        let d = Math.abs(a - b);
+        if (d > Math.PI) d = Math.abs(d - Math.PI * 2);
+        return d;
+      };
+      /**
+       * @param {number} x
+       * @returns {number}
+       */
+      const normalizeAngle = (x) => {
+        let a = x % (Math.PI * 2);
+        if (a < 0) a += Math.PI * 2;
+        return a;
+      };
+      /**
+       * @param {number} ang
+       * @returns {{nx:number,ny:number,outerR:number}|null}
+       */
+      const evaluateTetherAngle = (ang) => {
+        const nx = Math.cos(ang);
+        const ny = Math.sin(ang);
+        let firstAir = -1;
+        let rockAfterAir = -1;
+        for (let r = innerR + 0.25; r <= outerCap; r += 0.16){
+          const isAir = this.airValueAtWorld(nx * r, ny * r) > 0.5;
+          if (isAir){
+            if (firstAir < 0) firstAir = r;
+          } else if (firstAir >= 0){
+            rockAfterAir = r;
+            break;
+          }
+        }
+        // If no rock after air, tether is effectively open to air and should be moved.
+        if (firstAir < 0 || rockAfterAir < 0) return null;
+        return {
+          nx,
+          ny,
+          outerR: Math.max(innerR + 0.9, rockAfterAir - 0.08),
+        };
+      };
+      /**
+       * @param {number} ang
+       * @param {number} minR
+       * @returns {number}
+       */
+      const pickFactoryStandableIndex = (ang, minR) => {
+        if (!factorySites.length) return -1;
+        /** @type {number} */
+        let best = -1;
+        let bestScore = Infinity;
+        // Keep factories near the tether angle; if no match, retry a new tether angle instead.
+        const thresholds = [0.42, 0.68];
+        for (const th of thresholds){
+          best = -1;
+          bestScore = Infinity;
+          for (let i = 0; i < factorySites.length; i++){
+            if (usedSites.has(i)) continue;
+            const sp = factorySites[i];
+            if (sp[3] < minR) continue;
+            const dAng = wrapDiff(sp[2], ang);
+            if (dAng > th) continue;
+            const score = dAng * 3.0 + Math.max(0, sp[3] - minR) * 0.03;
+            if (score < bestScore){
+              bestScore = score;
+              best = i;
+            }
+          }
+          if (best >= 0) return best;
+        }
+        return -1;
+      };
+      /**
+       * @param {any} factory
+       * @param {number} idx
+       * @param {number} iFactory
+       * @returns {void}
+       */
+      const placeFactoryAtStandable = (factory, idx, iFactory) => {
+        if (!factory || idx < 0 || idx >= factorySites.length){
+          if (factory){
+            factory.dead = true;
+          }
+          return;
+        }
+        usedSites.add(idx);
+        const pt = factorySites[idx];
+        factory.x = pt[0];
+        factory.y = pt[1];
+        const info = this.surfaceInfoAtWorld(factory.x, factory.y, 0.18);
+        if (info){
+          factory.nx = info.nx;
+          factory.ny = info.ny;
+          factory.x -= info.nx * (0.05 * (factory.scale || 1));
+          factory.y -= info.ny * (0.05 * (factory.scale || 1));
+          factory.rot = Math.atan2(info.ny, info.nx) - Math.PI * 0.5;
+        }
+        factory.propId = iFactory;
+        factory.hp = (typeof factory.hp === "number") ? Math.max(1, factory.hp) : 5;
+        factory.spawnCd = 6.5 + rand() * 4.0;
+        factory.spawnT = rand() * factory.spawnCd;
+      };
+
+      for (let i = 0; i < tethers.length; i++){
+        const tether = tethers[i];
+        let picked = null;
+        const minAngSep = 0.4;
+        const base = normalizeAngle((i / Math.max(1, tethers.length)) * Math.PI * 2 + (rand() - 0.5) * 0.35);
+        for (let attempt = 0; attempt < 56; attempt++){
+          const jitter = (rand() * 2 - 1) * (0.18 + 0.015 * attempt);
+          const ang = normalizeAngle(base + jitter);
+          if (usedAngles.some((a) => wrapDiff(a, ang) < minAngSep)) continue;
+          const evalRes = evaluateTetherAngle(ang);
+          if (!evalRes) continue;
+          const fIdx = pickFactoryStandableIndex(ang, evalRes.outerR + 0.45);
+          if (fIdx < 0) continue;
+          picked = { ang, fIdx, ...evalRes };
+          break;
+        }
+        if (!picked){
+          for (let attempt = 0; attempt < 140; attempt++){
+            const ang = normalizeAngle(rand() * Math.PI * 2);
+            if (usedAngles.some((a) => wrapDiff(a, ang) < minAngSep)) continue;
+            const evalRes = evaluateTetherAngle(ang);
+            if (!evalRes) continue;
+            const fIdx = pickFactoryStandableIndex(ang, evalRes.outerR + 0.25);
+            if (fIdx < 0) continue;
+            picked = { ang, fIdx, ...evalRes };
+            break;
+          }
+        }
+        if (!picked){
+          tether.dead = true;
+          tether.hp = 0;
+          continue;
+        }
+        usedAngles.push(picked.ang);
+        const centerR = 0.5 * (innerR + picked.outerR);
+        tether.x = picked.nx * centerR;
+        tether.y = picked.ny * centerR;
+        tether.nx = picked.nx;
+        tether.ny = picked.ny;
+        tether.rot = Math.atan2(picked.ny, picked.nx) - Math.PI * 0.5;
+        tether.halfLength = Math.max(0.5, 0.5 * (picked.outerR - innerR));
+        tether.halfWidth = Math.max(0.08, Math.min(0.18, (typeof tether.halfWidth === "number") ? tether.halfWidth : (0.11 + rand() * 0.04)));
+
+        const factory = (i < factories.length) ? factories[i] : null;
+        if (factory){
+          placeFactoryAtStandable(factory, picked.fIdx, i);
+          tether.protectedBy = (typeof factory.propId === "number") ? factory.propId : i;
+        } else {
+          tether.protectedBy = -1;
+        }
+      }
+
+      // Place any leftover factories on valid standable points.
+      for (let i = tethers.length; i < factories.length; i++){
+        const factory = factories[i];
+        if (!factory) continue;
+        let idx = -1;
+        for (let j = 0; j < factorySites.length; j++){
+          if (usedSites.has(j)) continue;
+          idx = j;
+          break;
+        }
+        placeFactoryAtStandable(factory, idx, i);
+      }
+      return;
+    }
+
     const factoryPts = this.sampleStandablePoints(factories.length, seed, "uniform", 1.5, false);
-    const gatePts = this.sampleStandablePoints(gates.length, seed + 97, "clusters", 2.0, false);
     for (let i = 0; i < factories.length; i++){
       const p = factories[i];
       const pt = factoryPts[i];
@@ -583,10 +771,13 @@ export class Planet {
         p.y -= info.ny * (0.05 * (p.scale || 1));
         p.rot = Math.atan2(info.ny, info.nx) - Math.PI * 0.5;
       }
+      p.propId = i;
       p.hp = (typeof p.hp === "number") ? Math.max(1, p.hp) : 5;
       p.spawnCd = 6.5 + rand() * 4.0;
       p.spawnT = rand() * p.spawnCd;
     }
+
+    const gatePts = this.sampleStandablePoints(gates.length, seed + 97, "clusters", 2.0, false);
     for (let i = 0; i < gates.length; i++){
       const p = gates[i];
       const pt = gatePts[i];
@@ -870,6 +1061,7 @@ export class Planet {
   sampleAirPoints(count, seed, rMin, rMax, placement = "random"){
     if (rMin >= rMax || count <= 0) return [];
     const rand = mulberry32(seed);
+    const restrictReachability = !!this._spawnReachableMask;
     /** @type {Array<[number,number]>} */
     const points = [];
     const attempts = Math.max(200, count * 80);
@@ -882,9 +1074,9 @@ export class Planet {
         const r = Math.sqrt(Math.max(0, rr));
         const x = r * Math.cos(ang);
         const y = r * Math.sin(ang);
-        if (this.airValueAtWorld(x, y) > 0.5){
-          points.push([x, y]);
-        }
+        if (this.airValueAtWorld(x, y) <= 0.5) continue;
+        if (restrictReachability && !this._isSpawnReachableAt(x, y)) continue;
+        points.push([x, y]);
       }
       return points;
     }
@@ -894,6 +1086,7 @@ export class Planet {
       const x = r * Math.cos(ang);
       const y = r * Math.sin(ang);
       if (this.airValueAtWorld(x, y) <= 0.5) continue;
+      if (restrictReachability && !this._isSpawnReachableAt(x, y)) continue;
       points.push([x, y]);
     }
     return points;
@@ -1040,6 +1233,88 @@ export class Planet {
   }
 
   /**
+   * @returns {boolean}
+   */
+  _restrictToReachableSpawns(){
+    const cfg = this.getPlanetConfig ? this.getPlanetConfig() : null;
+    return !!(cfg && cfg.flags && cfg.flags.disableTerrainDestruction);
+  }
+
+  /**
+   * Rebuild mask of air nodes reachable from near-surface air using dijkstra.
+   * Used to avoid spawning required units in sealed pockets on non-destructible worlds.
+   * @returns {void}
+   */
+  _rebuildSpawnReachabilityMask(){
+    if (!this._restrictToReachableSpawns()){
+      this._spawnReachableMask = null;
+      return;
+    }
+    const graph = this.radialGraph;
+    const passable = this.airNodesBitmap;
+    if (!graph || !graph.nodes || !graph.nodes.length || !passable || passable.length !== graph.nodes.length){
+      this._spawnReachableMask = null;
+      return;
+    }
+    const nearSurfaceR = Math.max(0, (this.planetParams.RMAX || this.planetRadius || 0) - 0.9);
+    /** @type {number[]} */
+    const sources = [];
+    for (let i = 0; i < graph.nodes.length; i++){
+      if (!passable[i]) continue;
+      const n = graph.nodes[i];
+      const r = Math.hypot(n.x, n.y);
+      if (r >= nearSurfaceR){
+        sources.push(i);
+      }
+    }
+    if (!sources.length){
+      for (let i = 0; i < passable.length; i++){
+        if (passable[i]){
+          sources.push(i);
+          break;
+        }
+      }
+    }
+    if (!sources.length){
+      this._spawnReachableMask = null;
+      return;
+    }
+    const dist = dijkstraMap(graph, sources, passable);
+    const mask = new Uint8Array(passable.length);
+    for (let i = 0; i < passable.length; i++){
+      if (!passable[i]) continue;
+      if (Number.isFinite(dist[i])) mask[i] = 1;
+    }
+    this._spawnReachableMask = mask;
+  }
+
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @returns {boolean}
+   */
+  _isSpawnReachableAt(x, y){
+    if (!this._spawnReachableMask) return true;
+    const iNode = this.nearestRadialNodeInAir(x, y);
+    if (iNode < 0 || iNode >= this._spawnReachableMask.length) return false;
+    return !!this._spawnReachableMask[iNode];
+  }
+
+  /**
+   * @param {Array<[number,number,number,number]>} points
+   * @returns {Array<[number,number,number,number]>}
+   */
+  _filterReachableStandable(points){
+    if (!this._spawnReachableMask) return points;
+    const out = [];
+    for (const p of points){
+      if (!this._isSpawnReachableAt(p[0], p[1])) continue;
+      out.push(p);
+    }
+    return out;
+  }
+
+  /**
    * @param {number} x
    * @param {number} y
    * @param {number} minDist
@@ -1081,7 +1356,7 @@ export class Planet {
    */
   sampleStandablePoints(count, seed, placement = "random", minDist = 0, reserve = false){
     if (count <= 0) return [];
-    const points = this.getStandablePoints();
+    const points = this._filterReachableStandable(this.getStandablePoints());
     if (!points.length) return [];
     const rand = mulberry32(seed);
     const rMax = (this.planetParams.RMAX || CFG.RMAX) || 1;
@@ -1295,7 +1570,7 @@ export class Planet {
    */
   sampleStandablePointsMinRadius(count, seed, placement = "random", minDist = 0, reserve = false, minR = 0){
     if (count <= 0) return [];
-    const basePoints = this.getStandablePoints();
+    const basePoints = this._filterReachableStandable(this.getStandablePoints());
     if (!basePoints.length) return [];
     const points = (minR > 0) ? basePoints.filter((p) => p[3] >= minR) : basePoints;
     if (!points.length) return [];
@@ -1594,6 +1869,7 @@ export class Planet {
     this.mapgen.setAirDisk(x, y, radius, val);
     let newAir = this.radial.updateAirFlags(true);
     this.airNodesBitmap = buildAirNodesBitmap(this.radialGraph, this.radial);
+    this._rebuildSpawnReachabilityMask();
     this._radialDebugDirty = true;
     return newAir;
   }

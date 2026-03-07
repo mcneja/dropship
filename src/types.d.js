@@ -184,11 +184,16 @@
  * @property {boolean} toggleDevHud
  * @property {boolean} togglePlanetView
  * @property {boolean} toggleFog
+ * @property {boolean} toggleMusic
+ * @property {boolean} toggleCombatMusic
+ * @property {boolean} musicVolumeUp
+ * @property {boolean} musicVolumeDown
  * @property {boolean} nextLevel
  * @property {boolean} prevLevel
  * @property {boolean} shoot
  * @property {boolean} bomb
  * @property {boolean} rescueAll
+ * @property {boolean} killAllEnemies
  * @property {EnemyType|null} [spawnEnemyType]
  * @property {Point|null} [aim]
  * @property {Point|null} [aimShoot]

@@ -19,7 +19,7 @@
 
 /**
  * @typedef {Object} PlanetObjective
- * @property {"clear"|"extract"|"find"|"deploy"|"deploy_and_extract"} type
+ * @property {"clear"|"extract"|"find"|"deploy"|"deploy_and_extract"|"destroy_core"} type
  * @property {number} count
  */
 
@@ -715,9 +715,9 @@ export const PLANET_CONFIGS = [
       SURFACE_BAND: 0.08,
     },
     ranges: {
-      RMAX: r(15, 21),
+      RMAX: r(18, 26),
       PAD: r(1.0, 1.4),
-      MOTHERSHIP_ORBIT_HEIGHT: r(12, 18),
+      MOTHERSHIP_ORBIT_HEIGHT: r(14, 22),
       SURFACE_G: r(2.0, 2.6),
       DRAG_MULT: r(0.9, 1.1),
       THRUST_MULT: r(0.95, 1.05),
@@ -1186,6 +1186,10 @@ export function clampPlanetConfig(sample){
  */
 export function resolvePlanetParams(seed, level, cfg, baseGame){
   const roll = clampPlanetConfig(rollPlanetConfig(seed, level, cfg));
+  const isMechanizedCoreLevel = !!(cfg && cfg.id === "mechanized" && level >= 16);
+  const mechanizedCoreRadius = isMechanizedCoreLevel ? 8 : (roll.CORE_RADIUS ?? 0);
+  const moltenInner = isMechanizedCoreLevel ? mechanizedCoreRadius : (roll.MOLTEN_RING_INNER ?? 0);
+  const moltenOuter = isMechanizedCoreLevel ? (mechanizedCoreRadius + 2.2) : (roll.MOLTEN_RING_OUTER ?? 0);
   // PlanetParams fields are the authoritative set used at runtime:
   // Geometry: RMAX, PAD, MOTHERSHIP_ORBIT_HEIGHT
   // Gravity: SURFACE_G
@@ -1215,12 +1219,12 @@ export function resolvePlanetParams(seed, level, cfg, baseGame){
     FOG_SEEN_ALPHA: roll.FOG_SEEN_ALPHA,
     FOG_UNSEEN_ALPHA: roll.FOG_UNSEEN_ALPHA,
     FOG_BUDGET_TRIS: roll.FOG_BUDGET_TRIS,
-    CORE_RADIUS: roll.CORE_RADIUS ?? 0,
+    CORE_RADIUS: mechanizedCoreRadius,
     CORE_DPS: roll.CORE_DPS ?? 0,
     ICE_CRUST_THICKNESS: roll.ICE_CRUST_THICKNESS ?? 0,
     WATER_LEVEL: roll.WATER_LEVEL ?? 0,
-      MOLTEN_RING_INNER: roll.MOLTEN_RING_INNER ?? 0,
-      MOLTEN_RING_OUTER: roll.MOLTEN_RING_OUTER ?? 0,
+      MOLTEN_RING_INNER: moltenInner,
+      MOLTEN_RING_OUTER: moltenOuter,
       MOLTEN_VENT_COUNT: (cfg && cfg.id === "molten") ? Math.max(0, level * 5) : 0,
       EXCAVATE_RINGS: roll.EXCAVATE_RINGS ?? 0,
       EXCAVATE_RING_THICKNESS: roll.EXCAVATE_RING_THICKNESS ?? 0,

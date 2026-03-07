@@ -5,6 +5,7 @@ import { Renderer } from "./rendering.js";
 import { Input } from "./input.js";
 import { updateHud, updatePlanetLabel, updateObjectiveLabel, updateShipStatusLabel, updateHeatMeter } from "./ui.js";
 import { GameLoop } from "./loop.js";
+import { BackgroundMusic } from "./audio.js";
 
 const canvas = /** @type {HTMLCanvasElement} */ (document.getElementById("gl"));
 const hud = /** @type {HTMLElement} */ (document.getElementById("hud"));
@@ -16,10 +17,12 @@ const heatMeter = /** @type {HTMLElement} */ (document.getElementById("heat-mete
 const renderer = new Renderer(canvas, GAME);
 
 const input = new Input(canvas);
+const bgm = new BackgroundMusic({ volume: 0.35 });
 
 const loop = new GameLoop({
   renderer,
   input,
+  audio: bgm,
   ui: { updateHud, updatePlanetLabel, updateObjectiveLabel, updateShipStatusLabel, updateHeatMeter },
   canvas,
   overlay: /** @type {HTMLCanvasElement} */ (document.getElementById("overlay")),

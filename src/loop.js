@@ -23,6 +23,7 @@ export class GameLoop {
    * @param {import("./rendering.js").Renderer} deps.renderer
    * @param {import("./input.js").Input} deps.input
    * @param {Ui} deps.ui
+   * @param {{toggleMuted?:()=>boolean,toggleCombatMusicEnabled?:()=>boolean,stepMusicVolume?:(direction:number)=>number,setCombatActive?:(active:boolean)=>boolean,triggerVictoryMusic?:()=>boolean,returnToAmbient?:(withFade?:boolean)=>void,playSfx?:(id:string,opts?:{volume?:number,rate?:number})=>boolean,setThrustLoopActive?:(active:boolean)=>boolean}|null|undefined} [deps.audio]
    * @param {HTMLCanvasElement} deps.canvas
    * @param {HTMLCanvasElement|null|undefined} deps.overlay
    * @param {HTMLElement} deps.hud
@@ -31,7 +32,7 @@ export class GameLoop {
    * @param {HTMLElement} [deps.shipStatusLabel]
    * @param {HTMLElement} [deps.heatMeter]
    */
-  constructor({ renderer, input, ui, canvas, hud, overlay, planetLabel, objectiveLabel, shipStatusLabel, heatMeter }){
+  constructor({ renderer, input, ui, audio, canvas, hud, overlay, planetLabel, objectiveLabel, shipStatusLabel, heatMeter }){
     this.level = 1;
     // const seed = CFG.seed;
     const seed = performance.now();
@@ -44,6 +45,7 @@ export class GameLoop {
     this.renderer.setPlanet(this.planet);
     this.input = input;
     this.ui = ui;
+    this.audio = audio || null;
     this.canvas = canvas;
     this.hud = hud;
     this.planetLabel = planetLabel || null;
@@ -142,6 +144,10 @@ export class GameLoop {
     this.collision = createCollisionRouter(this.planet, () => this.mothership);
     this.objective = this._buildObjective(planetConfig, this.level);
     this.clearObjectiveTotal = 0;
+    this.coreMeltdownActive = false;
+    this.coreMeltdownT = 0;
+    this.coreMeltdownDuration = 120;
+    this.coreMeltdownEruptT = 0;
     console.log("[Level] init", {
       level: this.level,
       planetId: planetConfig.id,
@@ -160,8 +166,15 @@ export class GameLoop {
       level: this.level,
       levelSeed: this.planet.getSeed(),
       placement: planetConfig.enemyPlacement || "random",
+      onEnemyShot: () => {
+        this._playSfx("enemy_fire", { volume: 0.55 });
+      },
+      onEnemyDestroyed: () => {
+        this._playSfx("enemy_destroyed", { volume: 0.8 });
+      },
     });
     this._initializeClearObjectiveTracking();
+    this._syncTetherProtectionStates();
 
     this._spawnMiners();
     this.planet.reconcileFeatures({
@@ -178,6 +191,8 @@ export class GameLoop {
     this.devHudVisible = false;
     this.levelAdvanceReady = false;
     this.lastHeat = 0;
+    this.statusCueText = "";
+    this.statusCueUntil = 0;
 
     this.featureCallbacks = {
       onExplosion: (info) => {
@@ -218,6 +233,8 @@ export class GameLoop {
     this.fogEnabled = true;
     /** @type {Array<{perk:string,text:string}>|null} */
     this.pendingPerkChoice = null;
+    this.objectiveCompleteSfxPlayed = this._objectiveComplete();
+    this.victoryMusicTriggered = false;
   }
 
   /**
@@ -269,6 +286,12 @@ export class GameLoop {
    */
   _buildObjective(cfg, lvl){
     const obj = cfg && cfg.objective ? cfg.objective : { type: "extract", count: 0 };
+    if (cfg && cfg.id === "mechanized" && lvl >= 16){
+      const target = this._tetherPropsAll().length;
+      if (target > 0){
+        return { type: "destroy_core", target };
+      }
+    }
     if (obj.type === "clear"){
       const target = (obj.count && obj.count > 0) ? obj.count : this._totalEnemiesForLevel(lvl);
       return { type: "clear", target };
@@ -294,6 +317,13 @@ export class GameLoop {
   }
 
   /**
+   * @returns {boolean}
+   */
+  _isMechanizedCoreLevel(){
+    return this._isMechanizedLevel() && !!(this.planet && this.planet.getCoreRadius && this.planet.getCoreRadius() > 0.5);
+  }
+
+  /**
    * @returns {Array<any>}
    */
   _factoryPropsAlive(){
@@ -305,6 +335,71 @@ export class GameLoop {
       out.push(p);
     }
     return out;
+  }
+
+  /**
+   * @returns {Array<any>}
+   */
+  _tetherPropsAlive(){
+    const out = [];
+    if (!this.planet || !this.planet.props || !this.planet.props.length) return out;
+    for (const p of this.planet.props){
+      if (p.type !== "tether") continue;
+      if (p.dead || (typeof p.hp === "number" && p.hp <= 0)) continue;
+      out.push(p);
+    }
+    return out;
+  }
+
+  /**
+   * @returns {Array<any>}
+   */
+  _tetherPropsAll(){
+    const out = [];
+    if (!this.planet || !this.planet.props || !this.planet.props.length) return out;
+    for (const p of this.planet.props){
+      if (p.type === "tether") out.push(p);
+    }
+    return out;
+  }
+
+  /**
+   * @param {number} propId
+   * @returns {any|null}
+   */
+  _findFactoryById(propId){
+    if (!this.planet || !this.planet.props || !this.planet.props.length) return null;
+    for (const p of this.planet.props){
+      if (p.type !== "factory") continue;
+      if ((p.propId | 0) === (propId | 0)) return p;
+    }
+    return null;
+  }
+
+  /**
+   * @param {any} tether
+   * @returns {boolean}
+   */
+  _isTetherUnlocked(tether){
+    if (!tether) return false;
+    const protectedBy = (typeof tether.protectedBy === "number") ? tether.protectedBy : -1;
+    if (protectedBy < 0) return true;
+    const factory = this._findFactoryById(protectedBy);
+    if (!factory) return true;
+    if (factory.dead) return true;
+    if (typeof factory.hp === "number" && factory.hp <= 0) return true;
+    return false;
+  }
+
+  /**
+   * @returns {void}
+   */
+  _syncTetherProtectionStates(){
+    const tethers = this._tetherPropsAll();
+    if (!tethers.length) return;
+    for (const t of tethers){
+      t.locked = !this._isTetherUnlocked(t);
+    }
   }
 
   /**
@@ -350,6 +445,16 @@ export class GameLoop {
    */
   _objectiveText(){
     if (!this.objective) return "";
+    if (this.objective.type === "destroy_core"){
+      const target = Math.max(this.objective.target || 0, this._tetherPropsAll().length);
+      const remaining = this._tetherPropsAlive().length;
+      const done = target ? Math.max(0, target - remaining) : 0;
+      if (this.coreMeltdownActive){
+        const timeLeft = Math.max(0, this.coreMeltdownDuration - this.coreMeltdownT);
+        return `Objective: Escape to mothership ${Math.ceil(timeLeft)}s`;
+      }
+      return `Objective: Destroy core ${done}${target ? `/${target}` : ""}`;
+    }
     if (this.objective.type === "clear"){
       const remaining = this._remainingClearTargets();
       const target = Math.max(this.objective.target || 0, this.clearObjectiveTotal || 0, remaining);
@@ -407,6 +512,8 @@ export class GameLoop {
     this.lastAimScreen = null;
     this.lastHeat = 0;
     this._shipWasInWater = false;
+    this._setCombatActive(false);
+    this._setThrustLoopActive(false);
   }
 
   /**
@@ -429,6 +536,9 @@ export class GameLoop {
     if (this.ship.state === "crashed") return;
     this.ship.state = "crashed";
     this.ship.explodeT = 0;
+    this._setCombatActive(false);
+    this._setThrustLoopActive(false);
+    this._playSfx("ship_crash", { volume: 0.9 });
     this.lastAimWorld = null;
     this.lastAimScreen = null;
     const pieces = 10;
@@ -463,6 +573,7 @@ export class GameLoop {
     if (this.ship.hitCooldown > 0) return;
     this.ship.hpCur = Math.max(0, this.ship.hpCur - 1);
     this.ship.hitCooldown = GAME.SHIP_HIT_COOLDOWN;
+    this._playSfx("ship_hit", { volume: 0.8 });
     this.entityExplosions.push({ x, y, life: 0.5, radius: this.SHIP_HIT_BLAST });
     this.shipHitPopups.push({
       x: this.ship.x,
@@ -474,6 +585,52 @@ export class GameLoop {
     if (this.ship.hpCur <= 0){
       this._triggerCrash();
     }
+  }
+
+  /**
+   * @param {string} id
+   * @param {{volume?:number,rate?:number}} [opts]
+   * @returns {void}
+   */
+  _playSfx(id, opts){
+    if (!this.audio || typeof this.audio.playSfx !== "function") return;
+    this.audio.playSfx(id, opts);
+  }
+
+  /**
+   * @param {string} text
+   * @param {number} [duration]
+   * @returns {void}
+   */
+  _showStatusCue(text, duration = 1.5){
+    this.statusCueText = text || "";
+    this.statusCueUntil = performance.now() + Math.max(0.1, duration) * 1000;
+  }
+
+  /**
+   * @param {boolean} active
+   * @returns {void}
+   */
+  _setThrustLoopActive(active){
+    if (!this.audio || typeof this.audio.setThrustLoopActive !== "function") return;
+    this.audio.setThrustLoopActive(active);
+  }
+
+  /**
+   * @param {boolean} active
+   * @returns {void}
+   */
+  _setCombatActive(active){
+    if (!this.audio || typeof this.audio.setCombatActive !== "function") return;
+    this.audio.setCombatActive(active);
+  }
+
+  /**
+   * @returns {void}
+   */
+  _triggerVictoryMusic(){
+    if (!this.audio || typeof this.audio.triggerVictoryMusic !== "function") return;
+    this.audio.triggerVictoryMusic();
   }
 
   /**
@@ -610,6 +767,13 @@ export class GameLoop {
       view.yCenter = view.yCenter * (1 - t) + this.ship.y * t;
       view.radius = radiusView * (1 - t) + GAME.MOTHERSHIP_ZOOM * t;
     }
+    if (this.coreMeltdownActive && !this._isDockedWithMothership()){
+      const t = (this.lastTime || performance.now()) * 0.001;
+      const progress = Math.max(0, Math.min(1, this.coreMeltdownT / Math.max(0.001, this.coreMeltdownDuration)));
+      const amp = 0.035 + 0.085 * progress;
+      view.xCenter += Math.sin(t * 24.7) * amp + Math.sin(t * 41.3) * amp * 0.45;
+      view.yCenter += Math.cos(t * 19.9) * amp + Math.cos(t * 37.1) * amp * 0.45;
+    }
     return view;
   }
 
@@ -686,6 +850,7 @@ export class GameLoop {
       }
     }
     this._damageFactoriesAt(x, y, this.PLAYER_BOMB_DAMAGE, 999, true);
+    this._destroyTethersAt(x, y, this.PLAYER_BOMB_DAMAGE);
   }
 
   /**
@@ -765,6 +930,7 @@ export class GameLoop {
     if (!this._isMechanizedLevel()) return false;
     if (!this.planet || !this.planet.props || !this.planet.props.length) return false;
     let hit = false;
+    let factoryDestroyed = false;
     for (const p of this.planet.props){
       if (p.type !== "factory") continue;
       if (p.dead || (typeof p.hp === "number" && p.hp <= 0)) continue;
@@ -781,12 +947,140 @@ export class GameLoop {
       }
       if ((p.hp || 0) <= 0){
         p.dead = true;
+        factoryDestroyed = true;
         this.entityExplosions.push({ x: p.x, y: p.y, life: 0.65, radius: 0.95 * (p.scale || 1) });
       } else {
         this.entityExplosions.push({ x: p.x, y: p.y, life: 0.25, radius: 0.35 * (p.scale || 1) });
       }
     }
+    if (factoryDestroyed){
+      this._syncTetherProtectionStates();
+    }
     return hit;
+  }
+
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @param {number} radius
+   * @returns {boolean}
+   */
+  _destroyTethersAt(x, y, radius){
+    if (!this._isMechanizedCoreLevel()) return false;
+    const tethers = this._tetherPropsAlive();
+    if (!tethers.length) return false;
+    let destroyed = false;
+    for (const t of tethers){
+      if (!this._isTetherUnlocked(t)) continue;
+      if (!this._solidPropPenetration(t, x, y, radius)) continue;
+      t.dead = true;
+      t.hp = 0;
+      destroyed = true;
+      const blastR = Math.max(0.5, (typeof t.halfLength === "number" ? t.halfLength : 0.9) * 0.35);
+      this.entityExplosions.push({ x: t.x, y: t.y, life: 0.75, radius: blastR });
+    }
+    if (destroyed && this._tetherPropsAlive().length <= 0){
+      this._startCoreMeltdown();
+    }
+    return destroyed;
+  }
+
+  /**
+   * @returns {boolean}
+   */
+  _heatMechanicsActive(){
+    const cfg = this.planet && this.planet.getPlanetConfig ? this.planet.getPlanetConfig() : null;
+    if (!cfg) return false;
+    if (cfg.id === "molten") return true;
+    return this._isMechanizedCoreLevel();
+  }
+
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @param {number} radius
+   * @returns {void}
+   */
+  _applyMeltdownAirEdit(x, y, radius){
+    if (!this.planet || !this.renderer) return;
+    const newAir = this.planet.applyAirEdit(x, y, radius, 1);
+    if (newAir) this.renderer.updateAir(newAir);
+  }
+
+  /**
+   * @returns {void}
+   */
+  _startCoreMeltdown(){
+    if (this.coreMeltdownActive) return;
+    this.coreMeltdownActive = true;
+    this.coreMeltdownT = 0;
+    this.coreMeltdownEruptT = 0;
+    this._syncTetherProtectionStates();
+    const coreR = this.planet && this.planet.getCoreRadius ? this.planet.getCoreRadius() : 0;
+    this.entityExplosions.push({ x: 0, y: 0, life: 1.2, radius: Math.max(1.5, coreR * 0.6) });
+  }
+
+  /**
+   * @param {number} dt
+   * @returns {void}
+   */
+  _updateCoreMeltdown(dt){
+    if (!this.coreMeltdownActive) return;
+    const coreR = this.planet && this.planet.getCoreRadius ? this.planet.getCoreRadius() : 0;
+    if (coreR <= 0) return;
+    this.coreMeltdownT += dt;
+    const progress = Math.max(0, Math.min(1, this.coreMeltdownT / Math.max(0.001, this.coreMeltdownDuration)));
+    const featureParticles = this.planet && this.planet.getFeatureParticles ? this.planet.getFeatureParticles() : null;
+    const lava = featureParticles && featureParticles.lava ? featureParticles.lava : null;
+    if (lava){
+      const rate = 10 + 24 * progress;
+      const emitBase = rate * dt;
+      const emitWhole = Math.floor(emitBase);
+      const emitCount = emitWhole + (Math.random() < (emitBase - emitWhole) ? 1 : 0);
+      for (let i = 0; i < emitCount; i++){
+        const ang = Math.random() * Math.PI * 2;
+        const nx = Math.cos(ang);
+        const ny = Math.sin(ang);
+        const tx = -ny;
+        const ty = nx;
+        const spread = (Math.random() * 2 - 1) * (0.22 + progress * 0.28);
+        const speed = 2.2 + progress * 3.8 + Math.random() * 1.2;
+        lava.push({
+          x: nx * (coreR + 0.15),
+          y: ny * (coreR + 0.15),
+          vx: (nx + tx * spread) * speed,
+          vy: (ny + ty * spread) * speed,
+          life: 1.0 + Math.random() * 0.8,
+        });
+      }
+    }
+
+    this.coreMeltdownEruptT -= dt;
+    if (this.coreMeltdownEruptT <= 0){
+      this.coreMeltdownEruptT = Math.max(0.18, 0.95 - progress * 0.7);
+      const maxReach = coreR + 1 + progress * Math.max(1.2, this.planetParams.RMAX - coreR - 0.8);
+      const burstCount = 1 + ((Math.random() < (0.5 + progress * 0.35)) ? 1 : 0);
+      for (let b = 0; b < burstCount; b++){
+        const ang = Math.random() * Math.PI * 2;
+        const nx = Math.cos(ang);
+        const ny = Math.sin(ang);
+        const reach = coreR + 0.65 + Math.random() * Math.max(0.25, maxReach - coreR - 0.65);
+        const segments = 2 + Math.floor(progress * 5);
+        for (let s = 0; s < segments; s++){
+          const t = segments <= 1 ? 1 : (s / (segments - 1));
+          const r = coreR + 0.55 + (reach - coreR - 0.55) * t;
+          const x = nx * r;
+          const y = ny * r;
+          const carveR = 0.45 + progress * 1.0 + Math.random() * 0.25;
+          this._applyMeltdownAirEdit(x, y, carveR);
+          this.entityExplosions.push({ x, y, life: 0.45 + progress * 0.4, radius: carveR * 0.85 });
+        }
+      }
+    }
+
+    if (this.coreMeltdownT >= this.coreMeltdownDuration && !this._isDockedWithMothership() && this.ship.state !== "crashed"){
+      this._triggerCrash();
+    }
   }
 
   /**
@@ -860,15 +1154,23 @@ export class GameLoop {
    */
   _solidPropPenetration(p, x, y, radius){
     if (!p || p.dead) return null;
-    if (p.type !== "gate" && p.type !== "factory") return null;
+    if (p.type !== "gate" && p.type !== "factory" && p.type !== "tether") return null;
     const { nx, ny, tx, ty } = this._propBasis(p);
     const dx = x - p.x;
     const dy = y - p.y;
     const lx = dx * tx + dy * ty;
     const ly = dx * nx + dy * ny;
     const s = p.scale || 1;
-    const halfW = (p.type === "gate" ? 0.62 : 0.45) * s;
-    const halfN = (p.type === "gate" ? 0.12 : 0.20) * s;
+    const halfW = (p.type === "gate")
+      ? (0.62 * s)
+      : (p.type === "factory")
+        ? (0.45 * s)
+        : ((typeof p.halfWidth === "number" ? p.halfWidth : 0.12) * s);
+    const halfN = (p.type === "gate")
+      ? (0.12 * s)
+      : (p.type === "factory")
+        ? (0.20 * s)
+        : ((typeof p.halfLength === "number" ? p.halfLength : 0.9) * s);
     const overX = (halfW + radius) - Math.abs(lx);
     const overY = (halfN + radius) - Math.abs(ly);
     if (overX <= 0 || overY <= 0) return null;
@@ -1176,8 +1478,18 @@ export class GameLoop {
       level: this.level,
       levelSeed: this.planet.getSeed(),
       placement: planetConfig.enemyPlacement || "random",
+      onEnemyShot: () => {
+        this._playSfx("enemy_fire", { volume: 0.55 });
+      },
+      onEnemyDestroyed: () => {
+        this._playSfx("enemy_destroyed", { volume: 0.8 });
+      },
     });
     this._initializeClearObjectiveTracking();
+    this.coreMeltdownActive = false;
+    this.coreMeltdownT = 0;
+    this.coreMeltdownEruptT = 0;
+    this._syncTetherProtectionStates();
     console.log("[Level] enemies spawned", { level: this.level, enemies: this.enemies.enemies.length });
     this.renderer.setPlanet(this.planet);
     this._resetShip();
@@ -1205,7 +1517,14 @@ export class GameLoop {
       this.ship.planetScanner = false;
 
       this.pendingPerkChoice = null;
+      this.victoryMusicTriggered = false;
     }
+    this.objectiveCompleteSfxPlayed = this._objectiveComplete();
+    this._setCombatActive(false);
+    if (this.audio && typeof this.audio.returnToAmbient === "function"){
+      this.audio.returnToAmbient(true);
+    }
+    this._setThrustLoopActive(false);
   }
 
   /**
@@ -1417,8 +1736,13 @@ export class GameLoop {
 
     // Perk selection
     if (this.pendingPerkChoice !== null){
+      this._setThrustLoopActive(false);
       this._handlePerkChoiceInput(left || stickThrust.x < -0.5, right || stickThrust.x > 0.5);
       return;
+    }
+    this._syncTetherProtectionStates();
+    if (!this.coreMeltdownActive && this.objective && this.objective.type === "destroy_core" && this._tetherPropsAlive().length <= 0){
+      this._startCoreMeltdown();
     }
 
     // Cancel flight input while viewing planet
@@ -1498,6 +1822,7 @@ export class GameLoop {
         this.lastAimWorld = null;
         this.lastAimScreen = null;
         // Stay locked to the mothership; skip gravity/collision integration.
+        this._setThrustLoopActive(false);
         this.enemies.update(this.ship, dt);
         return;
       }
@@ -1510,6 +1835,8 @@ export class GameLoop {
     if (this.ship.state === "flying"){
       if (left && !right) this.ship.cabinSide = -1;
       if (right && !left) this.ship.cabinSide = 1;
+      const stickMag = Math.hypot(stickThrust.x, stickThrust.y);
+      this._setThrustLoopActive(left || right || thrust || down || stickMag > 0.12);
 
       let ax = 0, ay = 0;
       const r = Math.hypot(this.ship.x, this.ship.y) || 1;
@@ -1792,6 +2119,9 @@ export class GameLoop {
         }
       }
     }
+    if (this.ship.state !== "flying"){
+      this._setThrustLoopActive(false);
+    }
     const gunOrigin = this._shipGunPivotWorld();
     const aimWorldShoot = this._toWorldFromAim(aimShoot || aim);
     const aimWorldBomb = this._toWorldFromAim(aimBomb || aimShoot || aim);
@@ -1849,6 +2179,10 @@ export class GameLoop {
             vy: diry * this.PLAYER_SHOT_SPEED + this.ship.vy,
             life: this.PLAYER_SHOT_LIFE,
           });
+          this._playSfx("ship_laser", {
+            volume: 0.1,
+            rate: 0.96 + Math.random() * 0.08,
+          });
         }
       }
       if (bomb && this.ship.bombsCur > 0){
@@ -1879,6 +2213,10 @@ export class GameLoop {
             vy: diry * this.PLAYER_BOMB_SPEED + this.ship.vy,
             life: this.PLAYER_BOMB_LIFE,
           });
+          this._playSfx("bomb_launch", {
+            volume: 0.55,
+            rate: 0.96 + Math.random() * 0.08,
+          });
         }
       }
     }
@@ -1888,6 +2226,7 @@ export class GameLoop {
       this.planet.handleFeatureContact(this.ship.x, this.ship.y, shipRadius, this.featureCallbacks);
     }
 
+    this._updateCoreMeltdown(dt);
     this.planet.updateFeatureEffects(dt, {
       ship: this.ship,
       enemies: this.enemies.enemies,
@@ -1899,7 +2238,7 @@ export class GameLoop {
       onMinerKilled: this.featureCallbacks.onMinerKilled,
     });
     if (this.ship.state !== "crashed"){
-      if (planetCfg && planetCfg.id === "molten" && (this.ship.heat || 0) >= 100){
+      if (this._heatMechanicsActive() && (this.ship.heat || 0) >= 100){
         this._triggerCrash();
       }
     }
@@ -1922,7 +2261,7 @@ export class GameLoop {
           let blocked = false;
           if (this.planet && this.planet.props){
             for (const p of this.planet.props){
-              if (p.type !== "gate" || p.dead) continue;
+              if ((p.type !== "gate" && p.type !== "tether") || p.dead) continue;
               if (this._solidPropPenetration(p, s.x, s.y, this.PLAYER_SHOT_RADIUS * 0.5)){
                 blocked = true;
                 break;
@@ -1989,7 +2328,7 @@ export class GameLoop {
           if (this._isMechanizedLevel() && this.planet && this.planet.props){
             for (const p of this.planet.props){
               if (p.dead) continue;
-              if (p.type !== "gate" && p.type !== "factory") continue;
+              if (p.type !== "gate" && p.type !== "factory" && p.type !== "tether") continue;
               if (this._solidPropPenetration(p, b.x, b.y, this.PLAYER_BOMB_RADIUS * 0.8)){
                 hit = true;
                 hitSource = "planet";
@@ -2005,6 +2344,7 @@ export class GameLoop {
             const dy = e.y - b.y;
             if (dx * dx + dy * dy <= this.PLAYER_BOMB_RADIUS * this.PLAYER_BOMB_RADIUS){
               this.enemies.enemies.splice(j, 1);
+              this._playSfx("enemy_destroyed", { volume: 0.8 });
               hit = true;
               break;
             }
@@ -2032,6 +2372,10 @@ export class GameLoop {
           this.planet.handleFeatureBomb(b.x, b.y, this.TERRAIN_IMPACT_RADIUS, this.PLAYER_BOMB_RADIUS, this.featureCallbacks);
           this._applyBombDamage(b.x, b.y);
           this.entityExplosions.push({ x: b.x, y: b.y, life: 0.8, radius: this.PLAYER_BOMB_BLAST });
+          this._playSfx("bomb_explosion", {
+            volume: 0.9,
+            rate: 0.95 + Math.random() * 0.1,
+          });
         }
       }
     }
@@ -2122,6 +2466,10 @@ export class GameLoop {
           vx: upx * GAME.MINER_POPUP_SPEED + tx * jitter,
           vy: upy * GAME.MINER_POPUP_SPEED + ty * jitter,
           life: GAME.MINER_POPUP_LIFE,
+        });
+        this._playSfx("miner_rescued", {
+          volume: 0.45,
+          rate: 0.95 + Math.random() * 0.1,
         });
         this.miners.splice(i, 1);
       }
@@ -2249,8 +2597,24 @@ export class GameLoop {
     if (inputState.toggleFog){
       this.fogEnabled = !this.fogEnabled;
     }
+    if (inputState.toggleMusic && this.audio && typeof this.audio.toggleMuted === "function"){
+      this.audio.toggleMuted();
+    }
+    if (inputState.toggleCombatMusic && this.audio && typeof this.audio.toggleCombatMusicEnabled === "function"){
+      this.audio.toggleCombatMusicEnabled();
+    }
+    if (inputState.musicVolumeDown && this.audio && typeof this.audio.stepMusicVolume === "function"){
+      const nextPct = this.audio.stepMusicVolume(-1);
+      this._showStatusCue(`Music volume ${nextPct}%`);
+    } else if (inputState.musicVolumeUp && this.audio && typeof this.audio.stepMusicVolume === "function"){
+      const nextPct = this.audio.stepMusicVolume(1);
+      this._showStatusCue(`Music volume ${nextPct}%`);
+    }
     if (inputState.rescueAll) {
       this._rescueAll();
+    }
+    if (inputState.killAllEnemies){
+      this._killAllEnemiesAndFactories();
     }
 
     const fixed = 1 / 60;
@@ -2261,6 +2625,25 @@ export class GameLoop {
       this.accumulator -= fixed;
       steps++;
     }
+    const objectiveCompleteNow = this._objectiveComplete();
+    if (objectiveCompleteNow && !this.objectiveCompleteSfxPlayed){
+      this.objectiveCompleteSfxPlayed = true;
+      this._playSfx("objective_complete", { volume: 0.75 });
+      if (this.level >= 16 && !this.victoryMusicTriggered){
+        this.victoryMusicTriggered = true;
+        this._triggerVictoryMusic();
+      }
+    }
+    const combatActive =
+      !objectiveCompleteNow &&
+      this.ship.state !== "crashed" &&
+      this.enemies.enemies.length > 0;
+    this._setCombatActive(combatActive);
+    this.levelAdvanceReady =
+      this.pendingPerkChoice === null &&
+      this.ship.mothershipEngineers <= 0 &&
+      objectiveCompleteNow &&
+      this._isDockedWithMothership();
 
     this.fpsFrames++;
     if (now - this.fpsTime >= 500){
@@ -2323,9 +2706,8 @@ export class GameLoop {
         inputType: inputState.inputType,
       });
     }
-    const cfg = this.planet.getPlanetConfig ? this.planet.getPlanetConfig() : null;
     const heat = this.ship.heat || 0;
-    const showHeat = !!(cfg && cfg.id === "molten");
+    const showHeat = this._heatMechanicsActive();
     const heating = showHeat && (heat > this.lastHeat + 0.1);
     this.lastHeat = heat;
     if (this.heatMeter && this.ui.updateHeatMeter){
@@ -2338,8 +2720,13 @@ export class GameLoop {
       this.ui.updatePlanetLabel(this.planetLabel, label ? `${prefix}${label}` : `Level ${this.level}`);
     }
     if (this.objectiveLabel && this.ui.updateObjectiveLabel){
-      const prompt = this._objectivePromptText(inputState.inputType);
-      this.ui.updateObjectiveLabel(this.objectiveLabel, prompt || this._objectiveText());
+      const cue = (now < this.statusCueUntil) ? this.statusCueText : "";
+      if (cue){
+        this.ui.updateObjectiveLabel(this.objectiveLabel, cue);
+      } else {
+        const prompt = this._objectivePromptText(inputState.inputType);
+        this.ui.updateObjectiveLabel(this.objectiveLabel, prompt || this._objectiveText());
+      }
     }
     if (this.shipStatusLabel && this.ui.updateShipStatusLabel){
       this.ui.updateShipStatusLabel(this.shipStatusLabel, {
@@ -2386,7 +2773,10 @@ export class GameLoop {
         }
       }
     } else if (this._objectiveComplete()) {
-        return "Objective complete! Return to mothership.";
+      if (this.objective && this.objective.type === "destroy_core"){
+        return "Core meltdown! Return to mothership.";
+      }
+      return "Objective complete! Return to mothership.";
     }
     return "";
   }
@@ -2398,6 +2788,7 @@ export class GameLoop {
     const objType = this.objective ? this.objective.type : "extract";
     if (objType === "clear") return this._remainingClearTargets() === 0;
     if (objType === "extract") return this.minersRemaining === 0;
+    if (objType === "destroy_core") return this.coreMeltdownActive || this._tetherPropsAlive().length === 0;
     return false;
   }
 
@@ -2553,6 +2944,43 @@ export class GameLoop {
 
     if (this._isDockedWithMothership()){
       this._onSuccessfullyDocked();
+    }
+  }
+
+  /**
+   * Debug helper: remove all active enemies and destroy all active factories.
+   * @returns {void}
+   */
+  _killAllEnemiesAndFactories(){
+    let enemyCount = 0;
+    if (this.enemies && this.enemies.enemies){
+      for (const e of this.enemies.enemies){
+        if (e && (e.hp || 0) > 0) enemyCount++;
+      }
+      this.enemies.enemies.length = 0;
+      if (this.enemies.shots) this.enemies.shots.length = 0;
+      if (this.enemies.explosions) this.enemies.explosions.length = 0;
+      if (this.enemies.debris) this.enemies.debris.length = 0;
+    }
+
+    let factories = 0;
+    if (this.planet && this.planet.props){
+      for (const p of this.planet.props){
+        if (p.type !== "factory") continue;
+        if (p.dead || (typeof p.hp === "number" && p.hp <= 0)) continue;
+        p.hp = 0;
+        p.dead = true;
+        factories++;
+        this.entityExplosions.push({ x: p.x, y: p.y, life: 0.65, radius: 0.95 * (p.scale || 1) });
+      }
+    }
+    if (factories > 0){
+      this._syncTetherProtectionStates();
+    }
+    if (enemyCount > 0 || factories > 0){
+      this._showStatusCue(`Debug clear: ${enemyCount} enemies, ${factories} factories`);
+    } else {
+      this._showStatusCue("Debug clear: no enemies or factories alive");
     }
   }
 
