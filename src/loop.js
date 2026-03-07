@@ -1058,8 +1058,6 @@ export class GameLoop {
     const configOverride = progression ? progression.planetId : undefined;
     const planetConfig =
       (configOverride !== undefined) ? pickPlanetConfigById(configOverride) :
-      (level === 1) ? pickPlanetConfigById("barren_pickup") :
-      (level === 2) ? pickPlanetConfigById("barren_clear") :
       pickPlanetConfig(this.progressionSeed || CFG.seed, level);
     return this._applyProgressionOverrides(planetConfig, progression);
   }
