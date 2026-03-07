@@ -114,6 +114,7 @@ export class GameLoop {
     this.lastAimWorld = null;
     /** @type {{x:number,y:number}|null} */
     this.lastAimScreen = null;
+    this._shipWasInWater = false;
 
     this.PLAYER_SHOT_SPEED = 7.5;
     this.PLAYER_SHOT_LIFE = 1.2;
@@ -384,6 +385,7 @@ export class GameLoop {
     this.lastAimWorld = null;
     this.lastAimScreen = null;
     this.lastHeat = 0;
+    this._shipWasInWater = false;
   }
 
   /**
@@ -1359,6 +1361,12 @@ export class GameLoop {
       const ry = this.ship.y / r;
       const tx = -ry;
       const ty = rx;
+      const isWaterWorld = !!(planetCfg && planetCfg.id === "water");
+      const outerRingR = (this.planet && this.planet.radial && this.planet.radial.rings && this.planet.radial.rings.length)
+        ? (this.planet.radial.rings.length - 1)
+        : Math.floor(this.planetParams.RMAX || 0);
+      const waterR = isWaterWorld ? Math.max(0, outerRingR - 0.5) : 0;
+      const shipInWaterBefore = !!(isWaterWorld && waterR > 0 && r <= waterR + 0.02 && this.planet.airValueAtWorld(this.ship.x, this.ship.y) > 0.5);
 
       const thrustMax = this.planetParams.THRUST * (1 + this.ship.thrust * 0.1);
 
@@ -1379,10 +1387,9 @@ export class GameLoop {
         ay += -ry * thrustMax;
       }
 
-      if (planetCfg && planetCfg.id === "water"){
-        const waterR = Math.max(0, this.planetParams.RMAX * Math.max(0, this.planetParams.WATER_LEVEL || 0));
+      if (isWaterWorld && shipInWaterBefore){
         let buoyancy = Math.max(0, this.planetParams.SURFACE_G * 0.45);
-        if (waterR > 0 && r <= waterR + 0.2) buoyancy = Math.max(buoyancy, this.planetParams.SURFACE_G * 0.95);
+        buoyancy = Math.max(buoyancy, this.planetParams.SURFACE_G * 0.95);
         ax += rx * buoyancy;
         ay += ry * buoyancy;
       }
@@ -1410,10 +1417,32 @@ export class GameLoop {
       this.ship.vx *= drag;
       this.ship.vy *= drag;
       */
-      if (planetCfg && planetCfg.id === "water"){
-        const drag = Math.max(0, 1 - this.planetParams.DRAG * 1.15 * dt);
-        this.ship.vx *= drag;
-        this.ship.vy *= drag;
+      if (isWaterWorld){
+        const rNow = Math.hypot(this.ship.x, this.ship.y) || 1;
+        const shipInWaterNow = !!(waterR > 0 && rNow <= waterR + 0.02 && this.planet.airValueAtWorld(this.ship.x, this.ship.y) > 0.5);
+        if (shipInWaterNow){
+          const depth = Math.max(0, waterR - rNow);
+          const edgeBand = Math.max(0.35, waterR * 0.22);
+          const edgeMix = Math.max(0, Math.min(1, 1 - depth / edgeBand));
+          const dragK = this.planetParams.DRAG * (4.8 + edgeMix * 5.4);
+          const drag = Math.max(0, 1 - dragK * dt);
+          this.ship.vx *= drag;
+          this.ship.vy *= drag;
+          const maxWaterSpeed = Math.max(1.35, thrustMax * 0.55);
+          const speed = Math.hypot(this.ship.vx, this.ship.vy);
+          if (speed > maxWaterSpeed){
+            const s = maxWaterSpeed / speed;
+            this.ship.vx *= s;
+            this.ship.vy *= s;
+          }
+          if (!this._shipWasInWater){
+            this.ship.vx *= 0.68;
+            this.ship.vy *= 0.68;
+          }
+        }
+        this._shipWasInWater = shipInWaterNow;
+      } else {
+        this._shipWasInWater = false;
       }
 
       /*

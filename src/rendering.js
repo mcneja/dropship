@@ -1253,6 +1253,40 @@ function drawFrameImpl(renderer, state, planet){
       triVerts += 6;
     }
   }
+  const splashParticles = featureParticles ? featureParticles.splashes : null;
+  if (splashParticles && splashParticles.length){
+    for (const p of splashParticles){
+      if (state.fogEnabled && !planet.fogSeenAt(p.x, p.y)) continue;
+      const lifeN = (p.maxLife && p.maxLife > 0) ? Math.max(0, Math.min(1, p.life / p.maxLife)) : 1;
+      const vlen = Math.hypot(p.vx || 0, p.vy || 0);
+      let ux = 1;
+      let uy = 0;
+      if (vlen > 1e-4){
+        ux = (p.vx || 0) / vlen;
+        uy = (p.vy || 0) / vlen;
+      } else {
+        const r = Math.hypot(p.x, p.y) || 1;
+        ux = p.x / r;
+        uy = p.y / r;
+      }
+      const tx = -uy;
+      const ty = ux;
+      const size = (p.size || 0.1) * (0.8 + 0.35 * lifeN);
+      const tipX = p.x + ux * (size * 0.95);
+      const tipY = p.y + uy * (size * 0.95);
+      const baseX = p.x - ux * (size * 0.42);
+      const baseY = p.y - uy * (size * 0.42);
+      const blX = baseX + tx * (size * 0.38);
+      const blY = baseY + ty * (size * 0.38);
+      const brX = baseX - tx * (size * 0.38);
+      const brY = baseY - ty * (size * 0.38);
+      const cr = (typeof p.cr === "number") ? p.cr : 0.18;
+      const cg = (typeof p.cg === "number") ? p.cg : 0.52;
+      const cb = (typeof p.cb === "number") ? p.cb : 0.86;
+      pushTri(pos, col, blX, blY, brX, brY, tipX, tipY, cr, cg, cb, 0.9 * lifeN);
+      triVerts += 3;
+    }
+  }
 
   const coreR = planet.getCoreRadius ? planet.getCoreRadius() : 0;
   if (coreR > 0){
@@ -1813,10 +1847,10 @@ function drawFrameImpl(renderer, state, planet){
     for (const p of props){
       if (p.dead || (typeof p.hp === "number" && p.hp <= 0)) continue;
       if (p.type !== "bubble_hex") continue;
-      if (!planet.fogSeenAt(p.x, p.y)) continue;
+      if (state.fogEnabled && !planet.fogSeenAt(p.x, p.y)) continue;
       const rot = (p.rot || 0) + (p.rotSpeed ? p.rotSpeed * now : 0);
       const s = p.scale || 1;
-      pushHexOutline(pos, col, p.x, p.y, 0.28 * s, rot, 0.6, 0.95, 1.0, 0.6);
+      pushHexOutline(pos, col, p.x, p.y, 0.28 * s, rot, 0.60, 0.62, 0.66, 0.78);
       lineVerts += 12;
     }
   }
@@ -1826,8 +1860,8 @@ function drawFrameImpl(renderer, state, planet){
       if (state.fogEnabled && !planet.fogSeenAt(p.x, p.y)) continue;
       const lifeN = (p.maxLife && p.maxLife > 0) ? Math.max(0, Math.min(1, p.life / p.maxLife)) : 1;
       const radius = (p.size || 0.08) * (1 + (1 - lifeN) * 0.35);
-      const alpha = 0.25 + 0.55 * lifeN;
-      pushHexOutline(pos, col, p.x, p.y, radius, p.rot || 0, 0.58, 0.86, 1.0, alpha);
+      const alpha = 0.30 + 0.58 * lifeN;
+      pushHexOutline(pos, col, p.x, p.y, radius, p.rot || 0, 0.80, 0.95, 1.0, alpha);
       lineVerts += 12;
     }
   }
