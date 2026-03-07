@@ -1671,6 +1671,16 @@ export class GameLoop {
       const d = this._distPointToSegment(px, py, a[0], a[1], b[0], b[1]);
       if (d < best) best = d;
     }
+    // Treat interior points as direct contact so landed-overlap pickup is reliable.
+    let inside = false;
+    for (let i = 0, j = verts.length - 1; i < verts.length; j = i++){
+      const xi = verts[i][0], yi = verts[i][1];
+      const xj = verts[j][0], yj = verts[j][1];
+      const intersects = ((yi > py) !== (yj > py))
+        && (px < ((xj - xi) * (py - yi)) / ((yj - yi) || 1e-6) + xi);
+      if (intersects) inside = !inside;
+    }
+    if (inside) return 0;
     return best;
   }
 
@@ -2559,7 +2569,12 @@ export class GameLoop {
       const upy = miner.y / r;
       const headX = miner.x + upx * this.MINER_HEAD_OFFSET;
       const headY = miner.y + upy * this.MINER_HEAD_OFFSET;
-      const hullDist = this._shipHullDistance(headX, headY, this.ship.x, this.ship.y);
+      const footX = miner.x - upx * this.MINER_HEAD_OFFSET * 0.32;
+      const footY = miner.y - upy * this.MINER_HEAD_OFFSET * 0.32;
+      const hullDistHead = this._shipHullDistance(headX, headY, this.ship.x, this.ship.y);
+      const hullDistBody = this._shipHullDistance(miner.x, miner.y, this.ship.x, this.ship.y);
+      const hullDistFeet = this._shipHullDistance(footX, footY, this.ship.x, this.ship.y);
+      const hullDist = Math.min(hullDistHead, hullDistBody, hullDistFeet);
       if (landed && hullDist <= GAME.MINER_BOARD_RADIUS){
         if (miner.type === "miner"){
           ++this.ship.dropshipMiners;
