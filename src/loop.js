@@ -205,6 +205,13 @@ export class GameLoop {
     };
     this.planetView = false;
     this.fogEnabled = true;
+    /** @type {{options:[{perk:string,text:string},{perk:string,text:string}], index:number, total:number}|null} */
+    this.pendingPerkChoice = null;
+    this.pendingPerkChoicesRemaining = 0;
+    this.pendingPerkChoicesTotal = 0;
+    this.perkChoicePrevInput = { left: false, right: false };
+    this.perkChoiceArmed = false;
+    this.blockControlsUntilRelease = false;
   }
 
   /**
@@ -696,10 +703,15 @@ export class GameLoop {
     }
     console.log("[Level] miners spawn", { level: this.level, target: count, placed: placed.length });
     this.minerCandidates = placed.length;
+    const cutoffPilot = (this.ship.mothershipPilots < 3) ? 1 : 0;
+    const cutoffEngineer = cutoffPilot + 1;
     /** @type {Array<Miner>} */
     const nudged = [];
     for (const p of placed){
-      const minerType = (nudged.length === 0) ? "pilot" : (nudged.length === 1) ? "engineer" : "miner";
+      const minerType =
+        (nudged.length < cutoffPilot) ? "pilot" :
+        (nudged.length < cutoffEngineer) ? "engineer" :
+        "miner";
       if (barrenPerimeter){
         let x = p[0];
         let y = p[1];
@@ -968,6 +980,17 @@ export class GameLoop {
       updateMothership(this.mothership, this.planet, dt);
     }
     let { left, right, thrust, down, reset, shoot, bomb, rescueAll, aim, aimShoot, aimBomb, aimShootFrom, aimShootTo, aimBombFrom, aimBombTo, spawnEnemyType } = inputState;
+    if (this.blockControlsUntilRelease){
+      const held = !!(left || right || thrust || down);
+      if (held){
+        left = false;
+        right = false;
+        thrust = false;
+        down = false;
+      } else {
+        this.blockControlsUntilRelease = false;
+      }
+    }
     if (inputState.inputType === "gamepad"){
       const aimAdjusted = this._aimScreenAroundShip(aim);
       aim = aimAdjusted;
@@ -1692,48 +1715,54 @@ export class GameLoop {
     this.lastTime = now;
     this.accumulator += dt;
 
+    const perkChoiceActive = !!this.pendingPerkChoice;
     const levelComplete = this._objectiveComplete();
     const docked = (this.ship.state === "landed" && this.ship._dock);
-    this.levelAdvanceReady = !!(levelComplete && docked);
+    this.levelAdvanceReady = !perkChoiceActive && !!(levelComplete && docked);
     this.input.setGameOver(this.ship.state === "crashed");
     this.input.setLevelComplete(this.levelAdvanceReady);
     const inputState = this.input.update();
 
-    if (this.ship.state === "crashed"){
-      this.ship.explodeT = Math.min(1.2, this.ship.explodeT + dt * 0.9);
-    }
+    if (perkChoiceActive){
+      this.accumulator = 0;
+      this._handlePerkChoiceInput(inputState);
+    } else {
+      if (this.ship.state === "crashed"){
+        this.ship.explodeT = Math.min(1.2, this.ship.explodeT + dt * 0.9);
+      }
 
-    if (inputState.regen){
-      const nextSeed = this.planet.getSeed() + 1;
-      this._beginLevel(nextSeed, false);
-    }
-    if (inputState.nextLevel){
-      const nextSeed = this.planet.getSeed() + 1;
-      this._beginLevel(nextSeed, true);
-    }
+      if (inputState.regen){
+        const nextSeed = this.planet.getSeed() + 1;
+        this._beginLevel(nextSeed, false);
+      }
+      if (inputState.nextLevel){
+        const nextSeed = this.planet.getSeed() + 1;
+        this._beginLevel(nextSeed, true);
+      }
 
-    if (inputState.toggleDebug){
-      this.debugCollisions = !this.debugCollisions;
-    }
-    if (inputState.togglePlanetView){
-      this.planetView = !this.planetView;
-    }
-    if (inputState.toggleFog){
-      this.fogEnabled = !this.fogEnabled;
-    }
+      if (inputState.toggleDebug){
+        this.debugCollisions = !this.debugCollisions;
+      }
+      if (inputState.togglePlanetView){
+        this.planetView = !this.planetView;
+      }
+      if (inputState.toggleFog){
+        this.fogEnabled = !this.fogEnabled;
+      }
 
-    const fixed = 1 / 60;
-    const maxSteps = 4;
-    let steps = 0;
-    while (this.accumulator >= fixed && steps < maxSteps){
-      this._step(fixed, inputState);
-      this.accumulator -= fixed;
-      steps++;
-    }
+      const fixed = 1 / 60;
+      const maxSteps = 4;
+      let steps = 0;
+      while (this.accumulator >= fixed && steps < maxSteps){
+        this._step(fixed, inputState);
+        this.accumulator -= fixed;
+        steps++;
+      }
 
-    if (this.levelAdvanceReady && inputState.advanceLevel){
-      const nextSeed = this.planet.getSeed() + 1;
-      this._beginLevel(nextSeed, true);
+      if (this.levelAdvanceReady && inputState.advanceLevel){
+        const nextSeed = this.planet.getSeed() + 1;
+        this._beginLevel(nextSeed, true);
+      }
     }
 
     this.fpsFrames++;
@@ -1823,6 +1852,11 @@ export class GameLoop {
    */
   _objectivePromptText(inputType){
     const type = inputType || "keyboard";
+    if (this.pendingPerkChoice){
+      if (type === "touch") return "Choose upgrade: use left/right thrust controls.";
+      if (type === "gamepad") return "Choose upgrade: press left/right.";
+      return "Choose upgrade: press left/right.";
+    }
     if (this.ship.state === "crashed"){
       if (this.ship.mothershipPilots > 0){
         if (type === "touch") return "Tap Restart to launch a new dropship.";
@@ -1870,36 +1904,145 @@ export class GameLoop {
     this.ship.dropshipPilots = 0;
     this.ship.dropshipEngineers = 0;
 
-    // Assign a random perk
-
-    for (let i = 0; i < rescuedEngineers; ++i){
-      const perksAvailable = [];
-      perksAvailable.push("hpMax");
-      perksAvailable.push("bombsMax");
-      if (this.ship.thrust < 3){
-        perksAvailable.push("thrust");
+    if (rescuedEngineers > 0){
+      if (this.pendingPerkChoicesRemaining <= 0){
+        this.pendingPerkChoicesTotal = 0;
       }
-      if (!this.ship.rescueeDetector){
-        perksAvailable.push("rescueeDetector");
-      }
-
-      const perk = perksAvailable[Math.floor(Math.random() * perksAvailable.length)];
-      console.log('Gained perk:', perk);
-      if (perk == "hpMax"){
-        ++this.ship.hpMax;
-      } else if (perk == "bombsMax"){
-        ++this.ship.bombsMax;
-      } else if (perk == "thrust"){
-        ++this.ship.thrust;
-      } else if (perk == "rescueeDetector"){
-        this.ship.rescueeDetector = true;
-      }
+      this.pendingPerkChoicesRemaining += rescuedEngineers;
+      this.pendingPerkChoicesTotal += rescuedEngineers;
+      this._presentNextPerkChoice();
+    } else {
+      // No engineers rescued, so refill immediately.
+      this.ship.hpCur = this.ship.hpMax;
+      this.ship.bombsCur = this.ship.bombsMax;
     }
+  }
 
-    // Now that perks have been awarded, refill the ship's consumables.
+  /**
+   * @returns {Array<string>}
+   */
+  _perksAvailable(){
+    /** @type {Array<string>} */
+    const perksAvailable = [];
+    perksAvailable.push("hpMax");
+    perksAvailable.push("bombsMax");
+    if (this.ship.thrust < 3){
+      perksAvailable.push("thrust");
+    }
+    if (!this.ship.rescueeDetector){
+      perksAvailable.push("rescueeDetector");
+    }
+    return perksAvailable;
+  }
 
-    this.ship.hpCur = this.ship.hpMax;
-    this.ship.bombsCur = this.ship.bombsMax;
+  /**
+   * @param {Array<string>} perksAvailable
+   * @returns {[string,string]}
+   */
+  _pickPerkChoices(perksAvailable){
+    if (!perksAvailable.length){
+      return ["hpMax", "bombsMax"];
+    }
+    if (perksAvailable.length === 1){
+      return [perksAvailable[0], perksAvailable[0]];
+    }
+    const idx0 = Math.floor(Math.random() * perksAvailable.length);
+    let idx1 = Math.floor(Math.random() * (perksAvailable.length - 1));
+    if (idx1 >= idx0) idx1 += 1;
+    return [perksAvailable[idx0], perksAvailable[idx1]];
+  }
+
+  /**
+   * @param {string} perk
+   * @returns {string}
+   */
+  _perkChoiceText(perk){
+    if (perk === "hpMax") return "Reinforced hull: +1 max HP";
+    if (perk === "bombsMax") return "Expanded payload bay: +1 max bomb";
+    if (perk === "thrust") return "Engine tune-up: +10% thrust power";
+    if (perk === "rescueeDetector") return "Rescuee detector: locate stranded crew";
+    return perk;
+  }
+
+  /**
+   * @returns {void}
+   */
+  _presentNextPerkChoice(){
+    if (this.pendingPerkChoicesRemaining <= 0){
+      this.pendingPerkChoice = null;
+      this.pendingPerkChoicesRemaining = 0;
+      this.pendingPerkChoicesTotal = 0;
+      this.ship.hpCur = this.ship.hpMax;
+      this.ship.bombsCur = this.ship.bombsMax;
+      this.blockControlsUntilRelease = true;
+      return;
+    }
+    const total = Math.max(1, this.pendingPerkChoicesTotal || this.pendingPerkChoicesRemaining);
+    const index = Math.max(1, total - this.pendingPerkChoicesRemaining + 1);
+    const perksAvailable = this._perksAvailable();
+    const [leftPerk, rightPerk] = this._pickPerkChoices(perksAvailable);
+    this.pendingPerkChoice = {
+      options: [
+        { perk: leftPerk, text: this._perkChoiceText(leftPerk) },
+        { perk: rightPerk, text: this._perkChoiceText(rightPerk) },
+      ],
+      index,
+      total,
+    };
+    this.perkChoicePrevInput.left = false;
+    this.perkChoicePrevInput.right = false;
+    this.perkChoiceArmed = false;
+  }
+
+  /**
+   * @param {string} perk
+   * @returns {void}
+   */
+  _applyPerk(perk){
+    console.log("Gained perk:", perk);
+    if (perk === "hpMax"){
+      ++this.ship.hpMax;
+    } else if (perk === "bombsMax"){
+      ++this.ship.bombsMax;
+    } else if (perk === "thrust"){
+      ++this.ship.thrust;
+    } else if (perk === "rescueeDetector"){
+      this.ship.rescueeDetector = true;
+    }
+  }
+
+  /**
+   * @param {ReturnType<import("./input.js").Input["update"]>} inputState
+   * @returns {void}
+   */
+  _handlePerkChoiceInput(inputState){
+    if (!this.pendingPerkChoice){
+      this.perkChoicePrevInput.left = !!inputState.left;
+      this.perkChoicePrevInput.right = !!inputState.right;
+      return;
+    }
+    const leftPressed = !!inputState.left;
+    const rightPressed = !!inputState.right;
+    if (!this.perkChoiceArmed){
+      if (!leftPressed && !rightPressed){
+        this.perkChoiceArmed = true;
+      }
+      this.perkChoicePrevInput.left = leftPressed;
+      this.perkChoicePrevInput.right = rightPressed;
+      return;
+    }
+    const choseLeft = leftPressed && !this.perkChoicePrevInput.left;
+    const choseRight = rightPressed && !this.perkChoicePrevInput.right;
+    if (choseLeft || choseRight){
+      const opt = choseLeft ? this.pendingPerkChoice.options[0] : this.pendingPerkChoice.options[1];
+      if (opt){
+        this._applyPerk(opt.perk);
+      }
+      this.pendingPerkChoicesRemaining = Math.max(0, this.pendingPerkChoicesRemaining - 1);
+      this._presentNextPerkChoice();
+    }
+    this.perkChoicePrevInput.left = leftPressed;
+    this.perkChoicePrevInput.right = rightPressed;
   }
 
   /**
@@ -1948,7 +2091,7 @@ export class GameLoop {
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, w, h);
-    if (!this.minerPopups.length && !this.shipHitPopups.length && !this.lastAimScreen){
+    if (!this.minerPopups.length && !this.shipHitPopups.length && !this.lastAimScreen && !this.pendingPerkChoice){
       return;
     }
 
@@ -1993,6 +2136,34 @@ export class GameLoop {
       ctx.moveTo(px, py - cross);
       ctx.lineTo(px, py + cross);
       ctx.stroke();
+    }
+
+    if (this.pendingPerkChoice){
+      const panelW = Math.min(w * 0.86, 900 * dpr);
+      const panelH = Math.min(h * 0.42, 320 * dpr);
+      const x = (w - panelW) * 0.5;
+      const y = (h - panelH) * 0.5;
+      ctx.globalAlpha = 0.9;
+      ctx.fillStyle = "rgba(10, 10, 18, 1)";
+      ctx.fillRect(x, y, panelW, panelH);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = "rgba(255, 215, 110, 0.95)";
+      ctx.lineWidth = Math.max(1, Math.round(2 * dpr));
+      ctx.strokeRect(x, y, panelW, panelH);
+
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = "rgba(255, 240, 190, 1)";
+      ctx.font = `700 ${Math.max(12, Math.round(22 * dpr))}px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace`;
+      ctx.fillText(`Choose a Perk (${this.pendingPerkChoice.index}/${this.pendingPerkChoice.total})`, x + panelW * 0.5, y + panelH * 0.20);
+
+      const left = this.pendingPerkChoice.options[0];
+      const right = this.pendingPerkChoice.options[1];
+      ctx.font = `600 ${Math.max(11, Math.round(17 * dpr))}px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace`;
+      ctx.fillStyle = "rgba(200, 235, 255, 1)";
+      ctx.fillText(`[LEFT] ${left ? left.text : ""}`, x + panelW * 0.5, y + panelH * 0.48);
+      ctx.fillStyle = "rgba(255, 214, 180, 1)";
+      ctx.fillText(`[RIGHT] ${right ? right.text : ""}`, x + panelW * 0.5, y + panelH * 0.70);
     }
     ctx.globalAlpha = 1;
   }
