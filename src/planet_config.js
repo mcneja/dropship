@@ -14,6 +14,10 @@
  */
 
 /**
+ * @typedef {"hunter"|"ranger"|"crawler"|"turret"|"orbitingTurret"} EnemyTypeId
+ */
+
+/**
  * @typedef {Object} PlanetObjective
  * @property {"clear"|"extract"|"find"|"deploy"|"deploy_and_extract"} type
  * @property {number} count
@@ -80,7 +84,8 @@
  * @property {number} minerCountPerLevel
  * @property {number} minerCountCap
  * @property {number} platformCount
- * @property {Array<"hunter"|"ranger"|"crawler"|"turret"|"orbitingTurret">} enemyAllow
+ * @property {EnemyTypeId[]} enemyAllow
+ * @property {number} [orbitingTurretCount]
  * @property {string} [notes]
  * @property {PlanetConfigDefaults} [defaults]
  * @property {{noCaves?:boolean,barrenPerimeter?:boolean,disableTerrainDestruction?:boolean}} [flags]
@@ -793,6 +798,274 @@ function hash32(x){
   h = Math.imul(h, 0x846ca68b);
   h ^= h >>> 16;
   return h >>> 0;
+}
+
+/**
+ * @typedef {Object} LevelProgressionRule
+ * @property {number} start Inclusive level start.
+ * @property {number|null} [end] Inclusive level end. Null/undefined means no upper bound.
+ * @property {PlanetTypeId[]} planets Planet ids used by this segment.
+ * @property {boolean} [randomOrder] Shuffle planet order deterministically for each cycle.
+ * @property {number|number[]} [enemyTotal] Enemy total per level slot (or scalar for all slots).
+ * @property {number} [enemyPerLevel] Additional enemies per slot from `start`.
+ * @property {number|number[]} [enemyCap] Enemy cap per level slot (or scalar for all slots).
+ * @property {Record<string, EnemyTypeId[]>} [enemyAllowByPlanet] Per-planet enemy allow override.
+ * @property {EnemyTypeId[]} [enemyAllowAdd] Enemy types added on top of per-planet/default allow.
+ * @property {Record<string, number|number[]>} [orbitingTurretCountByPlanet] Per-planet orbiting turret wave size.
+ * @property {Record<string, number>} [platformCountByPlanet] Per-planet platform count override.
+ * @property {Record<string, number>} [excludeWhenEnemyTotalAtOrAbove] Planet is excluded when level total >= threshold.
+ */
+
+/**
+ * @typedef {Object} LevelProgressionOverride
+ * @property {PlanetTypeId} planetId
+ * @property {number} [enemyTotal]
+ * @property {number} [enemyCap]
+ * @property {EnemyTypeId[]} [enemyAllow]
+ * @property {EnemyTypeId[]} [enemyAllowAdd]
+ * @property {number} [orbitingTurretCount]
+ * @property {number} [platformCount]
+ */
+
+/**
+ * Campaign progression script.
+ * Edit this table to control level sequencing and per-level combat tuning.
+ * Random-order segments are deterministic from the run seed.
+ * @type {LevelProgressionRule[]}
+ */
+export const LEVEL_PROGRESSION_RULES = [
+  {
+    start: 1,
+    end: 1,
+    planets: ["barren_pickup"],
+    enemyTotal: 0,
+    enemyCap: 0,
+  },
+  {
+    start: 2,
+    end: 2,
+    planets: ["barren_clear"],
+    enemyTotal: 5,
+    enemyCap: 5,
+  },
+  {
+    start: 3,
+    end: 4,
+    planets: ["cavern", "gaia"],
+    randomOrder: true,
+    enemyTotal: [10, 15],
+    enemyCap: [10, 15],
+    enemyAllowByPlanet: {
+      cavern: ["crawler", "turret"],
+      gaia: ["turret", "orbitingTurret"],
+    },
+    orbitingTurretCountByPlanet: {
+      gaia: [10, 15],
+    },
+  },
+  {
+    start: 5,
+    end: 6,
+    planets: ["water", "molten"],
+    randomOrder: true,
+    enemyTotal: 20,
+    enemyCap: 20,
+    enemyAllowByPlanet: {
+      water: ["hunter"],
+      molten: ["ranger"],
+    },
+  },
+  {
+    start: 7,
+    end: 8,
+    planets: ["ice", "mechanized"],
+    randomOrder: true,
+    enemyTotal: [20, 25],
+    enemyCap: 25,
+    excludeWhenEnemyTotalAtOrAbove: {
+      mechanized: 25,
+    },
+  },
+  {
+    start: 9,
+    end: 12,
+    planets: ["barren_pickup", "barren_clear", "cavern", "gaia"],
+    randomOrder: true,
+    enemyTotal: 25,
+    enemyCap: 25,
+    enemyAllowAdd: ["crawler", "orbitingTurret", "turret"],
+  },
+  {
+    start: 13,
+    end: 15,
+    planets: ["water", "ice", "molten"],
+    randomOrder: true,
+    enemyTotal: 30,
+    enemyCap: 30,
+  },
+  {
+    start: 16,
+    end: null,
+    planets: ["mechanized"],
+    enemyTotal: 40,
+    enemyPerLevel: 10,
+    enemyCap: 100,
+    enemyAllowByPlanet: {
+      mechanized: ["hunter", "ranger", "crawler", "turret", "orbitingTurret"],
+    },
+    platformCountByPlanet: {
+      mechanized: 24,
+    },
+  },
+];
+
+/**
+ * @param {number|number[]|undefined} spec
+ * @param {number} slot
+ * @returns {number|undefined}
+ */
+function valueAtSlot(spec, slot){
+  if (typeof spec === "number") return spec;
+  if (!Array.isArray(spec) || spec.length === 0) return undefined;
+  const i = Math.max(0, Math.min(spec.length - 1, slot | 0));
+  return spec[i];
+}
+
+/**
+ * @param {LevelProgressionRule} rule
+ * @param {number} slot
+ * @returns {number|undefined}
+ */
+function enemyTotalAtSlot(rule, slot){
+  const base = valueAtSlot(rule.enemyTotal, slot);
+  if (typeof base !== "number") return undefined;
+  const extra = (typeof rule.enemyPerLevel === "number") ? Math.max(0, slot) * rule.enemyPerLevel : 0;
+  return Math.max(0, Math.round(base + extra));
+}
+
+/**
+ * @param {LevelProgressionRule} rule
+ * @param {PlanetTypeId} planetId
+ * @param {number|undefined} enemyTotal
+ * @returns {boolean}
+ */
+function isPlanetExcluded(rule, planetId, enemyTotal){
+  if (typeof enemyTotal !== "number") return false;
+  if (!rule.excludeWhenEnemyTotalAtOrAbove) return false;
+  const threshold = rule.excludeWhenEnemyTotalAtOrAbove[planetId];
+  return typeof threshold === "number" && enemyTotal >= threshold;
+}
+
+/**
+ * Build the per-cycle planet order with exclusion constraints applied.
+ * @param {number} seed
+ * @param {LevelProgressionRule} rule
+ * @param {number} cycleIndex
+ * @returns {PlanetTypeId[]}
+ */
+function planetCycleForRule(seed, rule, cycleIndex){
+  const order = rule.planets.slice();
+  if (order.length <= 1) return order;
+  if (rule.randomOrder){
+    const cycleSeed = hash32((seed | 0) + (rule.start | 0) * 8191 + (cycleIndex | 0) * 131071);
+    const rand = mulberry32(cycleSeed);
+    for (let i = order.length - 1; i > 0; i--){
+      const j = Math.floor(rand() * (i + 1));
+      const tmp = order[i];
+      order[i] = order[j];
+      order[j] = tmp;
+    }
+  }
+  if (!rule.excludeWhenEnemyTotalAtOrAbove) return order;
+
+  const cycleLen = order.length;
+  for (let i = 0; i < cycleLen; i++){
+    const slotI = cycleIndex * cycleLen + i;
+    const totalI = enemyTotalAtSlot(rule, slotI);
+    if (!isPlanetExcluded(rule, order[i], totalI)) continue;
+    let swapped = false;
+    for (let j = 0; j < cycleLen; j++){
+      if (j === i) continue;
+      const slotJ = cycleIndex * cycleLen + j;
+      const totalJ = enemyTotalAtSlot(rule, slotJ);
+      if (isPlanetExcluded(rule, order[j], totalI)) continue;
+      if (isPlanetExcluded(rule, order[i], totalJ)) continue;
+      const tmp = order[i];
+      order[i] = order[j];
+      order[j] = tmp;
+      swapped = true;
+      break;
+    }
+    if (swapped) continue;
+    for (const alt of rule.planets){
+      if (isPlanetExcluded(rule, alt, totalI)) continue;
+      order[i] = alt;
+      swapped = true;
+      break;
+    }
+    if (!swapped){
+      // Keep original planet if no valid alternative exists.
+    }
+  }
+  return order;
+}
+
+/**
+ * Resolve the progression override for a specific level.
+ * Returns null if no rule applies.
+ * @param {number} seed
+ * @param {number} level
+ * @returns {LevelProgressionOverride|null}
+ */
+export function resolveLevelProgression(seed, level){
+  const lvl = Math.max(1, level | 0);
+  /** @type {LevelProgressionRule|undefined} */
+  let rule = undefined;
+  for (const r of LEVEL_PROGRESSION_RULES){
+    const end = (typeof r.end === "number") ? r.end : Infinity;
+    if (lvl >= r.start && lvl <= end){
+      rule = r;
+      break;
+    }
+  }
+  if (!rule || !rule.planets || !rule.planets.length) return null;
+
+  const slot = Math.max(0, lvl - rule.start);
+  const cycleLen = Math.max(1, rule.planets.length);
+  const cycleIndex = Math.floor(slot / cycleLen);
+  const cyclePos = slot % cycleLen;
+  const cycle = planetCycleForRule(seed, rule, cycleIndex);
+  const planetId = cycle[Math.max(0, Math.min(cycle.length - 1, cyclePos))];
+
+  const enemyTotal = enemyTotalAtSlot(rule, slot);
+  const enemyCapRaw = valueAtSlot(rule.enemyCap, slot);
+  const enemyCap = (typeof enemyCapRaw === "number") ? Math.max(0, Math.round(enemyCapRaw)) : undefined;
+
+  const baseAllow = rule.enemyAllowByPlanet ? rule.enemyAllowByPlanet[planetId] : undefined;
+  const enemyAllowAdd = Array.isArray(rule.enemyAllowAdd) ? rule.enemyAllowAdd : [];
+  /** @type {EnemyTypeId[]|undefined} */
+  let enemyAllow = undefined;
+  if (Array.isArray(baseAllow)){
+    enemyAllow = baseAllow.slice();
+  }
+  const enemyAllowAddOut = enemyAllowAdd.length ? enemyAllowAdd.slice() : undefined;
+
+  const orbitRaw = rule.orbitingTurretCountByPlanet ? rule.orbitingTurretCountByPlanet[planetId] : undefined;
+  const orbitValue = valueAtSlot(orbitRaw, slot);
+  const orbitingTurretCount = (typeof orbitValue === "number") ? Math.max(0, Math.round(orbitValue)) : undefined;
+
+  const platformRaw = rule.platformCountByPlanet ? rule.platformCountByPlanet[planetId] : undefined;
+  const platformCount = (typeof platformRaw === "number") ? Math.max(1, Math.round(platformRaw)) : undefined;
+
+  return {
+    planetId,
+    enemyTotal,
+    enemyCap,
+    enemyAllow,
+    enemyAllowAdd: enemyAllowAddOut,
+    orbitingTurretCount,
+    platformCount,
+  };
 }
 
 /**
