@@ -584,7 +584,8 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
       ventPeriod: 6.5,
       heatHit: 14,
     },
-    coreHeatRadius: 2.0,
+    // Wider hot-core heat falloff so the danger zone reaches farther from the core.
+    coreHeatRadius: 3.2,
     coreHeatRise: 22,
     coreHeatDecay: 10,
     mushroom: {
@@ -770,7 +771,6 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
         const t = Math.max(0, Math.min(1, (localY + halfH) / (2 * halfH || 1)));
         const halfW = halfW0 + (halfW1 - halfW0) * t;
         if (Math.abs(localX) <= halfW + radius){
-          p.dead = true;
           if (callbacks.onShipCrash) callbacks.onShipCrash(p.x, p.y);
           hit = true;
           break;
@@ -1474,12 +1474,8 @@ function buildProps(mapgen, planetConfig, params, material){
         }
       } else {
         const base = Math.max(5, Math.round((planetConfig.platformCount || 10) * 0.7));
-        const gateCount = Math.max(2, Math.round(base * 0.5));
         for (let i = 0; i < base; i++){
           add("factory", 0, 0, 0.62 + rng() * 0.36, rng() * Math.PI * 2, 0, { hp: 5, spawnT: 0, spawnCd: 0 });
-        }
-        for (let i = 0; i < gateCount; i++){
-          add("gate", 0, 0, 0.68 + rng() * 0.30, rng() * Math.PI * 2, 0);
         }
       }
       break;

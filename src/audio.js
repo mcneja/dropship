@@ -30,6 +30,8 @@ import rescueUrl from "../gameaudio/nutfall_256k.mp3?url";
 import levelCompleteUrl from "../gameaudio/rumble_256k.mp3?url";
 //@ts-ignore
 import hazardHeatUrl from "../gameaudio/lava_256k.mp3?url";
+//@ts-ignore
+import splash256Url from "../gameaudio/splash1_256k.mp3?url";
 
 /**
  * Number of full plays per ambient track before advancing to the next one.
@@ -57,6 +59,7 @@ const SFX_POOL_SIZE = {
   ship_laser: 6,
   enemy_fire: 4,
   bomb_explosion: 3,
+  water_splash: 4,
 };
 
 const SFX_PLACEHOLDER_URLS = {
@@ -71,6 +74,7 @@ const SFX_PLACEHOLDER_URLS = {
   objective_complete: levelCompleteUrl,
   ship_thrust_loop: thrustUrl,
   heat_warning: hazardHeatUrl,
+  water_splash: splash256Url,
   dock_refuel: null,
 };
 
@@ -89,7 +93,8 @@ export const SFX_IMPORTANT = Object.freeze([
   { id: "objective_complete", priority: 8, trigger: "When objective transitions to complete", placeholderFile: "audio/fx/rumble_256k.mp3" },
   { id: "ship_thrust_loop", priority: 9, trigger: "While ship thrust is active", placeholderFile: "audio/fx/engine_sound.mp3" },
   { id: "heat_warning", priority: 10, trigger: "Heat meter warning state", placeholderFile: "audio/fx/lava_256k.mp3" },
-  { id: "dock_refuel", priority: 11, trigger: "Docked and refilling hp/bombs", placeholderFile: "(placeholder only, pick clip)" },
+  { id: "water_splash", priority: 11, trigger: "GameLoop ship crosses water surface in/out", placeholderFile: "audio/fx/splash1_256k.mp3" },
+  { id: "dock_refuel", priority: 12, trigger: "Docked and refilling hp/bombs", placeholderFile: "(placeholder only, pick clip)" },
 ]);
 
 /**
@@ -443,6 +448,24 @@ export class BackgroundMusic {
     if (this.mode === "combat") return true;
     if (!this.combatActive) return false;
     if (performance.now() < this.nextCombatEligibleAt) return false;
+    const started = this._startCombatTrackRandom();
+    if (started){
+      this.nextCombatEligibleAt = Number.POSITIVE_INFINITY;
+    }
+    return started;
+  }
+
+  /**
+   * Immediately start combat music when combat is already active.
+   * Bypasses randomized eligibility delay used for ambient pacing.
+   * @returns {boolean}
+   */
+  triggerCombatImmediate(){
+    this.combatActive = true;
+    this.nextCombatEligibleAt = 0;
+    if (!this.combatMusicEnabled || this.victoryTriggered) return false;
+    if (this.mode === "combat") return true;
+    if (!this.enabled || !this.audioUnlocked || document.hidden) return false;
     const started = this._startCombatTrackRandom();
     if (started){
       this.nextCombatEligibleAt = Number.POSITIVE_INFINITY;

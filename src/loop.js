@@ -23,7 +23,7 @@ export class GameLoop {
    * @param {import("./rendering.js").Renderer} deps.renderer
    * @param {import("./input.js").Input} deps.input
    * @param {Ui} deps.ui
-   * @param {{toggleMuted?:()=>boolean,toggleCombatMusicEnabled?:()=>boolean,stepMusicVolume?:(direction:number)=>number,setCombatActive?:(active:boolean)=>boolean,triggerVictoryMusic?:()=>boolean,returnToAmbient?:(withFade?:boolean)=>void,playSfx?:(id:string,opts?:{volume?:number,rate?:number})=>boolean,setThrustLoopActive?:(active:boolean)=>boolean}|null|undefined} [deps.audio]
+   * @param {{toggleMuted?:()=>boolean,toggleCombatMusicEnabled?:()=>boolean,stepMusicVolume?:(direction:number)=>number,setCombatActive?:(active:boolean)=>boolean,triggerCombatImmediate?:()=>boolean,triggerVictoryMusic?:()=>boolean,returnToAmbient?:(withFade?:boolean)=>void,playSfx?:(id:string,opts?:{volume?:number,rate?:number})=>boolean,setThrustLoopActive?:(active:boolean)=>boolean}|null|undefined} [deps.audio]
    * @param {HTMLCanvasElement} deps.canvas
    * @param {HTMLCanvasElement|null|undefined} deps.overlay
    * @param {HTMLElement} deps.hud
@@ -168,6 +168,8 @@ export class GameLoop {
       placement: planetConfig.enemyPlacement || "random",
       onEnemyShot: () => {
         this._playSfx("enemy_fire", { volume: 0.55 });
+        this._markCombatThreat();
+        this._triggerCombatImmediate();
       },
       onEnemyDestroyed: () => {
         this._playSfx("enemy_destroyed", { volume: 0.8 });
@@ -198,6 +200,12 @@ export class GameLoop {
     this.startTitleFade = false;
     this.startTitleSeen = false;
     this.START_TITLE_FADE_PER_SEC = 1.8;
+    this.levelWipeActive = false;
+    this.levelWipeT = 0;
+    this.levelWipeDir = 1;
+    this.LEVEL_WIPE_DURATION = 0.75;
+    this.COMBAT_THREAT_HOLD_MS = 12000;
+    this.combatThreatUntilMs = 0;
 
     this.featureCallbacks = {
       onExplosion: (info) => {
@@ -517,6 +525,7 @@ export class GameLoop {
     this.lastAimScreen = null;
     this.lastHeat = 0;
     this._shipWasInWater = false;
+    this.combatThreatUntilMs = 0;
     this._setCombatActive(false);
     this._setThrustLoopActive(false);
   }
@@ -541,6 +550,7 @@ export class GameLoop {
     if (this.ship.state === "crashed") return;
     this.ship.state = "crashed";
     this.ship.explodeT = 0;
+    this.combatThreatUntilMs = 0;
     this._setCombatActive(false);
     this._setThrustLoopActive(false);
     this._playSfx("ship_crash", { volume: 0.9 });
@@ -576,6 +586,8 @@ export class GameLoop {
   _damageShip(x, y){
     if (this.ship.state === "crashed") return;
     if (this.ship.hitCooldown > 0) return;
+    this._markCombatThreat();
+    this._triggerCombatImmediate();
     this.ship.hpCur = Math.max(0, this.ship.hpCur - 1);
     this.ship.hitCooldown = GAME.SHIP_HIT_COOLDOWN;
     this._playSfx("ship_hit", { volume: 0.8 });
@@ -628,6 +640,26 @@ export class GameLoop {
   _setCombatActive(active){
     if (!this.audio || typeof this.audio.setCombatActive !== "function") return;
     this.audio.setCombatActive(active);
+  }
+
+  /**
+   * @param {number} [holdMs]
+   * @returns {void}
+   */
+  _markCombatThreat(holdMs){
+    const hold = Number.isFinite(holdMs) ? holdMs : this.COMBAT_THREAT_HOLD_MS;
+    const now = performance.now();
+    this.combatThreatUntilMs = Math.max(this.combatThreatUntilMs, now + Math.max(0, hold));
+  }
+
+  /**
+   * @returns {void}
+   */
+  _triggerCombatImmediate(){
+    if (this.ship.state === "crashed") return;
+    if (this._objectiveComplete()) return;
+    if (!this.audio || typeof this.audio.triggerCombatImmediate !== "function") return;
+    this.audio.triggerCombatImmediate();
   }
 
   /**
@@ -1250,48 +1282,66 @@ export class GameLoop {
       for (const p of (this.planet.props || [])){
         if (p.type === "turret_pad" && !p.dead) pads.push([p.x, p.y]);
       }
-      const turretPositions = this.enemies && this.enemies.enemies
-        ? this.enemies.enemies.filter((e) => e.type === "turret").map((e) => [e.x, e.y])
-        : [];
       const rand = mulberry32(seed + 17);
-      for (let i = pads.length - 1; i > 0; i--){
-        const j = Math.floor(rand() * (i + 1));
-        const tmp = pads[i];
-        pads[i] = pads[j];
-        pads[j] = tmp;
-      }
-      const minDist = 0.9;
       placed = [];
-      for (const pt of pads){
-        let tooClose = false;
-        for (const t of turretPositions){
-          const dx = pt[0] - t[0];
-          const dy = pt[1] - t[1];
-          if (dx * dx + dy * dy < minDist * minDist){
-            tooClose = true;
-            break;
-          }
-        }
-        if (tooClose) continue;
-        placed.push(pt);
-        if (placed.length >= count) break;
+      /** @type {number[]} */
+      const shuffledPadIndices = pads.map((_, i) => i);
+      for (let i = shuffledPadIndices.length - 1; i > 0; i--){
+        const j = Math.floor(rand() * (i + 1));
+        const tmp = shuffledPadIndices[i];
+        shuffledPadIndices[i] = shuffledPadIndices[j];
+        shuffledPadIndices[j] = tmp;
       }
-      // If turret-clear pads are insufficient, fill from remaining pads so
-      // objective miners can still spawn on barren perimeter worlds.
-      if (placed.length < count){
-        for (const pt of pads){
-          if (placed.length >= count) break;
-          let exists = false;
-          for (const q of placed){
-            const dx = pt[0] - q[0];
-            const dy = pt[1] - q[1];
-            if (dx * dx + dy * dy < 1e-6){
-              exists = true;
-              break;
+      /** @type {Map<number, Array<{type:string,x:number,y:number}>>} */
+      const turretsByPad = new Map();
+      if (this.enemies && this.enemies.enemies && pads.length){
+        const padOccupancyRadius = 0.48;
+        const padOccupancyRadiusSq = padOccupancyRadius * padOccupancyRadius;
+        for (const e of this.enemies.enemies){
+          if (e.type !== "turret") continue;
+          let nearestPad = -1;
+          let nearestPadDistSq = Infinity;
+          for (let i = 0; i < pads.length; i++){
+            const pt = pads[i];
+            const dx = e.x - pt[0];
+            const dy = e.y - pt[1];
+            const d2 = dx * dx + dy * dy;
+            if (d2 < nearestPadDistSq){
+              nearestPadDistSq = d2;
+              nearestPad = i;
             }
           }
-          if (exists) continue;
-          placed.push(pt);
+          if (nearestPad < 0 || nearestPadDistSq > padOccupancyRadiusSq) continue;
+          if (!turretsByPad.has(nearestPad)) turretsByPad.set(nearestPad, []);
+          turretsByPad.get(nearestPad).push(e);
+        }
+      }
+      /** @type {Set<{type:string,x:number,y:number}>} */
+      const turretsToRemove = new Set();
+      for (const i of shuffledPadIndices){
+        if (placed.length >= count) break;
+        if (turretsByPad.has(i)) continue;
+        placed.push(pads[i]);
+      }
+      // Miner priority: reclaim occupied pads from turrets when pad supply is tight.
+      if (placed.length < count){
+        for (const i of shuffledPadIndices){
+          if (placed.length >= count) break;
+          const turrets = turretsByPad.get(i);
+          if (!turrets || !turrets.length) continue;
+          for (const t of turrets){
+            turretsToRemove.add(t);
+          }
+          placed.push(pads[i]);
+          turretsByPad.delete(i);
+        }
+      }
+      if (turretsToRemove.size && this.enemies && this.enemies.enemies){
+        this.enemies.enemies = this.enemies.enemies.filter((e) => !turretsToRemove.has(e));
+        if (this.objective && this.objective.type === "clear"){
+          const remaining = this._remainingClearTargets();
+          this.clearObjectiveTotal = remaining;
+          this.objective.target = remaining;
         }
       }
       if (placed.length < count){
@@ -1429,18 +1479,17 @@ export class GameLoop {
       (configOverride !== undefined) ? pickPlanetConfigById(configOverride) :
       pickPlanetConfig(this.progressionSeed || CFG.seed, level);
     const out = this._applyProgressionOverrides(planetConfig, progression);
-    // Scale barren turret-pad count with level progression, but never above
-    // this level's enemy total/cap budget.
+    // Scale barren turret-pad count with progression while guaranteeing
+    // enough pads for both enemy and miner budgets on this level.
     if (out.id === "barren_pickup" || out.id === "barren_clear"){
       const basePads = Math.max(1, Math.round(out.platformCount || 1));
       const growth = Math.floor(Math.max(0, (level | 0) - 1) / 2);
       const enemyBudget = Math.max(1, this._enemyTotalForConfig(out, level));
       const minerBudget = Math.max(0, this._minerTargetForConfig(out, level));
       // Barren perimeter worlds use pads for both turrets and miner spawn points.
-      // Budget pads against enemy + miner slots so miners always have room.
+      // Guarantee enough pads for this level's total enemy + miner budget.
       const platformBudget = enemyBudget + minerBudget;
-      const targetPads = Math.min(platformBudget, basePads + growth);
-      out.platformCount = Math.max(minerBudget, targetPads);
+      out.platformCount = Math.max(basePads + growth, platformBudget);
     }
     return out;
   }
@@ -1451,6 +1500,7 @@ export class GameLoop {
    * @returns {void}
    */
   _beginLevel(seed, level){
+    const previousLevel = this.level;
     this.level = level;
     if (level === 1){
       this.progressionSeed = seed | 0;
@@ -1485,6 +1535,8 @@ export class GameLoop {
       placement: planetConfig.enemyPlacement || "random",
       onEnemyShot: () => {
         this._playSfx("enemy_fire", { volume: 0.55 });
+        this._markCombatThreat();
+        this._triggerCombatImmediate();
       },
       onEnemyDestroyed: () => {
         this._playSfx("enemy_destroyed", { volume: 0.8 });
@@ -1525,11 +1577,15 @@ export class GameLoop {
       this.victoryMusicTriggered = false;
     }
     this.objectiveCompleteSfxPlayed = this._objectiveComplete();
+    this.combatThreatUntilMs = 0;
     this._setCombatActive(false);
     if (this.audio && typeof this.audio.returnToAmbient === "function"){
       this.audio.returnToAmbient(true);
     }
     this._setThrustLoopActive(false);
+    if (level === previousLevel + 1){
+      this._startLevelWipe(level);
+    }
   }
 
   /**
@@ -1620,6 +1676,45 @@ export class GameLoop {
 
   _shipRadius(){
     return this.SHIP_RADIUS_BASE * 1.2;
+  }
+
+  /**
+   * Approximate ship body using several circles (includes a center collider).
+   * @returns {Array<{x:number,y:number,r:number}>}
+   */
+  _shipShotColliders(){
+    const shipR = this._shipRadius();
+    const rLen = Math.hypot(this.ship.x, this.ship.y) || 1;
+    const upx = this.ship.x / rLen;
+    const upy = this.ship.y / rLen;
+    const rightx = -upy;
+    const righty = upx;
+    return [
+      { x: this.ship.x, y: this.ship.y, r: shipR * 0.50 }, // center guard
+      { x: this.ship.x + upx * shipR * 0.55, y: this.ship.y + upy * shipR * 0.55, r: shipR * 0.42 },
+      { x: this.ship.x - upx * shipR * 0.38, y: this.ship.y - upy * shipR * 0.38, r: shipR * 0.38 },
+      { x: this.ship.x + rightx * shipR * 0.48, y: this.ship.y + righty * shipR * 0.48, r: shipR * 0.30 },
+      { x: this.ship.x - rightx * shipR * 0.48, y: this.ship.y - righty * shipR * 0.48, r: shipR * 0.30 },
+    ];
+  }
+
+  /**
+   * Swept enemy-shot vs ship hit test to avoid tunneling between frames.
+   * @param {{x:number,y:number,vx:number,vy:number}} shot
+   * @param {number} dt
+   * @returns {boolean}
+   */
+  _enemyShotHitsShip(shot, dt){
+    const prevX = shot.x - shot.vx * dt;
+    const prevY = shot.y - shot.vy * dt;
+    const colliders = this._shipShotColliders();
+    for (const c of colliders){
+      const dx = c.x - shot.x;
+      const dy = c.y - shot.y;
+      if (dx * dx + dy * dy <= c.r * c.r) return true;
+      if (this._distPointToSegment(c.x, c.y, prevX, prevY, shot.x, shot.y) <= c.r) return true;
+    }
+    return false;
   }
 
   _shipGunPivotWorld(){
@@ -1905,6 +2000,7 @@ export class GameLoop {
 
       this.ship.vx += (ax + (gx + gx2) / 2) * dt;
       this.ship.vy += (ay + (gy + gy2) / 2) * dt;
+      const shipWaterSpeed = Math.hypot(this.ship.vx, this.ship.vy);
 
       /*
       const drag = Math.max(0, 1 - this.planetParams.DRAG * dt);
@@ -1914,6 +2010,17 @@ export class GameLoop {
       if (isWaterWorld){
         const rNow = Math.hypot(this.ship.x, this.ship.y) || 1;
         const shipInWaterNow = !!(waterR > 0 && rNow <= waterR + 0.02 && this.planet.airValueAtWorld(this.ship.x, this.ship.y) > 0.5);
+        if (shipInWaterNow && !this._shipWasInWater){
+          this._playSfx("water_splash", {
+            volume: Math.max(0.35, Math.min(0.95, 0.42 + shipWaterSpeed * 0.12)),
+            rate: Math.max(0.86, Math.min(1.16, 0.9 + shipWaterSpeed * 0.04)),
+          });
+        } else if (!shipInWaterNow && this._shipWasInWater){
+          this._playSfx("water_splash", {
+            volume: Math.max(0.3, Math.min(0.8, 0.36 + shipWaterSpeed * 0.1)),
+            rate: Math.max(0.9, Math.min(1.22, 1.02 + shipWaterSpeed * 0.03)),
+          });
+        }
         if (shipInWaterNow){
           const depth = Math.max(0, waterR - rNow);
           const edgeBand = Math.max(0.35, waterR * 0.22);
@@ -2522,12 +2629,9 @@ export class GameLoop {
     this._resolveEnemySolidPropCollisions();
 
     if (this.ship.state !== "crashed"){
-      const shipRadius = this._shipRadius();
       for (let i = this.enemies.shots.length - 1; i >= 0; i--){
         const s = this.enemies.shots[i];
-        const dx = this.ship.x - s.x;
-        const dy = this.ship.y - s.y;
-        if (dx * dx + dy * dy <= shipRadius * shipRadius){
+        if (this._enemyShotHitsShip(s, dt)){
           this.enemies.shots.splice(i, 1);
           this._damageShip(s.x, s.y);
           break;
@@ -2572,6 +2676,7 @@ export class GameLoop {
     this.input.setGameOver(this.ship.state === "crashed");
     const inputState = this.input.update();
     this._updateStartTitle(dt, inputState);
+    this._updateLevelWipe(dt);
 
     if (this.ship.state === "crashed"){
       this.ship.explodeT = Math.min(1.2, this.ship.explodeT + dt * 0.9);
@@ -2643,7 +2748,7 @@ export class GameLoop {
     const combatActive =
       !objectiveCompleteNow &&
       this.ship.state !== "crashed" &&
-      this.enemies.enemies.length > 0;
+      performance.now() < this.combatThreatUntilMs;
     this._setCombatActive(combatActive);
     this.levelAdvanceReady =
       this.pendingPerkChoice === null &&
@@ -2776,6 +2881,70 @@ export class GameLoop {
       this.startTitleSeen = true;
       this.startTitleAlpha = 0;
     }
+  }
+
+  /**
+   * @param {number} nextLevel
+   * @returns {void}
+   */
+  _startLevelWipe(nextLevel){
+    this.levelWipeActive = true;
+    this.levelWipeT = 0;
+    this.levelWipeDir = ((nextLevel | 0) % 2 === 0) ? 1 : -1;
+  }
+
+  /**
+   * @param {number} dt
+   * @returns {void}
+   */
+  _updateLevelWipe(dt){
+    if (!this.levelWipeActive) return;
+    const duration = Math.max(0.05, this.LEVEL_WIPE_DURATION);
+    this.levelWipeT += Math.max(0, dt) / duration;
+    if (this.levelWipeT >= 1){
+      this.levelWipeT = 1;
+      this.levelWipeActive = false;
+    }
+  }
+
+  /**
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {number} w
+   * @param {number} h
+   * @param {number} dpr
+   * @returns {void}
+   */
+  _drawLevelWipe(ctx, w, h, dpr){
+    if (!this.levelWipeActive) return;
+    const t = Math.max(0, Math.min(1, this.levelWipeT));
+    const coverage = 1 - Math.abs(1 - 2 * t); // 0 -> 1 -> 0
+    const band = Math.max(20 * dpr, w * 0.07);
+    const edge =
+      (this.levelWipeDir > 0)
+        ? (coverage * (w + band) - band)
+        : (w - coverage * (w + band));
+
+    ctx.save();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = "rgba(5, 8, 15, 0.96)";
+    if (this.levelWipeDir > 0){
+      ctx.fillRect(0, 0, Math.max(0, edge), h);
+    } else {
+      ctx.fillRect(edge, 0, w - edge, h);
+    }
+
+    const grad =
+      (this.levelWipeDir > 0)
+        ? ctx.createLinearGradient(edge - band, 0, edge + band, 0)
+        : ctx.createLinearGradient(edge + band, 0, edge - band, 0);
+    grad.addColorStop(0, "rgba(72, 226, 255, 0)");
+    grad.addColorStop(0.4, "rgba(72, 226, 255, 0.2)");
+    grad.addColorStop(0.5, "rgba(245, 250, 255, 0.92)");
+    grad.addColorStop(0.6, "rgba(72, 226, 255, 0.2)");
+    grad.addColorStop(1, "rgba(72, 226, 255, 0)");
+    ctx.fillStyle = grad;
+    ctx.fillRect(edge - band, 0, band * 2, h);
+    ctx.restore();
   }
 
   /**
@@ -3058,7 +3227,7 @@ export class GameLoop {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, w, h);
     const drawStartTitle = !this.startTitleSeen && this.startTitleAlpha > 0;
-    if (!drawStartTitle && !this.minerPopups.length && !this.shipHitPopups.length && !this.lastAimScreen && !this.pendingPerkChoice){
+    if (!drawStartTitle && !this.minerPopups.length && !this.shipHitPopups.length && !this.lastAimScreen && !this.pendingPerkChoice && !this.levelWipeActive){
       return;
     }
 
@@ -3142,6 +3311,7 @@ export class GameLoop {
       ctx.fillStyle = "rgba(224, 64, 48, 1)";
       ctx.fillText(this.startTitleText, w * 0.5, h * 0.25);
     }
+    this._drawLevelWipe(ctx, w, h, dpr);
     ctx.globalAlpha = 1;
   }
 }

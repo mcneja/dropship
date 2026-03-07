@@ -157,18 +157,20 @@ export class Input {
    */
   _onKeyDown(e){
     const key = e.key;
-    const debugChord = e.ctrlKey;
+    const code = e.code;
+    const debugChord = e.altKey && !e.ctrlKey && !e.metaKey;
+    const debugDigit = code.startsWith("Digit") && code.length === 6 && code[5] >= "1" && code[5] <= "9";
     const debugShortcut =
       debugChord && (
-        key === "m" || key === "M" ||
-        key === "c" || key === "C" ||
-        key === "n" || key === "N" ||
-        key === "v" || key === "V" ||
-        key === "f" || key === "F" ||
-        key === "p" || key === "P" ||
-        key === "x" || key === "X" ||
-        (key >= "1" && key <= "9") ||
-        e.code === "Backslash" || key === "\\"
+        code === "KeyM" ||
+        code === "KeyC" ||
+        code === "KeyN" ||
+        code === "KeyV" ||
+        code === "KeyF" ||
+        code === "KeyP" ||
+        code === "KeyX" ||
+        debugDigit ||
+        code === "Backslash"
       );
     if (["ArrowLeft","ArrowRight","ArrowUp","ArrowDown"," ","Space"].includes(key)) e.preventDefault();
     if (debugShortcut) e.preventDefault();
@@ -176,15 +178,15 @@ export class Input {
     this.keys.add(key);
     this.lastInputType = "keyboard";
 
-    if (debugChord && (key === "m" || key === "M")) this.oneshot.regen = true;
-    if (debugChord && (key === "c" || key === "C")) this.oneshot.toggleDebug = true;
-    if (debugChord && (key === "n" || key === "N")){
+    if (debugChord && code === "KeyM") this.oneshot.regen = true;
+    if (debugChord && code === "KeyC") this.oneshot.toggleDebug = true;
+    if (debugChord && code === "KeyN"){
       if (e.shiftKey) this.oneshot.prevLevel = true;
       else this.oneshot.nextLevel = true;
     }
     if (key === "r" || key === "R") this.oneshot.reset = true;
-    if (debugChord && (key === "v" || key === "V")) this.oneshot.togglePlanetView = true;
-    if (debugChord && (key === "f" || key === "F")) this.oneshot.toggleFog = true;
+    if (debugChord && code === "KeyV") this.oneshot.togglePlanetView = true;
+    if (debugChord && code === "KeyF") this.oneshot.toggleFog = true;
     if ((key === "-" || key === "_") && !e.ctrlKey && !e.metaKey && !e.altKey){
       this.oneshot.musicVolumeDown = true;
     }
@@ -193,10 +195,10 @@ export class Input {
     }
     if (key === "b" || key === "B") this.oneshot.toggleMusic = true;
     if (key === "j" || key === "J") this.oneshot.toggleCombatMusic = true;
-    if (debugChord && (e.code === "Backslash" || key === "\\")) this.oneshot.toggleDevHud = true;
-    if (debugChord && key >= "1" && key <= "9") this.oneshot.spawnEnemyType = key;
-    if (debugChord && (key === "p" || key === "P")) this.oneshot.rescueAll = true;
-    if (debugChord && (key === "x" || key === "X")) this.oneshot.killAllEnemies = true;
+    if (debugChord && code === "Backslash") this.oneshot.toggleDevHud = true;
+    if (debugChord && debugDigit) this.oneshot.spawnEnemyType = code[5];
+    if (debugChord && code === "KeyP") this.oneshot.rescueAll = true;
+    if (debugChord && code === "KeyX") this.oneshot.killAllEnemies = true;
   }
 
   /**

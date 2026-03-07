@@ -12,7 +12,7 @@ export function updateHud(hud, stats){
   }
   const debugSuffix = stats.debug ? ` | miner candidates: ${stats.minerCandidates}` : "";
   hud.textContent =
-    `fps: ${stats.fps} | hull: ${stats.shipHp} | bombs: ${stats.bombs} | level: ${stats.level} | state: ${stats.state} | speed: ${stats.speed.toFixed(2)} | miners: ${stats.miners} | dead: ${stats.minersDead} | verts: ${stats.verts.toLocaleString()} | air: ${stats.air.toFixed(3)}${debugSuffix} | LMB: shoot | RMB: bomb | -/=: music vol | Ctrl+M: new map | Ctrl+N: next level | Ctrl+Shift+N: prev level | Ctrl+C: debug collisions | Ctrl+V: view map | Ctrl+X: clear enemies | Ctrl+\\: toggle dev HUD | B: music | J: combat tracks | R: restart`;
+    `fps: ${stats.fps} | hull: ${stats.shipHp} | bombs: ${stats.bombs} | level: ${stats.level} | state: ${stats.state} | speed: ${stats.speed.toFixed(2)} | miners: ${stats.miners} | dead: ${stats.minersDead} | verts: ${stats.verts.toLocaleString()} | air: ${stats.air.toFixed(3)}${debugSuffix} | LMB: shoot | RMB: bomb | -/=: music vol | Alt+M: new map | Alt+N: next level | Alt+Shift+N: prev level | Alt+C: debug collisions | Alt+V: view map | Alt+X: clear enemies | Alt+\\: toggle dev HUD | B: music | J: combat tracks | R: restart`;
 }
 
 /**

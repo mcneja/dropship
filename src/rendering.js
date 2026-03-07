@@ -870,13 +870,38 @@ function drawFrameImpl(renderer, state, planet){
   const invertPulse = invertT > 0 ? (0.55 + 0.45 * Math.sin(now * 8)) : 0;
   const invertMix = invertT > 0 ? Math.min(0.65, 0.25 + 0.35 * invertPulse) : 0;
   const invertTint = [0.72, 0.25, 0.9];
+  const hitCooldownT = (state.ship.state !== "crashed") ? Math.max(0, state.ship.hitCooldown || 0) : 0;
+  const hitCooldownMax = Math.max(1e-6, game.SHIP_HIT_COOLDOWN || 1);
+  const damageNorm = hitCooldownT > 0 ? Math.min(1, hitCooldownT / hitCooldownMax) : 0;
+  const damagePulse = damageNorm > 0 ? (0.5 + 0.5 * Math.sin(now * 22)) : 0;
+  const damageMix = damageNorm > 0 ? ((0.18 + 0.42 * damagePulse) * damageNorm) : 0;
+  const damageTint = [1.0, 0.12, 0.12];
+  const lowHullPulse = (state.ship.state !== "crashed" && state.ship.hpCur === 1)
+    // Slower critical cycle with a narrow peak so red is a quick flash.
+    ? Math.pow(Math.max(0, Math.sin(now * 4.2)), 7)
+    : 0;
+  const lowHullMix = lowHullPulse > 0 ? (0.48 * lowHullPulse) : 0;
+  const lowHullTint = [1.0, 0.14, 0.14];
   const applyTint = (cr, cg, cb) => {
-    if (!invertMix) return [cr, cg, cb];
-    return [
-      cr * (1 - invertMix) + invertTint[0] * invertMix,
-      cg * (1 - invertMix) + invertTint[1] * invertMix,
-      cb * (1 - invertMix) + invertTint[2] * invertMix,
-    ];
+    let outR = cr;
+    let outG = cg;
+    let outB = cb;
+    if (invertMix){
+      outR = outR * (1 - invertMix) + invertTint[0] * invertMix;
+      outG = outG * (1 - invertMix) + invertTint[1] * invertMix;
+      outB = outB * (1 - invertMix) + invertTint[2] * invertMix;
+    }
+    if (damageMix){
+      outR = outR * (1 - damageMix) + damageTint[0] * damageMix;
+      outG = outG * (1 - damageMix) + damageTint[1] * damageMix;
+      outB = outB * (1 - damageMix) + damageTint[2] * damageMix;
+    }
+    if (lowHullMix){
+      outR = outR * (1 - lowHullMix) + lowHullTint[0] * lowHullMix;
+      outG = outG * (1 - lowHullMix) + lowHullTint[1] * lowHullMix;
+      outB = outB * (1 - lowHullMix) + lowHullTint[2] * lowHullMix;
+    }
+    return [outR, outG, outB];
   };
   const toShipWorldLocal = (lx, ly) => {
     const [wx, wy] = rot2(lx, ly, shipRot);
@@ -926,14 +951,16 @@ function drawFrameImpl(renderer, state, planet){
   const drawTurretPadProp = (p) => {
     let ux;
     let uy;
-    const info = planet.surfaceInfoAtWorld ? planet.surfaceInfoAtWorld(p.x, p.y, 0.18) : null;
-    if (info){
-      ux = info.nx;
-      uy = info.ny;
-    } else if (typeof p.padNx === "number" && typeof p.padNy === "number"){
+    if (typeof p.padNx === "number" && typeof p.padNy === "number"){
       const nlen = Math.hypot(p.padNx, p.padNy) || 1;
       ux = p.padNx / nlen;
       uy = p.padNy / nlen;
+    } else {
+      const info = planet.surfaceInfoAtWorld ? planet.surfaceInfoAtWorld(p.x, p.y, 0.18) : null;
+      if (info){
+        ux = info.nx;
+        uy = info.ny;
+      }
     }
     let tx;
     let ty;

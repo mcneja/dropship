@@ -949,6 +949,8 @@ export class Planet {
    */
   _alignTurretPadsToSurface(){
     if (!this.props || !this.props.length) return;
+    const cfg = this.getPlanetConfig ? this.getPlanetConfig() : null;
+    const forceHorizontalPads = !!(cfg && cfg.flags && cfg.flags.barrenPerimeter);
     const pads = [];
     for (const p of this.props){
       if (p.type === "turret_pad") pads.push(p);
@@ -999,6 +1001,14 @@ export class Planet {
       }
       p.x = pt[0];
       p.y = pt[1];
+      if (forceHorizontalPads){
+        const up = this._upDirAt(p.x, p.y);
+        if (up){
+          p.padNx = up.ux;
+          p.padNy = up.uy;
+          continue;
+        }
+      }
       const info = this.surfaceInfoAtWorld(p.x, p.y, 0.18);
       if (info){
         p.padNx = info.nx;
@@ -1973,6 +1983,7 @@ export class Planet {
   surfaceGuidePathTo(x, y, maxDistance) {
     const pos = this._posClosestForPath(x, y);
     if (!pos) return null;
+    if (Math.hypot(pos.x, pos.y) > this.planetRadius + 0.02) return null;
 
     /** @type {Array<{x:number, y:number}>} */
     const path = [{x: pos.x, y: pos.y}];
@@ -2006,16 +2017,17 @@ export class Planet {
       let n = tryGetNormalAt(px, py);
       if (!n) return null;
       const r = Math.hypot(px, py) || 1;
-      const dotUp = (px * n.nx + py * n.ny) / (r * Math.hypot(n.nx, n.ny));
-      // Allow inward-facing surfaces only near the outer band to avoid "ceiling" paths.
-      if (dotUp <= 0.5) {
-        if (dotUp >= -0.5) return null;
-        if (r < this.planetRadius * 0.92) return null;
+      let dotUp = (px * n.nx + py * n.ny) / r;
+      if (dotUp < 0){
+        n = { nx: -n.nx, ny: -n.ny };
+        dotUp = -dotUp;
       }
+      if (dotUp <= 0.5) return null;
       const qx = px + n.ny * -stepSize;
       const qy = py + n.nx *  stepSize;
       const posNext = this._posClosestForPath(qx, qy);
       if (!posNext) return null;
+      if (Math.hypot(posNext.x, posNext.y) > this.planetRadius + 0.02) return null;
       if (Math.hypot(posNext.x - x, posNext.y - y) > maxDistance) return null;
       return {x: posNext.x, y: posNext.y};
     };
