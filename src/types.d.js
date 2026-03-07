@@ -23,7 +23,7 @@
  */
 
 /**
- * @typedef {{updateHud:(hud:HTMLElement, stats:{fps:number,state:string,speed:number,verts:number,air:number,miners:number,minersDead:number,level:number,debug:boolean,minerCandidates:number,shipHp:number,inputType:("keyboard"|"mouse"|"touch"|"gamepad"|null|undefined)})=>void, updatePlanetLabel?:(el:HTMLElement, label:string)=>void, updateObjectiveLabel?:(el:HTMLElement, text:string)=>void, updateHeatMeter?:(el:HTMLElement, heat:number, show:boolean, flashing:boolean)=>void}} Ui
+ * @typedef {{updateHud:(hud:HTMLElement, stats:{fps:number,state:string,speed:number,verts:number,air:number,miners:number,minersDead:number,level:number,debug:boolean,minerCandidates:number,shipHp:number,bombs:number,inputType:("keyboard"|"mouse"|"touch"|"gamepad"|null|undefined)})=>void, updatePlanetLabel?:(el:HTMLElement, label:string)=>void, updateObjectiveLabel?:(el:HTMLElement, text:string)=>void, updateHeatMeter?:(el:HTMLElement, heat:number, show:boolean, flashing:boolean)=>void}} Ui
  */
 
 /**
@@ -36,9 +36,10 @@
  * @property {number} explodeT
  * @property {number} lastAir
  * @property {number} hp
+ * @property {number} bombs
+ * @property {number} heat
  * @property {number} hitCooldown
  * @property {number} cabinSide
- * @property {number} [heat]
  * @property {{path:Array<{x:number,y:number}>, indexClosest:number}|null} guidePath
  * @property {Array<[number,number,boolean,number]>|null} [_samples]
  * @property {{x:number,y:number,tri?:Array<{x:number,y:number}>|null,node?:{x:number,y:number}|null}|null} [_collision]
@@ -84,6 +85,7 @@
  * @property {number} vy
  * @property {number} cooldown
  * @property {number} hp
+ * @property {number|null} iNodeGoal
  * @property {number} [hitT]
  */
 

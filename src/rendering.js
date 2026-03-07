@@ -2,7 +2,7 @@
 
 import { CFG, TOUCH_UI } from "./config.js";
 import { buildStarfieldMesh } from "./starfield.js";
-import { findPathAStar, nearestRadialNode } from "./navigation.js";
+import { dijkstraMap, findPathAStar, nearestRadialNode } from "./navigation.js";
 
 /** @typedef {import("./types.d.js").RenderState} RenderState */
 /** @typedef {import("./planet.js").Planet} Planet */
@@ -1372,6 +1372,52 @@ function drawFrameImpl(renderer, state, planet){
   };
 
   if (state.ship.state !== "crashed"){
+    if (state.mothership) {
+      const dXMothership = state.mothership.x - state.view.xCenter;
+      const dYMothership = state.mothership.y - state.view.yCenter;
+
+      const camRotCos = Math.cos(-camRot);
+      const camRotSin = Math.sin(-camRot);
+
+      const horzLen = 0.9 / sx;
+      const horzX = camRotCos * horzLen;
+      const horzY = camRotSin * horzLen;
+
+      const vertLen = 0.9 / sy;
+      const vertX = -camRotSin * vertLen;
+      const vertY = camRotCos * vertLen;
+
+      let u = 1;
+
+      let projection = (dXMothership * horzX + dYMothership * horzY) / (horzX * horzX + horzY * horzY);
+      u = Math.min(u, 1 / (Math.max(1, projection)));
+
+      projection = (dXMothership * -horzX + dYMothership * -horzY) / (horzX * horzX + horzY * horzY);
+      u = Math.min(u, 1 / (Math.max(1, projection)));
+
+      projection = (dXMothership * vertX + dYMothership * vertY) / (vertX * vertX + vertY * vertY);
+      u = Math.min(u, 1 / (Math.max(1, projection)));
+
+      projection = (dXMothership * -vertX + dYMothership * -vertY) / (vertX * vertX + vertY * vertY);
+      u = Math.min(u, 1 / (Math.max(1, projection)));
+
+      if (u < 1) {
+        const mx = state.view.xCenter + dXMothership * u;
+        const my = state.view.yCenter + dYMothership * u;
+
+        const n = Math.hypot(dXMothership, dYMothership);
+        const s = state.view.radius * 0.05;
+        const nx = dXMothership / n;
+        const ny = dYMothership / n;
+        const tx = -0.5 * ny;
+        const ty =  0.5 * nx;
+
+        pushLine(pos, col, mx, my, mx + s * (-nx - tx), my + s * (-ny - ty), 0.5, 0.84, 1.0, 0.5);
+        pushLine(pos, col, mx, my, mx + s * (-nx + tx), my + s * (-ny + ty), 0.5, 0.84, 1.0, 0.5);
+        lineVerts += 4;
+      }
+    }
+
     const tc = [1.0, 0.55, 0.15];
     if (state.input.thrust) thrustV(0, 1, tc[0], tc[1], tc[2], shipHWorld * 0.2);
     if (state.input.down) thrustV(0, -1, tc[0], tc[1], tc[2], shipHWorld * 0.35);
@@ -1557,6 +1603,35 @@ function drawFrameImpl(renderer, state, planet){
   pointVerts = pos.length / 2 - triVerts - lineVerts;
 
   // Test pathfinding
+
+  /*
+  if (state.aimWorld) {
+    const radialGraph = planet.radialGraph;
+    const nodeCursor = planet.nearestRadialNodeInAir(state.aimWorld.x, state.aimWorld.y);
+    const nodeDistances = planet.distanceToTarget;
+    let node = nodeCursor;
+    let cOverflow = 100;
+    while (cOverflow > 0) {
+      let nodeNext = undefined;
+      let distMin = Infinity;
+      for (const n of radialGraph.neighbors[node]) {
+        if (nodeDistances[n.to] < distMin) {
+          distMin = nodeDistances[n.to];
+          nodeNext = n.to;
+        }
+      }
+      if (nodeNext === undefined) break;
+
+      const node0 = radialGraph.nodes[node];
+      const node1 = radialGraph.nodes[nodeNext];
+      pushLine(pos, col, node0.x, node0.y, node1.x, node1.y, 0, 1, 0, 1);
+      lineVerts += 2;
+
+      node = nodeNext;
+      --cOverflow;
+    }
+  }
+  */
 
   /*
   if (state.aimWorld) {

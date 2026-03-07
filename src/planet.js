@@ -1,7 +1,7 @@
 // @ts-check
 
 import { RingMesh } from "./planet_ring_mesh.js";
-import { RadialGraph, buildPassableMask } from "./navigation.js";
+import { RadialGraph, buildPassableMask, dijkstraMap, nearestRadialNode } from "./navigation.js";
 import { MapGen } from "./mapgen.js";
 import { CFG, GAME } from "./config.js";
 import { mulberry32 } from "./rng.js";
@@ -33,6 +33,8 @@ export class Planet {
     this.radial = new RingMesh(this.mapgen, planetParams);
     this.radialGraph = new RadialGraph(this.radial);
     this.airNodesBitmap = buildAirNodesBitmap(this.radialGraph, this.radial);
+    /** @type {Float32Array} */
+    this.distanceToTarget = new Float32Array(this.radialGraph.nodes.length);
     const mats = buildPlanetMaterials(this.mapgen, this.planetConfig, this.planetParams);
     this.material = mats.material;
     this.props = mats.props;
@@ -183,6 +185,45 @@ export class Planet {
   handleFeatureBomb(x, y, impactRadius, bombRadius, callbacks){
     if (!this.features) return false;
     return this.features.handleBomb(x, y, impactRadius, bombRadius, callbacks);
+  }
+
+  /**
+   * Find nearest radial node to world point using ring radius.
+   * @param {number} x
+   * @param {number} y
+   * @returns {number}
+   */
+  nearestRadialNodeInAir(x, y){
+    const iNode = nearestRadialNode(this.radialGraph, this.radial, x, y);
+    if (this.airNodesBitmap[iNode]) return iNode;
+    let iNodeBest = iNode;
+    let distSqrBest = Infinity;
+    for (const n of this.radialGraph.neighbors[iNode]) {
+      const iNodeNeighbor = n.to;
+      if (!this.airNodesBitmap[iNodeNeighbor]) continue;
+      const nodeNeighbor = this.radialGraph.nodes[iNodeNeighbor];
+      const dx = x - nodeNeighbor.x;
+      const dy = y - nodeNeighbor.y;
+      const distSqr = dx*dx + dy*dy;
+      if (distSqr < distSqrBest) {
+        distSqrBest = distSqr;
+        iNodeBest = iNodeNeighbor;
+      }
+    }
+    return iNodeBest;
+  }
+
+  /**
+   * Compute and cache a distance map for every node in the graph to a given target position.
+   * Useful when multiple enemies all want to go to the same place.
+   * @param {number} x 
+   * @param {number} y 
+   * @returns {void}
+   */
+  computeDistanceMapTo(x, y){
+    const radialGraph = this.radialGraph;
+    const nodeTarget = nearestRadialNode(radialGraph, this.radial, x, y);
+    this.distanceToTarget = dijkstraMap(radialGraph, [nodeTarget], this.airNodesBitmap);    
   }
 
   /**
