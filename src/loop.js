@@ -28,9 +28,10 @@ export class GameLoop {
    * @param {HTMLElement} deps.hud
    * @param {HTMLElement} [deps.planetLabel]
    * @param {HTMLElement} [deps.objectiveLabel]
+   * @param {HTMLElement} [deps.shipStatusLabel]
    * @param {HTMLElement} [deps.heatMeter]
    */
-  constructor({ renderer, input, ui, canvas, hud, overlay, planetLabel, objectiveLabel, heatMeter }){
+  constructor({ renderer, input, ui, canvas, hud, overlay, planetLabel, objectiveLabel, shipStatusLabel, heatMeter }){
     this.level = 1;
     // const seed = CFG.seed;
     const seed = performance.now();
@@ -47,6 +48,7 @@ export class GameLoop {
     this.hud = hud;
     this.planetLabel = planetLabel || null;
     this.objectiveLabel = objectiveLabel || null;
+    this.shipStatusLabel = shipStatusLabel || null;
     this.heatMeter = heatMeter || null;
     this.overlay = overlay || null;
     this.overlayCtx = this.overlay ? this.overlay.getContext("2d") : null;
@@ -173,6 +175,7 @@ export class GameLoop {
     this.fpsFrames = 0;
     this.fps = 0;
     this.debugCollisions = GAME.DEBUG_COLLISION;
+    this.devHudVisible = false;
     this.levelAdvanceReady = false;
     this.lastHeat = 0;
 
@@ -2236,6 +2239,10 @@ export class GameLoop {
     if (inputState.toggleDebug){
       this.debugCollisions = !this.debugCollisions;
     }
+    if (inputState.toggleDevHud){
+      this.devHudVisible = !this.devHudVisible;
+      this.hud.style.display = this.devHudVisible ? "block" : "none";
+    }
     if (inputState.togglePlanetView){
       this.planetView = !this.planetView;
     }
@@ -2299,21 +2306,23 @@ export class GameLoop {
 
     this._drawMinerPopups();
 
-    this.ui.updateHud(this.hud, {
-      fps: this.fps,
-      state: this.ship.state,
-      speed: Math.hypot(this.ship.vx, this.ship.vy),
-      shipHp: this.ship.hpCur,
-      bombs: this.ship.bombsCur,
-      verts: this.planet.radial.vertCount,
-      air: this.planet.getFinalAir(),
-      miners: this.minersRemaining,
-      minersDead: this.minersDead,
-      level: this.level,
-      debug: this.debugCollisions,
-      minerCandidates: this.minerCandidates,
-      inputType: inputState.inputType,
-    });
+    if (this.devHudVisible){
+      this.ui.updateHud(this.hud, {
+        fps: this.fps,
+        state: this.ship.state,
+        speed: Math.hypot(this.ship.vx, this.ship.vy),
+        shipHp: this.ship.hpCur,
+        bombs: this.ship.bombsCur,
+        verts: this.planet.radial.vertCount,
+        air: this.planet.getFinalAir(),
+        miners: this.minersRemaining,
+        minersDead: this.minersDead,
+        level: this.level,
+        debug: this.debugCollisions,
+        minerCandidates: this.minerCandidates,
+        inputType: inputState.inputType,
+      });
+    }
     const cfg = this.planet.getPlanetConfig ? this.planet.getPlanetConfig() : null;
     const heat = this.ship.heat || 0;
     const showHeat = !!(cfg && cfg.id === "molten");
@@ -2331,6 +2340,14 @@ export class GameLoop {
     if (this.objectiveLabel && this.ui.updateObjectiveLabel){
       const prompt = this._objectivePromptText(inputState.inputType);
       this.ui.updateObjectiveLabel(this.objectiveLabel, prompt || this._objectiveText());
+    }
+    if (this.shipStatusLabel && this.ui.updateShipStatusLabel){
+      this.ui.updateShipStatusLabel(this.shipStatusLabel, {
+        shipHp: this.ship.hpCur,
+        shipHpMax: this.ship.hpMax,
+        bombs: this.ship.bombsCur,
+        bombsMax: this.ship.bombsMax,
+      });
     }
 
     requestAnimationFrame(() => this._frame());
