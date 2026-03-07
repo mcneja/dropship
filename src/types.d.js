@@ -23,7 +23,7 @@
  */
 
 /**
- * @typedef {{updateHud:(hud:HTMLElement, stats:{fps:number,state:string,speed:number,verts:number,air:number,miners:number,minersDead:number,level:number,debug:boolean,minerCandidates:number,shipHp:number,bombs:number,inputType:("keyboard"|"mouse"|"touch"|"gamepad"|null|undefined)})=>void, updatePlanetLabel?:(el:HTMLElement, label:string)=>void, updateObjectiveLabel?:(el:HTMLElement, text:string)=>void, updateHeatMeter?:(el:HTMLElement, heat:number, show:boolean, flashing:boolean)=>void}} Ui
+ * @typedef {{updateHud:(hud:HTMLElement, stats:{fps:number,state:string,speed:number,verts:number,air:number,miners:number,minersDead:number,level:number,debug:boolean,minerCandidates:number,shipHp:number,bombs:number,inputType:("keyboard"|"mouse"|"touch"|"gamepad"|null|undefined)})=>void, updatePlanetLabel?:(el:HTMLElement, label:string)=>void, updateObjectiveLabel?:(el:HTMLElement, text:string)=>void, updateShipStatusLabel?:(el:HTMLElement, stats:{shipHp:number,shipHpMax:number,bombs:number,bombsMax:number})=>void, updateHeatMeter?:(el:HTMLElement, heat:number, show:boolean, flashing:boolean)=>void}} Ui
  */
 
 /**
@@ -181,6 +181,7 @@
  * @property {boolean} reset
  * @property {boolean} regen
  * @property {boolean} toggleDebug
+ * @property {boolean} toggleDevHud
  * @property {boolean} togglePlanetView
  * @property {boolean} toggleFog
  * @property {boolean} nextLevel
