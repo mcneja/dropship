@@ -2414,6 +2414,10 @@ export class GameLoop {
       this.minersRemaining = Math.max(0, this.minersRemaining - 1);
       this.miners.splice(i, 1);
     }
+
+    if (this._isDockedWithMothership()){
+      this._onSuccessfullyDocked();
+    }
   }
 
   /**
