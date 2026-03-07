@@ -183,6 +183,7 @@
  * @property {boolean} advanceLevel
  * @property {boolean} shoot
  * @property {boolean} bomb
+ * @property {boolean} rescueAll
  * @property {EnemyType|null} [spawnEnemyType]
  * @property {Point|null} [aim]
  * @property {Point|null} [aimShoot]

@@ -958,7 +958,7 @@ export class GameLoop {
     if (this.mothership){
       updateMothership(this.mothership, this.planet, dt);
     }
-    let { left, right, thrust, down, reset, shoot, bomb, aim, aimShoot, aimBomb, aimShootFrom, aimShootTo, aimBombFrom, aimBombTo, spawnEnemyType } = inputState;
+    let { left, right, thrust, down, reset, shoot, bomb, rescueAll, aim, aimShoot, aimBomb, aimShootFrom, aimShootTo, aimBombFrom, aimBombTo, spawnEnemyType } = inputState;
     if (inputState.inputType === "gamepad"){
       const aimAdjusted = this._aimScreenAroundShip(aim);
       aim = aimAdjusted;
@@ -970,7 +970,12 @@ export class GameLoop {
     }
     if (!aimShoot) aimShoot = aim;
     if (!aimBomb) aimBomb = aimShoot || aim;
-    if (reset) this._resetShip();
+    if (reset && this.ship.state === "crashed" && this.ship.mothershipPilots > 0){
+      this._restartWithNewPilot();
+    }
+    if (rescueAll) {
+      this._rescueAll();
+    }
     if (spawnEnemyType){
       const map = {
         "1": "hunter",
@@ -1803,14 +1808,18 @@ export class GameLoop {
   _objectivePromptText(inputType){
     const type = inputType || "keyboard";
     if (this.ship.state === "crashed"){
-      if (type === "touch") return "Game over. Tap restart to play again.";
-      if (type === "gamepad") return "Game over. Press start to play again.";
-      return "Game over. Press R to restart.";
+      if (this.ship.mothershipPilots > 0){
+        if (type === "touch") return "Tap Restart to launch a new dropship.";
+        if (type === "gamepad") return "Press Start to launch a new dropship.";
+        return "Press R to launch a new dropship.";
+      } else {
+        return "Game Over! No more pilots. Reload page to restart.";
+      }
     }
     if (this.levelAdvanceReady){
-      if (type === "touch") return "Objective complete. Tap restart to continue.";
-      if (type === "gamepad") return "Objective complete. Press start to continue.";
-      return "Objective complete. Press space to continue.";
+      if (type === "touch") return "Objective complete! Tap Restart to fly to next planet.";
+      if (type === "gamepad") return "Objective complete! Press Start to fly to next planet.";
+      return "Objective complete! Press Space to fly to next planet.";
     }
     return "";
   }
@@ -1875,6 +1884,33 @@ export class GameLoop {
 
     this.ship.hpCur = this.ship.hpMax;
     this.ship.bombsCur = this.ship.bombsMax;
+  }
+
+  /**
+   * @returns {void}
+   */
+  _restartWithNewPilot(){
+    console.log('Restart: num pilots', this.ship.mothershipPilots);
+    this.ship.mothershipPilots = Math.max(0, this.ship.mothershipPilots - 1);
+    this._resetShip();
+  }
+
+  /**
+   * @returns {void}
+   */
+  _rescueAll(){
+    for (const miner of this.miners){
+      if (miner.state === "boarded") continue;
+      miner.state = "boarded";
+      if (miner.type === "miner"){
+        ++this.ship.dropshipMiners;
+      } else if (miner.type === "pilot"){
+        ++this.ship.dropshipPilots;
+      } else if (miner.type === "engineer"){
+        ++this.ship.dropshipEngineers;
+      }
+      this.minersRemaining = Math.max(0, this.minersRemaining - 1);
+    }
   }
 
   /**
