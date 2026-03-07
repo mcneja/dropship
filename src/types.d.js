@@ -38,6 +38,7 @@
  * @property {number} hpCur
  * @property {number} bombsCur
  * @property {number} heat
+ * @property {number} invertT
  * @property {number} hitCooldown
  * @property {number} cabinSide
  * @property {{path:Array<{x:number,y:number}>, indexClosest:number}|null} guidePath

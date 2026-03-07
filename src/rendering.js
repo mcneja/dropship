@@ -792,6 +792,16 @@ function drawFrameImpl(renderer, state, planet){
   const bodyLiftN = 0.18;
   const skiLiftN = 0.0;
   const cabinSide = state.ship.cabinSide || 1;
+  const cargoHeightScale = 2.0;
+  const cargoWidthScale = 2 / 3;
+  const cargoBottomN = -0.35;
+  const cargoHeightN = (0.18 - cargoBottomN) * cargoHeightScale;
+  const cargoTopN = cargoBottomN + cargoHeightN;
+  const cargoMidN = (cargoBottomN + cargoTopN) * 0.5;
+  const oldCargoMidN = (0.18 + -0.35) * 0.5;
+  const thrustLiftAll = (cargoMidN - oldCargoMidN) * shipHWorld * 1.0;
+  const thrustDownExtraUp = shipHWorld * 0.18;
+  const thrustUpExtraDown = shipHWorld * -0.12;
 
   /** @type {number[]} */
   const pos = [];
@@ -806,6 +816,18 @@ function drawFrameImpl(renderer, state, planet){
   const rockPoint = [1.0, 0.55, 0.12];
   const airPoint = [lighten(airLight[0]), lighten(airLight[1]), lighten(airLight[2])];
   const now = performance.now() * 0.001;
+  const invertT = Math.max(0, state.ship.invertT || 0);
+  const invertPulse = invertT > 0 ? (0.55 + 0.45 * Math.sin(now * 8)) : 0;
+  const invertMix = invertT > 0 ? Math.min(0.65, 0.25 + 0.35 * invertPulse) : 0;
+  const invertTint = [0.72, 0.25, 0.9];
+  const applyTint = (cr, cg, cb) => {
+    if (!invertMix) return [cr, cg, cb];
+    return [
+      cr * (1 - invertMix) + invertTint[0] * invertMix,
+      cg * (1 - invertMix) + invertTint[1] * invertMix,
+      cb * (1 - invertMix) + invertTint[2] * invertMix,
+    ];
+  };
   const toShipWorldLocal = (lx, ly) => {
     const [wx, wy] = rot2(lx, ly, shipRot);
     return [state.ship.x + wx, state.ship.y + wy];
@@ -824,16 +846,17 @@ function drawFrameImpl(renderer, state, planet){
   const upLen = Math.hypot(state.ship.x, state.ship.y) || 1;
   const upx = state.ship.x / upLen;
   const upy = state.ship.y / upLen;
-  const topY = (0.6 + bodyLiftN) * shipHWorld;
-  const bottomY = (-0.6 + bodyLiftN) * shipHWorld;
+  const topY = (cargoTopN + bodyLiftN) * shipHWorld;
+  const bottomY = (cargoBottomN + bodyLiftN) * shipHWorld;
   const silverTop = [0.85, 0.87, 0.9];
   const silverBottom = [0.55, 0.58, 0.62];
   const addTri = (list, ax, ay, bx, by, cx, cy, cr, cg, cb, ca = 1, outline = true) => {
+    const tinted = applyTint(cr, cg, cb);
     list.push({
       a: [ax, ay],
       b: [bx, by],
       c: [cx, cy],
-      col: [cr, cg, cb, ca],
+      col: [tinted[0], tinted[1], tinted[2], ca],
       outline,
     });
   };
@@ -850,10 +873,8 @@ function drawFrameImpl(renderer, state, planet){
   const appendShipGeometry = () => {
     if (state.ship.state === "crashed") return;
     {
-      const cargoTopN = 0.18;
-      const cargoBottomN = -0.35;
-      const bottomHalfW = 0.85;
-      const topHalfW = 0.6;
+      const bottomHalfW = 0.85 * cargoWidthScale;
+      const topHalfW = 0.6 * cargoWidthScale * 0.8;
       const lb = L(-bottomHalfW, cargoBottomN, bodyLiftN);
       const rb = L(bottomHalfW, cargoBottomN, bodyLiftN);
       const rt = L(topHalfW, cargoTopN, bodyLiftN);
@@ -861,8 +882,8 @@ function drawFrameImpl(renderer, state, planet){
       addShipTri(shipTris, lb[0], lb[1], rb[0], rb[1], rt[0], rt[1]);
       addShipTri(shipTris, lb[0], lb[1], rt[0], rt[1], lt[0], lt[1]);
 
-      const cabOffset = 0.75 * cabinSide;
-      const cabHalfW = 0.28;
+      const cabOffset = 0.75 * cargoWidthScale * cabinSide;
+      const cabHalfW = 0.28 * cargoWidthScale * 1.3;
       const cabBaseY = cargoBottomN;
       const cabTipY = cargoTopN;
       const cabTip = L(cabOffset, cabTipY, bodyLiftN);
@@ -1165,6 +1186,7 @@ function drawFrameImpl(renderer, state, planet){
   if (lavaParticles && lavaParticles.length){
     const size = 0.10;
     for (const p of lavaParticles){
+      if (state.fogEnabled && !planet.fogSeenAt(p.x, p.y)) continue;
       pushDiamond(pos, col, p.x, p.y, size, 1.0, 0.25, 0.15, 0.95);
       triVerts += 6;
     }
@@ -1173,6 +1195,7 @@ function drawFrameImpl(renderer, state, planet){
   if (mushroomParticles && mushroomParticles.length){
     const size = 0.12;
     for (const p of mushroomParticles){
+      if (state.fogEnabled && !planet.fogSeenAt(p.x, p.y)) continue;
       pushDiamond(pos, col, p.x, p.y, size, 0.95, 0.45, 0.75, 0.95);
       triVerts += 6;
     }
@@ -1380,7 +1403,7 @@ function drawFrameImpl(renderer, state, planet){
    * @param {number} b
    * @param {number} [extraOffset]
    */
-  const thrustV = (dx, dy, r, g, b, extraOffset = 0) => {
+  const thrustV = (dx, dy, r, g, b, extraOffset = 0, lift = 0) => {
     const mag = Math.hypot(dx, dy) || 1;
     const posUx = -dx / mag;
     const posUy = -dy / mag;
@@ -1397,11 +1420,12 @@ function drawFrameImpl(renderer, state, planet){
     const b1y = -uy * len * 0.45 + py * spread;
     const b2x = -ux * len * 0.45 - px * spread;
     const b2y = -uy * len * 0.45 - py * spread;
+    const [lx, ly] = rot2(0, lift, shipRot);
     const [tx, ty] = rot2(tipx + posUx * offset, tipy + posUy * offset, shipRot);
     const [p1x, p1y] = rot2(b1x + posUx * offset, b1y + posUy * offset, shipRot);
     const [p2x, p2y] = rot2(b2x + posUx * offset, b2y + posUy * offset, shipRot);
-    pushLine(pos, col, state.ship.x + p1x, state.ship.y + p1y, state.ship.x + tx, state.ship.y + ty, r, g, b, 1);
-    pushLine(pos, col, state.ship.x + p2x, state.ship.y + p2y, state.ship.x + tx, state.ship.y + ty, r, g, b, 1);
+    pushLine(pos, col, state.ship.x + p1x + lx, state.ship.y + p1y + ly, state.ship.x + tx + lx, state.ship.y + ty + ly, r, g, b, 1);
+    pushLine(pos, col, state.ship.x + p2x + lx, state.ship.y + p2y + ly, state.ship.x + tx + lx, state.ship.y + ty + ly, r, g, b, 1);
     lineVerts += 4;
   };
 
@@ -1483,10 +1507,10 @@ function drawFrameImpl(renderer, state, planet){
     }
 
     const tc = [1.0, 0.55, 0.15];
-    if (state.input.thrust) thrustV(0, 1, tc[0], tc[1], tc[2], shipHWorld * 0.2);
-    if (state.input.down) thrustV(0, -1, tc[0], tc[1], tc[2], shipHWorld * 0.35);
-    if (state.input.left) thrustV(-1, 0, tc[0], tc[1], tc[2], shipWWorld * 0.5);
-    if (state.input.right) thrustV(1, 0, tc[0], tc[1], tc[2], shipWWorld * 0.5);
+    if (state.input.thrust) thrustV(0, 1, tc[0], tc[1], tc[2], shipHWorld * 0.2, thrustLiftAll + thrustUpExtraDown);
+    if (state.input.down) thrustV(0, -1, tc[0], tc[1], tc[2], shipHWorld * 0.35, thrustLiftAll + thrustDownExtraUp);
+    if (state.input.left) thrustV(-1, 0, tc[0], tc[1], tc[2], shipWWorld * 0.5, thrustLiftAll);
+    if (state.input.right) thrustV(1, 0, tc[0], tc[1], tc[2], shipWWorld * 0.5, thrustLiftAll);
   }
 
   if (state.ship.state === "flying"){

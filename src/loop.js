@@ -76,6 +76,7 @@ export class GameLoop {
       hpCur: GAME.SHIP_STARTING_MAX_HP,
       bombsCur: GAME.SHIP_STARTING_MAX_BOMBS,
       heat: 0,
+      invertT: 0,
       hitCooldown: 0,
       cabinSide: 1,
       guidePath: null,
@@ -153,7 +154,10 @@ export class GameLoop {
     });
 
     this._spawnMiners();
-    this._pruneMoltenVents();
+    this.planet.reconcileFeatures({
+      enemies: this.enemies.enemies,
+      miners: this.miners,
+    });
 
     this.lastTime = performance.now();
     this.accumulator = 0;
@@ -183,6 +187,11 @@ export class GameLoop {
       },
       onShipCrash: () => {
         this._triggerCrash();
+      },
+      onShipConfuse: (duration) => {
+        if (this.ship.state === "crashed") return;
+        const d = Math.max(0.1, duration || 0);
+        this.ship.invertT = Math.max(this.ship.invertT || 0, d);
       },
       onEnemyHit: (enemy, x, y) => {
         enemy.hp = Math.max(0, enemy.hp - 1);
@@ -288,6 +297,7 @@ export class GameLoop {
     this.ship.hpCur = this.ship.hpMax;
     this.ship.bombsCur = this.ship.bombsMax;
     this.ship.heat = 0;
+    this.ship.invertT = 0;
     this.ship.hitCooldown = 0;
     this.ship.dropshipMiners = 0;
     this.ship.dropshipPilots = 0;
@@ -714,20 +724,6 @@ export class GameLoop {
   /**
    * @returns {void}
    */
-  _pruneMoltenVents(){
-    const cfg = this.planet.getPlanetConfig ? this.planet.getPlanetConfig() : null;
-    if (!cfg || cfg.id !== "molten") return;
-    const points = [];
-    for (const e of (this.enemies ? this.enemies.enemies : [])){
-      points.push({ x: e.x, y: e.y });
-    }
-    for (const m of this.miners){
-      points.push({ x: m.x, y: m.y });
-    }
-    console.log("[Vents] prune inputs", { enemies: this.enemies.enemies.length, miners: this.miners.length });
-    this.planet.pruneMoltenVentsAgainstPoints(points);
-  }
-
   /**
    * @param {number} level 
    * @returns {PlanetConfig}
@@ -784,7 +780,10 @@ export class GameLoop {
     this._resetShip();
     this.entityExplosions.length = 0;
     this._spawnMiners();
-    this._pruneMoltenVents();
+    this.planet.reconcileFeatures({
+      enemies: this.enemies.enemies,
+      miners: this.miners,
+    });
     this.minerPopups.length = 0;
     this.planet.clearFeatureParticles();
   }
@@ -884,7 +883,10 @@ export class GameLoop {
     const shipHWorld = 0.7 * GAME.SHIP_SCALE;
     const shipWWorld = 0.75 * GAME.SHIP_SCALE;
     const bodyLiftN = 0.18;
-    const cargoTopN = 0.18;
+    const cargoHeightScale = 2.0;
+    const cargoBottomN = -0.35;
+    const cargoHeightN = (0.18 - cargoBottomN) * cargoHeightScale;
+    const cargoTopN = cargoBottomN + cargoHeightN;
     const gstrutHN = 0.12;
     const gunLiftN = 0.04;
     const localX = 0;
@@ -900,12 +902,17 @@ export class GameLoop {
   _shipLocalHullPoints(){
     const shipHWorld = 0.7 * GAME.SHIP_SCALE;
     const shipWWorld = 0.7 * GAME.SHIP_SCALE;
-    const bodyLift = shipHWorld * 0.18;
-    const cargoTop = shipHWorld * 0.18;
-    const cargoBottom = -shipHWorld * 0.4;
-    const bottomHalfW = shipWWorld * 0.87;
-    const topHalfW = shipWWorld * 0.65;
-    const cabSide = this.ship.cabinSide || 1;
+    const bodyLiftN = 0.18;
+    const bodyLift = shipHWorld * bodyLiftN;
+    const cargoHeightScale = 2.0;
+    const cargoWidthScale = 2 / 3;
+    const cargoBottomN = -0.35;
+    const cargoHeightN = (0.18 - cargoBottomN) * cargoHeightScale;
+    const cargoTopN = cargoBottomN + cargoHeightN;
+    const cargoBottom = shipHWorld * cargoBottomN - bodyLift;
+    const cargoTop = shipHWorld * cargoTopN - bodyLift;
+    const bottomHalfW = shipWWorld * 0.87 * cargoWidthScale;
+    const topHalfW = shipWWorld * 0.65 * cargoWidthScale * 0.8;
     const topRight = topHalfW;
     const topLeft = -topHalfW;
     return [
@@ -964,6 +971,15 @@ export class GameLoop {
       aim = aimAdjusted;
       aimShoot = aimAdjusted;
       aimBomb = aimAdjusted;
+    }
+    if (this.ship.invertT > 0){
+      this.ship.invertT = Math.max(0, this.ship.invertT - dt);
+      const tmp = left;
+      left = right;
+      right = tmp;
+      const tmp2 = thrust;
+      thrust = down;
+      down = tmp2;
     }
     if (!aim && this.lastAimScreen){
       aim = this.lastAimScreen;
