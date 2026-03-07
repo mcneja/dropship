@@ -1113,8 +1113,8 @@ function drawFrameImpl(renderer, state, planet){
     {
       const rotCos = Math.cos(state.mothership.angle);
       const rotSin = Math.sin(state.mothership.angle);
-      const minerLocalRangeX = 3;
-      const minerLocalCenterX = 0.55;
+      const minerLocalRangeX = 3.5;
+      const minerLocalCenterX = 0.25;
       const minerLocalY = 0.8;
       const numMinersVisible = Math.min(state.ship.mothershipMiners, 20);
       const numPilotsVisible = state.ship.mothershipPilots;
