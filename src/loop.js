@@ -1289,7 +1289,7 @@ export class GameLoop {
           this._beginLevel(nextSeed, 1);
         }
       } else if (this._isDockedWithMothership()) {
-        if (this.pendingPerkChoicesRemaining){
+        if (this.pendingPerkChoice === null && this.pendingPerkChoicesRemaining > 0){
           this._presentNextPerkChoice();
         } else if (this.levelAdvanceReady){
           const nextSeed = this.planet.getSeed() + 1;
