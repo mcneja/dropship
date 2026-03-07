@@ -52,6 +52,9 @@ const MUSIC_CROSSFADE_MS = 1400;
 const COMBAT_TRIGGER_MIN_MS = 24000;
 const COMBAT_TRIGGER_MAX_MS = 48000;
 const COMBAT_RETRIGGER_COOLDOWN_MS = 18000;
+const THRUST_LOOP_GAIN = 0.25;
+const THRUST_LOOP_FADE_IN_MS = 90;
+const THRUST_LOOP_FADE_OUT_MS = 320;
 
 const MAX_PENDING_SFX = 24;
 const DEFAULT_SFX_POOL_SIZE = 3;
@@ -148,12 +151,13 @@ export class BackgroundMusic {
     this.victoryAudio.addEventListener("ended", () => this._onVictoryEnded());
 
     this.thrustLoopRequested = false;
+    this.thrustLoopAudible = false;
     const thrustTemplateUrl = SFX_PLACEHOLDER_URLS.ship_thrust_loop;
     this.thrustLoopAudio = thrustTemplateUrl ? new Audio(thrustTemplateUrl) : null;
     if (this.thrustLoopAudio){
       this.thrustLoopAudio.loop = true;
       this.thrustLoopAudio.preload = "auto";
-      this.thrustLoopAudio.volume = Math.max(0, Math.min(1, this.sfxMasterVolume * 0.5));
+      this.thrustLoopAudio.volume = 0;
     }
 
     /** @type {Map<HTMLAudioElement, number>} */
@@ -192,8 +196,11 @@ export class BackgroundMusic {
       if (document.hidden){
         this._pauseAllMusic();
         if (this.thrustLoopAudio){
+          this._cancelFade(this.thrustLoopAudio);
           this.thrustLoopAudio.pause();
+          this.thrustLoopAudio.volume = 0;
         }
+        this.thrustLoopAudible = false;
         return;
       }
       this._playModeIfEnabled();
@@ -532,14 +539,30 @@ export class BackgroundMusic {
   _syncThrustLoopPlayback(){
     if (!this.thrustLoopAudio) return;
     const shouldPlay = this.sfxEnabled && this.thrustLoopRequested && !document.hidden;
-    if (!shouldPlay){
-      this.thrustLoopAudio.pause();
+    const targetVolume = Math.max(0, Math.min(1, this.sfxMasterVolume * THRUST_LOOP_GAIN));
+    if (shouldPlay === this.thrustLoopAudible){
+      if (shouldPlay){
+        if (this.thrustLoopAudio.paused){
+          this._playAudio(this.thrustLoopAudio);
+        }
+        this.thrustLoopAudio.volume = targetVolume;
+      }
       return;
     }
-    const maybePromise = this.thrustLoopAudio.play();
-    if (maybePromise && typeof maybePromise.then === "function"){
-      maybePromise.catch(() => {});
+
+    this.thrustLoopAudible = shouldPlay;
+    if (shouldPlay){
+      if (this.thrustLoopAudio.paused){
+        this._playAudio(this.thrustLoopAudio);
+      }
+      this._fadeAudio(this.thrustLoopAudio, targetVolume, THRUST_LOOP_FADE_IN_MS);
+      return;
     }
+
+    this._fadeAudio(this.thrustLoopAudio, 0, THRUST_LOOP_FADE_OUT_MS, () => {
+      if (!this.thrustLoopAudio || this.thrustLoopAudible) return;
+      this.thrustLoopAudio.pause();
+    });
   }
 
   /**
@@ -547,7 +570,9 @@ export class BackgroundMusic {
    * @returns {boolean}
    */
   setThrustLoopActive(active){
-    this.thrustLoopRequested = !!active;
+    const next = !!active;
+    if (next === this.thrustLoopRequested) return this.thrustLoopRequested;
+    this.thrustLoopRequested = next;
     this._syncThrustLoopPlayback();
     return this.thrustLoopRequested;
   }

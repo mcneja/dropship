@@ -1981,16 +1981,37 @@ export class Planet {
    * @returns {{path:Array<{x:number, y:number}>, indexClosest: number}|null}
    */
   surfaceGuidePathTo(x, y, maxDistance) {
-    const pos = this._posClosestForPath(x, y);
+    /**
+     * Snap candidate path point to the gameplay radial surface and reject
+     * points that do not straddle a real air/rock boundary.
+     * @param {number} sx
+     * @param {number} sy
+     * @returns {{x:number,y:number}|null}
+     */
+    const projectToRadialSurface = (sx, sy) => {
+      const pos = this.posClosest(sx, sy);
+      if (!pos) return null;
+      const info = this.surfaceInfoAtWorld(pos.x, pos.y, 0.18);
+      if (!info) return null;
+      const airProbe = 0.08;
+      const ax = pos.x + info.nx * airProbe;
+      const ay = pos.y + info.ny * airProbe;
+      const bx = pos.x - info.nx * airProbe;
+      const by = pos.y - info.ny * airProbe;
+      if (this.airValueAtWorld(ax, ay) <= 0.5) return null;
+      if (this.airValueAtWorld(bx, by) > 0.5) return null;
+      return pos;
+    };
+
+    const posRaw = this._posClosestForPath(x, y);
+    if (!posRaw) return null;
+    const pos = projectToRadialSurface(posRaw.x, posRaw.y);
     if (!pos) return null;
     if (Math.hypot(pos.x, pos.y) > this.planetRadius + 0.02) return null;
 
     /** @type {Array<{x:number, y:number}>} */
     const path = [{x: pos.x, y: pos.y}];
     let indexClosest = 0;
-
-    let px = pos.x;
-    let py = pos.y;
 
     /**
      * @param {number} x 
@@ -2025,7 +2046,9 @@ export class Planet {
       if (dotUp <= 0.5) return null;
       const qx = px + n.ny * -stepSize;
       const qy = py + n.nx *  stepSize;
-      const posNext = this._posClosestForPath(qx, qy);
+      const posNextRaw = this._posClosestForPath(qx, qy);
+      if (!posNextRaw) return null;
+      const posNext = projectToRadialSurface(posNextRaw.x, posNextRaw.y);
       if (!posNext) return null;
       if (Math.hypot(posNext.x, posNext.y) > this.planetRadius + 0.02) return null;
       if (Math.hypot(posNext.x - x, posNext.y - y) > maxDistance) return null;
@@ -2038,6 +2061,8 @@ export class Planet {
     while (path.length < maxPointsPos) {
       const posExtend = tryGetStep(path[0].x, path[0].y, stepSize);
       if (!posExtend) break;
+      const head = path[0];
+      if (Math.hypot(posExtend.x - head.x, posExtend.y - head.y) < 1e-4) break;
       path.unshift(posExtend);
       ++indexClosest;
     }
@@ -2046,6 +2071,8 @@ export class Planet {
     while (path.length < maxPointsNeg) {
       const posExtend = tryGetStep(path[path.length-1].x, path[path.length-1].y, -stepSize);
       if (!posExtend) break;
+      const tail = path[path.length - 1];
+      if (Math.hypot(posExtend.x - tail.x, posExtend.y - tail.y) < 1e-4) break;
       path.push(posExtend);
     }
 
