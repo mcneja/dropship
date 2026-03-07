@@ -85,7 +85,7 @@
  * @property {number} y
  * @property {number} jumpCycle
  * @property {"miner"|"pilot"|"engineer"} type
- * @property {"idle"|"running"|"boarded"} state
+ * @property {"idle"|"running"} state
  */
 
 /**

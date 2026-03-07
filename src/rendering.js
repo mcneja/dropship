@@ -1148,7 +1148,6 @@ function drawFrameImpl(renderer, state, planet){
 
   if (state.miners && state.miners.length){
     for (const miner of state.miners){
-      if (miner.state === "boarded") continue;
       if (state.fogEnabled && !planet.fogSeenAt(miner.x, miner.y)) continue;
       const [r, g, b] = minerColor(miner.type);
       triVerts += pushMiner(pos, col, miner.x, miner.y, miner.jumpCycle, r, g, b, game.MINER_SCALE, false, 1/16) * 3;
@@ -1492,7 +1491,6 @@ function drawFrameImpl(renderer, state, planet){
       let closestRescuee = null;
       let closestDistSqr = Infinity;
       for (const miner of state.miners){
-        if (miner.state === "boarded") continue;
         const dx = miner.x - state.ship.x;
         const dy = miner.y - state.ship.y;
         const distSqr = dx*dx + dy*dy;

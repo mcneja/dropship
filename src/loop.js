@@ -310,7 +310,6 @@ export class GameLoop {
     this.minerPopups.length = 0;
     this.shipHitPopups.length = 0;
     this.planet.clearFeatureParticles();
-    this.minersDead = 0;
     this.lastAimWorld = null;
     this.lastAimScreen = null;
     this.lastHeat = 0;
@@ -352,6 +351,12 @@ export class GameLoop {
         life: 2.5 + Math.random() * 1.5,
       });
     }
+    this.minersDead += this.ship.dropshipMiners;
+    this.minersDead += this.ship.dropshipPilots;
+    this.minersDead += this.ship.dropshipEngineers;
+    this.ship.dropshipMiners = 0;
+    this.ship.dropshipPilots = 0;
+    this.ship.dropshipEngineers = 0;
   }
 
   /**
@@ -576,7 +581,6 @@ export class GameLoop {
     }
     for (let j = this.miners.length - 1; j >= 0; j--){
       const m = this.miners[j];
-      if (m.state === "boarded") continue;
       const dx = m.x - x;
       const dy = m.y - y;
       if (dx * dx + dy * dy <= r2){
@@ -614,7 +618,6 @@ export class GameLoop {
     }
     for (let j = this.miners.length - 1; j >= 0; j--){
       const m = this.miners[j];
-      if (m.state === "boarded") continue;
       const dx = m.x - x;
       const dy = m.y - y;
       if (dx * dx + dy * dy <= r2){
@@ -815,7 +818,6 @@ export class GameLoop {
   _nudgeMinersFromTerrain(){
     for (let i = this.miners.length - 1; i >= 0; i--){
       const m = this.miners[i];
-      if (m.state === "boarded") continue;
       const res = this.planet.nudgeOutOfTerrain(m.x, m.y);
       if (!res.ok){
         this.miners.splice(i, 1);
@@ -1449,7 +1451,6 @@ export class GameLoop {
         if (i >= this.playerShots.length) continue;
         for (let j = this.miners.length - 1; j >= 0; j--){
           const m = this.miners[j];
-          if (m.state === "boarded") continue;
           const dx = m.x - s.x;
           const dy = m.y - s.y;
           if (dx * dx + dy * dy <= this.PLAYER_SHOT_RADIUS * this.PLAYER_SHOT_RADIUS){
@@ -1494,7 +1495,6 @@ export class GameLoop {
           if (!hit){
             for (let j = this.miners.length - 1; j >= 0; j--){
               const m = this.miners[j];
-              if (m.state === "boarded") continue;
               const dx = m.x - b.x;
               const dy = m.y - b.y;
               if (dx * dx + dy * dy <= this.PLAYER_BOMB_RADIUS * this.PLAYER_BOMB_RADIUS){
@@ -1548,8 +1548,8 @@ export class GameLoop {
 
     const landed = this.ship.state === "landed";
 
-    for (const miner of this.miners){
-      if (miner.state === "boarded") continue;
+    for (let i = this.miners.length - 1; i >= 0; i--){
+      const miner = this.miners[i];
 
       let indexPathMiner = null;
       if (landed && miner.x >= guidePathMinX && miner.y >= guidePathMinY && miner.x <= guidePathMaxX && miner.y <= guidePathMaxY) {
@@ -1588,7 +1588,6 @@ export class GameLoop {
       const headY = miner.y + upy * this.MINER_HEAD_OFFSET;
       const hullDist = this._shipHullDistance(headX, headY, this.ship.x, this.ship.y);
       if (landed && hullDist <= GAME.MINER_BOARD_RADIUS){
-        miner.state = "boarded";
         if (miner.type === "miner"){
           ++this.ship.dropshipMiners;
         } else if (miner.type === "pilot"){
@@ -1607,6 +1606,7 @@ export class GameLoop {
           vy: upy * GAME.MINER_POPUP_SPEED + ty * jitter,
           life: GAME.MINER_POPUP_LIFE,
         });
+        this.miners.splice(i, 1);
       }
     }
 
@@ -1915,9 +1915,8 @@ export class GameLoop {
    * @returns {void}
    */
   _rescueAll(){
-    for (const miner of this.miners){
-      if (miner.state === "boarded") continue;
-      miner.state = "boarded";
+    for (let i = this.miners.length - 1; i >= 0; i--){
+      const miner = this.miners[i];
       if (miner.type === "miner"){
         ++this.ship.dropshipMiners;
       } else if (miner.type === "pilot"){
@@ -1926,6 +1925,7 @@ export class GameLoop {
         ++this.ship.dropshipEngineers;
       }
       this.minersRemaining = Math.max(0, this.minersRemaining - 1);
+      this.miners.splice(i, 1);
     }
   }
 
@@ -2147,4 +2147,3 @@ function moveAlongPathNegative(path, indexPath, distRemaining, indexPathMin) {
 
   return indexPath;
 }
-
