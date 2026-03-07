@@ -1022,11 +1022,11 @@ export class GameLoop {
 
   /**
    * @param {number} seed
-   * @param {boolean} advanceLevel
+   * @param {number} level
    * @returns {void}
    */
-  _beginLevel(seed, advanceLevel){
-    if (advanceLevel) this.level++;
+  _beginLevel(seed, level){
+    this.level = level;
     const planetConfig = this._planetConfigFromLevel(this.level);
     const planetParams = resolvePlanetParams(seed, this.level, planetConfig, GAME);
     this.planet = new Planet({ seed, planetConfig, planetParams });
@@ -1288,7 +1288,7 @@ export class GameLoop {
           this._presentNextPerkChoice();
         } else if (this.levelAdvanceReady){
           const nextSeed = this.planet.getSeed() + 1;
-          this._beginLevel(nextSeed, true);
+          this._beginLevel(nextSeed, this.level + 1);
         }
       }
     }
@@ -2061,11 +2061,11 @@ export class GameLoop {
 
     if (inputState.regen){
       const nextSeed = this.planet.getSeed() + 1;
-      this._beginLevel(nextSeed, false);
+      this._beginLevel(nextSeed, this.level);
     }
     if (inputState.nextLevel){
       const nextSeed = this.planet.getSeed() + 1;
-      this._beginLevel(nextSeed, true);
+      this._beginLevel(nextSeed, this.level + 1);
     }
     if (inputState.toggleDebug){
       this.debugCollisions = !this.debugCollisions;
