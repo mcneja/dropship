@@ -56,6 +56,7 @@
  * @property {number} bombsMax
  * @property {number} thrust
  * @property {boolean} rescueeDetector
+ * @property {boolean} planetScanner
  * 
  * @property {Array<[number,number,boolean,number]>|null} [_samples]
  * @property {{x:number,y:number,tri?:Array<{x:number,y:number}>|null,node?:{x:number,y:number}|null}|null} [_collision]

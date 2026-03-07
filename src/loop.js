@@ -96,6 +96,7 @@ export class GameLoop {
       bombsMax: GAME.SHIP_STARTING_MAX_BOMBS,
       thrust: 0,
       rescueeDetector: false,
+      planetScanner: false,
     };
     this.mothership = mothership;
     /** @type {Array<{x:number,y:number,vx:number,vy:number,a:number,w:number,life:number}>} */
@@ -1084,6 +1085,7 @@ export class GameLoop {
       this.ship.bombsCur = GAME.SHIP_STARTING_MAX_BOMBS;
       this.ship.thrust = 0;
       this.ship.rescueeDetector = false;
+      this.ship.planetScanner = false;
     }
   }
 
@@ -1288,6 +1290,8 @@ export class GameLoop {
         } else if (this.levelAdvanceReady){
           const nextSeed = this.planet.getSeed() + 1;
           this._beginLevel(nextSeed, this.level + 1);
+        } else if (this.ship.planetScanner){
+          this.planetView = !this.planetView;
         }
       }
     }
@@ -1296,6 +1300,14 @@ export class GameLoop {
     if (this.pendingPerkChoice !== null){
       this._handlePerkChoiceInput(left, right);
       return;
+    }
+
+    // Cancel flight input while viewing planet
+    if (this.planetView){
+      left = false;
+      right = false;
+      thrust = false;
+      down = false;
     }
 
     // Handle control inversion
@@ -1329,8 +1341,6 @@ export class GameLoop {
         this.enemies.spawnDebug(type, sx, sy);
       }
     }
-    if (left && !right) this.ship.cabinSide = -1;
-    if (right && !left) this.ship.cabinSide = 1;
     const planetCfg = this.planet && this.planet.getPlanetConfig ? this.planet.getPlanetConfig() : null;
 
     if (this.ship.state === "landed" && this.ship._dock && this.mothership){
@@ -1375,6 +1385,9 @@ export class GameLoop {
     }
 
     if (this.ship.state === "flying"){
+      if (left && !right) this.ship.cabinSide = -1;
+      if (right && !left) this.ship.cabinSide = 1;
+
       let ax = 0, ay = 0;
       const r = Math.hypot(this.ship.x, this.ship.y) || 1;
       const rx = this.ship.x / r;
@@ -2189,29 +2202,31 @@ export class GameLoop {
    */
   _objectivePromptText(inputType){
     const type = inputType || "keyboard";
+    const resetButtonPrefix =
+      (type === "touch") ? "Tap Restart to " :
+      (type === "gamepad") ? "Press Start to " :
+      "Press R to ";
     if (this.pendingPerkChoice){
       if (type === "touch") return "Choose upgrade: use left/right thrust controls.";
       if (type === "gamepad") return "Choose upgrade: press left/right.";
       return "Choose upgrade: press left/right.";
     } else if (this.ship.state === "crashed"){
       if (this.ship.mothershipPilots > 0){
-        if (type === "touch") return "Tap Restart to launch a new dropship.";
-        if (type === "gamepad") return "Press Start to launch a new dropship.";
-        return "Press R to launch a new dropship.";
+        return resetButtonPrefix + "launch a new dropship.";
       } else {
-        if (type === "touch") return "No more pilots! Tap Restart to start a new game.";
-        else if (type === "gamepad") return "No more pilots! Press Start to start a new game.";
-        else return "No more pilots! Press R to start a new game.";
+        return resetButtonPrefix + "start a new game.";
       }
     } else if (this._isDockedWithMothership()) {
       if (this.pendingPerkChoicesRemaining > 0){
-          if (type === "touch") return "Tap Restart to choose an upgrade.";
-          if (type === "gamepad") return "Press Start to choose an upgrade.";
-          return "Press R to choose an upgrade.";
+        return resetButtonPrefix + "choose an upgrade.";
       } else if (this.levelAdvanceReady){
-        if (type === "touch") return "Objective complete! Tap Restart to fly to next planet.";
-        if (type === "gamepad") return "Objective complete! Press Start to fly to next planet.";
-        return "Objective complete! Press R to fly to next planet.";
+        return resetButtonPrefix + "fly to next planet.";
+      } else if (this.ship.planetScanner){
+        if (this.planetView){
+          return resetButtonPrefix + "exit planet scan.";
+        } else {
+          return resetButtonPrefix + "view planet scan.";
+        }
       }
     } else if (this._objectiveComplete()) {
         return "Objective complete! Return to mothership.";
@@ -2274,6 +2289,9 @@ export class GameLoop {
     if (!this.ship.rescueeDetector){
       perksAvailable.push("rescueeDetector");
     }
+    if (!this.ship.planetScanner){
+      perksAvailable.push("planetScanner");
+    }
     return perksAvailable;
   }
 
@@ -2303,6 +2321,7 @@ export class GameLoop {
     if (perk === "bombsMax") return "Expanded payload bay: +1 max bomb";
     if (perk === "thrust") return "Engine tune-up: +10% thrust power";
     if (perk === "rescueeDetector") return "Rescuee detector: locate stranded crew";
+    if (perk === "planetScanner") return "Planet scanner: scan planet from mothership";
     return perk;
   }
 
@@ -2333,6 +2352,8 @@ export class GameLoop {
       ++this.ship.thrust;
     } else if (perk === "rescueeDetector"){
       this.ship.rescueeDetector = true;
+    } else if (perk === "planetScanner"){
+      this.ship.planetScanner = true;
     }
   }
 
