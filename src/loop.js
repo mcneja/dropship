@@ -1092,6 +1092,9 @@ export class GameLoop {
       this.ship.gunPower = GAME.SHIP_STARTING_GUN_POWER;
       this.ship.rescueeDetector = false;
       this.ship.planetScanner = false;
+
+      this.pendingPerkChoice = null;
+      this.pendingPerkChoicesRemaining = 0;
     }
   }
 
