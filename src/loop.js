@@ -562,7 +562,8 @@ export class GameLoop {
   _applyBombImpact(x, y){
     const cfg = this.planet ? this.planet.getPlanetConfig() : null;
     if (cfg && cfg.flags && cfg.flags.disableTerrainDestruction) return;
-    this.planet.applyAirEdit(x, y, this.TERRAIN_IMPACT_RADIUS, 1);
+    const newAir = this.planet.applyAirEdit(x, y, this.TERRAIN_IMPACT_RADIUS, 1);
+    if (newAir) this.renderer.updateAir(newAir);
   }
 
   /**
