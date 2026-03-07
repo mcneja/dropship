@@ -367,7 +367,9 @@ export class GameLoop {
     this.ship.dropshipMiners = 0;
     this.ship.dropshipPilots = 0;
     this.ship.dropshipEngineers = 0;
-    this.ship._dock = {lx: GAME.MOTHERSHIP_START_DOCK_X, ly: GAME.MOTHERSHIP_START_DOCK_Y};
+    if (this.ship._dock === null){
+      this.ship._dock = {lx: GAME.MOTHERSHIP_START_DOCK_X, ly: GAME.MOTHERSHIP_START_DOCK_Y};
+    }
     this.debris.length = 0;
     this.playerShots.length = 0;
     this.playerBombs.length = 0;
@@ -1607,7 +1609,7 @@ export class GameLoop {
                 this.ship.vx = this.mothership.vx;
                 this.ship.vy = this.mothership.vy;
                 // If docked inside the mothership, replenish health and bombs.
-                if (ly2 > 0.5) {
+                if (this._isDockedWithMothership()) {
                   this._onSuccessfullyDocked();
                 }
                 landedNow = true;
@@ -2255,7 +2257,8 @@ export class GameLoop {
    * @returns {boolean}
    */
   _isDockedWithMothership(){
-    return (this.ship.state === "landed" && this.ship._dock !== null);
+    // need to be docked inside mothership, not on the roof
+    return (this.ship.state === "landed" && this.ship._dock !== null && this.ship._dock.ly > 0.5);
   }
 
   /**
@@ -2340,11 +2343,9 @@ export class GameLoop {
    * @returns {void}
    */
   _handlePerkChoiceInput(leftPressed, rightPressed){
-    if (leftPressed && !rightPressed && this.pendingPerkChoice.length > 0) {
-      this._applyPerk(this.pendingPerkChoice[0].perk);
-      this.pendingPerkChoice = null;
-    } else if (!leftPressed && rightPressed && this.pendingPerkChoice.length > 1) {
-      this._applyPerk(this.pendingPerkChoice[1].perk);
+    const i = leftPressed ? 0 : rightPressed ? 1 : 2;
+    if (i < this.pendingPerkChoice.length){
+      this._applyPerk(this.pendingPerkChoice[i].perk);
       this.pendingPerkChoice = null;
     }
   }
