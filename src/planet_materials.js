@@ -447,6 +447,7 @@ function pruneMoltenVentsAgainstPoints(planet, props, points){
  * @property {import("./types.d.js").Miner[]} miners
  * @property {(x:number,y:number)=>void} [onShipDamage]
  * @property {(amount:number)=>void} [onShipHeat]
+ * @property {(duration:number)=>void} [onShipConfuse]
  * @property {(enemy:{x:number,y:number,hp:number,hitT?:number}, x:number, y:number)=>void} [onEnemyHit]
  * @property {(miner:import("./types.d.js").Miner)=>void} [onMinerKilled]
  */
@@ -623,7 +624,6 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
       if (hitProp){
         const info = mushroomHazard.burst(hitProp);
         triggerMushroomBurst(info);
-        if (callbacks.onShipConfuse) callbacks.onShipConfuse(tuning.mushroom.confuseTime);
         hit = true;
       }
     }
@@ -632,7 +632,6 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
       if (bursts.length){
         hit = true;
         for (const info of bursts) triggerMushroomBurst(info);
-        if (callbacks.onShipConfuse) callbacks.onShipConfuse(tuning.mushroom.confuseTime);
       }
     }
     if (iceShardHazard){
@@ -697,6 +696,11 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
       }
     }
     if (mushroomHazard){
+      const exposed = mushroomHazard.breakIfExposed(planet, x, y, impactRadius + 0.4);
+      for (const info of exposed){
+        triggerMushroomBurst(info);
+        hit = true;
+      }
       const bursts = mushroomHazard.burstAllInRadius(x, y, Math.max(bombRadius, mushroomProximityRadius));
       if (bursts.length){
         hit = true;
@@ -876,6 +880,15 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
       if (p.life <= 0) {
         mush.splice(i, 1);
         continue;
+      }
+      if (state.ship){
+        const dxs = state.ship.x - p.x;
+        const dys = state.ship.y - p.y;
+        if (dxs * dxs + dys * dys <= hitR2){
+          if (state.onShipConfuse) state.onShipConfuse(tuning.mushroom.confuseTime);
+          mush.splice(i, 1);
+          continue;
+        }
       }
       if (!state.enemies) continue;
       for (let j = state.enemies.length - 1; j >= 0; j--){

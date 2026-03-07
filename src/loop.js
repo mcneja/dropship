@@ -1415,6 +1415,7 @@ export class GameLoop {
       miners: this.miners,
       onShipDamage: this.featureCallbacks.onShipDamage,
       onShipHeat: this.featureCallbacks.onShipHeat,
+      onShipConfuse: this.featureCallbacks.onShipConfuse,
       onEnemyHit: this.featureCallbacks.onEnemyHit,
       onMinerKilled: this.featureCallbacks.onMinerKilled,
     });

@@ -128,6 +128,7 @@ export class Planet {
    *  miners: import("./types.d.js").Miner[],
    *  onShipDamage?: (x:number, y:number)=>void,
    *  onShipHeat?: (amount:number)=>void,
+   *  onShipConfuse?: (duration:number)=>void,
    *  onEnemyHit?: (enemy:{x:number,y:number,hp:number,hitT?:number}, x:number, y:number)=>void,
    *  onMinerKilled?: (miner:import("./types.d.js").Miner)=>void,
    * }} state
