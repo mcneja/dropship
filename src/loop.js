@@ -215,7 +215,6 @@ export class GameLoop {
     this.fogEnabled = true;
     /** @type {Array<{perk:string,text:string}>|null} */
     this.pendingPerkChoice = null;
-    this.pendingPerkChoicesRemaining = 0;
   }
 
   /**
@@ -1130,6 +1129,8 @@ export class GameLoop {
       this.ship.gunPower = GAME.SHIP_STARTING_GUN_POWER;
       this.ship.rescueeDetector = false;
       this.ship.planetScanner = false;
+
+      this.pendingPerkChoice = null;
     }
   }
 
@@ -1329,7 +1330,7 @@ export class GameLoop {
           this._beginLevel(nextSeed, 1);
         }
       } else if (this._isDockedWithMothership()) {
-        if (this.pendingPerkChoice === null && this.pendingPerkChoicesRemaining > 0){
+        if (this.pendingPerkChoice === null && this.ship.mothershipEngineers > 0){
           this._presentNextPerkChoice();
         } else if (this.levelAdvanceReady){
           const nextSeed = this.planet.getSeed() + 1;
@@ -1603,7 +1604,7 @@ export class GameLoop {
                 const restitution = -vn;
                 this.ship.vx += restitution * nx;
                 this.ship.vy += restitution * ny;
-                const friction = this.planetParams.LAND_FRICTION * -vt;
+                const friction = this.planetParams.LAND_FRICTION * -vt * dt;
                 this.ship.vx += friction * -ny;
                 this.ship.vy += friction * nx;
               }
@@ -1689,7 +1690,7 @@ export class GameLoop {
                 const restitution = -vn;
                 relVx += restitution * nx;
                 relVy += restitution * ny;
-                const friction = this.planetParams.LAND_FRICTION * -vt;
+                const friction = GAME.MOTHERSHIP_FRICTION * -vt * dt;
                 relVx += friction * -ny;
                 relVy += friction * nx;
                 const vn2 = relVx * nx + relVy * ny;
@@ -2128,7 +2129,7 @@ export class GameLoop {
 
     this.levelAdvanceReady =
       this.pendingPerkChoice === null &&
-      this.pendingPerkChoicesRemaining <= 0 &&
+      this.ship.mothershipEngineers <= 0 &&
       this._objectiveComplete() &&
       this._isDockedWithMothership();
     this.input.setGameOver(this.ship.state === "crashed");
@@ -2275,7 +2276,7 @@ export class GameLoop {
         return "No more pilots! " + resetButtonPrefix + "start a new game.";
       }
     } else if (this._isDockedWithMothership()) {
-      if (this.pendingPerkChoicesRemaining > 0){
+      if (this.ship.mothershipEngineers > 0){
         return resetButtonPrefix + "choose an upgrade.";
       } else if (this.levelAdvanceReady){
         return resetButtonPrefix + "fly to next planet.";
@@ -2313,8 +2314,6 @@ export class GameLoop {
    * @returns {void}
    */
   _onSuccessfullyDocked(){
-    this.pendingPerkChoicesRemaining += this.ship.dropshipEngineers;
-
     this.ship.mothershipMiners += this.ship.dropshipMiners;
     this.ship.mothershipPilots += this.ship.dropshipPilots;
     this.ship.mothershipEngineers += this.ship.dropshipEngineers;
@@ -2386,12 +2385,11 @@ export class GameLoop {
    * @returns {void}
    */
   _presentNextPerkChoice(){
-    console.assert(this.pendingPerkChoicesRemaining > 0);
+    console.assert(this.ship.mothershipEngineers > 0);
     const perksAvailable = this._perksAvailable();
     const perkChoices = this._pickPerkChoices(perksAvailable);
     this.pendingPerkChoice = perkChoices.map((perk) => {return { perk: perk, text: this._perkChoiceText(perk)};});
-    --this.pendingPerkChoicesRemaining;
-    this.ship.mothershipEngineers = Math.max(0, this.ship.mothershipEngineers - 1);
+    --this.ship.mothershipEngineers;
   }
 
   /**
@@ -2453,6 +2451,10 @@ export class GameLoop {
       }
       this.minersRemaining = Math.max(0, this.minersRemaining - 1);
       this.miners.splice(i, 1);
+    }
+
+    if (this._isDockedWithMothership()){
+      this._onSuccessfullyDocked();
     }
   }
 

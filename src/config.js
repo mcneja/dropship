@@ -55,9 +55,9 @@ export const GAME = Object.freeze({
   CRASH_SPEED: 4.5,
   LAND_SPEED: 2.0,
   SURFACE_DOT: 0.7,
-  LAND_FRICTION: 0.3,
+  LAND_FRICTION: 10,
+  MOTHERSHIP_FRICTION: 10,
   BOUNCE_RESTITUTION: 0.1,
-  COLLIDE_PUSH_FAST: 0.08,
   /** @type {boolean} */
   DEBUG_COLLISION: false,
   /** @type {boolean} */
