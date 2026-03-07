@@ -76,6 +76,7 @@ export class GameLoop {
       hp: GAME.SHIP_MAX_HP,
       bombs: GAME.SHIP_MAX_BOMBS,
       heat: 0,
+      invertT: 0,
       hitCooldown: 0,
       cabinSide: 1,
       guidePath: null,
@@ -173,6 +174,11 @@ export class GameLoop {
       },
       onShipCrash: () => {
         this._triggerCrash();
+      },
+      onShipConfuse: (duration) => {
+        if (this.ship.state === "crashed") return;
+        const d = Math.max(0.1, duration || 0);
+        this.ship.invertT = Math.max(this.ship.invertT || 0, d);
       },
       onEnemyHit: (enemy, x, y) => {
         enemy.hp = Math.max(0, enemy.hp - 1);
@@ -278,6 +284,7 @@ export class GameLoop {
     this.ship.hp = GAME.SHIP_MAX_HP;
     this.ship.bombs = GAME.SHIP_MAX_BOMBS;
     this.ship.heat = 0;
+    this.ship.invertT = 0;
     this.ship.hitCooldown = 0;
     this.ship._dock = {lx: GAME.MOTHERSHIP_START_DOCK_X, ly: GAME.MOTHERSHIP_START_DOCK_Y};
     this.debris.length = 0;
@@ -947,6 +954,15 @@ export class GameLoop {
       aim = aimAdjusted;
       aimShoot = aimAdjusted;
       aimBomb = aimAdjusted;
+    }
+    if (this.ship.invertT > 0){
+      this.ship.invertT = Math.max(0, this.ship.invertT - dt);
+      const tmp = left;
+      left = right;
+      right = tmp;
+      const tmp2 = thrust;
+      thrust = down;
+      down = tmp2;
     }
     if (!aim && this.lastAimScreen){
       aim = this.lastAimScreen;
