@@ -1695,8 +1695,8 @@ function drawFrameImpl(renderer, state, planet){
         const tx = -0.5 * ny;
         const ty =  0.5 * nx;
 
-        pushLine(pos, col, mx, my, mx + s * (-nx - tx), my + s * (-ny - ty), r, g, b, 0.5);
-        pushLine(pos, col, mx, my, mx + s * (-nx + tx), my + s * (-ny + ty), r, g, b, 0.5);
+        pushLine(pos, col, mx, my, mx + s * (-nx - tx), my + s * (-ny - ty), r, g, b, 0.75);
+        pushLine(pos, col, mx, my, mx + s * (-nx + tx), my + s * (-ny + ty), r, g, b, 0.75);
         lineVerts += 4;
       }
     };
