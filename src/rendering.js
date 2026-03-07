@@ -920,6 +920,49 @@ function drawFrameImpl(renderer, state, planet){
     const cb = silverBottom[2] + (silverTop[2] - silverBottom[2]) * t;
     addTri(list, ax, ay, bx, by, cx, cy, cr, cg, cb, 1, outline);
   };
+  /**
+   * @param {{x:number,y:number,scale?:number,padNx?:number,padNy?:number}} p
+   */
+  const drawTurretPadProp = (p) => {
+    let ux;
+    let uy;
+    if (typeof p.padNx === "number" && typeof p.padNy === "number"){
+      ux = p.padNx;
+      uy = p.padNy;
+    } else {
+      const info = planet.surfaceInfoAtWorld ? planet.surfaceInfoAtWorld(p.x, p.y, 0.18) : null;
+      if (info){
+        ux = info.nx;
+        uy = info.ny;
+      }
+    }
+    let tx;
+    let ty;
+    if (ux !== undefined && uy !== undefined){
+      tx = -uy;
+      ty = ux;
+    } else {
+      const len = Math.hypot(p.x, p.y) || 1;
+      ux = p.x / len;
+      uy = p.y / len;
+      tx = -uy;
+      ty = ux;
+    }
+    const s = p.scale || 1;
+    const halfW = 0.55 * s;
+    const halfH = 0.12 * s;
+    const sink = halfH;
+    const cx = p.x - ux * sink;
+    const cy = p.y - uy * sink;
+    const toWorld = (x, y, lx, ly) => [x + tx * lx + ux * ly, y + ty * lx + uy * ly];
+    const a0 = toWorld(cx, cy, -halfW, -halfH);
+    const a1 = toWorld(cx, cy, halfW, -halfH);
+    const a2 = toWorld(cx, cy, halfW, halfH);
+    const a3 = toWorld(cx, cy, -halfW, halfH);
+    pushTri(pos, col, a0[0], a0[1], a1[0], a1[1], a2[0], a2[1], 0.28, 0.28, 0.30, 0.95);
+    pushTri(pos, col, a0[0], a0[1], a2[0], a2[1], a3[0], a3[1], 0.28, 0.28, 0.30, 0.95);
+    triVerts += 6;
+  };
   const appendShipGeometry = () => {
     if (state.ship.state === "crashed") return;
     {
@@ -1138,6 +1181,18 @@ function drawFrameImpl(renderer, state, planet){
     }
   }
 
+  {
+    const levelProps = planet.props;
+    if (levelProps && levelProps.length){
+      for (const p of levelProps){
+        if (p.type !== "turret_pad") continue;
+        if (p.dead || (typeof p.hp === "number" && p.hp <= 0)) continue;
+        if (state.fogEnabled && !planet.fogSeenAt(p.x, p.y)) continue;
+        drawTurretPadProp(p);
+      }
+    }
+  }
+
   appendShipGeometry();
   if (shipTris.length){
     for (const t of shipTris){
@@ -1328,35 +1383,7 @@ function drawFrameImpl(renderer, state, planet){
       const rot = (p.rot || 0) + (p.rotSpeed ? p.rotSpeed * now : 0);
       const s = p.scale || 1;
       if (p.type === "turret_pad"){
-        let ux, uy, tx, ty;
-        if (typeof p.padNx === "number" && typeof p.padNy === "number"){
-          ux = p.padNx;
-          uy = p.padNy;
-        } else {
-          const info = planet.surfaceInfoAtWorld ? planet.surfaceInfoAtWorld(p.x, p.y, 0.18) : null;
-          if (info){
-            ux = info.nx;
-            uy = info.ny;
-          }
-        }
-        if (ux !== undefined && uy !== undefined){
-          tx = -uy;
-          ty = ux;
-        } else {
-          ({ ux, uy, tx, ty } = basisAt(p.x, p.y));
-        }
-        const halfW = 0.55 * s;
-        const halfH = 0.12 * s;
-          const sink = halfH;
-          const cx = p.x - ux * sink;
-          const cy = p.y - uy * sink;
-          const a0 = toWorld(cx, cy, tx, ty, ux, uy, -halfW, -halfH);
-          const a1 = toWorld(cx, cy, tx, ty, ux, uy, halfW, -halfH);
-          const a2 = toWorld(cx, cy, tx, ty, ux, uy, halfW, halfH);
-          const a3 = toWorld(cx, cy, tx, ty, ux, uy, -halfW, halfH);
-        pushTri(pos, col, a0[0], a0[1], a1[0], a1[1], a2[0], a2[1], 0.28, 0.28, 0.30, 0.95);
-        pushTri(pos, col, a0[0], a0[1], a2[0], a2[1], a3[0], a3[1], 0.28, 0.28, 0.30, 0.95);
-        triVerts += 6;
+        continue;
       } else if (p.type === "boulder"){
         triVerts += pushPolyFan(pos, col, p.x, p.y, 0.3 * s, 7, rot, 0.45, 0.45, 0.48, 0.95) * 3;
         triVerts += pushPolyFan(pos, col, p.x, p.y, 0.18 * s, 7, rot, 0.35, 0.35, 0.37, 0.95) * 3;
