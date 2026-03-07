@@ -6,7 +6,7 @@ import { createCollisionRouter } from "./collision-router.js";
 import { CFG } from "./config.js";
 import { Mothership, updateMothership, mothershipCollisionInfo } from "./mothership.js";
 import { Planet } from "./planet.js";
-import { pickPlanetConfig, pickPlanetConfigById, resolvePlanetParams } from "./planet_config.js";
+import { pickPlanetConfig, pickPlanetConfigById, resolveLevelProgression, resolvePlanetParams } from "./planet_config.js";
 import { mulberry32 } from "./rng.js";
 
 /** @typedef {import("./types.d.js").ViewState} ViewState */
@@ -34,6 +34,7 @@ export class GameLoop {
     this.level = 1;
     // const seed = CFG.seed;
     const seed = performance.now();
+    this.progressionSeed = seed | 0;
     const planetConfig = this._planetConfigFromLevel(this.level);
     const planetParams = resolvePlanetParams(seed, this.level, planetConfig, GAME);
     this.planet = new Planet({ seed: seed, planetConfig, planetParams });
@@ -776,6 +777,8 @@ export class GameLoop {
     if (!factory || factory.dead || (factory.hp || 0) <= 0) return false;
     if (!this.enemies || !this.enemies.enemies) return false;
     const cfg = this.planet && this.planet.getPlanetConfig ? this.planet.getPlanetConfig() : null;
+    const maxEnemies = (cfg && typeof cfg.enemyCountCap === "number") ? Math.max(0, cfg.enemyCountCap | 0) : 30;
+    if (this._remainingCombatEnemies() >= maxEnemies) return false;
     const allow = (cfg && cfg.enemyAllow) ? cfg.enemyAllow : [];
     const pool = allow.filter((t) => t === "hunter" || t === "ranger" || t === "crawler");
     const type = pool.length ? pool[Math.floor(Math.random() * pool.length)] : "hunter";
@@ -1011,21 +1014,55 @@ export class GameLoop {
   }
 
   /**
-   * @returns {void}
+   * @param {PlanetConfig} base
+   * @param {{planetId?:PlanetTypeId,enemyTotal?:number,enemyCap?:number,enemyAllow?:Array<"hunter"|"ranger"|"crawler"|"turret"|"orbitingTurret">,enemyAllowAdd?:Array<"hunter"|"ranger"|"crawler"|"turret"|"orbitingTurret">,orbitingTurretCount?:number,platformCount?:number}|null} progression
+   * @returns {PlanetConfig}
    */
+  _applyProgressionOverrides(base, progression){
+    if (!progression) return base;
+    /** @type {PlanetConfig} */
+    const out = { ...base };
+    if (typeof progression.enemyTotal === "number"){
+      out.enemyCountBase = Math.max(0, Math.round(progression.enemyTotal));
+      out.enemyCountPerLevel = 0;
+      const cap = (typeof progression.enemyCap === "number") ? progression.enemyCap : out.enemyCountCap;
+      out.enemyCountCap = Math.max(out.enemyCountBase, Math.round(Math.max(0, cap)));
+    } else if (typeof progression.enemyCap === "number"){
+      out.enemyCountCap = Math.max(0, Math.round(progression.enemyCap));
+    }
+    if (Array.isArray(progression.enemyAllow)){
+      out.enemyAllow = progression.enemyAllow.slice();
+    }
+    if (Array.isArray(progression.enemyAllowAdd) && progression.enemyAllowAdd.length){
+      const merged = new Set(out.enemyAllow || []);
+      for (const type of progression.enemyAllowAdd){
+        merged.add(type);
+      }
+      out.enemyAllow = Array.from(merged);
+    }
+    if (typeof progression.orbitingTurretCount === "number"){
+      out.orbitingTurretCount = Math.max(0, Math.round(progression.orbitingTurretCount));
+    }
+    if (typeof progression.platformCount === "number"){
+      out.platformCount = Math.max(1, Math.round(progression.platformCount));
+    }
+    return out;
+  }
+
   /**
-   * @param {number} level 
+   * @param {number} level
    * @returns {PlanetConfig}
    */
   _planetConfigFromLevel(level){
+    const progression = resolveLevelProgression(this.progressionSeed || CFG.seed, level);
     /** @type {PlanetTypeId|undefined} */
-    const configOverride = undefined;
+    const configOverride = progression ? progression.planetId : undefined;
     const planetConfig =
       (configOverride !== undefined) ? pickPlanetConfigById(configOverride) :
       (level === 1) ? pickPlanetConfigById("barren_pickup") :
       (level === 2) ? pickPlanetConfigById("barren_clear") :
-      pickPlanetConfig(CFG.seed, this.level);
-    return planetConfig;
+      pickPlanetConfig(this.progressionSeed || CFG.seed, level);
+    return this._applyProgressionOverrides(planetConfig, progression);
   }
 
   /**
@@ -1035,6 +1072,9 @@ export class GameLoop {
    */
   _beginLevel(seed, level){
     this.level = level;
+    if (level === 1){
+      this.progressionSeed = seed | 0;
+    }
     const planetConfig = this._planetConfigFromLevel(this.level);
     const planetParams = resolvePlanetParams(seed, this.level, planetConfig, GAME);
     this.planet = new Planet({ seed, planetConfig, planetParams });
@@ -2102,7 +2142,12 @@ export class GameLoop {
       const nextSeed = this.planet.getSeed() + 1;
       this._beginLevel(nextSeed, this.level);
     }
-    if (inputState.nextLevel){
+    if (inputState.prevLevel){
+      if (this.level > 1){
+        const nextSeed = this.planet.getSeed() + 1;
+        this._beginLevel(nextSeed, this.level - 1);
+      }
+    } else if (inputState.nextLevel){
       const nextSeed = this.planet.getSeed() + 1;
       this._beginLevel(nextSeed, this.level + 1);
     }

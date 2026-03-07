@@ -63,10 +63,11 @@ export class Enemies {
    * @param {import("./types.d.js").CollisionQuery} deps.collision Collision query API.
    * @param {number} deps.total Initial enemy count to spawn.
    * @param {"uniform"|"random"|"clusters"} [deps.placement]
+   * @param {number} [deps.orbitingTurretCount]
    * @param {number} deps.level Current level index.
    * @param {number} deps.levelSeed Base seed for this level.
    */
-  constructor({ planet, collision, total, level, levelSeed, placement }){
+  constructor({ planet, collision, total, level, levelSeed, placement, orbitingTurretCount }){
     this.planet = planet;
     this.collision = collision;
     this.params = planet.getPlanetParams();
@@ -98,7 +99,7 @@ export class Enemies {
     this._CRAWLER_COLLIDER = circleOffsets(0.2, 6);
 
     this._placement = placement || "random";
-    this.spawn(total, level, levelSeed, this._placement);
+    this.spawn(total, level, levelSeed, this._placement, orbitingTurretCount);
   }
 
   /**
@@ -139,9 +140,11 @@ export class Enemies {
    * @param {number} total
    * @param {number} level
    * @param {number} levelSeed
+   * @param {"uniform"|"random"|"clusters"} [placement]
+   * @param {number} [orbitingTurretCount]
    * @returns {void}
    */
-  spawn(total, level, levelSeed, placement){
+  spawn(total, level, levelSeed, placement, orbitingTurretCount){
     this.enemies.length = 0;
     this.shots.length = 0;
     this.explosions.length = 0;
@@ -166,7 +169,12 @@ export class Enemies {
     let crawlers = Math.min(numEnemiesRemaining, Math.floor(total * 0.25));
     numEnemiesRemaining -= crawlers;
     let turrets = numEnemiesRemaining;
-    let orbitingTurrets = 8;
+    const cfgOrbiting = (planetCfg && typeof planetCfg.orbitingTurretCount === "number")
+      ? Math.max(0, Math.round(planetCfg.orbitingTurretCount))
+      : undefined;
+    let orbitingTurrets = (typeof orbitingTurretCount === "number")
+      ? Math.max(0, Math.round(orbitingTurretCount))
+      : (typeof cfgOrbiting === "number" ? cfgOrbiting : 8);
 
     let remainder = 0;
     if (!allowedSet.has("hunter")){ remainder += hunters; hunters = 0; }

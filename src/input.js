@@ -37,6 +37,7 @@ export class Input {
       toggleFog: false,
       reset: false,
       nextLevel: false,
+      prevLevel: false,
       shoot: false,
       bomb: false,
       rescueAll: false,
@@ -154,7 +155,10 @@ export class Input {
 
     if (key === "m" || key === "M") this.oneshot.regen = true;
     if (key === "c" || key === "C") this.oneshot.toggleDebug = true;
-    if (key === "n" || key === "N") this.oneshot.nextLevel = true;
+    if (key === "n" || key === "N"){
+      if (e.shiftKey) this.oneshot.prevLevel = true;
+      else this.oneshot.nextLevel = true;
+    }
     if (key === "r" || key === "R") this.oneshot.reset = true;
     if (key === "v" || key === "V") this.oneshot.togglePlanetView = true;
     if (key === "f" || key === "F") this.oneshot.toggleFog = true;
@@ -555,6 +559,7 @@ export class Input {
       togglePlanetView: this.oneshot.togglePlanetView,
       toggleFog: this.oneshot.toggleFog,
       nextLevel: this.oneshot.nextLevel,
+      prevLevel: this.oneshot.prevLevel,
       shoot: this.oneshot.shoot,
       bomb: this.oneshot.bomb,
       rescueAll: this.oneshot.rescueAll,
@@ -578,6 +583,7 @@ export class Input {
     this.oneshot.togglePlanetView = false;
     this.oneshot.toggleFog = false;
     this.oneshot.nextLevel = false;
+    this.oneshot.prevLevel = false;
     this.oneshot.shoot = false;
     this.oneshot.bomb = false;
     this.oneshot.rescueAll = false;

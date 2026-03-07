@@ -183,6 +183,7 @@
  * @property {boolean} togglePlanetView
  * @property {boolean} toggleFog
  * @property {boolean} nextLevel
+ * @property {boolean} prevLevel
  * @property {boolean} shoot
  * @property {boolean} bomb
  * @property {boolean} rescueAll
