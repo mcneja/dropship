@@ -218,11 +218,11 @@ export class GameLoop {
   }
 
   /**
+   * @param {PlanetConfig|null|undefined} cfg
    * @param {number} lvl
    * @returns {number}
    */
-  _totalEnemiesForLevel(lvl){
-    const cfg = this.planet ? this.planet.getPlanetConfig() : null;
+  _enemyTotalForConfig(cfg, lvl){
     const base = (cfg && typeof cfg.enemyCountBase === "number") ? cfg.enemyCountBase : 5;
     const per = (cfg && typeof cfg.enemyCountPerLevel === "number") ? cfg.enemyCountPerLevel : 5;
     const cap = (cfg && typeof cfg.enemyCountCap === "number") ? cfg.enemyCountCap : 30;
@@ -231,14 +231,32 @@ export class GameLoop {
   }
 
   /**
+   * @param {number} lvl
+   * @returns {number}
+   */
+  _totalEnemiesForLevel(lvl){
+    const cfg = this.planet ? this.planet.getPlanetConfig() : null;
+    return this._enemyTotalForConfig(cfg, lvl);
+  }
+
+  /**
+   * @param {PlanetConfig|null|undefined} cfg
+   * @param {number} lvl
+   * @returns {number}
+   */
+  _minerTargetForConfig(cfg, lvl){
+    const base = (cfg && typeof cfg.minerCountBase === "number") ? cfg.minerCountBase : 0;
+    const per = (cfg && typeof cfg.minerCountPerLevel === "number") ? cfg.minerCountPerLevel : 0;
+    const cap = (cfg && typeof cfg.minerCountCap === "number") ? cfg.minerCountCap : 0;
+    return Math.min(cap, base + Math.max(0, (lvl | 0) - 1) * per);
+  }
+
+  /**
    * @returns {number}
    */
   _targetMinersForLevel(){
     const cfg = this.planet ? this.planet.getPlanetConfig() : null;
-    const base = (cfg && typeof cfg.minerCountBase === "number") ? cfg.minerCountBase : 0;
-    const per = (cfg && typeof cfg.minerCountPerLevel === "number") ? cfg.minerCountPerLevel : 0;
-    const cap = (cfg && typeof cfg.minerCountCap === "number") ? cfg.minerCountCap : 0;
-    return Math.min(cap, base + Math.max(0, this.level - 1) * per);
+    return this._minerTargetForConfig(cfg, this.level);
   }
 
   /**
@@ -948,6 +966,47 @@ export class GameLoop {
         placed.push(pt);
         if (placed.length >= count) break;
       }
+      // If turret-clear pads are insufficient, fill from remaining pads so
+      // objective miners can still spawn on barren perimeter worlds.
+      if (placed.length < count){
+        for (const pt of pads){
+          if (placed.length >= count) break;
+          let exists = false;
+          for (const q of placed){
+            const dx = pt[0] - q[0];
+            const dy = pt[1] - q[1];
+            if (dx * dx + dy * dy < 1e-6){
+              exists = true;
+              break;
+            }
+          }
+          if (exists) continue;
+          placed.push(pt);
+        }
+      }
+      if (placed.length < count){
+        const extras = this.planet.sampleStandablePoints(
+          Math.max(count * 2, count),
+          seed + 71,
+          "uniform",
+          GAME.MINER_MIN_SEP,
+          false
+        );
+        for (const pt of extras){
+          if (placed.length >= count) break;
+          let exists = false;
+          for (const q of placed){
+            const dx = pt[0] - q[0];
+            const dy = pt[1] - q[1];
+            if (dx * dx + dy * dy < 1e-6){
+              exists = true;
+              break;
+            }
+          }
+          if (exists) continue;
+          placed.push(pt);
+        }
+      }
     } else {
       const standable = this.planet.getStandablePoints();
       if (cfg && cfg.id === "molten"){
@@ -1059,7 +1118,21 @@ export class GameLoop {
     const planetConfig =
       (configOverride !== undefined) ? pickPlanetConfigById(configOverride) :
       pickPlanetConfig(this.progressionSeed || CFG.seed, level);
-    return this._applyProgressionOverrides(planetConfig, progression);
+    const out = this._applyProgressionOverrides(planetConfig, progression);
+    // Scale barren turret-pad count with level progression, but never above
+    // this level's enemy total/cap budget.
+    if (out.id === "barren_pickup" || out.id === "barren_clear"){
+      const basePads = Math.max(1, Math.round(out.platformCount || 1));
+      const growth = Math.floor(Math.max(0, (level | 0) - 1) / 2);
+      const enemyBudget = Math.max(1, this._enemyTotalForConfig(out, level));
+      const minerBudget = Math.max(0, this._minerTargetForConfig(out, level));
+      // Barren perimeter worlds use pads for both turrets and miner spawn points.
+      // Budget pads against enemy + miner slots so miners always have room.
+      const platformBudget = enemyBudget + minerBudget;
+      const targetPads = Math.min(platformBudget, basePads + growth);
+      out.platformCount = Math.max(minerBudget, targetPads);
+    }
+    return out;
   }
 
   /**

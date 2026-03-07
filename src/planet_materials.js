@@ -1394,7 +1394,10 @@ function buildProps(mapgen, planetConfig, params, material){
   switch (planetConfig.id){
     case "barren_pickup":
     case "barren_clear": {
-      const count = Math.max(1, planetConfig.platformCount || 10);
+      const countRaw = (typeof planetConfig.platformCount === "number")
+        ? Math.round(planetConfig.platformCount)
+        : 10;
+      const count = Math.max(0, countRaw);
       for (let i = 0; i < count; i++){
         const a = (i / count) * Math.PI * 2;
         const r = params.RMAX * 0.98;
