@@ -2216,6 +2216,8 @@ export class GameLoop {
         if (type === "gamepad") return "Objective complete! Press Start to fly to next planet.";
         return "Objective complete! Press R to fly to next planet.";
       }
+    } else if (this._objectiveComplete()) {
+        return "Objective complete! Return to mothership.";
     }
     return "";
   }
