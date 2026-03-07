@@ -37,7 +37,6 @@ export class Input {
       toggleFog: false,
       reset: false,
       nextLevel: false,
-      advanceLevel: false,
       shoot: false,
       bomb: false,
       rescueAll: false,
@@ -76,8 +75,6 @@ export class Input {
     this.pointerLocked = false;
     /** @type {boolean} */
     this.gameOver = false;
-    /** @type {boolean} */
-    this.levelComplete = false;
 
     window.addEventListener("keydown", (e) => this._onKeyDown(e), { passive: false });
     window.addEventListener("keyup", (e) => this._onKeyUp(e), { passive: false });
@@ -130,14 +127,6 @@ export class Input {
   }
 
   /**
-   * @param {boolean} levelComplete
-   * @returns {void}
-   */
-  setLevelComplete(levelComplete){
-    this.levelComplete = levelComplete;
-  }
-
-  /**
    * @param {number} now
    * @returns {void}
    */
@@ -170,7 +159,6 @@ export class Input {
     if (key === "v" || key === "V") this.oneshot.togglePlanetView = true;
     if (key === "f" || key === "F") this.oneshot.toggleFog = true;
     if (key >= "1" && key <= "9") this.oneshot.spawnEnemyType = key;
-    if (this.levelComplete && (key === " " || key === "Space")) this.oneshot.advanceLevel = true;
     if (key === "p" || key === "P") this.oneshot.rescueAll = true;
   }
 
@@ -257,10 +245,6 @@ export class Input {
     this.canvas.setPointerCapture(e.pointerId);
     if (this.gameOver && this._inCircle(p, TOUCH_UI.start, TOUCH_UI.start.r)){
       this.oneshot.reset = true;
-      return;
-    }
-    if (this.levelComplete && this._inCircle(p, TOUCH_UI.start, TOUCH_UI.start.r)){
-      this.oneshot.advanceLevel = true;
       return;
     }
     if (this.leftControl.id === null && this._inCircle(p, TOUCH_UI.left, TOUCH_UI.left.r)){
@@ -560,11 +544,6 @@ export class Input {
       aim = aimShoot || aimBomb || null;
     }
 
-    if (this.levelComplete && g.reset){
-      this.oneshot.advanceLevel = true;
-      this.oneshot.reset = false;
-    }
-
     const state = {
       left,
       right,
@@ -576,7 +555,6 @@ export class Input {
       togglePlanetView: this.oneshot.togglePlanetView,
       toggleFog: this.oneshot.toggleFog,
       nextLevel: this.oneshot.nextLevel,
-      advanceLevel: this.oneshot.advanceLevel,
       shoot: this.oneshot.shoot,
       bomb: this.oneshot.bomb,
       rescueAll: this.oneshot.rescueAll,
@@ -600,7 +578,6 @@ export class Input {
     this.oneshot.togglePlanetView = false;
     this.oneshot.toggleFog = false;
     this.oneshot.nextLevel = false;
-    this.oneshot.advanceLevel = false;
     this.oneshot.shoot = false;
     this.oneshot.bomb = false;
     this.oneshot.rescueAll = false;
