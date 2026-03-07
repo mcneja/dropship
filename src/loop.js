@@ -2711,7 +2711,7 @@ export class GameLoop {
       ctx.textBaseline = "middle";
       ctx.font = `700 ${fontPx}px "Science Gothic", ui-sans-serif, system-ui, sans-serif`;
       ctx.globalAlpha = this.startTitleAlpha;
-      ctx.fillStyle = "rgba(255, 32, 32, 1)";
+      ctx.fillStyle = "rgba(224, 64, 48, 1)";
       ctx.fillText(this.startTitleText, w * 0.5, h * 0.25);
     }
     ctx.globalAlpha = 1;
