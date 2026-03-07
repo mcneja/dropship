@@ -1305,7 +1305,7 @@ export class GameLoop {
 
     // Perk selection
     if (this.pendingPerkChoice !== null){
-      this._handlePerkChoiceInput(left, right);
+      this._handlePerkChoiceInput(left || stickThrust.x < -0.5, right || stickThrust.x > 0.5);
       return;
     }
 
@@ -1355,7 +1355,7 @@ export class GameLoop {
     const planetCfg = this.planet && this.planet.getPlanetConfig ? this.planet.getPlanetConfig() : null;
 
     if (this.ship.state === "landed" && this.ship._dock && this.mothership){
-      if (thrust || stickThrust.y > 0){
+      if (thrust || stickThrust.y > 0.5){
         const shipRadius = this._shipRadius();
         const pushStep = shipRadius * 0.35;
         for (let i = 0; i < 8 && this._shipCollidesAt(this.ship.x, this.ship.y, shipRadius); i++){
