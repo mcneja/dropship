@@ -778,6 +778,16 @@ function drawFrameImpl(renderer, state, planet){
   const bodyLiftN = 0.18;
   const skiLiftN = 0.0;
   const cabinSide = state.ship.cabinSide || 1;
+  const cargoHeightScale = 2.0;
+  const cargoWidthScale = 2 / 3;
+  const cargoBottomN = -0.35;
+  const cargoHeightN = (0.18 - cargoBottomN) * cargoHeightScale;
+  const cargoTopN = cargoBottomN + cargoHeightN;
+  const cargoMidN = (cargoBottomN + cargoTopN) * 0.5;
+  const oldCargoMidN = (0.18 + -0.35) * 0.5;
+  const thrustLiftAll = (cargoMidN - oldCargoMidN) * shipHWorld * 1.0;
+  const thrustDownExtraUp = shipHWorld * 0.18;
+  const thrustUpExtraDown = shipHWorld * -0.12;
 
   /** @type {number[]} */
   const pos = [];

@@ -867,7 +867,10 @@ export class GameLoop {
     const shipHWorld = 0.7 * GAME.SHIP_SCALE;
     const shipWWorld = 0.75 * GAME.SHIP_SCALE;
     const bodyLiftN = 0.18;
-    const cargoTopN = 0.18;
+    const cargoHeightScale = 2.0;
+    const cargoBottomN = -0.35;
+    const cargoHeightN = (0.18 - cargoBottomN) * cargoHeightScale;
+    const cargoTopN = cargoBottomN + cargoHeightN;
     const gstrutHN = 0.12;
     const gunLiftN = 0.04;
     const localX = 0;
@@ -883,12 +886,17 @@ export class GameLoop {
   _shipLocalHullPoints(){
     const shipHWorld = 0.7 * GAME.SHIP_SCALE;
     const shipWWorld = 0.7 * GAME.SHIP_SCALE;
-    const bodyLift = shipHWorld * 0.18;
-    const cargoTop = shipHWorld * 0.18;
-    const cargoBottom = -shipHWorld * 0.4;
-    const bottomHalfW = shipWWorld * 0.87;
-    const topHalfW = shipWWorld * 0.65;
-    const cabSide = this.ship.cabinSide || 1;
+    const bodyLiftN = 0.18;
+    const bodyLift = shipHWorld * bodyLiftN;
+    const cargoHeightScale = 2.0;
+    const cargoWidthScale = 2 / 3;
+    const cargoBottomN = -0.35;
+    const cargoHeightN = (0.18 - cargoBottomN) * cargoHeightScale;
+    const cargoTopN = cargoBottomN + cargoHeightN;
+    const cargoBottom = shipHWorld * cargoBottomN - bodyLift;
+    const cargoTop = shipHWorld * cargoTopN - bodyLift;
+    const bottomHalfW = shipWWorld * 0.87 * cargoWidthScale;
+    const topHalfW = shipWWorld * 0.65 * cargoWidthScale * 0.8;
     const topRight = topHalfW;
     const topLeft = -topHalfW;
     return [
