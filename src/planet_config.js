@@ -450,7 +450,7 @@ export const PLANET_CONFIGS = [
       DRAG_MULT: r(0.9, 1.1),
       THRUST_MULT: r(0.95, 1.15),
       TURN_RATE_MULT: r(0.95, 1.15),
-      LAND_FRICTION_MULT: r(0.35, 0.70),
+      LAND_FRICTION_MULT: r(0.1, 0.1),
       CRASH_SPEED_MULT: r(0.9, 1.1),
       LAND_SPEED_MULT: r(0.85, 1.05),
       TARGET_FINAL_AIR: r(0.45, 0.62),

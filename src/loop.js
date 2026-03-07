@@ -1534,7 +1534,7 @@ export class GameLoop {
                 const restitution = -vn;
                 this.ship.vx += restitution * nx;
                 this.ship.vy += restitution * ny;
-                const friction = this.planetParams.LAND_FRICTION * -vt;
+                const friction = this.planetParams.LAND_FRICTION * -vt * dt;
                 this.ship.vx += friction * -ny;
                 this.ship.vy += friction * nx;
               }
@@ -1620,7 +1620,7 @@ export class GameLoop {
                 const restitution = -vn;
                 relVx += restitution * nx;
                 relVy += restitution * ny;
-                const friction = this.planetParams.LAND_FRICTION * -vt;
+                const friction = GAME.MOTHERSHIP_FRICTION * -vt * dt;
                 relVx += friction * -ny;
                 relVy += friction * nx;
                 const vn2 = relVx * nx + relVy * ny;
