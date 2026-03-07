@@ -140,7 +140,10 @@ export class GameLoop {
     });
 
     this._spawnMiners();
-    this._pruneMoltenVents();
+    this.planet.reconcileFeatures({
+      enemies: this.enemies.enemies,
+      miners: this.miners,
+    });
 
     this.lastTime = performance.now();
     this.accumulator = 0;
@@ -697,20 +700,6 @@ export class GameLoop {
   /**
    * @returns {void}
    */
-  _pruneMoltenVents(){
-    const cfg = this.planet.getPlanetConfig ? this.planet.getPlanetConfig() : null;
-    if (!cfg || cfg.id !== "molten") return;
-    const points = [];
-    for (const e of (this.enemies ? this.enemies.enemies : [])){
-      points.push({ x: e.x, y: e.y });
-    }
-    for (const m of this.miners){
-      points.push({ x: m.x, y: m.y });
-    }
-    console.log("[Vents] prune inputs", { enemies: this.enemies.enemies.length, miners: this.miners.length });
-    this.planet.pruneMoltenVentsAgainstPoints(points);
-  }
-
   /**
    * @param {number} level 
    * @returns {PlanetConfig}
@@ -767,7 +756,10 @@ export class GameLoop {
     this._resetShip();
     this.entityExplosions.length = 0;
     this._spawnMiners();
-    this._pruneMoltenVents();
+    this.planet.reconcileFeatures({
+      enemies: this.enemies.enemies,
+      miners: this.miners,
+    });
     this.minerPopups.length = 0;
     this.planet.clearFeatureParticles();
   }

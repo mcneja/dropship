@@ -1,11 +1,200 @@
 // @ts-check
 
 import { mulberry32 } from "./rng.js";
+import { GAME } from "./config.js";
 
 /**
  * Feature routing for planet-specific hazards and props.
  * Loop should delegate to Planet, which delegates here.
  */
+
+/**
+ * @param {number} x
+ * @param {number} y
+ * @param {number} minDist
+ * @param {Array<{x:number,y:number,r:number}>} reservations
+ * @returns {boolean}
+ */
+function isFarFromReservations(x, y, minDist, reservations){
+  if (minDist <= 0 || !reservations.length) return true;
+  for (const rsv of reservations){
+    const dx = x - rsv.x;
+    const dy = y - rsv.y;
+    const rr = minDist + (rsv.r || 0);
+    if (dx * dx + dy * dy < rr * rr) return false;
+  }
+  return true;
+}
+
+/**
+ * Place molten vents along cave walls using the radial graph.
+ * @param {import("./planet.js").Planet} planet
+ * @param {PlanetProp[]} props
+ * @returns {void}
+ */
+function placeMoltenVents(planet, props){
+  const cfg = planet.getPlanetConfig ? planet.getPlanetConfig() : null;
+  if (!cfg || cfg.id !== "molten") return;
+  const params = planet.getPlanetParams ? planet.getPlanetParams() : null;
+  if (!params) return;
+  const target = Math.max(0, params.MOLTEN_VENT_COUNT || 0);
+  if (target <= 0) return;
+
+  for (let i = props.length - 1; i >= 0; i--){
+    if (props[i].type === "vent") props.splice(i, 1);
+  }
+
+  const nodes = planet.radialGraph.nodes;
+  const neighbors = planet.radialGraph.neighbors;
+  const air = planet.airNodesBitmap;
+  const moltenOuter = params.MOLTEN_RING_OUTER || 0;
+  const rMin = Math.max(0, moltenOuter + 0.6);
+  const rMax = Math.max(rMin + 0.5, params.RMAX - 0.6);
+  const minDist = 0.9;
+  /** @type {Array<{x:number,y:number,r:number}>} */
+  const reservations = [];
+  const baseReserve = Math.max(0.4, GAME.MINER_MIN_SEP * 0.6);
+  for (const p of props){
+    if (p.dead) continue;
+    if (p.type === "vent") continue;
+    if (p.type === "turret_pad") continue;
+    reservations.push({ x: p.x, y: p.y, r: baseReserve });
+  }
+
+  /** @type {Array<{n:{x:number,y:number,r:number,i:number},rockNeighbor:{x:number,y:number,r:number,i:number}|null,nx:number,ny:number}>} */
+  const candidates = [];
+  for (let i = 0; i < nodes.length; i++){
+    if (!air[i]) continue;
+    const n = nodes[i];
+    const r = Math.hypot(n.x, n.y);
+    if (r < rMin || r > rMax) continue;
+    if (!isFarFromReservations(n.x, n.y, minDist, reservations)) continue;
+    const neigh = neighbors[i] || [];
+    let airCount = 0;
+    let rockNeighbor = null;
+    let rockDist2 = Infinity;
+    for (const e of neigh){
+      if (air[e.to]) airCount++;
+      else {
+        const nb = nodes[e.to];
+        if (nb){
+          const dx = n.x - nb.x;
+          const dy = n.y - nb.y;
+          const d2 = dx * dx + dy * dy;
+          if (d2 < rockDist2){
+            rockDist2 = d2;
+            rockNeighbor = nb;
+          }
+        }
+      }
+    }
+    if (airCount < 3 || !rockNeighbor) continue;
+    const dxr = n.x - rockNeighbor.x;
+    const dyr = n.y - rockNeighbor.y;
+    const nlen = Math.hypot(dxr, dyr) || 1;
+    const nx = dxr / nlen;
+    const ny = dyr / nlen;
+    candidates.push({ n, rockNeighbor, nx, ny });
+  }
+
+  const rand = mulberry32((planet.getSeed() + 991) | 0);
+  for (let i = candidates.length - 1; i > 0; i--){
+    const j = Math.floor(rand() * (i + 1));
+    const tmp = candidates[i];
+    candidates[i] = candidates[j];
+    candidates[j] = tmp;
+  }
+
+  /** @type {Array<{n:{x:number,y:number,r:number,i:number},rockNeighbor:{x:number,y:number,r:number,i:number}|null,nx:number,ny:number}>} */
+  const picked = [];
+  for (const c of candidates){
+    const n = c.n;
+    let tooClose = false;
+    for (const p of picked){
+      const dx = n.x - p.n.x;
+      const dy = n.y - p.n.y;
+      if (dx * dx + dy * dy < minDist * minDist){
+        tooClose = true;
+        break;
+      }
+    }
+    if (tooClose) continue;
+    picked.push(c);
+    if (picked.length >= target) break;
+  }
+
+  const recess = 0.08;
+  for (const entry of picked){
+    if (!entry.rockNeighbor) continue;
+    const n = entry.n;
+    const rn = entry.rockNeighbor;
+    const nx = entry.nx;
+    const ny = entry.ny;
+    let lo = { x: rn.x, y: rn.y };
+    let hi = { x: n.x, y: n.y };
+    for (let i = 0; i < 8; i++){
+      const mx = (lo.x + hi.x) * 0.5;
+      const my = (lo.y + hi.y) * 0.5;
+      if (planet.airValueAtWorld(mx, my) > 0.5){
+        hi = { x: mx, y: my };
+      } else {
+        lo = { x: mx, y: my };
+      }
+    }
+    const bx = hi.x - nx * recess;
+    const by = hi.y - ny * recess;
+    const rot = Math.atan2(ny, nx) - Math.PI * 0.5;
+    const scale = 0.55 + rand() * 0.25;
+    props.push({ type: "vent", x: bx, y: by, scale, rot, nx, ny });
+  }
+}
+
+/**
+ * Remove molten vents that would fire directly into target points.
+ * @param {import("./planet.js").Planet} planet
+ * @param {PlanetProp[]} props
+ * @param {Array<{x:number,y:number}>} points
+ * @returns {number}
+ */
+function pruneMoltenVentsAgainstPoints(planet, props, points){
+  const cfg = planet.getPlanetConfig ? planet.getPlanetConfig() : null;
+  if (!cfg || cfg.id !== "molten") return 0;
+  if (!props || !props.length) return 0;
+  if (!points || !points.length) return 0;
+  const inFront = (vx, vy, nx, ny, px, py, maxDist, cosLimit, maxSide) => {
+    const dx = px - vx;
+    const dy = py - vy;
+    const d2 = dx * dx + dy * dy;
+    if (d2 <= 1e-6 || d2 > maxDist * maxDist) return false;
+    const d = Math.sqrt(d2);
+    const dir = (dx * nx + dy * ny) / d;
+    if (dir < cosLimit) return false;
+    const side = Math.abs(dx * -ny + dy * nx);
+    return side <= maxSide;
+  };
+  let removed = 0;
+  for (let i = props.length - 1; i >= 0; i--){
+    const p = props[i];
+    if (p.type !== "vent" || p.dead) continue;
+    const nx = (typeof p.nx === "number") ? p.nx : 0;
+    const ny = (typeof p.ny === "number") ? p.ny : 0;
+    const nlen = Math.hypot(nx, ny) || 1;
+    const ux = nx / nlen;
+    const uy = ny / nlen;
+    let bad = false;
+    for (const t of points){
+      if (inFront(p.x, p.y, ux, uy, t.x, t.y, 7.5, 0.6, 0.9)){
+        bad = true;
+        break;
+      }
+    }
+    if (bad){
+      props.splice(i, 1);
+      removed++;
+    }
+  }
+  return removed;
+}
 
 /**
  * @typedef {Object} FeatureCallbacks
@@ -14,6 +203,7 @@ import { mulberry32 } from "./rng.js";
  * @property {(x:number,y:number,radius:number)=>void} [onAreaDamage]
  * @property {(amount:number)=>void} [onShipHeat]
  * @property {(x:number,y:number)=>void} [onShipCrash]
+ * @property {(duration:number)=>void} [onShipConfuse]
  */
 
 /**
@@ -61,6 +251,7 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
       speed: 4.0,
       radius: 0.25,
       pieces: 12,
+      confuseTime: 5.0,
     },
   };
 
@@ -70,6 +261,14 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
     /** @type {Array<{x:number,y:number,vx:number,vy:number,life:number}>} */
     mushroom: [],
   };
+
+  placeMoltenVents(planet, props || []);
+  const ventReserve = (props || []).filter((p) => p.type === "vent").map((p) => ({ x: p.x, y: p.y }));
+  if (ventReserve.length && planet.reserveSpawnPoints){
+    const minDist = Math.max(0.4, GAME.MINER_MIN_SEP * 0.6);
+    planet.reserveSpawnPoints(ventReserve, minDist);
+  }
+  let ventsPruned = false;
 
   /**
    * @param {{x:number,y:number,scale:number}|null} info
@@ -157,6 +356,15 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
           hit = true;
           break;
         }
+      }
+    }
+    if (mushroomHazard){
+      const hitProp = mushroomHazard.hitAt(x, y, radius);
+      if (hitProp){
+        const info = mushroomHazard.burst(hitProp);
+        if (info) spawnMushroomBurst(info);
+        if (callbacks.onShipConfuse) callbacks.onShipConfuse(tuning.mushroom.confuseTime);
+        hit = true;
       }
     }
     if (iceShardHazard){
@@ -420,6 +628,24 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
     clearParticles: () => {
       particles.lava.length = 0;
       particles.mushroom.length = 0;
+    },
+    reconcile: (state) => {
+      if (ventsPruned) return;
+      if (!state) return;
+      const points = [];
+      if (state.enemies){
+        for (const e of state.enemies){
+          points.push({ x: e.x, y: e.y });
+        }
+      }
+      if (state.miners){
+        for (const m of state.miners){
+          points.push({ x: m.x, y: m.y });
+        }
+      }
+      if (!points.length) return;
+      pruneMoltenVentsAgainstPoints(planet, props, points);
+      ventsPruned = true;
     },
     update: (dt, state) => {
       updateCoreHeat(dt, state);
