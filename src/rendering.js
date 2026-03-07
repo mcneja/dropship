@@ -926,15 +926,14 @@ function drawFrameImpl(renderer, state, planet){
   const drawTurretPadProp = (p) => {
     let ux;
     let uy;
-    if (typeof p.padNx === "number" && typeof p.padNy === "number"){
-      ux = p.padNx;
-      uy = p.padNy;
-    } else {
-      const info = planet.surfaceInfoAtWorld ? planet.surfaceInfoAtWorld(p.x, p.y, 0.18) : null;
-      if (info){
-        ux = info.nx;
-        uy = info.ny;
-      }
+    const info = planet.surfaceInfoAtWorld ? planet.surfaceInfoAtWorld(p.x, p.y, 0.18) : null;
+    if (info){
+      ux = info.nx;
+      uy = info.ny;
+    } else if (typeof p.padNx === "number" && typeof p.padNy === "number"){
+      const nlen = Math.hypot(p.padNx, p.padNy) || 1;
+      ux = p.padNx / nlen;
+      uy = p.padNy / nlen;
     }
     let tx;
     let ty;
@@ -951,7 +950,7 @@ function drawFrameImpl(renderer, state, planet){
     const s = p.scale || 1;
     const halfW = 0.55 * s;
     const halfH = 0.12 * s;
-    const sink = halfH;
+    const sink = halfH + 0.02 * s;
     const cx = p.x - ux * sink;
     const cy = p.y - uy * sink;
     const toWorld = (x, y, lx, ly) => [x + tx * lx + ux * ly, y + ty * lx + uy * ly];
