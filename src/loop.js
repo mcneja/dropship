@@ -1539,13 +1539,6 @@ export class GameLoop {
                 this.ship.vy += friction * nx;
               }
             }
-
-            const maxSteps = 8;
-            const stepSize = shipRadius * 0.2;
-            for (let i = 0; i < maxSteps && this._shipCollidesAt(this.ship.x, this.ship.y, shipRadius); i++){
-              this.ship.x += nx * stepSize;
-              this.ship.y += ny * stepSize;
-            }
           }
         } else {
           // Mothership collision: field-based handling (same gradient approach as planet).
@@ -1582,7 +1575,6 @@ export class GameLoop {
           if (vn < -this.planetParams.CRASH_SPEED) {
             this._triggerCrash();
           } else {
-            let landedNow = false;
             if (vn < 0) {
               const maxSlope = 1 - Math.cos(Math.PI / 8); // 22.5 deg
               const landSlope = Math.min((1 - GAME.SURFACE_DOT) + 0.03, maxSlope);
@@ -1624,7 +1616,6 @@ export class GameLoop {
                 if (this._isDockedWithMothership()) {
                   this._onSuccessfullyDocked();
                 }
-                landedNow = true;
               } else {
                 const restitution = -vn;
                 relVx += restitution * nx;
@@ -1637,15 +1628,6 @@ export class GameLoop {
                   relVx -= nx * vn2;
                   relVy -= ny * vn2;
                 }
-              }
-            }
-
-            if (!landedNow){
-              const maxSteps = 8;
-              const stepSize = shipRadius * 0.2;
-              for (let i = 0; i < maxSteps && this._shipCollidesAt(this.ship.x, this.ship.y, shipRadius); i++){
-                this.ship.x += nx * stepSize;
-                this.ship.y += ny * stepSize;
               }
             }
           }
