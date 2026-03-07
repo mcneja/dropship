@@ -1260,17 +1260,6 @@ export class GameLoop {
   _step(dt, inputState){
     let { left, right, thrust, down, reset, shoot, bomb, aim, aimShoot, aimBomb, aimShootFrom, aimShootTo, aimBombFrom, aimBombTo, spawnEnemyType } = inputState;
 
-    if (this.blockControlsUntilRelease){
-      const held = !!(left || right || thrust || down);
-      if (held){
-        left = false;
-        right = false;
-        thrust = false;
-        down = false;
-      } else {
-        this.blockControlsUntilRelease = false;
-      }
-    }
     if (inputState.inputType === "gamepad"){
       const aimAdjusted = this._aimScreenAroundShip(aim);
       aim = aimAdjusted;
