@@ -548,8 +548,9 @@ export class GameLoop {
    * @returns {void}
    */
   _applyBombImpact(x, y){
-    // Bombs do not modify terrain.
-    return;
+    const cfg = this.planet ? this.planet.getPlanetConfig() : null;
+    if (cfg && cfg.flags && cfg.flags.disableTerrainDestruction) return;
+    this.planet.applyAirEdit(x, y, this.TERRAIN_IMPACT_RADIUS, 1);
   }
 
   /**

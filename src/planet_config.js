@@ -83,7 +83,7 @@
  * @property {Array<"hunter"|"ranger"|"crawler"|"turret"|"orbitingTurret">} enemyAllow
  * @property {string} [notes]
  * @property {PlanetConfigDefaults} [defaults]
- * @property {{noCaves?:boolean,barrenPerimeter?:boolean}} [flags]
+ * @property {{noCaves?:boolean,barrenPerimeter?:boolean,disableTerrainDestruction?:boolean}} [flags]
  */
 
 /**
@@ -366,6 +366,7 @@ export const PLANET_CONFIGS = [
     platformCount: 12,
     enemyAllow: ["hunter", "ranger", "crawler", "turret"],
     notes: "Heat hazard in inner radius.",
+    flags: { disableTerrainDestruction: true },
     defaults: {
       ROCK_DARK: [0.38, 0.12, 0.10],
       ROCK_LIGHT: [0.78, 0.26, 0.18],
