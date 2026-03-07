@@ -29,6 +29,7 @@
       color: #dbe7ff; letter-spacing: 0.04em;
       font: 600 20px "Science Gothic", ui-sans-serif, system-ui, sans-serif;
       text-shadow: 0 2px 10px rgba(0,0,0,0.6);
+      text-align: right;
       pointer-events: none; user-select: none;
     }
     #objective-label {
@@ -44,6 +45,16 @@
       font: 600 18px "Science Gothic", ui-sans-serif, system-ui, sans-serif;
       text-shadow: 0 2px 10px rgba(0,0,0,0.6);
       pointer-events: none; user-select: none;
+    }
+    @media (max-width: 900px) {
+      #objective-label,
+      #planet-label,
+      #ship-status-label {
+        max-width: 44vw;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        line-height: 1.15;
+      }
     }
     #heat-meter {
       position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%);

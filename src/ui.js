@@ -52,9 +52,9 @@ export function updateShipStatusLabel(el, stats){
 export function updateHeatMeter(el, heat, show, flashing){
   if (!el) return;
   if (!show){
-  el.style.display = "none";
-  el.classList.remove("heat-flash");
-  return;
+    el.style.display = "none";
+    el.classList.remove("heat-flash");
+    return;
   }
   el.style.display = "block";
   el.classList.toggle("heat-flash", !!flashing);
@@ -63,4 +63,68 @@ export function updateHeatMeter(el, heat, show, flashing){
   if (text) text.textContent = `Heat ${value}`;
   const fill = /** @type {HTMLElement|null} */ (el.querySelector(".heat-bar-fill"));
   if (fill) fill.style.width = `${value}%`;
+  layoutHeatMeter(el);
+}
+
+/**
+ * Keep heat meter from overlapping corner status text on small screens.
+ * @param {HTMLElement} el
+ * @returns {void}
+ */
+function layoutHeatMeter(el){
+  const pad = 10;
+  const baseBottom = 14;
+  const minViewportInset = 12;
+  const vH = window.innerHeight || document.documentElement.clientHeight || 0;
+  const objective = /** @type {HTMLElement|null} */ (document.getElementById("objective-label"));
+  const planet = /** @type {HTMLElement|null} */ (document.getElementById("planet-label"));
+  const shipStatus = /** @type {HTMLElement|null} */ (document.getElementById("ship-status-label"));
+
+  // Default placement: bottom center.
+  el.style.left = "50%";
+  el.style.transform = "translateX(-50%)";
+  el.style.top = "auto";
+  el.style.bottom = `${baseBottom}px`;
+
+  const meterRect = el.getBoundingClientRect();
+  const labels = [objective, planet]
+    .filter((node) => !!node)
+    .map((node) => /** @type {HTMLElement} */ (node).getBoundingClientRect());
+
+  const overlaps = labels.filter((r) => rectsOverlap(meterRect, r, pad));
+  if (!overlaps.length) return;
+
+  let minTop = overlaps[0].top;
+  for (let i = 1; i < overlaps.length; i++){
+    if (overlaps[i].top < minTop) minTop = overlaps[i].top;
+  }
+  const liftedBottom = Math.max(baseBottom, Math.round(vH - minTop + pad));
+  const maxLiftedBottom = Math.max(baseBottom, Math.round(vH - meterRect.height - minViewportInset));
+  el.style.bottom = `${Math.min(liftedBottom, maxLiftedBottom)}px`;
+  el.style.top = "auto";
+
+  const liftedRect = el.getBoundingClientRect();
+  const stillOverlaps = labels.some((r) => rectsOverlap(liftedRect, r, pad));
+  if (!stillOverlaps) return;
+
+  // Fallback on very small screens: place below top-left ship status zone.
+  const topY = shipStatus ? Math.round(shipStatus.getBoundingClientRect().bottom + pad) : minViewportInset;
+  const maxTop = Math.max(minViewportInset, Math.round(vH - liftedRect.height - minViewportInset));
+  el.style.top = `${Math.min(maxTop, Math.max(minViewportInset, topY))}px`;
+  el.style.bottom = "auto";
+}
+
+/**
+ * @param {DOMRect} a
+ * @param {DOMRect} b
+ * @param {number} margin
+ * @returns {boolean}
+ */
+function rectsOverlap(a, b, margin){
+  return !(
+    a.right < b.left - margin ||
+    a.left > b.right + margin ||
+    a.bottom < b.top - margin ||
+    a.top > b.bottom + margin
+  );
 }
