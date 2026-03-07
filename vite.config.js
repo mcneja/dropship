@@ -18,7 +18,7 @@ export default {
       //   brotliSize: true,
       // })
     ],
-    base: '/dropship/',
+    base: './',
     build: {
       // target: 'es2019', //es2019
       minify: false,

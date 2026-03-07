@@ -193,6 +193,11 @@ export class GameLoop {
     this.lastHeat = 0;
     this.statusCueText = "";
     this.statusCueUntil = 0;
+    this.startTitleText = "DROPSHIP";
+    this.startTitleAlpha = 1;
+    this.startTitleFade = false;
+    this.startTitleSeen = false;
+    this.START_TITLE_FADE_PER_SEC = 1.8;
 
     this.featureCallbacks = {
       onExplosion: (info) => {
@@ -2566,6 +2571,7 @@ export class GameLoop {
       this._isDockedWithMothership();
     this.input.setGameOver(this.ship.state === "crashed");
     const inputState = this.input.update();
+    this._updateStartTitle(dt, inputState);
 
     if (this.ship.state === "crashed"){
       this.ship.explodeT = Math.min(1.2, this.ship.explodeT + dt * 0.9);
@@ -2713,31 +2719,79 @@ export class GameLoop {
     if (this.heatMeter && this.ui.updateHeatMeter){
       this.ui.updateHeatMeter(this.heatMeter, heat, showHeat, heating);
     }
-    if (this.planetLabel && this.ui.updatePlanetLabel){
-      const cfg = this.planet.getPlanetConfig();
-      const label = cfg ? cfg.label : "";
-      const prefix = `Level ${this.level}: `;
-      this.ui.updatePlanetLabel(this.planetLabel, label ? `${prefix}${label}` : `Level ${this.level}`);
-    }
-    if (this.objectiveLabel && this.ui.updateObjectiveLabel){
-      const cue = (now < this.statusCueUntil) ? this.statusCueText : "";
-      if (cue){
-        this.ui.updateObjectiveLabel(this.objectiveLabel, cue);
-      } else {
-        const prompt = this._objectivePromptText(inputState.inputType);
-        this.ui.updateObjectiveLabel(this.objectiveLabel, prompt || this._objectiveText());
+    const titleShowing = !this.startTitleSeen && this.startTitleAlpha > 0;
+    if (this.planetLabel){
+      this.planetLabel.style.visibility = titleShowing ? "hidden" : "visible";
+      if (!titleShowing && this.ui.updatePlanetLabel){
+        const cfg = this.planet.getPlanetConfig();
+        const label = cfg ? cfg.label : "";
+        const prefix = `Level ${this.level}: `;
+        this.ui.updatePlanetLabel(this.planetLabel, label ? `${prefix}${label}` : `Level ${this.level}`);
       }
     }
-    if (this.shipStatusLabel && this.ui.updateShipStatusLabel){
-      this.ui.updateShipStatusLabel(this.shipStatusLabel, {
-        shipHp: this.ship.hpCur,
-        shipHpMax: this.ship.hpMax,
-        bombs: this.ship.bombsCur,
-        bombsMax: this.ship.bombsMax,
-      });
+    if (this.objectiveLabel){
+      this.objectiveLabel.style.visibility = "visible";
+      if (this.ui.updateObjectiveLabel){
+        const cue = (now < this.statusCueUntil) ? this.statusCueText : "";
+        if (cue){
+          this.ui.updateObjectiveLabel(this.objectiveLabel, cue);
+        } else if (titleShowing && this.ship.state !== "crashed"){
+          this.ui.updateObjectiveLabel(this.objectiveLabel, "Lift off to start");
+        } else {
+        const prompt = this._objectivePromptText(inputState.inputType);
+        this.ui.updateObjectiveLabel(this.objectiveLabel, prompt || this._objectiveText());
+        }
+      }
+    }
+    if (this.shipStatusLabel){
+      this.shipStatusLabel.style.visibility = titleShowing ? "hidden" : "visible";
+      if (!titleShowing && this.ui.updateShipStatusLabel){
+        this.ui.updateShipStatusLabel(this.shipStatusLabel, {
+          shipHp: this.ship.hpCur,
+          shipHpMax: this.ship.hpMax,
+          bombs: this.ship.bombsCur,
+          bombsMax: this.ship.bombsMax,
+        });
+      }
     }
 
     requestAnimationFrame(() => this._frame());
+  }
+
+  /**
+   * @param {number} dt
+   * @param {import("./types.d.js").InputState} inputState
+   * @returns {void}
+   */
+  _updateStartTitle(dt, inputState){
+    if (this.startTitleSeen) return;
+
+    if (!this.startTitleFade && this._hasAnyPlayerInput(inputState)){
+      this.startTitleFade = true;
+    }
+    if (!this.startTitleFade) return;
+
+    this.startTitleAlpha = Math.max(0, this.startTitleAlpha - this.START_TITLE_FADE_PER_SEC * Math.max(0, dt));
+    if (this.startTitleAlpha <= 0){
+      this.startTitleSeen = true;
+      this.startTitleAlpha = 0;
+    }
+  }
+
+  /**
+   * @param {import("./types.d.js").InputState} inputState
+   * @returns {boolean}
+   */
+  _hasAnyPlayerInput(inputState){
+    if (inputState.left || inputState.right || inputState.thrust || inputState.down) return true;
+    if (inputState.shoot || inputState.bomb || inputState.reset) return true;
+    if (inputState.regen || inputState.nextLevel || inputState.prevLevel) return true;
+    if (inputState.toggleDebug || inputState.toggleDevHud || inputState.togglePlanetView || inputState.toggleFog) return true;
+    if (inputState.rescueAll || inputState.spawnEnemyType !== null) return true;
+    if (inputState.inputType === "touch" && (inputState.aim || inputState.aimShoot || inputState.aimBomb)) return true;
+    if (inputState.inputType === "gamepad" && (inputState.aim || inputState.aimShoot || inputState.aimBomb)) return true;
+    const st = inputState.stickThrust;
+    return !!(st && (st.x * st.x + st.y * st.y) > 0);
   }
 
   /**
@@ -3003,7 +3057,8 @@ export class GameLoop {
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, w, h);
-    if (!this.minerPopups.length && !this.shipHitPopups.length && !this.lastAimScreen && !this.pendingPerkChoice){
+    const drawStartTitle = !this.startTitleSeen && this.startTitleAlpha > 0;
+    if (!drawStartTitle && !this.minerPopups.length && !this.shipHitPopups.length && !this.lastAimScreen && !this.pendingPerkChoice){
       return;
     }
 
@@ -3076,6 +3131,16 @@ export class GameLoop {
       ctx.fillText(`[LEFT] ${left ? left.text : ""}`, x + panelW * 0.5, y + panelH * 0.48);
       ctx.fillStyle = "rgba(255, 214, 180, 1)";
       ctx.fillText(`[RIGHT] ${right ? right.text : ""}`, x + panelW * 0.5, y + panelH * 0.70);
+    }
+
+    if (drawStartTitle){
+      const fontPx = Math.max(Math.round(58 * dpr), Math.min(Math.round(w * 0.2), Math.round(150 * dpr)));
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.font = `700 ${fontPx}px "Science Gothic", ui-sans-serif, system-ui, sans-serif`;
+      ctx.globalAlpha = this.startTitleAlpha;
+      ctx.fillStyle = "rgba(224, 64, 48, 1)";
+      ctx.fillText(this.startTitleText, w * 0.5, h * 0.25);
     }
     ctx.globalAlpha = 1;
   }
