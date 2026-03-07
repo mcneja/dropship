@@ -143,7 +143,7 @@
  * @property {Ship} ship
  * @property {import("./mothership.js").Mothership} [mothership]
  * @property {Array<Debris>} debris
- * @property {{left:boolean,right:boolean,thrust:boolean,down:boolean}} input
+ * @property {InputState} input
  * @property {boolean} debugCollisions
  * @property {boolean} debugNodes
  * @property {boolean} fogEnabled
@@ -173,6 +173,7 @@
 
 /**
  * @typedef {Object} InputState
+ * @property {Point} stickThrust
  * @property {boolean} left
  * @property {boolean} right
  * @property {boolean} thrust

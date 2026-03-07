@@ -1619,15 +1619,18 @@ function drawFrameImpl(renderer, state, planet){
    * @param {number} g
    * @param {number} b
    * @param {number} [extraOffset]
+   * @param {number} [lift]
+   * @param {number} [power]
    */
-  const thrustV = (dx, dy, r, g, b, extraOffset = 0, lift = 0) => {
+  const thrustV = (dx, dy, r, g, b, extraOffset = 0, lift = 0, power = 1) => {
     const mag = Math.hypot(dx, dy) || 1;
+    const p = Math.max(0, Math.min(1, power));
     const posUx = -dx / mag;
     const posUy = -dy / mag;
     const ux = dx / mag;
     const uy = dy / mag;
-    const len = shipHWorld * 0.28;
-    const spread = shipHWorld * 0.12;
+    const len = shipHWorld * (0.14 + 0.22 * p);
+    const spread = shipHWorld * (0.06 + 0.09 * p);
     const px = -uy;
     const py = ux;
     const offset = shipHWorld * 0.72 + extraOffset;
@@ -1641,8 +1644,9 @@ function drawFrameImpl(renderer, state, planet){
     const [tx, ty] = rot2(tipx + posUx * offset, tipy + posUy * offset, shipRot);
     const [p1x, p1y] = rot2(b1x + posUx * offset, b1y + posUy * offset, shipRot);
     const [p2x, p2y] = rot2(b2x + posUx * offset, b2y + posUy * offset, shipRot);
-    pushLine(pos, col, state.ship.x + p1x + lx, state.ship.y + p1y + ly, state.ship.x + tx + lx, state.ship.y + ty + ly, r, g, b, 1);
-    pushLine(pos, col, state.ship.x + p2x + lx, state.ship.y + p2y + ly, state.ship.x + tx + lx, state.ship.y + ty + ly, r, g, b, 1);
+    const a = 0.35 + 0.65 * p;
+    pushLine(pos, col, state.ship.x + p1x + lx, state.ship.y + p1y + ly, state.ship.x + tx + lx, state.ship.y + ty + ly, r, g, b, a);
+    pushLine(pos, col, state.ship.x + p2x + lx, state.ship.y + p2y + ly, state.ship.x + tx + lx, state.ship.y + ty + ly, r, g, b, a);
     lineVerts += 4;
   };
 
@@ -1723,10 +1727,24 @@ function drawFrameImpl(renderer, state, planet){
     }
 
     const tc = [1.0, 0.55, 0.15];
-    if (state.input.thrust) thrustV(0, 1, tc[0], tc[1], tc[2], shipHWorld * 0.2, thrustLiftAll + thrustUpExtraDown);
-    if (state.input.down) thrustV(0, -1, tc[0], tc[1], tc[2], shipHWorld * 0.35, thrustLiftAll + thrustDownExtraUp);
-    if (state.input.left) thrustV(-1, 0, tc[0], tc[1], tc[2], shipWWorld * 0.5, thrustLiftAll);
-    if (state.input.right) thrustV(1, 0, tc[0], tc[1], tc[2], shipWWorld * 0.5, thrustLiftAll);
+    const stick = state.input.stickThrust || { x: 0, y: 0 };
+    const analogLeft = Math.max(0, -stick.x);
+    const analogRight = Math.max(0, stick.x);
+    const analogUp = Math.max(0, stick.y);
+    const analogDown = Math.max(0, -stick.y);
+
+    if (state.input.thrust || analogUp > 0){
+      thrustV(0, 1, tc[0], tc[1], tc[2], shipHWorld * 0.2, thrustLiftAll + thrustUpExtraDown, Math.max(state.input.thrust ? 1 : 0, analogUp));
+    }
+    if (state.input.down || analogDown > 0){
+      thrustV(0, -1, tc[0], tc[1], tc[2], shipHWorld * 0.35, thrustLiftAll + thrustDownExtraUp, Math.max(state.input.down ? 1 : 0, analogDown));
+    }
+    if (state.input.left || analogLeft > 0){
+      thrustV(-1, 0, tc[0], tc[1], tc[2], shipWWorld * 0.5, thrustLiftAll, Math.max(state.input.left ? 1 : 0, analogLeft));
+    }
+    if (state.input.right || analogRight > 0){
+      thrustV(1, 0, tc[0], tc[1], tc[2], shipWWorld * 0.5, thrustLiftAll, Math.max(state.input.right ? 1 : 0, analogRight));
+    }
   }
 
   if (state.ship.state === "flying"){

@@ -1269,7 +1269,7 @@ export class GameLoop {
    * @returns {void}
    */
   _step(dt, inputState){
-    let { left, right, thrust, down, reset, shoot, bomb, aim, aimShoot, aimBomb, aimShootFrom, aimShootTo, aimBombFrom, aimBombTo, spawnEnemyType } = inputState;
+    let { stickThrust, left, right, thrust, down, reset, shoot, bomb, aim, aimShoot, aimBomb, aimShootFrom, aimShootTo, aimBombFrom, aimBombTo, spawnEnemyType } = inputState;
 
     if (inputState.inputType === "gamepad"){
       const aimAdjusted = this._aimScreenAroundShip(aim);
@@ -1315,6 +1315,8 @@ export class GameLoop {
       right = false;
       thrust = false;
       down = false;
+      stickThrust.x = 0;
+      stickThrust.y = 0;
     }
 
     // Handle control inversion
@@ -1326,6 +1328,8 @@ export class GameLoop {
       const tmp2 = thrust;
       thrust = down;
       down = tmp2;
+      stickThrust.x = -stickThrust.x;
+      stickThrust.y = -stickThrust.y;
     }
 
     if (this.mothership){
@@ -1351,7 +1355,7 @@ export class GameLoop {
     const planetCfg = this.planet && this.planet.getPlanetConfig ? this.planet.getPlanetConfig() : null;
 
     if (this.ship.state === "landed" && this.ship._dock && this.mothership){
-      if (thrust){
+      if (thrust || stickThrust.y > 0){
         const shipRadius = this._shipRadius();
         const pushStep = shipRadius * 0.35;
         for (let i = 0; i < 8 && this._shipCollidesAt(this.ship.x, this.ship.y, shipRadius); i++){
@@ -1427,12 +1431,11 @@ export class GameLoop {
         ay += -ry * thrustMax;
       }
 
-      if (isWaterWorld && shipInWaterBefore){
-        let buoyancy = Math.max(0, this.planetParams.SURFACE_G * 0.45);
-        buoyancy = Math.max(buoyancy, this.planetParams.SURFACE_G * 0.95);
-        ax += rx * buoyancy;
-        ay += ry * buoyancy;
-      }
+      // Gamepad stick thrust is in local control space:
+      // x = tangent (left/right), y = radial (outward/inward).
+      ax += (stickThrust.x * -tx + stickThrust.y * rx) * thrustMax;
+      ay += (stickThrust.x * -ty + stickThrust.y * ry) * thrustMax;
+
       /*
       const aThrustSqr = ax*ax + ay*ay;
       if (aThrustSqr > thrustMax * thrustMax) {
@@ -1441,6 +1444,13 @@ export class GameLoop {
         ay *= thrustScale;
       }
       */
+
+      if (isWaterWorld && shipInWaterBefore){
+        let buoyancy = Math.max(0, this.planetParams.SURFACE_G * 0.45);
+        buoyancy = Math.max(buoyancy, this.planetParams.SURFACE_G * 0.95);
+        ax += rx * buoyancy;
+        ay += ry * buoyancy;
+      }
 
       const {x: gx, y: gy} = this.planet.gravityAt(this.ship.x, this.ship.y);
 
@@ -2073,7 +2083,7 @@ export class GameLoop {
     }
 
     if (this.ship.state === "landed"){
-      if (left || right || thrust){
+      if (left || right || thrust || (stickThrust.x*stickThrust.x + stickThrust.y*stickThrust.y) > 0){
         this.ship.state = "flying";
         this.ship._dock = null;
       }

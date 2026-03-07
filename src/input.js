@@ -403,12 +403,12 @@ export class Input {
   }
 
   /**
-   * @returns {{left:boolean,right:boolean,thrust:boolean,down:boolean,aim:Point|null,shoot:boolean,bomb:boolean,reset:boolean}}
+   * @returns {{stickThrust:Point,thrust:boolean,down:boolean,aim:Point|null,shoot:boolean,bomb:boolean,reset:boolean}}
    */
   _gamepadState(){
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
 
-    let inputCombined = { left:false, right:false, thrust:false, down:false, aim:null, shoot:false, bomb:false, reset:false };
+    let inputCombined = { stickThrust:{x:0, y:0}, thrust:false, down:false, aim:null, shoot:false, bomb:false, reset:false };
 
     for (const pad of pads) {
       if (!pad) continue;
@@ -420,10 +420,14 @@ export class Input {
       const ax3 = pad.axes && pad.axes.length > 3 ? pad.axes[3] : 0;
       const alen = Math.hypot(ax2, ax3);
 
-      const left = ax0 < -dead;
-      const right = ax0 > dead;
-      const thrust = (pad.buttons && pad.buttons[0] && pad.buttons[0].pressed) || ax1 < -dead;
-      const down = (pad.buttons && pad.buttons[1] && pad.buttons[1].pressed) || ax1 > dead;
+      const thrustLen = Math.hypot(ax0, ax1);
+      let thrustLenAdjusted = (thrustLen - dead) / (1 - dead);
+      thrustLenAdjusted = Math.max(0, Math.min(1, thrustLenAdjusted));
+      const thrustScale = (thrustLenAdjusted <= 0) ? 0 : (thrustLenAdjusted / thrustLen);
+      const stickThrust = {x:ax0 * thrustScale, y:-ax1 * thrustScale};
+
+      const thrust = (pad.buttons && pad.buttons[0] && pad.buttons[0].pressed);
+      const down = (pad.buttons && pad.buttons[1] && pad.buttons[1].pressed);
 
       let aim = null;
       if (alen > dead){
@@ -440,8 +444,13 @@ export class Input {
       const bomb = rt;
       const reset = startPressed;
 
-      inputCombined.left = inputCombined.left || left;
-      inputCombined.right = inputCombined.right || right;
+      if (thrustLenAdjusted > 0) {
+        const thrustLenCombined = Math.hypot(inputCombined.stickThrust.x, inputCombined.stickThrust.y);
+        if (thrustLenAdjusted > thrustLenCombined){
+          inputCombined.stickThrust = stickThrust;
+        }        
+      }
+
       inputCombined.thrust = inputCombined.thrust || thrust;
       inputCombined.down = inputCombined.down || down;
       inputCombined.shoot = inputCombined.shoot || shoot;
@@ -457,7 +466,8 @@ export class Input {
       }
     }
 
-    if (inputCombined.left || inputCombined.right || inputCombined.thrust || inputCombined.down || inputCombined.shoot || inputCombined.bomb || inputCombined.reset) {
+    if (inputCombined.thrust || inputCombined.down || inputCombined.shoot || inputCombined.bomb || inputCombined.reset ||
+        (inputCombined.stickThrust.x*inputCombined.stickThrust.x + inputCombined.stickThrust.y*inputCombined.stickThrust.y) > 0) {
       this.lastInputType = "gamepad";
     }
 
@@ -486,10 +496,11 @@ export class Input {
     const t = this._touchState();
     const g = this._gamepadState();
 
-    let left = keyState.left || t.left || g.left;
-    let right = keyState.right || t.right || g.right;
+    let left = keyState.left || t.left;
+    let right = keyState.right || t.right;
     let thrust = keyState.thrust || t.thrust || g.thrust;
     let down = keyState.down || t.down || g.down;
+    let stickThrust = g.stickThrust;
 
     if (g.shoot && !this.prevPadShoot) this.oneshot.shoot = true;
     if (g.bomb && !this.prevPadBomb) this.oneshot.bomb = true;
@@ -545,6 +556,7 @@ export class Input {
     }
 
     const state = {
+      stickThrust: stickThrust,
       left,
       right,
       thrust,
