@@ -41,7 +41,7 @@ const HELP_CONTENT = `
       <div class="help-k">Touch Help</div><div class="help-v">Small circled <span class="help-chip">?</span> button in upper-left.</div>
       <div class="help-k">Gamepad Move</div><div class="help-v">Left stick (analog thrust vector).</div>
       <div class="help-k">Gamepad Aim</div><div class="help-v">Right stick.</div>
-      <div class="help-k">Gamepad Inputs</div><div class="help-v"><span class="help-chip">A</span> thrust, <span class="help-chip">B</span> down, <span class="help-chip">LB</span>/<span class="help-chip">LT</span> bomb, <span class="help-chip">RB</span>/<span class="help-chip">RT</span> laser (hold for autofire), <span class="help-chip">Start</span> restart.</div>
+      <div class="help-k">Gamepad Inputs</div><div class="help-v"><span class="help-chip">Left Stick</span> analog thrust vector, <span class="help-chip">D-pad</span> left/right/up/down digital thrust, <span class="help-chip">B</span> down, <span class="help-chip">LB</span>/<span class="help-chip">LT</span> bomb, <span class="help-chip">RB</span>/<span class="help-chip">RT</span> laser (hold for autofire), <span class="help-chip">Start</span> or <span class="help-chip">A</span> restart/upgrade/level, <span class="help-chip">View/Back</span> or <span class="help-chip">Y/Button3</span> help, <span class="help-chip">RT/LT</span>, both sticks, or <span class="help-chip">D-pad Up/Down</span> scroll help.</div>
     </div>
   </section>
   <section class="help-section">
@@ -350,7 +350,7 @@ export class HelpPopup {
       <section class="help-panel" role="dialog" aria-modal="true" aria-label="Dropship Help">
         <header class="help-header">
           <h2 class="help-title">Operations Manual</h2>
-          <div class="help-close-hint">Close: / ? Esc</div>
+          <div class="help-close-hint">Close: / ? Esc View/Back/Button3</div>
           <button type="button" class="help-close-btn" aria-label="Close help">x</button>
         </header>
         <div class="help-scroll">
@@ -364,6 +364,7 @@ export class HelpPopup {
     this.touchButton.type = "button";
     this.touchButton.setAttribute("aria-label", "Open help");
     this.touchButton.textContent = "?";
+    this.scroller = /** @type {HTMLElement|null} */ (this.root.querySelector(".help-scroll"));
 
     const closeBtn = /** @type {HTMLButtonElement|null} */ (this.root.querySelector(".help-close-btn"));
     const backdrop = /** @type {HTMLElement|null} */ (this.root.querySelector(".help-backdrop"));
@@ -382,9 +383,13 @@ export class HelpPopup {
     });
 
     this._onKeyDownBound = (e) => this._onKeyDown(e);
+    this._gamepadHelpHeld = false;
+    this._lastGamepadPollMs = performance.now();
+    this._pollGamepadBound = (ts) => this._pollGamepadToggle(ts);
     window.addEventListener("keydown", this._onKeyDownBound, true);
     document.body.appendChild(this.root);
     document.body.appendChild(this.touchButton);
+    requestAnimationFrame(this._pollGamepadBound);
   }
 
   /**
@@ -412,8 +417,7 @@ export class HelpPopup {
     this.open = true;
     this.root.classList.add("help-open");
     document.body.classList.add("help-popup-open");
-    const scroller = /** @type {HTMLElement|null} */ (this.root.querySelector(".help-scroll"));
-    if (scroller) scroller.scrollTop = 0;
+    if (this.scroller) this.scroller.scrollTop = 0;
     if (this.onToggle) this.onToggle(true);
   }
 
@@ -434,6 +438,92 @@ export class HelpPopup {
   toggle(){
     if (this.open) this.close();
     else this.show();
+  }
+
+  /**
+   * @returns {boolean}
+   */
+  _isGamepadHelpPressed(){
+    if (typeof navigator === "undefined" || typeof navigator.getGamepads !== "function") return false;
+    const pads = navigator.getGamepads() || [];
+    for (const pad of pads){
+      if (!pad || pad.connected === false || !pad.buttons) continue;
+      const viewBack = pad.buttons[8];
+      const button3 = pad.buttons[3];
+      if ((viewBack && (viewBack.pressed || viewBack.value > 0.5)) || (button3 && (button3.pressed || button3.value > 0.5))){
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * @param {Gamepad|null|undefined} pad
+   * @param {number} index
+   * @returns {number}
+   */
+  _gamepadButtonValue(pad, index){
+    if (!pad || !pad.buttons || !pad.buttons[index]) return 0;
+    const btn = pad.buttons[index];
+    if (btn.pressed) return 1;
+    return Math.max(0, Math.min(1, btn.value || 0));
+  }
+
+  /**
+   * @param {number} v
+   * @returns {number}
+   */
+  _gamepadAxisValue(v){
+    const raw = Number.isFinite(v) ? v : 0;
+    const dead = 0.16;
+    const mag = Math.abs(raw);
+    if (mag <= dead) return 0;
+    const scaled = (mag - dead) / (1 - dead);
+    return Math.sign(raw) * Math.max(0, Math.min(1, scaled));
+  }
+
+  /**
+   * @returns {number}
+   */
+  _gamepadScrollAxis(){
+    if (typeof navigator === "undefined" || typeof navigator.getGamepads !== "function") return 0;
+    const pads = navigator.getGamepads() || [];
+    let down = 0;
+    let up = 0;
+    for (const pad of pads){
+      if (!pad || pad.connected === false) continue;
+      const rt = this._gamepadButtonValue(pad, 7);
+      const lt = this._gamepadButtonValue(pad, 6);
+      const dpadDown = this._gamepadButtonValue(pad, 13);
+      const dpadUp = this._gamepadButtonValue(pad, 12);
+      const leftY = this._gamepadAxisValue(pad.axes && pad.axes.length > 1 ? pad.axes[1] : 0);
+      const rightY = this._gamepadAxisValue(pad.axes && pad.axes.length > 3 ? pad.axes[3] : 0);
+      down = Math.max(down, rt, dpadDown, Math.max(0, leftY), Math.max(0, rightY));
+      up = Math.max(up, lt, dpadUp, Math.max(0, -leftY), Math.max(0, -rightY));
+    }
+    return Math.max(-1, Math.min(1, down - up));
+  }
+
+  /**
+   * @param {number} ts
+   * @returns {void}
+   */
+  _pollGamepadToggle(ts){
+    const dt = Math.max(0, Math.min(0.05, (ts - this._lastGamepadPollMs) / 1000));
+    this._lastGamepadPollMs = ts;
+    const pressed = this._isGamepadHelpPressed();
+    if (pressed && !this._gamepadHelpHeld){
+      this.toggle();
+    }
+    this._gamepadHelpHeld = pressed;
+    if (this.open && this.scroller){
+      const axis = this._gamepadScrollAxis();
+      if (Math.abs(axis) > 0.04){
+        const scrollPxPerSec = 780;
+        this.scroller.scrollTop += axis * scrollPxPerSec * dt;
+      }
+    }
+    requestAnimationFrame(this._pollGamepadBound);
   }
 
   /**

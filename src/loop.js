@@ -203,6 +203,9 @@ export class GameLoop {
     this.startTitleAlpha = 1;
     this.startTitleFade = false;
     this.startTitleSeen = false;
+    this.NEW_GAME_HELP_PROMPT_SECS = 10;
+    this.newGameHelpPromptT = 0;
+    this.newGameHelpPromptArmed = true;
     this.START_TITLE_FADE_PER_SEC = 1.8;
     this.levelWipeActive = false;
     this.levelWipeT = 0;
@@ -1659,6 +1662,8 @@ export class GameLoop {
 
     // Reset progression when starting the first level
     if (level === 1){
+      this.newGameHelpPromptT = 0;
+      this.newGameHelpPromptArmed = true;
       this.ship.mothershipMiners = 0;
       this.ship.mothershipPilots = 0;
       this.ship.mothershipEngineers = 0;
@@ -2020,6 +2025,10 @@ export class GameLoop {
         }
         this.ship.state = "flying";
         this.ship._dock = null;
+        if (this.newGameHelpPromptArmed){
+          this.newGameHelpPromptT = this.NEW_GAME_HELP_PROMPT_SECS;
+          this.newGameHelpPromptArmed = false;
+        }
         if (!aim && !aimShoot && !aimBomb && !this.lastAimScreen){
           const seededAim = this._defaultAimScreenFromShip();
           if (seededAim){
@@ -2792,6 +2801,9 @@ export class GameLoop {
     const now = performance.now();
     const rawDt = Math.min(0.05, (now - this.lastTime) / 1000);
     this.lastTime = now;
+    if (this.newGameHelpPromptT > 0){
+      this.newGameHelpPromptT = Math.max(0, this.newGameHelpPromptT - rawDt);
+    }
     const touchStartPromptActive = this._touchStartPromptActive();
     this.input.setTouchStartPromptActive(touchStartPromptActive);
     this.input.setGameOver(this.ship.state === "crashed");
@@ -2991,10 +3003,16 @@ export class GameLoop {
         if (cue){
           this.ui.updateObjectiveLabel(this.objectiveLabel, cue);
         } else if (titleShowing && this.ship.state !== "crashed"){
-          this.ui.updateObjectiveLabel(this.objectiveLabel, "Lift off to start");
+          this.ui.updateObjectiveLabel(this.objectiveLabel, this._startObjectiveText(inputState.inputType));
         } else {
-        const prompt = this._objectivePromptText(inputState.inputType);
-        this.ui.updateObjectiveLabel(this.objectiveLabel, prompt || this._objectiveText());
+          const prompt = this._objectivePromptText(inputState.inputType);
+          const objectiveText = prompt || this._objectiveText();
+          if (this.ship.state !== "crashed" && this.newGameHelpPromptT > 0){
+            const helpLine = this._helpPromptLine(inputState.inputType);
+            this.ui.updateObjectiveLabel(this.objectiveLabel, objectiveText ? `${helpLine}\n${objectiveText}` : helpLine);
+          } else {
+            this.ui.updateObjectiveLabel(this.objectiveLabel, objectiveText);
+          }
         }
       }
     }
@@ -3121,7 +3139,7 @@ export class GameLoop {
     const type = inputType || "keyboard";
     const startButtonPrefix =
       (type === "touch") ? "Tap Start to " :
-      (type === "gamepad") ? "Press Start to " :
+      (type === "gamepad") ? "Press Start or A to " :
       "Press R to ";
     if (this.pendingPerkChoice){
       if (type === "touch") return "Choose upgrade: use left/right thrust controls.";
@@ -3152,6 +3170,33 @@ export class GameLoop {
       return "Objective complete! Return to mothership.";
     }
     return "";
+  }
+
+  /**
+   * @param {"keyboard"|"mouse"|"touch"|"gamepad"|null|undefined} inputType
+   * @returns {string}
+   */
+  _startObjectiveText(inputType){
+    return `Lift off to start, or press ${this._helpActionLabel(inputType)} for help`;
+  }
+
+  /**
+   * @param {"keyboard"|"mouse"|"touch"|"gamepad"|null|undefined} inputType
+   * @returns {string}
+   */
+  _helpPromptLine(inputType){
+    return `Press ${this._helpActionLabel(inputType)} for help.`;
+  }
+
+  /**
+   * @param {"keyboard"|"mouse"|"touch"|"gamepad"|null|undefined} inputType
+   * @returns {string}
+   */
+  _helpActionLabel(inputType){
+    const type = inputType || "keyboard";
+    if (type === "touch") return "the ? button";
+    if (type === "gamepad") return "View/Back/Button3";
+    return "/";
   }
 
   /**

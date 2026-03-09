@@ -55,7 +55,7 @@ export class Input {
     /** @type {boolean} */
     this.prevPadBomb = false;
     /** @type {boolean} */
-    this.prevPadStart = false;
+    this.prevPadReset = false;
     /** @type {Point|null} */
     this.aimMouse = null;
     /** @type {Point|null} */
@@ -107,6 +107,15 @@ export class Input {
       this.pointerLocked = document.pointerLockElement === this.canvas;
       this.canvas.style.cursor = this.pointerLocked ? "none" : "default";
     });
+
+    window.addEventListener("gamepaddisconnected", () => {
+      this.prevPadShoot = false;
+      this.prevPadBomb = false;
+      this.prevPadReset = false;
+      if (this.lastInputType === "gamepad" && !this._hasConnectedGamepad()){
+        this.lastInputType = null;
+      }
+    });
   }
 
   /**
@@ -137,7 +146,7 @@ export class Input {
       this.mouseShootHeld = false;
       this.prevPadShoot = false;
       this.prevPadBomb = false;
-      this.prevPadStart = false;
+      this.prevPadReset = false;
       this.oneshot.shoot = false;
       this.oneshot.bomb = false;
       this.oneshot.rescueAll = false;
@@ -177,7 +186,7 @@ export class Input {
     this.mouseShootHeld = false;
     this.prevPadShoot = false;
     this.prevPadBomb = false;
-    this.prevPadStart = false;
+    this.prevPadReset = false;
     this._resetOneShotFlags();
   }
 
@@ -447,6 +456,20 @@ export class Input {
   }
 
   /**
+   * @returns {boolean}
+   */
+  _hasConnectedGamepad(){
+    if (typeof navigator === "undefined" || typeof navigator.getGamepads !== "function") return false;
+    const pads = navigator.getGamepads() || [];
+    for (const pad of pads){
+      if (!pad) continue;
+      if (pad.connected === false) continue;
+      return true;
+    }
+    return false;
+  }
+
+  /**
    * @returns {{left:boolean,right:boolean,thrust:boolean,down:boolean}}
    */
   _touchState(){
@@ -508,15 +531,17 @@ export class Input {
   }
 
   /**
-   * @returns {{stickThrust:Point,thrust:boolean,down:boolean,aim:Point|null,shoot:boolean,bomb:boolean,reset:boolean}}
+   * @returns {{stickThrust:Point,left:boolean,right:boolean,thrust:boolean,down:boolean,aim:Point|null,shoot:boolean,bomb:boolean,reset:boolean}}
    */
   _gamepadState(){
-    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    const pads = navigator.getGamepads ? (navigator.getGamepads() || []) : [];
+    let hasConnectedPad = false;
 
-    let inputCombined = { stickThrust:{x:0, y:0}, thrust:false, down:false, aim:null, shoot:false, bomb:false, reset:false };
+    let inputCombined = { stickThrust:{x:0, y:0}, left:false, right:false, thrust:false, down:false, aim:null, shoot:false, bomb:false, reset:false };
 
     for (const pad of pads) {
-      if (!pad) continue;
+      if (!pad || pad.connected === false) continue;
+      hasConnectedPad = true;
 
       const dead = 0.2;
       const ax0 = pad.axes && pad.axes.length ? pad.axes[0] : 0;
@@ -531,8 +556,16 @@ export class Input {
       const thrustScale = (thrustLenAdjusted <= 0) ? 0 : (thrustLenAdjusted / thrustLen);
       const stickThrust = {x:ax0 * thrustScale, y:-ax1 * thrustScale};
 
-      const thrust = (pad.buttons && pad.buttons[0] && pad.buttons[0].pressed);
-      const down = (pad.buttons && pad.buttons[1] && pad.buttons[1].pressed);
+      const faceBottomPressed = !!(pad.buttons && pad.buttons[0] && pad.buttons[0].pressed);
+      const faceRightPressed = !!(pad.buttons && pad.buttons[1] && pad.buttons[1].pressed);
+      const dpadUpPressed = !!(pad.buttons && pad.buttons[12] && pad.buttons[12].pressed);
+      const dpadDownPressed = !!(pad.buttons && pad.buttons[13] && pad.buttons[13].pressed);
+      const dpadLeftPressed = !!(pad.buttons && pad.buttons[14] && pad.buttons[14].pressed);
+      const dpadRightPressed = !!(pad.buttons && pad.buttons[15] && pad.buttons[15].pressed);
+      const left = dpadLeftPressed;
+      const right = dpadRightPressed;
+      const thrust = dpadUpPressed;
+      const down = faceRightPressed || dpadDownPressed;
 
       let aim = null;
       if (alen > dead){
@@ -549,7 +582,7 @@ export class Input {
       const startPressed = !!(pad.buttons && pad.buttons[9] && pad.buttons[9].pressed);
       const shoot = rb || rt;
       const bomb = lb || lt;
-      const reset = startPressed;
+      const reset = startPressed || faceBottomPressed;
 
       if (thrustLenAdjusted > 0) {
         const thrustLenCombined = Math.hypot(inputCombined.stickThrust.x, inputCombined.stickThrust.y);
@@ -558,6 +591,8 @@ export class Input {
         }        
       }
 
+      inputCombined.left = inputCombined.left || left;
+      inputCombined.right = inputCombined.right || right;
       inputCombined.thrust = inputCombined.thrust || thrust;
       inputCombined.down = inputCombined.down || down;
       inputCombined.shoot = inputCombined.shoot || shoot;
@@ -573,9 +608,15 @@ export class Input {
       }
     }
 
-    if (inputCombined.thrust || inputCombined.down || inputCombined.shoot || inputCombined.bomb || inputCombined.reset ||
+    if (inputCombined.left || inputCombined.right || inputCombined.thrust || inputCombined.down || inputCombined.shoot || inputCombined.bomb || inputCombined.reset ||
         (inputCombined.stickThrust.x*inputCombined.stickThrust.x + inputCombined.stickThrust.y*inputCombined.stickThrust.y) > 0) {
       this.lastInputType = "gamepad";
+    } else if (!hasConnectedPad && this.lastInputType === "gamepad"){
+      // Avoid stale gamepad hints/behavior after disconnect.
+      this.lastInputType = null;
+      this.prevPadShoot = false;
+      this.prevPadBomb = false;
+      this.prevPadReset = false;
     }
 
     return inputCombined;
@@ -643,8 +684,8 @@ export class Input {
     const t = this._touchState();
     const g = this._gamepadState();
 
-    let left = keyState.left || t.left;
-    let right = keyState.right || t.right;
+    let left = keyState.left || t.left || g.left;
+    let right = keyState.right || t.right || g.right;
     let thrust = keyState.thrust || t.thrust || g.thrust;
     let down = keyState.down || t.down || g.down;
     let stickThrust = g.stickThrust;
@@ -665,10 +706,10 @@ export class Input {
       }
     }
     if (g.bomb && !this.prevPadBomb) this.oneshot.bomb = true;
-    if (g.reset && !this.prevPadStart) this.oneshot.reset = true;
+    if (g.reset && !this.prevPadReset) this.oneshot.reset = true;
     this.prevPadShoot = g.shoot;
     this.prevPadBomb = g.bomb;
-    this.prevPadStart = g.reset;
+    this.prevPadReset = g.reset;
 
     if (!this.gameOver && this.aimTouchShoot && this.laserControl.id !== null){
       if (now - this.laserControl.lastFire >= this.LASER_INTERVAL_MS){
