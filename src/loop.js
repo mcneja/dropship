@@ -3229,7 +3229,7 @@ export class GameLoop {
    */
   _abandonHoldCountdownText(remainingMs){
     const ms = Math.max(0, remainingMs || 0);
-    return `restarting game in ${Math.ceil(ms / 1000)} seconds`;
+    return `Restarting game in ${Math.ceil(ms / 1000)} seconds`;
   }
 
   /**
