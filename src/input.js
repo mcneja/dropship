@@ -29,6 +29,8 @@ export class Input {
     this.laserControl = { id: null, pos: null, start: null, lastFire: 0 };
     /** @type {{id:number|null,pos:Point|null,start:Point|null,lastFire:number}} */
     this.bombControl = { id: null, pos: null, start: null, lastFire: 0 };
+    /** @type {{id:number|null,downAt:number,triggered:boolean}} */
+    this.startControl = { id: null, downAt: 0, triggered: false };
 
     this.oneshot = {
       regen: false,
@@ -42,6 +44,7 @@ export class Input {
       musicVolumeUp: false,
       musicVolumeDown: false,
       reset: false,
+      abandonRun: false,
       nextLevel: false,
       prevLevel: false,
       shoot: false,
@@ -82,6 +85,7 @@ export class Input {
     this.padShootLastFire = 0;
     this.LASER_INTERVAL_MS = 200;
     this.BOMB_INTERVAL_MS = 2000;
+    this.HOLD_ABANDON_MS = 3000;
     this.pointerLocked = false;
     /** @type {boolean} */
     this.gameOver = false;
@@ -116,6 +120,11 @@ export class Input {
         this.lastInputType = null;
       }
     });
+
+    /** @type {"keyboard"|"gamepad"|"touch"|null} */
+    this.abandonHoldSource = null;
+    this.abandonHoldStartMs = 0;
+    this.abandonHoldTriggered = false;
   }
 
   /**
@@ -143,16 +152,23 @@ export class Input {
       this.bombControl.id = null;
       this.bombControl.pos = null;
       this.bombControl.start = null;
+      this.startControl.id = null;
+      this.startControl.downAt = 0;
+      this.startControl.triggered = false;
       this.mouseShootHeld = false;
       this.prevPadShoot = false;
       this.prevPadBomb = false;
       this.prevPadReset = false;
       this.oneshot.shoot = false;
       this.oneshot.bomb = false;
+      this.oneshot.abandonRun = false;
       this.oneshot.rescueAll = false;
       this.oneshot.killAllEnemies = false;
       this.oneshot.musicVolumeUp = false;
       this.oneshot.musicVolumeDown = false;
+      this.abandonHoldSource = null;
+      this.abandonHoldStartMs = 0;
+      this.abandonHoldTriggered = false;
     }
   }
 
@@ -183,10 +199,16 @@ export class Input {
     this.bombControl.id = null;
     this.bombControl.pos = null;
     this.bombControl.start = null;
+    this.startControl.id = null;
+    this.startControl.downAt = 0;
+    this.startControl.triggered = false;
     this.mouseShootHeld = false;
     this.prevPadShoot = false;
     this.prevPadBomb = false;
     this.prevPadReset = false;
+    this.abandonHoldSource = null;
+    this.abandonHoldStartMs = 0;
+    this.abandonHoldTriggered = false;
     this._resetOneShotFlags();
   }
 
@@ -240,7 +262,9 @@ export class Input {
       if (e.shiftKey) this.oneshot.prevLevel = true;
       else this.oneshot.nextLevel = true;
     }
-    if (key === "r" || key === "R") this.oneshot.reset = true;
+    if (key === "r" || key === "R"){
+      if (!e.shiftKey) this.oneshot.reset = true;
+    }
     if (debugChord && code === "KeyV") this.oneshot.togglePlanetView = true;
     if (debugChord && code === "KeyT") this.oneshot.togglePlanetTriangles = true;
     if (debugChord && code === "KeyF") this.oneshot.toggleFog = true;
@@ -250,7 +274,9 @@ export class Input {
     if ((key === "=" || key === "+") && !e.ctrlKey && !e.metaKey && !e.altKey){
       this.oneshot.musicVolumeUp = true;
     }
-    if (key === "b" || key === "B") this.oneshot.toggleMusic = true;
+    if ((key === "m" || key === "M" || key === "b" || key === "B") && !e.ctrlKey && !e.metaKey && !e.altKey){
+      this.oneshot.toggleMusic = true;
+    }
     if (key === "j" || key === "J") this.oneshot.toggleCombatMusic = true;
     if (debugChord && code === "Backslash") this.oneshot.toggleDevHud = true;
     if (debugChord && debugDigit) this.oneshot.spawnEnemyType = code[5];
@@ -346,8 +372,10 @@ export class Input {
     this.lastInputType = "touch";
     const p = this._pointerPos(e);
     this.canvas.setPointerCapture(e.pointerId);
-    if (this.touchStartPromptActive && this._inCircle(p, TOUCH_UI.start, TOUCH_UI.start.r)){
-      this.oneshot.reset = true;
+    if (this._inCircle(p, TOUCH_UI.start, TOUCH_UI.start.r)){
+      this.startControl.id = e.pointerId;
+      this.startControl.downAt = performance.now();
+      this.startControl.triggered = false;
       return;
     }
     if (this.gameOver){
@@ -426,6 +454,21 @@ export class Input {
       }
       this.mouseShootHeld = !!(e.buttons & 1);
       this.lastInputType = "mouse";
+      return;
+    }
+    if (this.startControl.id === e.pointerId){
+      const cancelled = e.type === "pointercancel";
+      const heldMs = performance.now() - this.startControl.downAt;
+      if (!cancelled && !this.startControl.triggered){
+        if (heldMs >= this.HOLD_ABANDON_MS){
+          this.oneshot.abandonRun = true;
+        } else {
+          this.oneshot.reset = true;
+        }
+      }
+      this.startControl.id = null;
+      this.startControl.downAt = 0;
+      this.startControl.triggered = false;
       return;
     }
     if (this.leftControl.id === e.pointerId){
@@ -531,13 +574,13 @@ export class Input {
   }
 
   /**
-   * @returns {{stickThrust:Point,left:boolean,right:boolean,thrust:boolean,down:boolean,aim:Point|null,shoot:boolean,bomb:boolean,reset:boolean}}
+   * @returns {{stickThrust:Point,left:boolean,right:boolean,thrust:boolean,down:boolean,aim:Point|null,shoot:boolean,bomb:boolean,reset:boolean,abandonRun:boolean}}
    */
   _gamepadState(){
     const pads = navigator.getGamepads ? (navigator.getGamepads() || []) : [];
     let hasConnectedPad = false;
 
-    let inputCombined = { stickThrust:{x:0, y:0}, left:false, right:false, thrust:false, down:false, aim:null, shoot:false, bomb:false, reset:false };
+    let inputCombined = { stickThrust:{x:0, y:0}, left:false, right:false, thrust:false, down:false, aim:null, shoot:false, bomb:false, reset:false, abandonRun:false };
 
     for (const pad of pads) {
       if (!pad || pad.connected === false) continue;
@@ -582,7 +625,8 @@ export class Input {
       const startPressed = !!(pad.buttons && pad.buttons[9] && pad.buttons[9].pressed);
       const shoot = rb || rt;
       const bomb = lb || lt;
-      const reset = startPressed || faceBottomPressed;
+      const reset = faceBottomPressed;
+      const abandonRun = startPressed;
 
       if (thrustLenAdjusted > 0) {
         const thrustLenCombined = Math.hypot(inputCombined.stickThrust.x, inputCombined.stickThrust.y);
@@ -598,6 +642,7 @@ export class Input {
       inputCombined.shoot = inputCombined.shoot || shoot;
       inputCombined.bomb = inputCombined.bomb || bomb;
       inputCombined.reset = inputCombined.reset || reset;
+      inputCombined.abandonRun = inputCombined.abandonRun || abandonRun;
       if (aim) {
         const ax = aim.x - 0.5;
         const ay = aim.y - 0.5;
@@ -608,7 +653,7 @@ export class Input {
       }
     }
 
-    if (inputCombined.left || inputCombined.right || inputCombined.thrust || inputCombined.down || inputCombined.shoot || inputCombined.bomb || inputCombined.reset ||
+    if (inputCombined.left || inputCombined.right || inputCombined.thrust || inputCombined.down || inputCombined.shoot || inputCombined.bomb || inputCombined.reset || inputCombined.abandonRun ||
         (inputCombined.stickThrust.x*inputCombined.stickThrust.x + inputCombined.stickThrust.y*inputCombined.stickThrust.y) > 0) {
       this.lastInputType = "gamepad";
     } else if (!hasConnectedPad && this.lastInputType === "gamepad"){
@@ -634,6 +679,9 @@ export class Input {
         thrust: false,
         down: false,
         reset: false,
+        abandonRun: false,
+        abandonHoldActive: false,
+        abandonHoldRemainingMs: 0,
         regen: false,
         toggleDebug: false,
         toggleDevHud: false,
@@ -711,6 +759,35 @@ export class Input {
     this.prevPadBomb = g.bomb;
     this.prevPadReset = g.reset;
 
+    const keyboardAbandonHeld =
+      this.keys.has("Shift") &&
+      (this.keys.has("r") || this.keys.has("R"));
+    const gamepadAbandonHeld = !!g.abandonRun;
+    const touchAbandonHeld = this.startControl.id !== null;
+    const holdSource = touchAbandonHeld ? "touch" : gamepadAbandonHeld ? "gamepad" : keyboardAbandonHeld ? "keyboard" : null;
+    if (holdSource){
+      if (this.abandonHoldSource !== holdSource){
+        this.abandonHoldSource = holdSource;
+        this.abandonHoldStartMs = now;
+        this.abandonHoldTriggered = false;
+      }
+      if (!this.abandonHoldTriggered && (now - this.abandonHoldStartMs) >= this.HOLD_ABANDON_MS){
+        this.oneshot.abandonRun = true;
+        this.abandonHoldTriggered = true;
+        if (holdSource === "touch"){
+          this.startControl.triggered = true;
+        }
+      }
+    } else {
+      this.abandonHoldSource = null;
+      this.abandonHoldStartMs = 0;
+      this.abandonHoldTriggered = false;
+    }
+    const abandonHoldActive = !!holdSource;
+    const abandonHoldRemainingMs = abandonHoldActive
+      ? Math.max(0, this.HOLD_ABANDON_MS - (now - this.abandonHoldStartMs))
+      : 0;
+
     if (!this.gameOver && this.aimTouchShoot && this.laserControl.id !== null){
       if (now - this.laserControl.lastFire >= this.LASER_INTERVAL_MS){
         this.oneshot.shoot = true;
@@ -764,6 +841,9 @@ export class Input {
       thrust,
       down,
       reset: this.oneshot.reset,
+      abandonRun: this.oneshot.abandonRun,
+      abandonHoldActive,
+      abandonHoldRemainingMs,
       regen: this.oneshot.regen,
       toggleDebug: this.oneshot.toggleDebug,
       toggleDevHud: this.oneshot.toggleDevHud,
@@ -804,6 +884,7 @@ export class Input {
   _resetOneShotFlags(){
     this.justPressed.clear();
     this.oneshot.reset = false;
+    this.oneshot.abandonRun = false;
     this.oneshot.regen = false;
     this.oneshot.toggleDebug = false;
     this.oneshot.toggleDevHud = false;

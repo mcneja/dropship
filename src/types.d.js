@@ -181,6 +181,9 @@
  * @property {boolean} thrust
  * @property {boolean} down
  * @property {boolean} reset
+ * @property {boolean} abandonRun
+ * @property {boolean} [abandonHoldActive]
+ * @property {number} [abandonHoldRemainingMs]
  * @property {boolean} regen
  * @property {boolean} toggleDebug
  * @property {boolean} toggleDevHud

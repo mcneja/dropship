@@ -568,4 +568,54 @@ export class RingMesh {
     if (idx === undefined) return true;
     return !!this._fogSeen[idx];
   }
+
+  /**
+   * @returns {{
+   *  alpha:Float32Array,
+   *  visible:Uint8Array,
+   *  seen:Uint8Array,
+   *  hold:Uint8Array,
+   *  cursor:number
+   * }}
+   */
+  exportFogState(){
+    return {
+      alpha: new Float32Array(this._fogAlpha),
+      visible: new Uint8Array(this._fogVisible),
+      seen: new Uint8Array(this._fogSeen),
+      hold: new Uint8Array(this._fogHold),
+      cursor: this._fogCursor | 0,
+    };
+  }
+
+  /**
+   * @param {{
+   *  alpha:Float32Array,
+   *  visible:Uint8Array,
+   *  seen:Uint8Array,
+   *  hold:Uint8Array,
+   *  cursor:number
+   * }|null|undefined} state
+   * @returns {boolean}
+   */
+  importFogState(state){
+    if (!state) return false;
+    if (!(state.alpha instanceof Float32Array)) return false;
+    if (!(state.visible instanceof Uint8Array)) return false;
+    if (!(state.seen instanceof Uint8Array)) return false;
+    if (!(state.hold instanceof Uint8Array)) return false;
+    if (state.alpha.length !== this._fogAlpha.length) return false;
+    if (state.visible.length !== this._fogVisible.length) return false;
+    if (state.seen.length !== this._fogSeen.length) return false;
+    if (state.hold.length !== this._fogHold.length) return false;
+
+    this._fogAlpha.set(state.alpha);
+    this._fogVisible.set(state.visible);
+    this._fogSeen.set(state.seen);
+    this._fogHold.set(state.hold);
+    const count = this._fogVisible.length;
+    const nextCursor = Math.max(0, Math.min(count, state.cursor | 0));
+    this._fogCursor = (nextCursor >= count) ? 0 : nextCursor;
+    return true;
+  }
 }

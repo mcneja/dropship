@@ -26,9 +26,9 @@ const HELP_CONTENT = `
       <div class="help-k">Reverse Thrust</div><div class="help-v"><span class="help-chip">S</span> or <span class="help-chip">Down</span></div>
       <div class="help-k">Fire Laser</div><div class="help-v"><span class="help-chip">LMB</span> (hold for autofire)</div>
       <div class="help-k">Drop Bomb</div><div class="help-v"><span class="help-chip">RMB</span></div>
-      <div class="help-k">Restart / Upgrade / Level up</div><div class="help-v"><span class="help-chip">R</span></div>
+      <div class="help-k">Restart / Upgrade / Level up</div><div class="help-v"><span class="help-chip">R</span>, hold <span class="help-chip">Shift+R</span> 3s abandon run</div>
       <div class="help-k">Open / Close Help</div><div class="help-v"><span class="help-chip">/</span> <span class="help-chip">?</span> (close also with <span class="help-chip">Esc</span>)</div>
-      <div class="help-k">Music</div><div class="help-v"><span class="help-chip">B</span> mute toggle, <span class="help-chip">J</span> combat tracks toggle, <span class="help-chip">-</span>/<span class="help-chip">=</span> volume</div>
+      <div class="help-k">Music</div><div class="help-v"><span class="help-chip">M</span>/<span class="help-chip">B</span> mute toggle, <span class="help-chip">J</span> combat tracks toggle, <span class="help-chip">-</span>/<span class="help-chip">=</span> volume</div>
       <div class="help-k">Other audio</div><div class="help-v">Use system volume</div>
     </div>
   </section>
@@ -41,7 +41,7 @@ const HELP_CONTENT = `
       <div class="help-k">Touch Help</div><div class="help-v">Small circled <span class="help-chip">?</span> button in upper-left.</div>
       <div class="help-k">Gamepad Move</div><div class="help-v">Left stick (analog thrust vector).</div>
       <div class="help-k">Gamepad Aim</div><div class="help-v">Right stick.</div>
-      <div class="help-k">Gamepad Inputs</div><div class="help-v"><span class="help-chip">Left Stick</span> analog thrust vector, <span class="help-chip">D-pad</span> left/right/up/down digital thrust, <span class="help-chip">B</span> down, <span class="help-chip">LB</span>/<span class="help-chip">LT</span> bomb, <span class="help-chip">RB</span>/<span class="help-chip">RT</span> laser (hold for autofire), <span class="help-chip">Start</span> or <span class="help-chip">A</span> restart/upgrade/level, <span class="help-chip">View/Back</span> or <span class="help-chip">Y/Button3</span> help, <span class="help-chip">RT/LT</span>, both sticks, or <span class="help-chip">D-pad Up/Down</span> scroll help.</div>
+      <div class="help-k">Gamepad Inputs</div><div class="help-v"><span class="help-chip">Left Stick</span> analog thrust vector, <span class="help-chip">D-pad</span> left/right/up/down digital thrust, <span class="help-chip">B</span> down, <span class="help-chip">LB</span>/<span class="help-chip">LT</span> bomb, <span class="help-chip">RB</span>/<span class="help-chip">RT</span> laser (hold for autofire), <span class="help-chip">A/Button0</span> restart/upgrade/level, <span class="help-chip">Start</span> hold 3s abandon run, <span class="help-chip">Y/Button3</span> help, <span class="help-chip">RT/LT</span>, both sticks, or <span class="help-chip">D-pad Up/Down</span> scroll help.</div>
     </div>
   </section>
   <section class="help-section">
@@ -350,7 +350,7 @@ export class HelpPopup {
       <section class="help-panel" role="dialog" aria-modal="true" aria-label="Dropship Help">
         <header class="help-header">
           <h2 class="help-title">Operations Manual</h2>
-          <div class="help-close-hint">Close: / ? Esc View/Back/Button3</div>
+          <div class="help-close-hint">Close: / ? Esc Button3</div>
           <button type="button" class="help-close-btn" aria-label="Close help">x</button>
         </header>
         <div class="help-scroll">
@@ -448,9 +448,8 @@ export class HelpPopup {
     const pads = navigator.getGamepads() || [];
     for (const pad of pads){
       if (!pad || pad.connected === false || !pad.buttons) continue;
-      const viewBack = pad.buttons[8];
       const button3 = pad.buttons[3];
-      if ((viewBack && (viewBack.pressed || viewBack.value > 0.5)) || (button3 && (button3.pressed || button3.value > 0.5))){
+      if (button3 && (button3.pressed || button3.value > 0.5)){
         return true;
       }
     }

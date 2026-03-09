@@ -8,6 +8,7 @@ import { Mothership, updateMothership, mothershipCollisionInfo } from "./mothers
 import { Planet } from "./planet.js";
 import { pickPlanetConfig, pickPlanetConfigById, resolveLevelProgression, resolvePlanetParams } from "./planet_config.js";
 import { mulberry32 } from "./rng.js";
+import { clearSavedGame, createLoopSaveSnapshot, restoreLoopFromSaveSnapshot } from "./save_state.js";
 
 /** @typedef {import("./types.d.js").ViewState} ViewState */
 /** @typedef {import("./types.d.js").Ship} Ship */
@@ -199,10 +200,7 @@ export class GameLoop {
     this.lastHeat = 0;
     this.statusCueText = "";
     this.statusCueUntil = 0;
-    this.startTitleText = "DROPSHIP";
-    this.startTitleAlpha = 1;
-    this.startTitleFade = false;
-    this.startTitleSeen = false;
+    this._resetStartTitle();
     this.NEW_GAME_HELP_PROMPT_SECS = 10;
     this.newGameHelpPromptT = 0;
     this.newGameHelpPromptArmed = true;
@@ -252,6 +250,7 @@ export class GameLoop {
     };
     this.planetView = false;
     this.fogEnabled = true;
+    this.hasLaunchedPlayerShip = false;
     /** @type {Array<{perk:string,text:string}>|null} */
     this.pendingPerkChoice = null;
     this.objectiveCompleteSfxPlayed = this._objectiveComplete();
@@ -1662,8 +1661,10 @@ export class GameLoop {
 
     // Reset progression when starting the first level
     if (level === 1){
+      this.hasLaunchedPlayerShip = false;
       this.newGameHelpPromptT = 0;
       this.newGameHelpPromptArmed = true;
+      this._resetStartTitle();
       this.ship.mothershipMiners = 0;
       this.ship.mothershipPilots = 0;
       this.ship.mothershipEngineers = 0;
@@ -1914,7 +1915,15 @@ export class GameLoop {
    * @returns {void}
    */
   _step(dt, inputState){
-    let { stickThrust, left, right, thrust, down, reset, shoot, bomb, aim, aimShoot, aimBomb, aimShootFrom, aimShootTo, aimBombFrom, aimBombTo, spawnEnemyType } = inputState;
+    let { stickThrust, left, right, thrust, down, reset, abandonRun, shoot, bomb, aim, aimShoot, aimBomb, aimShootFrom, aimShootTo, aimBombFrom, aimBombTo, spawnEnemyType } = inputState;
+
+    if (abandonRun){
+      this._abandonRunAndRestart();
+      inputState.abandonRun = false;
+      inputState.abandonHoldActive = false;
+      inputState.abandonHoldRemainingMs = 0;
+      return;
+    }
 
     if (inputState.inputType === "gamepad"){
       const aimAdjusted = this._aimScreenAroundShip(aim);
@@ -2025,6 +2034,7 @@ export class GameLoop {
         }
         this.ship.state = "flying";
         this.ship._dock = null;
+        this.hasLaunchedPlayerShip = true;
         if (this.newGameHelpPromptArmed){
           this.newGameHelpPromptT = this.NEW_GAME_HELP_PROMPT_SECS;
           this.newGameHelpPromptArmed = false;
@@ -2795,6 +2805,7 @@ export class GameLoop {
       if (left || right || thrust || (stickThrust.x*stickThrust.x + stickThrust.y*stickThrust.y) > 0){
         this.ship.state = "flying";
         this.ship._dock = null;
+        this.hasLaunchedPlayerShip = true;
       }
     }
   }
@@ -2962,7 +2973,7 @@ export class GameLoop {
       aimOrigin: this._shipGunPivotWorld(),
       planetPalette: this._planetPalette(),
       touchUi: gameOver ? null : inputState.touchUi,
-      touchStart: touchStartPromptActive && inputState.inputType === "touch",
+      touchStart: inputState.inputType === "touch",
     }, this.planet);
 
     this._drawMinerPopups();
@@ -3003,20 +3014,29 @@ export class GameLoop {
     }
     if (this.objectiveLabel){
       this.objectiveLabel.style.visibility = "visible";
+      const abandonHoldActive = !!inputState.abandonHoldActive;
+      const abandonHoldRemainingMs = (typeof inputState.abandonHoldRemainingMs === "number")
+        ? inputState.abandonHoldRemainingMs
+        : 0;
+      this.objectiveLabel.style.color = abandonHoldActive ? "rgb(255, 72, 72)" : "";
       if (this.ui.updateObjectiveLabel){
-        const cue = (now < this.statusCueUntil) ? this.statusCueText : "";
-        if (cue){
-          this.ui.updateObjectiveLabel(this.objectiveLabel, cue);
-        } else if (titleShowing && this.ship.state !== "crashed"){
-          this.ui.updateObjectiveLabel(this.objectiveLabel, this._startObjectiveText(inputState.inputType));
+        if (abandonHoldActive){
+          this.ui.updateObjectiveLabel(this.objectiveLabel, this._abandonHoldCountdownText(abandonHoldRemainingMs));
         } else {
-          const prompt = this._objectivePromptText(inputState.inputType);
-          const objectiveText = prompt || this._objectiveText();
-          if (this.ship.state !== "crashed" && this.newGameHelpPromptT > 0){
-            const helpLine = this._helpPromptLine(inputState.inputType);
-            this.ui.updateObjectiveLabel(this.objectiveLabel, objectiveText ? `${helpLine}\n${objectiveText}` : helpLine);
+          const cue = (now < this.statusCueUntil) ? this.statusCueText : "";
+          if (cue){
+            this.ui.updateObjectiveLabel(this.objectiveLabel, cue);
+          } else if (titleShowing && this.ship.state !== "crashed"){
+            this.ui.updateObjectiveLabel(this.objectiveLabel, this._startObjectiveText(inputState.inputType));
           } else {
-            this.ui.updateObjectiveLabel(this.objectiveLabel, objectiveText);
+            const prompt = this._objectivePromptText(inputState.inputType);
+            const objectiveText = prompt || this._objectiveText();
+            if (this.ship.state !== "crashed" && this.newGameHelpPromptT > 0){
+              const helpLine = this._helpPromptLine(inputState.inputType);
+              this.ui.updateObjectiveLabel(this.objectiveLabel, objectiveText ? `${helpLine}\n${objectiveText}` : helpLine);
+            } else {
+              this.ui.updateObjectiveLabel(this.objectiveLabel, objectiveText);
+            }
           }
         }
       }
@@ -3126,7 +3146,7 @@ export class GameLoop {
    */
   _hasAnyPlayerInput(inputState){
     if (inputState.left || inputState.right || inputState.thrust || inputState.down) return true;
-    if (inputState.shoot || inputState.bomb || inputState.reset) return true;
+    if (inputState.shoot || inputState.bomb || inputState.reset || inputState.abandonRun) return true;
     if (inputState.regen || inputState.nextLevel || inputState.prevLevel) return true;
     if (inputState.toggleDebug || inputState.toggleDevHud || inputState.togglePlanetView || inputState.toggleFog) return true;
     if (inputState.rescueAll || inputState.spawnEnemyType !== null) return true;
@@ -3144,7 +3164,7 @@ export class GameLoop {
     const type = inputType || "keyboard";
     const startButtonPrefix =
       (type === "touch") ? "Tap Start to " :
-      (type === "gamepad") ? "Press Start or Button0 to " :
+      (type === "gamepad") ? "Press Button0 to " :
       "Press R to ";
     if (this.pendingPerkChoice){
       if (type === "touch") return "Choose upgrade: use left/right thrust controls.";
@@ -3182,7 +3202,7 @@ export class GameLoop {
    * @returns {string}
    */
   _startObjectiveText(inputType){
-    return `Lift off to start, or press ${this._helpActionLabel(inputType)} for help`;
+    return `Lift off to start, or press ${this._helpActionLabel(inputType)} for help.`;
   }
 
   /**
@@ -3190,7 +3210,36 @@ export class GameLoop {
    * @returns {string}
    */
   _helpPromptLine(inputType){
-    return `Press ${this._helpActionLabel(inputType)} for help.`;
+    return `Press ${this._helpActionLabel(inputType)} for help. ${this._abandonPromptText(inputType || "keyboard")}`;
+  }
+
+  /**
+   * @param {"keyboard"|"mouse"|"touch"|"gamepad"|null|undefined} inputType
+   * @returns {string}
+   */
+  _abandonPromptText(inputType){
+    const type = inputType || "keyboard";
+    if (type === "touch") return "Hold Start 3s to abandon run.";
+    if (type === "gamepad") return "Hold Start 3s to abandon run.";
+    return "Hold Shift+R 3s to abandon run.";
+  }
+
+  /**
+   * @returns {string}
+   */
+  _abandonHoldCountdownText(remainingMs){
+    const ms = Math.max(0, remainingMs || 0);
+    return `restarting game in ${Math.ceil(ms / 1000)} seconds`;
+  }
+
+  /**
+   * @returns {void}
+   */
+  _resetStartTitle(){
+    this.startTitleText = "DROPSHIP";
+    this.startTitleAlpha = 1;
+    this.startTitleFade = false;
+    this.startTitleSeen = false;
   }
 
   /**
@@ -3200,7 +3249,7 @@ export class GameLoop {
   _helpActionLabel(inputType){
     const type = inputType || "keyboard";
     if (type === "touch") return "the ? button";
-    if (type === "gamepad") return "View/Back/Button3";
+    if (type === "gamepad") return "Button3";
     return "/";
   }
 
@@ -3362,6 +3411,17 @@ export class GameLoop {
     console.log('Restart: num pilots', this.ship.mothershipPilots);
     this.ship.mothershipPilots = Math.max(0, this.ship.mothershipPilots - 1);
     this._resetShip();
+    this._resetStartTitle();
+  }
+
+  /**
+   * Abandon current run: clear persisted save and start from level 1.
+   * @returns {void}
+   */
+  _abandonRunAndRestart(){
+    clearSavedGame();
+    const nextSeed = this.planet.getSeed() + 1;
+    this._beginLevel(nextSeed, 1);
   }
 
   /**
@@ -3419,6 +3479,23 @@ export class GameLoop {
     } else {
       this._showStatusCue("Debug clear: no enemies or factories alive");
     }
+  }
+
+  /**
+   * Build a versioned runtime snapshot suitable for localStorage.
+   * @returns {any}
+   */
+  createSaveSnapshot(){
+    return createLoopSaveSnapshot(this);
+  }
+
+  /**
+   * Restore a previously serialized runtime snapshot.
+   * @param {any} snapshot
+   * @returns {boolean}
+   */
+  restoreFromSaveSnapshot(snapshot){
+    return restoreLoopFromSaveSnapshot(this, snapshot);
   }
 
   /**

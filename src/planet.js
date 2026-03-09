@@ -1899,6 +1899,80 @@ export class Planet {
   }
 
   /**
+   * Capture mutable runtime state needed for save/resume.
+   * @returns {{
+   *  air:Uint8Array,
+   *  props:Array<any>,
+   *  fog:{
+   *    alpha:Float32Array,
+   *    visible:Uint8Array,
+   *    seen:Uint8Array,
+   *    hold:Uint8Array,
+   *    cursor:number
+   *  }
+   * }}
+   */
+  exportRuntimeState(){
+    const world = this.mapgen.getWorld();
+    const srcAir = (world && world.air instanceof Uint8Array) ? world.air : new Uint8Array(0);
+    const air = new Uint8Array(srcAir);
+    const props = Array.isArray(this.props) ? this.props.map((p) => clonePlainData(p)) : [];
+    const fog = this.radial.exportFogState();
+    return { air, props, fog };
+  }
+
+  /**
+   * Restore mutable runtime state from save data.
+   * @param {{
+   *  air:Uint8Array,
+   *  props?:Array<any>,
+   *  fog?:{
+   *    alpha:Float32Array,
+   *    visible:Uint8Array,
+   *    seen:Uint8Array,
+   *    hold:Uint8Array,
+   *    cursor:number
+   *  }
+   * }|null|undefined} state
+   * @returns {Float32Array|undefined}
+   */
+  importRuntimeState(state){
+    if (!state || !(state.air instanceof Uint8Array)){
+      return undefined;
+    }
+    const world = this.mapgen.getWorld();
+    if (!world || !(world.air instanceof Uint8Array) || world.air.length !== state.air.length){
+      return undefined;
+    }
+    world.air.set(state.air);
+    const newAir = this.radial.updateAirFlags(true);
+    this.airNodesBitmap = buildAirNodesBitmap(this.radialGraph, this.radial);
+    this._rebuildSpawnReachabilityMask();
+    this._radialDebugDirty = true;
+
+    if (Array.isArray(state.props) && Array.isArray(this.props)){
+      const count = Math.min(this.props.length, state.props.length);
+      for (let i = 0; i < count; i++){
+        const src = state.props[i];
+        const dst = this.props[i];
+        if (!src || typeof src !== "object" || !dst || typeof dst !== "object") continue;
+        for (const key of Object.keys(dst)){
+          if (!Object.prototype.hasOwnProperty.call(src, key)){
+            delete dst[key];
+          }
+        }
+        for (const key of Object.keys(src)){
+          dst[key] = clonePlainData(src[key]);
+        }
+      }
+    }
+    if (state.fog){
+      this.radial.importFogState(state.fog);
+    }
+    return newAir;
+  }
+
+  /**
    * @param {number} shipX
    * @param {number} shipY
    * @returns {Float32Array|undefined}
@@ -2354,4 +2428,25 @@ function buildAirNodesBitmap(radialGraph, ringMesh){
     passable[i] = ringMesh.rings[n.r][n.i].air > 0.5 ? 1 : 0;
   }
   return passable;
+}
+
+/**
+ * Clone plain JSON-like data and drop non-serializable values.
+ * @param {any} value
+ * @returns {any}
+ */
+function clonePlainData(value){
+  if (value === null || typeof value !== "object"){
+    return value;
+  }
+  if (Array.isArray(value)){
+    return value.map((v) => clonePlainData(v));
+  }
+  const out = {};
+  for (const key of Object.keys(value)){
+    const v = value[key];
+    if (typeof v === "function" || v === undefined) continue;
+    out[key] = clonePlainData(v);
+  }
+  return out;
 }

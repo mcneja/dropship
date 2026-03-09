@@ -7,6 +7,7 @@ import { updateHud, updatePlanetLabel, updateObjectiveLabel, updateShipStatusLab
 import { GameLoop } from "./loop.js";
 import { BackgroundMusic } from "./audio.js";
 import { HelpPopup } from "./help_popup.js";
+import { loadGameFromStorage, installExitSaveHandlers } from "./save_state.js";
 
 const canvas = /** @type {HTMLCanvasElement} */ (document.getElementById("gl"));
 const hud = /** @type {HTMLElement} */ (document.getElementById("hud"));
@@ -38,4 +39,6 @@ const loop = new GameLoop({
   helpPopup,
 });
 
+loadGameFromStorage(loop);
+installExitSaveHandlers(loop);
 loop.start();
