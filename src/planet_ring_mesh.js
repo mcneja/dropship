@@ -103,6 +103,7 @@ export class RingMesh {
         }
       }
       this._applyMoltenOverrides();
+      this._cleanupOuterRimSpikeArtifacts();
 
       for (let r=0;r<this._R_MESH;r++){
         const inner = rings[r];
@@ -297,29 +298,13 @@ export class RingMesh {
 
   /**
    * Collision-focused air sampling.
-   * Suppresses near-surface one-vertex rock spikes that show up as tiny sliver collisions.
+   * Uses the same terrain field as rendering so visible terrain remains collidable.
    * @param {number} x
    * @param {number} y
    * @returns {number}
    */
   airValueAtWorldForCollision(x, y){
-    const r = Math.hypot(x, y);
-    if (r > this._params.RMAX + this._OUTER_PAD) return 1;
-    const rOuter = this.rings ? (this.rings.length - 1) : this._params.RMAX;
-    if (r > (rOuter - 0.5)) return 1;
-    const tri = this.findTriAtWorld(x, y);
-    if (!tri){
-      const n = this.nearestNodeOnRing(x, y);
-      return n ? n.air : 1;
-    }
-    const air = this._airValueInTri(x, y, tri);
-    const rockCount = (tri[0].air <= 0.5 ? 1 : 0)
-      + (tri[1].air <= 0.5 ? 1 : 0)
-      + (tri[2].air <= 0.5 ? 1 : 0);
-    if (rockCount === 1 && r > (rOuter - 1.25)){
-      return Math.max(air, 0.5001);
-    }
-    return air;
+    return this.airValueAtWorld(x, y);
   }
 
   /**
@@ -372,6 +357,7 @@ export class RingMesh {
       }
     }
     this._applyMoltenOverrides();
+    this._cleanupOuterRimSpikeArtifacts();
     for (let i = 0; i < this.vertCount; i++){
       this.airFlag[i] = this._vertRefs[i].air;
     }
@@ -397,6 +383,51 @@ export class RingMesh {
         if (inBand) v.air = 1;
         if (inCore) v.air = 0;
       }
+    }
+  }
+
+  /**
+   * Remove isolated rock spikes in the penultimate ring that have no inward support.
+   * This trims likely outer-rim raster artifacts while preserving actual thin terrain.
+   * @returns {void}
+   */
+  _cleanupOuterRimSpikeArtifacts(){
+    const outer = this.rings.length - 1;
+    if (outer < 2) return;
+    const rim = this.rings[outer - 1];
+    const inner = this.rings[outer - 2];
+    if (!rim || !inner || rim.length < 3 || inner.length < 3) return;
+    /** @type {number[]} */
+    const clear = [];
+    for (let i = 0; i < rim.length; i++){
+      const v = rim[i];
+      if (v.air > 0.5) continue;
+      const prev = rim[(i + rim.length - 1) % rim.length];
+      const next = rim[(i + 1) % rim.length];
+      if (prev.air <= 0.5 || next.air <= 0.5) continue;
+      const len = Math.hypot(v.x, v.y) || 1;
+      const ux = v.x / len;
+      const uy = v.y / len;
+      let best = 0;
+      let bestDot = -2;
+      for (let j = 0; j < inner.length; j++){
+        const iv = inner[j];
+        const ilen = Math.hypot(iv.x, iv.y) || 1;
+        const dot = (iv.x / ilen) * ux + (iv.y / ilen) * uy;
+        if (dot > bestDot){
+          bestDot = dot;
+          best = j;
+        }
+      }
+      const jl = (best + inner.length - 1) % inner.length;
+      const jr = (best + 1) % inner.length;
+      const hasSupport = (inner[best].air <= 0.5) || (inner[jl].air <= 0.5) || (inner[jr].air <= 0.5);
+      if (!hasSupport){
+        clear.push(i);
+      }
+    }
+    for (const i of clear){
+      rim[i].air = 1;
     }
   }
 
