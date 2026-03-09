@@ -153,13 +153,6 @@ export function createLoopSaveSnapshot(loop){
     statusCueDelayMs: Math.max(0, loop.statusCueUntil - nowMs),
     lastAimWorld: cloneSaveData(loop.lastAimWorld),
     lastAimScreen: cloneSaveData(loop.lastAimScreen),
-
-    debug: {
-      collisions: !!loop.debugCollisions,
-      planetTriangles: !!loop.debugPlanetTriangles,
-      collisionContours: !!loop.debugCollisionContours,
-      devHudVisible: !!loop.devHudVisible,
-    },
     title: {
       startTitleSeen: !!loop.startTitleSeen,
       startTitleAlpha: +loop.startTitleAlpha || 0,
@@ -250,12 +243,12 @@ export function restoreLoopFromSaveSnapshot(loop, snapshot){
     loop.lastAimWorld = (snapshot.lastAimWorld && typeof snapshot.lastAimWorld === "object") ? cloneSaveData(snapshot.lastAimWorld) : null;
     loop.lastAimScreen = (snapshot.lastAimScreen && typeof snapshot.lastAimScreen === "object") ? cloneSaveData(snapshot.lastAimScreen) : null;
 
-    const debug = snapshot.debug || {};
-    loop.debugCollisions = !!debug.collisions;
-    loop.debugPlanetTriangles = !!debug.planetTriangles;
-    loop.debugCollisionContours = !!debug.collisionContours;
-    loop.devHudVisible = !!debug.devHudVisible;
-    loop.hud.style.display = loop.devHudVisible ? "block" : "none";
+    // Debug toggles are intentionally session-local and not persisted.
+    loop.debugCollisions = GAME.DEBUG_COLLISION;
+    loop.debugPlanetTriangles = false;
+    loop.debugCollisionContours = false;
+    loop.devHudVisible = false;
+    loop.hud.style.display = "none";
 
     const title = snapshot.title || {};
     loop.startTitleSeen = !!title.startTitleSeen;

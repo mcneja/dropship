@@ -199,6 +199,9 @@ export class GameLoop {
     this.debugPlanetTriangles = false;
     this.debugCollisionContours = false;
     this.devHudVisible = false;
+    if (this.input && typeof this.input.setDebugCommandsEnabled === "function"){
+      this.input.setDebugCommandsEnabled(this.devHudVisible);
+    }
     this.levelAdvanceReady = false;
     this.lastHeat = 0;
     this.statusCueText = "";
@@ -2896,6 +2899,9 @@ export class GameLoop {
     const touchStartPromptActive = this._touchStartPromptActive();
     this.input.setTouchStartPromptActive(touchStartPromptActive);
     this.input.setGameOver(this.ship.state === "crashed");
+    if (this.input && typeof this.input.setDebugCommandsEnabled === "function"){
+      this.input.setDebugCommandsEnabled(this.devHudVisible);
+    }
     const inputState = this.input.update();
     if (this.helpPopup && typeof this.helpPopup.setTouchMode === "function"){
       this.helpPopup.setTouchMode(inputState.inputType === "touch");
@@ -2940,6 +2946,9 @@ export class GameLoop {
     if (inputState.toggleDevHud){
       this.devHudVisible = !this.devHudVisible;
       this.hud.style.display = this.devHudVisible ? "block" : "none";
+      if (this.input && typeof this.input.setDebugCommandsEnabled === "function"){
+        this.input.setDebugCommandsEnabled(this.devHudVisible);
+      }
     }
     if (inputState.togglePlanetView){
       this.planetView = !this.planetView;

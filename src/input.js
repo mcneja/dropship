@@ -94,6 +94,8 @@ export class Input {
     this.modalOpen = false;
     /** @type {boolean} */
     this.touchStartPromptActive = false;
+    /** @type {boolean} */
+    this.debugCommandsEnabled = false;
 
     window.addEventListener("keydown", (e) => this._onKeyDown(e), { passive: false });
     window.addEventListener("keyup", (e) => this._onKeyUp(e), { passive: false });
@@ -221,6 +223,15 @@ export class Input {
     this.touchStartPromptActive = !!active;
   }
 
+  /**
+   * Enable/disable debug keyboard commands (except Alt+\ toggle).
+   * @param {boolean} enabled
+   * @returns {void}
+   */
+  setDebugCommandsEnabled(enabled){
+    this.debugCommandsEnabled = !!enabled;
+  }
+
   /** @returns {void} */
   _fireBomb(){
     this.oneshot.bomb = true;
@@ -238,7 +249,8 @@ export class Input {
     const code = e.code;
     const debugChord = e.altKey && !e.ctrlKey && !e.metaKey;
     const debugDigit = code.startsWith("Digit") && code.length === 6 && code[5] >= "1" && code[5] <= "9";
-    const debugShortcut =
+    const debugToggleHud = debugChord && code === "Backslash";
+    const debugAction =
       debugChord && (
         code === "KeyM" ||
         code === "KeyC" ||
@@ -249,28 +261,29 @@ export class Input {
         code === "KeyF" ||
         code === "KeyP" ||
         code === "KeyX" ||
-        debugDigit ||
-        code === "Backslash"
+        debugDigit
       );
+    const debugShortcut = debugToggleHud || debugAction;
     if (["ArrowLeft","ArrowRight","ArrowUp","ArrowDown"," ","Space"].includes(key)) e.preventDefault();
     if (debugShortcut) e.preventDefault();
     if (!this.keys.has(key)) this.justPressed.add(key);
     this.keys.add(key);
     this.lastInputType = "keyboard";
 
-    if (debugChord && code === "KeyM") this.oneshot.regen = true;
-    if (debugChord && code === "KeyC") this.oneshot.toggleDebug = true;
-    if (debugChord && code === "KeyN"){
+    if (debugToggleHud) this.oneshot.toggleDevHud = true;
+    if (this.debugCommandsEnabled && debugChord && code === "KeyM") this.oneshot.regen = true;
+    if (this.debugCommandsEnabled && debugChord && code === "KeyC") this.oneshot.toggleDebug = true;
+    if (this.debugCommandsEnabled && debugChord && code === "KeyN"){
       if (e.shiftKey) this.oneshot.prevLevel = true;
       else this.oneshot.nextLevel = true;
     }
     if (key === "r" || key === "R"){
       if (!e.shiftKey) this.oneshot.reset = true;
     }
-    if (debugChord && code === "KeyV") this.oneshot.togglePlanetView = true;
-    if (debugChord && code === "KeyT") this.oneshot.togglePlanetTriangles = true;
-    if (debugChord && code === "KeyY") this.oneshot.toggleCollisionContours = true;
-    if (debugChord && code === "KeyF") this.oneshot.toggleFog = true;
+    if (this.debugCommandsEnabled && debugChord && code === "KeyV") this.oneshot.togglePlanetView = true;
+    if (this.debugCommandsEnabled && debugChord && code === "KeyT") this.oneshot.togglePlanetTriangles = true;
+    if (this.debugCommandsEnabled && debugChord && code === "KeyY") this.oneshot.toggleCollisionContours = true;
+    if (this.debugCommandsEnabled && debugChord && code === "KeyF") this.oneshot.toggleFog = true;
     if ((key === "-" || key === "_") && !e.ctrlKey && !e.metaKey && !e.altKey){
       this.oneshot.musicVolumeDown = true;
     }
@@ -281,10 +294,9 @@ export class Input {
       this.oneshot.toggleMusic = true;
     }
     if (key === "j" || key === "J") this.oneshot.toggleCombatMusic = true;
-    if (debugChord && code === "Backslash") this.oneshot.toggleDevHud = true;
-    if (debugChord && debugDigit) this.oneshot.spawnEnemyType = code[5];
-    if (debugChord && code === "KeyP") this.oneshot.rescueAll = true;
-    if (debugChord && code === "KeyX") this.oneshot.killAllEnemies = true;
+    if (this.debugCommandsEnabled && debugChord && debugDigit) this.oneshot.spawnEnemyType = code[5];
+    if (this.debugCommandsEnabled && debugChord && code === "KeyP") this.oneshot.rescueAll = true;
+    if (this.debugCommandsEnabled && debugChord && code === "KeyX") this.oneshot.killAllEnemies = true;
   }
 
   /**
