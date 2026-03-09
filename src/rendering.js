@@ -1701,12 +1701,30 @@ function drawFrameImpl(renderer, state, planet){
         const halfBase = 0.46 * s;
         const halfTop = 0.30 * s;
         const h = 0.56 * s;
+        const factoryHitNorm = (typeof p.hitT === "number" && p.hitT > 0)
+          ? Math.min(1, p.hitT / 0.35)
+          : 0;
+        const factoryHitPulse = factoryHitNorm > 0 ? (0.5 + 0.5 * Math.sin(now * 18.0)) : 0;
+        const factoryHitMix = factoryHitNorm > 0
+          ? ((0.24 + 0.5 * factoryHitPulse) * factoryHitNorm)
+          : 0;
+        const tintFactory = (r, g, b) => {
+          if (factoryHitMix <= 0) return [r, g, b];
+          return [
+            r * (1 - factoryHitMix) + 1.0 * factoryHitMix,
+            g * (1 - factoryHitMix) + 0.2 * factoryHitMix,
+            b * (1 - factoryHitMix) + 0.2 * factoryHitMix,
+          ];
+        };
+        const bodyCol = tintFactory(0.38, 0.39, 0.42);
+        const doorCol = tintFactory(0.14, 0.15, 0.17);
+        const stackCol = tintFactory(0.30, 0.31, 0.34);
         const a0 = toWorld(cx, cy, tx, ty, ux, uy, -halfBase, 0);
         const a1 = toWorld(cx, cy, tx, ty, ux, uy, halfBase, 0);
         const a2 = toWorld(cx, cy, tx, ty, ux, uy, halfTop, h);
         const a3 = toWorld(cx, cy, tx, ty, ux, uy, -halfTop, h);
-        pushTri(pos, col, a0[0], a0[1], a1[0], a1[1], a2[0], a2[1], 0.38, 0.39, 0.42, 0.98);
-        pushTri(pos, col, a0[0], a0[1], a2[0], a2[1], a3[0], a3[1], 0.38, 0.39, 0.42, 0.98);
+        pushTri(pos, col, a0[0], a0[1], a1[0], a1[1], a2[0], a2[1], bodyCol[0], bodyCol[1], bodyCol[2], 0.98);
+        pushTri(pos, col, a0[0], a0[1], a2[0], a2[1], a3[0], a3[1], bodyCol[0], bodyCol[1], bodyCol[2], 0.98);
         triVerts += 6;
         const doorW = 0.11 * s;
         const doorH = 0.22 * s;
@@ -1714,8 +1732,8 @@ function drawFrameImpl(renderer, state, planet){
         const d1 = toWorld(cx, cy, tx, ty, ux, uy, doorW, 0.02 * s);
         const d2 = toWorld(cx, cy, tx, ty, ux, uy, doorW, doorH);
         const d3 = toWorld(cx, cy, tx, ty, ux, uy, -doorW, doorH);
-        pushTri(pos, col, d0[0], d0[1], d1[0], d1[1], d2[0], d2[1], 0.14, 0.15, 0.17, 0.96);
-        pushTri(pos, col, d0[0], d0[1], d2[0], d2[1], d3[0], d3[1], 0.14, 0.15, 0.17, 0.96);
+        pushTri(pos, col, d0[0], d0[1], d1[0], d1[1], d2[0], d2[1], doorCol[0], doorCol[1], doorCol[2], 0.96);
+        pushTri(pos, col, d0[0], d0[1], d2[0], d2[1], d3[0], d3[1], doorCol[0], doorCol[1], doorCol[2], 0.96);
         triVerts += 6;
         const sx = halfTop * 0.55;
         const sw = 0.07 * s;
@@ -1724,8 +1742,8 @@ function drawFrameImpl(renderer, state, planet){
         const st1 = toWorld(cx, cy, tx, ty, ux, uy, sx + sw, h);
         const st2 = toWorld(cx, cy, tx, ty, ux, uy, sx + sw, h + sh);
         const st3 = toWorld(cx, cy, tx, ty, ux, uy, sx - sw, h + sh);
-        pushTri(pos, col, st0[0], st0[1], st1[0], st1[1], st2[0], st2[1], 0.30, 0.31, 0.34, 0.95);
-        pushTri(pos, col, st0[0], st0[1], st2[0], st2[1], st3[0], st3[1], 0.30, 0.31, 0.34, 0.95);
+        pushTri(pos, col, st0[0], st0[1], st1[0], st1[1], st2[0], st2[1], stackCol[0], stackCol[1], stackCol[2], 0.95);
+        pushTri(pos, col, st0[0], st0[1], st2[0], st2[1], st3[0], st3[1], stackCol[0], stackCol[1], stackCol[2], 0.95);
         triVerts += 6;
       }
     }

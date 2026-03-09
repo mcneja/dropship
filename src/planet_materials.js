@@ -1391,6 +1391,7 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
  * @property {number} [halfLength]
  * @property {number} [halfWidth]
  * @property {boolean} [locked]
+ * @property {number} [hitT]
  */
 
 /**

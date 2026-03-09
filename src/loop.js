@@ -137,6 +137,8 @@ export class GameLoop {
     this.PLAYER_BOMB_DAMAGE = 1.2;
     this.SHIP_HIT_BLAST = 0.55;
     this.ENEMY_HIT_BLAST = 0.35;
+    this.NONLETHAL_HIT_FLASH_LIFE = 0.25;
+    this.FACTORY_HIT_FLASH_T = 0.35;
 
     /** @type {Miner[]} */
     this.miners = [];
@@ -240,8 +242,9 @@ export class GameLoop {
       },
       onEnemyHit: (enemy, x, y) => {
         enemy.hp = Math.max(0, enemy.hp - 1);
-        enemy.hitT = 0.25;
-        this.entityExplosions.push({ x: enemy.x, y: enemy.y, life: 0.25, radius: this.ENEMY_HIT_BLAST });
+        if (enemy.hp > 0){
+          this._applyEnemyHitFeedback(enemy);
+        }
       },
       onMinerKilled: () => {
         this.minersRemaining = Math.max(0, this.minersRemaining - 1);
@@ -613,6 +616,34 @@ export class GameLoop {
   }
 
   /**
+   * @param {{x:number,y:number,hitT?:number}} enemy
+   * @returns {void}
+   */
+  _applyEnemyHitFeedback(enemy){
+    enemy.hitT = 0.25;
+    this.entityExplosions.push({
+      x: enemy.x,
+      y: enemy.y,
+      life: this.NONLETHAL_HIT_FLASH_LIFE,
+      radius: this.ENEMY_HIT_BLAST,
+    });
+  }
+
+  /**
+   * @param {{x:number,y:number,scale?:number,hitT?:number}} factory
+   * @returns {void}
+   */
+  _applyFactoryHitFeedback(factory){
+    factory.hitT = this.FACTORY_HIT_FLASH_T;
+    this.entityExplosions.push({
+      x: factory.x,
+      y: factory.y,
+      life: this.NONLETHAL_HIT_FLASH_LIFE,
+      radius: 0.4 * (factory.scale || 1),
+    });
+  }
+
+  /**
    * @param {string} id
    * @param {{volume?:number,rate?:number}} [opts]
    * @returns {void}
@@ -946,8 +977,9 @@ export class GameLoop {
       const dy = e.y - y;
       if (dx * dx + dy * dy <= r2){
         e.hp = Math.max(0, e.hp - this.ship.gunPower);
-        e.hitT = 0.25;
-        this.entityExplosions.push({ x: e.x, y: e.y, life: 0.25, radius: this.ENEMY_HIT_BLAST });
+        if (e.hp > 0){
+          this._applyEnemyHitFeedback(e);
+        }
       }
     }
     for (let j = this.miners.length - 1; j >= 0; j--){
@@ -1087,7 +1119,7 @@ export class GameLoop {
         this._destroyFactoryProp(p);
         factoryDestroyed = true;
       } else {
-        this.entityExplosions.push({ x: p.x, y: p.y, life: 0.25, radius: 0.35 * (p.scale || 1) });
+        this._applyFactoryHitFeedback(p);
       }
     }
     if (factoryDestroyed){
@@ -2099,6 +2131,13 @@ export class GameLoop {
     if (this.ship.hitCooldown > 0){
       this.ship.hitCooldown = Math.max(0, this.ship.hitCooldown - dt);
     }
+    if (this.planet && this.planet.props && this.planet.props.length){
+      for (const p of this.planet.props){
+        if (p.type !== "factory") continue;
+        if (!p.hitT || p.hitT <= 0) continue;
+        p.hitT = Math.max(0, p.hitT - dt);
+      }
+    }
 
     if (this.ship.state === "flying"){
       const stickFaceDead = 0.15;
@@ -2571,11 +2610,12 @@ export class GameLoop {
           if (e.hp <= 0) continue;
           const dx = e.x - s.x;
           const dy = e.y - s.y;
-            if (dx * dx + dy * dy <= this.PLAYER_SHOT_RADIUS * this.PLAYER_SHOT_RADIUS){
-              e.hp -= this.ship.gunPower;
-              e.hitT = 0.25;
-              this.entityExplosions.push({ x: e.x, y: e.y, life: 0.25, radius: this.ENEMY_HIT_BLAST });
-              this.playerShots.splice(i, 1);
+          if (dx * dx + dy * dy <= this.PLAYER_SHOT_RADIUS * this.PLAYER_SHOT_RADIUS){
+            e.hp -= this.ship.gunPower;
+            if (e.hp > 0){
+              this._applyEnemyHitFeedback(e);
+            }
+            this.playerShots.splice(i, 1);
             if (e.hp <= 0) e.hp = 0;
             break;
           }
