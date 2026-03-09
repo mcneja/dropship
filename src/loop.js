@@ -2210,10 +2210,10 @@ export class GameLoop {
         const mothershipHit = (hitSource === "mothership" && this.mothership);
         if (!mothershipHit){
           // Planet collision: keep original simple response to avoid sticking.
-          const gdx = this.planet.airValueAtWorld(this.ship.x + eps, this.ship.y)
-            - this.planet.airValueAtWorld(this.ship.x - eps, this.ship.y);
-          const gdy = this.planet.airValueAtWorld(this.ship.x, this.ship.y + eps)
-            - this.planet.airValueAtWorld(this.ship.x, this.ship.y - eps);
+          const gdx = this.collision.planetAirValueAtWorld(this.ship.x + eps, this.ship.y)
+            - this.collision.planetAirValueAtWorld(this.ship.x - eps, this.ship.y);
+          const gdy = this.collision.planetAirValueAtWorld(this.ship.x, this.ship.y + eps)
+            - this.collision.planetAirValueAtWorld(this.ship.x, this.ship.y - eps);
           let nx = gdx;
           let ny = gdy;
           let nlen = Math.hypot(nx, ny);

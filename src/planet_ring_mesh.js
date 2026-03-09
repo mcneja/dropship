@@ -296,29 +296,67 @@ export class RingMesh {
   }
 
   /**
+   * Collision-focused air sampling.
+   * Suppresses near-surface one-vertex rock spikes that show up as tiny sliver collisions.
+   * @param {number} x
+   * @param {number} y
+   * @returns {number}
+   */
+  airValueAtWorldForCollision(x, y){
+    const r = Math.hypot(x, y);
+    if (r > this._params.RMAX + this._OUTER_PAD) return 1;
+    const rOuter = this.rings ? (this.rings.length - 1) : this._params.RMAX;
+    if (r > (rOuter - 0.5)) return 1;
+    const tri = this.findTriAtWorld(x, y);
+    if (!tri){
+      const n = this.nearestNodeOnRing(x, y);
+      return n ? n.air : 1;
+    }
+    const air = this._airValueInTri(x, y, tri);
+    const rockCount = (tri[0].air <= 0.5 ? 1 : 0)
+      + (tri[1].air <= 0.5 ? 1 : 0)
+      + (tri[2].air <= 0.5 ? 1 : 0);
+    if (rockCount === 1 && r > (rOuter - 1.25)){
+      return Math.max(air, 0.5001);
+    }
+    return air;
+  }
+
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @param {Array<{x:number,y:number,air:number}>} tri
+   * @returns {number}
+   */
+  _airValueInTri(x, y, tri){
+    const a = tri[0], b = tri[1], c = tri[2];
+    const det = (b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y);
+    if (Math.abs(det) < 1e-6){
+      const n = this.nearestNodeOnRing(x, y);
+      return n ? n.air : 1;
+    }
+    const l1 = ((b.y - c.y) * (x - c.x) + (c.x - b.x) * (y - c.y)) / det;
+    const l2 = ((c.y - a.y) * (x - c.x) + (a.x - c.x) * (y - c.y)) / det;
+    const l3 = 1 - l1 - l2;
+    return a.air * l1 + b.air * l2 + c.air * l3;
+  }
+
+  /**
    * @param {number} x
    * @param {number} y
    * @returns {number}
    */
   _airValueAtWorldNoOuterClamp(x, y){
-    const r = Math.hypot(x, y);
-    const rOuter = this.rings ? (this.rings.length - 1) : this._params.RMAX;
-    const r0 = Math.floor(Math.min(this._R_MESH - 1, Math.max(0, r)));
+    const r0 = Math.floor(Math.min(this._R_MESH - 1, Math.max(0, Math.hypot(x, y))));
     if (r0 <= 0){
       return this.rings[0][0].air;
     }
     const tri = this.findTriAtWorld(x, y);
-    if (!tri) return this.nearestNodeOnRing(x, y).air;
-    const a = tri[0], b = tri[1], c = tri[2];
-    const det = (b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y);
-    if (Math.abs(det) < 1e-6) return this.nearestNodeOnRing(x, y).air;
-    const l1 = ((b.y - c.y) * (x - c.x) + (c.x - b.x) * (y - c.y)) / det;
-    const l2 = ((c.y - a.y) * (x - c.x) + (a.x - c.x) * (y - c.y)) / det;
-    const l3 = 1 - l1 - l2;
-    const a0 = a.air;
-    const a1 = b.air;
-    const a2 = c.air;
-    return a0 * l1 + a1 * l2 + a2 * l3;
+    if (!tri){
+      const n = this.nearestNodeOnRing(x, y);
+      return n ? n.air : 1;
+    }
+    return this._airValueInTri(x, y, tri);
   }
 
   /**

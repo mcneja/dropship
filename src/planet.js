@@ -1860,6 +1860,19 @@ export class Planet {
   }
 
   /**
+   * Collision-focused air sampling (filtered against outer-shell sliver spikes).
+   * @param {number} x
+   * @param {number} y
+   * @returns {number}
+   */
+  airValueAtWorldForCollision(x, y){
+    if (this.radial && typeof this.radial.airValueAtWorldForCollision === "function"){
+      return this.radial.airValueAtWorldForCollision(x, y);
+    }
+    return this.radial.airValueAtWorld(x, y);
+  }
+
+  /**
    * @returns {Array<[number,number,boolean,number]>|null}
    */
   debugPoints(){

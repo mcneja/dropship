@@ -10,6 +10,19 @@ import { mothershipAirAtWorld } from "./mothership.js";
  */
 export function createCollisionRouter(planet, getMothership){
   /**
+   * Collision-focused sampling of planet terrain only (no mothership blending).
+   * @param {number} x
+   * @param {number} y
+   * @returns {number}
+   */
+  function planetAirValueAtWorld(x, y){
+    if (typeof planet.airValueAtWorldForCollision === "function"){
+      return planet.airValueAtWorldForCollision(x, y);
+    }
+    return planet.airValueAtWorld(x, y);
+  }
+
+  /**
    * @param {number} x
    * @param {number} y
    * @returns {{air:number, source:"mothership"|"planet"}}
@@ -27,7 +40,8 @@ export function createCollisionRouter(planet, getMothership){
         if (v !== null) return { air: v, source: "mothership" };
       }
     }
-    return { air: planet.airValueAtWorld(x, y), source: "planet" };
+    const air = planetAirValueAtWorld(x, y);
+    return { air, source: "planet" };
   }
 
   /**
@@ -55,6 +69,7 @@ export function createCollisionRouter(planet, getMothership){
 
   return {
     airValueAtWorld: (x, y) => sampleAtWorld(x, y).air,
+    planetAirValueAtWorld: (x, y) => planetAirValueAtWorld(x, y),
     gravityAt: (x, y) => planet.gravityAt(x, y),
     sampleAtWorld,
     collidesAtPoints: (points) => {

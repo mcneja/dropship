@@ -8,6 +8,7 @@
 /**
  * @typedef {Object} CollisionQuery
  * @property {(x:number,y:number)=>number} airValueAtWorld
+ * @property {(x:number,y:number)=>number} planetAirValueAtWorld
  * @property {(x:number,y:number)=>{x:number,y:number}} gravityAt
  * @property {(x:number,y:number)=>{air:number, source:"mothership"|"planet"}} sampleAtWorld
  * @property {(points:Array<[number, number]>)=>boolean} collidesAtPoints
