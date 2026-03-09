@@ -1981,7 +1981,8 @@ function drawFrameImpl(renderer, state, planet){
         }
       }
       if (closestRescuee !== null){
-        drawOffscreenIndicator(closestRescuee.x, closestRescuee.y, 0.5, 0.84, 1.0);
+        const [r, g, b] = minerColor("miner");
+        drawOffscreenIndicator(closestRescuee.x, closestRescuee.y, r, g, b);
       }
     }
 
