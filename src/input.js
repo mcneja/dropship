@@ -76,8 +76,10 @@ export class Input {
     this.bombReleaseTo = null;
     /** @type {"keyboard"|"mouse"|"touch"|"gamepad"|null} */
     this.lastInputType = null;
-    this.lastPointerShootTime = 0;
-    this.SHOOT_DEBOUNCE_MS = 50;
+    /** @type {boolean} */
+    this.mouseShootHeld = false;
+    this.mouseShootLastFire = 0;
+    this.padShootLastFire = 0;
     this.LASER_INTERVAL_MS = 100;
     this.BOMB_INTERVAL_MS = 2000;
     this.pointerLocked = false;
@@ -132,6 +134,10 @@ export class Input {
       this.bombControl.id = null;
       this.bombControl.pos = null;
       this.bombControl.start = null;
+      this.mouseShootHeld = false;
+      this.prevPadShoot = false;
+      this.prevPadBomb = false;
+      this.prevPadStart = false;
       this.oneshot.shoot = false;
       this.oneshot.bomb = false;
       this.oneshot.rescueAll = false;
@@ -168,6 +174,10 @@ export class Input {
     this.bombControl.id = null;
     this.bombControl.pos = null;
     this.bombControl.start = null;
+    this.mouseShootHeld = false;
+    this.prevPadShoot = false;
+    this.prevPadBomb = false;
+    this.prevPadStart = false;
     this._resetOneShotFlags();
   }
 
@@ -177,16 +187,6 @@ export class Input {
    */
   setTouchStartPromptActive(active){
     this.touchStartPromptActive = !!active;
-  }
-
-  /**
-   * @param {number} now
-   * @returns {void}
-   */
-  _fireShoot(now){
-    if (now - this.lastPointerShootTime < this.SHOOT_DEBOUNCE_MS) return;
-    this.oneshot.shoot = true;
-    this.lastPointerShootTime = now;
   }
 
   /** @returns {void} */
@@ -325,7 +325,11 @@ export class Input {
       }
       const now = performance.now();
       if (e.button === 2) this._fireBomb();
-      else if (e.button === 0 || (e.buttons & 1)) this._fireShoot(now);
+      if ((e.button === 0 || (e.buttons & 1)) && !this.mouseShootHeld){
+        this.mouseShootHeld = true;
+        this.mouseShootLastFire = now;
+        this.oneshot.shoot = true;
+      }
       this.lastInputType = "mouse";
       return;
     }
@@ -382,6 +386,7 @@ export class Input {
       } else {
         this.aimMouse = this._pointerPos(e);
       }
+      this.mouseShootHeld = !!(e.buttons & 1);
       this.lastInputType = "mouse";
       return;
     }
@@ -410,6 +415,7 @@ export class Input {
       if (!this.pointerLocked){
         this.aimMouse = this._pointerPos(e);
       }
+      this.mouseShootHeld = !!(e.buttons & 1);
       this.lastInputType = "mouse";
       return;
     }
@@ -536,11 +542,13 @@ export class Input {
         aim = { x: 0.5 + ux * radius, y: 0.5 + uy * radius };
       }
 
+      const lb = !!(pad.buttons && pad.buttons[4] && pad.buttons[4].pressed);
+      const lt = !!(pad.buttons && pad.buttons[6] && (pad.buttons[6].pressed || pad.buttons[6].value > 0.4));
       const rb = !!(pad.buttons && pad.buttons[5] && pad.buttons[5].pressed);
       const rt = !!(pad.buttons && pad.buttons[7] && (pad.buttons[7].pressed || pad.buttons[7].value > 0.4));
       const startPressed = !!(pad.buttons && pad.buttons[9] && pad.buttons[9].pressed);
-      const shoot = rb;
-      const bomb = rt;
+      const shoot = rb || rt;
+      const bomb = lb || lt;
       const reset = startPressed;
 
       if (thrustLenAdjusted > 0) {
@@ -641,7 +649,21 @@ export class Input {
     let down = keyState.down || t.down || g.down;
     let stickThrust = g.stickThrust;
 
-    if (g.shoot && !this.prevPadShoot) this.oneshot.shoot = true;
+    if (!this.gameOver && this.mouseShootHeld){
+      if (now - this.mouseShootLastFire >= this.LASER_INTERVAL_MS){
+        this.oneshot.shoot = true;
+        this.mouseShootLastFire = now;
+      }
+    }
+    if (!this.gameOver && g.shoot){
+      if (!this.prevPadShoot){
+        this.padShootLastFire = now - this.LASER_INTERVAL_MS;
+      }
+      if (now - this.padShootLastFire >= this.LASER_INTERVAL_MS){
+        this.oneshot.shoot = true;
+        this.padShootLastFire = now;
+      }
+    }
     if (g.bomb && !this.prevPadBomb) this.oneshot.bomb = true;
     if (g.reset && !this.prevPadStart) this.oneshot.reset = true;
     this.prevPadShoot = g.shoot;

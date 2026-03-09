@@ -24,7 +24,7 @@ const HELP_CONTENT = `
       <div class="help-k">Move / Strafe</div><div class="help-v"><span class="help-chip">A / D</span> or <span class="help-chip">Left / Right</span></div>
       <div class="help-k">Main Thrust</div><div class="help-v"><span class="help-chip">W</span> <span class="help-chip">Up</span> <span class="help-chip">Space</span></div>
       <div class="help-k">Reverse Thrust</div><div class="help-v"><span class="help-chip">S</span> or <span class="help-chip">Down</span></div>
-      <div class="help-k">Fire Laser</div><div class="help-v"><span class="help-chip">LMB</span></div>
+      <div class="help-k">Fire Laser</div><div class="help-v"><span class="help-chip">LMB</span> (hold for autofire)</div>
       <div class="help-k">Drop Bomb</div><div class="help-v"><span class="help-chip">RMB</span></div>
       <div class="help-k">Restart / Upgrade / Level up</div><div class="help-v"><span class="help-chip">R</span></div>
       <div class="help-k">Open / Close Help</div><div class="help-v"><span class="help-chip">/</span> <span class="help-chip">?</span> (close also with <span class="help-chip">Esc</span>)</div>
@@ -41,7 +41,7 @@ const HELP_CONTENT = `
       <div class="help-k">Touch Help</div><div class="help-v">Small circled <span class="help-chip">?</span> button in upper-left.</div>
       <div class="help-k">Gamepad Move</div><div class="help-v">Left stick (analog thrust vector).</div>
       <div class="help-k">Gamepad Aim</div><div class="help-v">Right stick.</div>
-      <div class="help-k">Gamepad Inputs</div><div class="help-v"><span class="help-chip">A</span> thrust, <span class="help-chip">B</span> down, <span class="help-chip">RB</span> laser, <span class="help-chip">RT</span> bomb, <span class="help-chip">Start</span> restart.</div>
+      <div class="help-k">Gamepad Inputs</div><div class="help-v"><span class="help-chip">A</span> thrust, <span class="help-chip">B</span> down, <span class="help-chip">LB</span>/<span class="help-chip">LT</span> bomb, <span class="help-chip">RB</span>/<span class="help-chip">RT</span> laser (hold for autofire), <span class="help-chip">Start</span> restart.</div>
     </div>
   </section>
   <section class="help-section">
@@ -137,7 +137,26 @@ function ensureHelpStyles(){
       padding: 10px 16px 16px;
       display: block;
       scrollbar-width: thin;
+      scrollbar-color: rgba(136, 210, 255, 0.9) rgba(255, 255, 255, 0.08);
+      scrollbar-gutter: stable;
       overscroll-behavior: contain;
+    }
+    #help-popup .help-scroll::-webkit-scrollbar {
+      width: 10px;
+    }
+    #help-popup .help-scroll::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+    }
+    #help-popup .help-scroll::-webkit-scrollbar-thumb {
+      background: linear-gradient(180deg, rgba(176, 226, 255, 0.95), rgba(120, 210, 255, 0.92));
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.28);
+      box-shadow: 0 0 0 1px rgba(10, 14, 24, 0.35) inset;
+    }
+    #help-popup .help-scroll::-webkit-scrollbar-thumb:hover {
+      background: linear-gradient(180deg, rgba(196, 236, 255, 0.98), rgba(136, 220, 255, 0.95));
     }
     #help-popup .help-section + .help-section { margin-top: 16px; }
     #help-popup .help-section h3 {
