@@ -8,7 +8,9 @@
 | engine_sound.mp3 | https://opengameart.org/content/engine-sounds2 | pauliuw | N/A |
 | flaunch_256k.mp3 | https://opengameart.org/content/4-projectile-launches | Michel Baradari | http://apollo-music.de |
 | ghost_256k.mp3 | https://opengameart.org/content/ghost | Ogrebane | N/A |
+| key-176034.mp3 | https://opengameart.org/content/item-pickup-key | Musheran | N/A |
 | lava_256k.mp3 | https://opengameart.org/content/lava-splash | Michel Baradari | N/A |
+| levelcompletesplash.mp3 | https://opengameart.org/content/level-complete-splash | GreyFrogGames | N/A |
 | metalthunk.mp3 | https://opengameart.org/content/metal-hit-0 | ycake | N/A |
 | nutfall_256k.mp3 | https://opengameart.org/content/collision-nutfall-yo-frankie | Blender Foundation | N/A |
 | Orbital Colossus.mp3 | https://opengameart.org/content/space-boss-battle-theme | Matthew Pablo | http://www.matthewpablo.com |

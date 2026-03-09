@@ -23,11 +23,12 @@ import shipHitUrl from "../gameaudio/metalthunk.mp3?url";
 //@ts-ignore
 import enemyFireUrl from "../gameaudio/ghost_256k.mp3?url";
 //@ts-ignore
+//import thrustUrl from "../gameaudio/rocket_launch_256k.mp3?url";
 import thrustUrl from "../gameaudio/engine_sound.mp3?url";
 //@ts-ignore
-import rescueUrl from "../gameaudio/nutfall_256k.mp3?url";
+import rescueUrl from "../gameaudio/key-176034.mp3?url";
 //@ts-ignore
-import levelCompleteUrl from "../gameaudio/rumble_256k.mp3?url";
+import levelCompleteUrl from "../gameaudio/levelcompletesplash.mp3?url";
 //@ts-ignore
 import hazardHeatUrl from "../gameaudio/lava_256k.mp3?url";
 //@ts-ignore
@@ -92,8 +93,8 @@ export const SFX_IMPORTANT = Object.freeze([
   { id: "bomb_explosion", priority: 4, trigger: "GameLoop player bomb detonation path", placeholderFile: "audio/fx/qubodup-crash_256k.mp3" },
   { id: "enemy_destroyed", priority: 5, trigger: "GameLoop enemy HP reaches 0 and removed", placeholderFile: "audio/fx/8bit_gunloop_explosion_256k.mp3" },
   { id: "enemy_fire", priority: 6, trigger: "Enemies._shoot", placeholderFile: "audio/fx/ghost_256k.mp3" },
-  { id: "miner_rescued", priority: 7, trigger: "GameLoop miner boards ship", placeholderFile: "audio/fx/nutfall_256k.mp3" },
-  { id: "objective_complete", priority: 8, trigger: "When objective transitions to complete", placeholderFile: "audio/fx/rumble_256k.mp3" },
+  { id: "miner_rescued", priority: 7, trigger: "GameLoop miner boards ship", placeholderFile: "audio/fx/key-176034.mp3" },
+  { id: "objective_complete", priority: 8, trigger: "When objective transitions to complete", placeholderFile: "audio/fx/levelcompletesplash.mp3" },
   { id: "ship_thrust_loop", priority: 9, trigger: "While ship thrust is active", placeholderFile: "audio/fx/engine_sound.mp3" },
   { id: "heat_warning", priority: 10, trigger: "Heat meter warning state", placeholderFile: "audio/fx/lava_256k.mp3" },
   { id: "water_splash", priority: 11, trigger: "GameLoop ship crosses water surface in/out", placeholderFile: "audio/fx/splash1_256k.mp3" },

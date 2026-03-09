@@ -207,8 +207,9 @@ export class GameLoop {
     this.levelWipeActive = false;
     this.levelWipeT = 0;
     this.levelWipeDir = 1;
-    this.LEVEL_WIPE_DURATION = 0.75;
+    this.LEVEL_WIPE_DURATION = 1.5;
     this.COMBAT_THREAT_HOLD_MS = 12000;
+    this.OBJECTIVE_COMPLETE_SFX_DELAY_MS = 1000;
     this.combatThreatUntilMs = 0;
 
     this.featureCallbacks = {
@@ -251,6 +252,7 @@ export class GameLoop {
     /** @type {Array<{perk:string,text:string}>|null} */
     this.pendingPerkChoice = null;
     this.objectiveCompleteSfxPlayed = this._objectiveComplete();
+    this.objectiveCompleteSfxDueAtMs = Number.POSITIVE_INFINITY;
     this.victoryMusicTriggered = false;
   }
 
@@ -1608,6 +1610,7 @@ export class GameLoop {
       this.victoryMusicTriggered = false;
     }
     this.objectiveCompleteSfxPlayed = this._objectiveComplete();
+    this.objectiveCompleteSfxDueAtMs = Number.POSITIVE_INFINITY;
     this.combatThreatUntilMs = 0;
     this._setCombatActive(false);
     if (this.audio && typeof this.audio.returnToAmbient === "function"){
@@ -2808,13 +2811,20 @@ export class GameLoop {
       steps++;
     }
     const objectiveCompleteNow = this._objectiveComplete();
+    if (objectiveCompleteNow && this.level >= 16 && !this.victoryMusicTriggered){
+      this.victoryMusicTriggered = true;
+      this._triggerVictoryMusic();
+    }
     if (objectiveCompleteNow && !this.objectiveCompleteSfxPlayed){
-      this.objectiveCompleteSfxPlayed = true;
-      this._playSfx("objective_complete", { volume: 0.75 });
-      if (this.level >= 16 && !this.victoryMusicTriggered){
-        this.victoryMusicTriggered = true;
-        this._triggerVictoryMusic();
+      if (!Number.isFinite(this.objectiveCompleteSfxDueAtMs)){
+        this.objectiveCompleteSfxDueAtMs = now + this.OBJECTIVE_COMPLETE_SFX_DELAY_MS;
+      } else if (now >= this.objectiveCompleteSfxDueAtMs){
+        this.objectiveCompleteSfxPlayed = true;
+        this.objectiveCompleteSfxDueAtMs = Number.POSITIVE_INFINITY;
+        this._playSfx("objective_complete", { volume: 0.75 });
       }
+    } else if (!objectiveCompleteNow){
+      this.objectiveCompleteSfxDueAtMs = Number.POSITIVE_INFINITY;
     }
     const combatActive =
       !objectiveCompleteNow &&

@@ -58,7 +58,7 @@ const HELP_CONTENT = `
   <section class="help-section">
     <h3>Audio Credits</h3>
     <div class="help-v">
-      Luke.RUSTLTD, brandon75689, cynicmusic, pauliuw, Michel Baradari, Ogrebane, ycake, Blender Foundation, Matthew Pablo, Q009, qubodup, yd.
+      Luke.RUSTLTD, brandon75689, cynicmusic, pauliuw, Michel Baradari, Ogrebane, ycake, Blender Foundation, Matthew Pablo, Q009, qubodup, yd, Musheran, GreyFrogGames.
       Full attribution: <a href="https://github.com/mcneja/dropship/blob/main/gameaudio/ATTRIBUTION.md" target="_blank" rel="noopener noreferrer">ATTRIBUTION.md on GitHub</a>.
     </div>
   </section>
