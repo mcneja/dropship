@@ -2797,8 +2797,7 @@ export class GameLoop {
     this.input.setGameOver(this.ship.state === "crashed");
     const inputState = this.input.update();
     if (this.helpPopup && typeof this.helpPopup.setTouchMode === "function"){
-      const touchCapable = (typeof navigator !== "undefined") && ((navigator.maxTouchPoints || 0) > 0);
-      this.helpPopup.setTouchMode(inputState.inputType === "touch" || (touchCapable && inputState.inputType === null));
+      this.helpPopup.setTouchMode(inputState.inputType === "touch");
     }
     const helpOpen = !!(this.helpPopup && this.helpPopup.isOpen && this.helpPopup.isOpen());
     const dt = helpOpen ? 0 : rawDt;
