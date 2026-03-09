@@ -230,6 +230,33 @@ function pushLine(pos, col, ax, ay, bx, by, r, g, b, a){
 }
 
 /**
+ * Draw a thick world-space line as two triangles.
+ * @param {number[]} pos
+ * @param {number[]} col
+ * @param {number} ax
+ * @param {number} ay
+ * @param {number} bx
+ * @param {number} by
+ * @param {number} thickness
+ * @param {number} r
+ * @param {number} g
+ * @param {number} b
+ * @param {number} a
+ * @returns {void}
+ */
+function pushThickLine(pos, col, ax, ay, bx, by, thickness, r, g, b, a){
+  const dx = bx - ax;
+  const dy = by - ay;
+  const len = Math.hypot(dx, dy);
+  if (len <= 1e-6) return;
+  const half = Math.max(1e-4, thickness * 0.5);
+  const nx = (-dy / len) * half;
+  const ny = (dx / len) * half;
+  pushTri(pos, col, ax + nx, ay + ny, bx + nx, by + ny, bx - nx, by - ny, r, g, b, a);
+  pushTri(pos, col, ax + nx, ay + ny, bx - nx, by - ny, ax - nx, ay - ny, r, g, b, a);
+}
+
+/**
  * @param {number[]} pos
  * @param {number[]} col
  * @param {number} ax
@@ -1926,10 +1953,14 @@ function drawFrameImpl(renderer, state, planet){
         const ny = dY / n;
         const tx = -0.5 * ny;
         const ty =  0.5 * nx;
-
-        pushLine(pos, col, mx, my, mx + s * (-nx - tx), my + s * (-ny - ty), r, g, b, 0.75);
-        pushLine(pos, col, mx, my, mx + s * (-nx + tx), my + s * (-ny + ty), r, g, b, 0.75);
-        lineVerts += 4;
+        const ax = mx + s * (-nx - tx);
+        const ay = my + s * (-ny - ty);
+        const bx = mx + s * (-nx + tx);
+        const by = my + s * (-ny + ty);
+        const thickness = Math.max(0.03, s * 0.16);
+        pushThickLine(pos, col, mx, my, ax, ay, thickness, r, g, b, 0.9);
+        pushThickLine(pos, col, mx, my, bx, by, thickness, r, g, b, 0.9);
+        triVerts += 12;
       }
     };
 
