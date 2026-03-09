@@ -80,7 +80,7 @@ export class Input {
     this.mouseShootHeld = false;
     this.mouseShootLastFire = 0;
     this.padShootLastFire = 0;
-    this.LASER_INTERVAL_MS = 100;
+    this.LASER_INTERVAL_MS = 200;
     this.BOMB_INTERVAL_MS = 2000;
     this.pointerLocked = false;
     /** @type {boolean} */

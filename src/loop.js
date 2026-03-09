@@ -2059,8 +2059,13 @@ export class GameLoop {
     }
 
     if (this.ship.state === "flying"){
-      if (left && !right) this.ship.cabinSide = -1;
-      if (right && !left) this.ship.cabinSide = 1;
+      const stickFaceDead = 0.15;
+      const stickFaceLeft = stickThrust.x < -stickFaceDead;
+      const stickFaceRight = stickThrust.x > stickFaceDead;
+      const faceLeft = left || stickFaceLeft;
+      const faceRight = right || stickFaceRight;
+      if (faceLeft && !faceRight) this.ship.cabinSide = -1;
+      if (faceRight && !faceLeft) this.ship.cabinSide = 1;
       const stickMag = Math.hypot(stickThrust.x, stickThrust.y);
       this._setThrustLoopActive(left || right || thrust || down || stickMag > 0.12);
 
@@ -3139,7 +3144,7 @@ export class GameLoop {
     const type = inputType || "keyboard";
     const startButtonPrefix =
       (type === "touch") ? "Tap Start to " :
-      (type === "gamepad") ? "Press Start or A to " :
+      (type === "gamepad") ? "Press Start or Button0 to " :
       "Press R to ";
     if (this.pendingPerkChoice){
       if (type === "touch") return "Choose upgrade: use left/right thrust controls.";
