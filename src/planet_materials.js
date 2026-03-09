@@ -541,6 +541,7 @@ function collectWaterBubbleSources(planet, target){
  * @property {(info:{x:number,y:number,life:number,radius:number})=>void} [onExplosion]
  * @property {(info:{x:number,y:number,vx:number,vy:number,a:number,w:number,life:number})=>void} [onDebris]
  * @property {(x:number,y:number,radius:number)=>void} [onAreaDamage]
+ * @property {(x:number,y:number)=>void} [onShipDamage]
  * @property {(amount:number)=>void} [onShipHeat]
  * @property {(x:number,y:number)=>void} [onShipCrash]
  * @property {(duration:number)=>void} [onShipConfuse]
@@ -562,9 +563,10 @@ function collectWaterBubbleSources(planet, target){
  * @param {import("./planet.js").Planet} planet
  * @param {PlanetProp[]} props
  * @param {{burst:(prop:PlanetProp)=>{x:number,y:number,scale:number}|null, hitAt:(x:number,y:number,radius:number)=>PlanetProp|null, burstAllInRadius:(x:number,y:number,radius:number)=>Array<{x:number,y:number,scale:number}>, breakIfExposed:(planet:import("./planet.js").Planet, x:number,y:number,radius:number)=>Array<{x:number,y:number,scale:number}>}|null} iceShardHazard
+ * @param {{burst:(prop:PlanetProp)=>{x:number,y:number,scale:number}|null, hitAt:(x:number,y:number,radius:number)=>PlanetProp|null, burstAllInRadius:(x:number,y:number,radius:number)=>Array<{x:number,y:number,scale:number}>, breakIfExposed:(planet:import("./planet.js").Planet, x:number,y:number,radius:number)=>Array<{x:number,y:number,scale:number}>}|null} ridgeSpikeHazard
  * @param {{burst:(prop:PlanetProp)=>{x:number,y:number,scale:number}|null, hitAt:(x:number,y:number,radius:number)=>PlanetProp|null, burstAllInRadius:(x:number,y:number,radius:number)=>Array<{x:number,y:number,scale:number}>, breakIfExposed:(planet:import("./planet.js").Planet, x:number,y:number,radius:number)=>Array<{x:number,y:number,scale:number}>}|null} mushroomHazard
  */
-export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHazard){
+export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHazard, mushroomHazard){
  const tuning = {
     iceShard: {
       blast: 0.8,
@@ -574,6 +576,14 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
       debrisLifeMax: 0.7,
       debrisSpeedMin: 1.2,
       debrisSpeedMax: 2.0,
+    },
+    ridgeSpike: {
+      blast: 0.36,
+      pieces: 6,
+      debrisLifeMin: 0.7,
+      debrisLifeMax: 0.55,
+      debrisSpeedMin: 1.0,
+      debrisSpeedMax: 1.6,
     },
     lava: {
       life: 1.4,
@@ -792,6 +802,14 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
         for (const info of bursts) triggerMushroomBurst(info);
       }
     }
+    if (ridgeSpikeHazard){
+      const hitProp = ridgeSpikeHazard.hitAt(x, y, radius);
+      if (hitProp){
+        const info = ridgeSpikeHazard.burst(hitProp);
+        emitRidgeSpikeBurst(info, callbacks, true);
+        hit = true;
+      }
+    }
     if (iceShardHazard){
       const hitProp = iceShardHazard.hitAt(x, y, radius);
       if (hitProp){
@@ -812,6 +830,14 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
    */
   const handleShot = (x, y, radius, callbacks) => {
     let hit = false;
+    if (ridgeSpikeHazard){
+      const hitProp = ridgeSpikeHazard.hitAt(x, y, radius);
+      if (hitProp){
+        const info = ridgeSpikeHazard.burst(hitProp);
+        emitRidgeSpikeBurst(info, callbacks, false);
+        hit = true;
+      }
+    }
     if (iceShardHazard){
       const hitProp = iceShardHazard.hitAt(x, y, radius);
       if (hitProp){
@@ -841,6 +867,18 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
    */
   const handleBomb = (x, y, impactRadius, bombRadius, callbacks) => {
     let hit = false;
+    if (ridgeSpikeHazard){
+      const exposed = ridgeSpikeHazard.breakIfExposed(planet, x, y, impactRadius + 0.4);
+      for (const info of exposed){
+        emitRidgeSpikeBurst(info, callbacks, false);
+        hit = true;
+      }
+      const direct = ridgeSpikeHazard.burstAllInRadius(x, y, bombRadius);
+      for (const info of direct){
+        emitRidgeSpikeBurst(info, callbacks, false);
+        hit = true;
+      }
+    }
     if (iceShardHazard){
       const exposed = iceShardHazard.breakIfExposed(planet, x, y, impactRadius + 0.4);
       for (const info of exposed){
@@ -1058,6 +1096,40 @@ export function createPlanetFeatures(planet, props, iceShardHazard, mushroomHaza
           break;
         }
       }
+    }
+  };
+
+  /**
+   * @param {{x:number,y:number,scale:number}|null} info
+   * @param {FeatureCallbacks} callbacks
+   * @param {boolean} [damageShip]
+   */
+  const emitRidgeSpikeBurst = (info, callbacks, damageShip = false) => {
+    if (!info) return;
+    const x = info.x;
+    const y = info.y;
+    const scale = info.scale || 1;
+    if (callbacks.onExplosion){
+      callbacks.onExplosion({ x, y, life: 0.35, radius: tuning.ridgeSpike.blast * scale });
+    }
+    if (callbacks.onDebris){
+      const pieces = tuning.ridgeSpike.pieces;
+      for (let i = 0; i < pieces; i++){
+        const ang = Math.random() * Math.PI * 2;
+        const sp = tuning.ridgeSpike.debrisSpeedMin + Math.random() * tuning.ridgeSpike.debrisSpeedMax;
+        callbacks.onDebris({
+          x: x + Math.cos(ang) * 0.06,
+          y: y + Math.sin(ang) * 0.06,
+          vx: Math.cos(ang) * sp,
+          vy: Math.sin(ang) * sp,
+          a: Math.random() * Math.PI * 2,
+          w: (Math.random() - 0.5) * 7,
+          life: tuning.ridgeSpike.debrisLifeMin + Math.random() * tuning.ridgeSpike.debrisLifeMax,
+        });
+      }
+    }
+    if (damageShip && callbacks.onShipDamage){
+      callbacks.onShipDamage(x, y);
     }
   };
 
@@ -1551,6 +1623,92 @@ export function createIceShardHazard(props){
         const dy = p.y - y;
         const r2 = (radius + sr) * (radius + sr);
         if (dx * dx + dy * dy > r2) continue;
+        if (planet.airValueAtWorld(p.x, p.y) > 0.5){
+          const info = burstProp(p);
+          if (info) bursts.push(info);
+        }
+      }
+      return bursts;
+    },
+  };
+}
+
+/**
+ * @param {PlanetProp[]} props
+ * @returns {{
+ *  burst:(prop:PlanetProp)=>{x:number,y:number,scale:number}|null,
+ *  hitAt:(x:number,y:number,radius:number)=>PlanetProp|null,
+ *  burstAllInRadius:(x:number,y:number,radius:number)=>Array<{x:number,y:number,scale:number}>,
+ *  breakIfExposed:(planet:import("./planet.js").Planet, x:number,y:number,radius:number)=>Array<{x:number,y:number,scale:number}>
+ * }}
+ */
+export function createRidgeSpikeHazard(props){
+  const isAlive = (p) => (p.type === "ridge_spike" || p.type === "stalactite") && !p.dead && !(typeof p.hp === "number" && p.hp <= 0);
+  const burstProp = (prop) => {
+    if (!isAlive(prop)) return null;
+    prop.dead = true;
+    prop.hp = 0;
+    return { x: prop.x, y: prop.y, scale: prop.scale || 1 };
+  };
+  const overlapsSpike = (p, x, y, radius) => {
+    const s = p.scale || 1;
+    // Fallback radial overlap keeps spike hits reliable even if surface normals are noisy.
+    const dx = x - p.x;
+    const dy = y - p.y;
+    const radial = radius + 0.42 * s;
+    if (dx * dx + dy * dy <= radial * radial) return true;
+
+    let nx = (typeof p.nx === "number") ? p.nx : 0;
+    let ny = (typeof p.ny === "number") ? p.ny : 0;
+    if (!nx && !ny){
+      const r = Math.hypot(p.x, p.y) || 1;
+      nx = p.x / r;
+      ny = p.y / r;
+    } else {
+      const nlen = Math.hypot(nx, ny) || 1;
+      nx /= nlen;
+      ny /= nlen;
+    }
+    const tx = -ny;
+    const ty = nx;
+    const localX = dx * tx + dy * ty;
+    const localY = dx * nx + dy * ny;
+    const minY = -0.10 * s;
+    const maxY = 0.62 * s;
+    if (localY < minY - radius || localY > maxY + radius) return false;
+    const t = Math.max(0, Math.min(1, (localY - minY) / Math.max(0.001, maxY - minY)));
+    const halfW = (0.20 * (1 - t)) * s;
+    return Math.abs(localX) <= halfW + radius;
+  };
+  return {
+    burst: (prop) => burstProp(prop),
+    hitAt: (x, y, radius) => {
+      for (const p of props){
+        if (!isAlive(p)) continue;
+        if (overlapsSpike(p, x, y, radius)){
+          return p;
+        }
+      }
+      return null;
+    },
+    burstAllInRadius: (x, y, radius) => {
+      /** @type {Array<{x:number,y:number,scale:number}>} */
+      const bursts = [];
+      for (const p of props){
+        if (!isAlive(p)) continue;
+        if (overlapsSpike(p, x, y, radius)){
+          const info = burstProp(p);
+          if (info) bursts.push(info);
+        }
+      }
+      return bursts;
+    },
+    breakIfExposed: (planet, x, y, radius) => {
+      /** @type {Array<{x:number,y:number,scale:number}>} */
+      const bursts = [];
+      for (const p of props){
+        if (!isAlive(p)) continue;
+        if (!overlapsSpike(p, x, y, radius)) continue;
         if (planet.airValueAtWorld(p.x, p.y) > 0.5){
           const info = burstProp(p);
           if (info) bursts.push(info);

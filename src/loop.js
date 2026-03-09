@@ -207,7 +207,7 @@ export class GameLoop {
     this.levelWipeActive = false;
     this.levelWipeT = 0;
     this.levelWipeDir = 1;
-    this.LEVEL_WIPE_DURATION = 1.5;
+    this.LEVEL_WIPE_DURATION = 1.0;
     this.COMBAT_THREAT_HOLD_MS = 12000;
     this.OBJECTIVE_COMPLETE_SFX_DELAY_MS = 1000;
     this.combatThreatUntilMs = 0;
@@ -991,6 +991,72 @@ export class GameLoop {
   /**
    * @param {number} x
    * @param {number} y
+   * @param {{
+   *  pieces?:number,
+   *  speedMin?:number,
+   *  speedMax?:number,
+   *  lifeMin?:number,
+   *  lifeMax?:number,
+   *  offset?:number,
+   *  spin?:number,
+   *  baseVx?:number,
+   *  baseVy?:number,
+   * }} [opts]
+   * @returns {void}
+   */
+  _spawnDebrisBurst(x, y, opts){
+    const pieces = (opts && typeof opts.pieces === "number") ? Math.max(1, opts.pieces | 0) : 6;
+    const speedMin = (opts && typeof opts.speedMin === "number") ? opts.speedMin : 1.0;
+    const speedMax = (opts && typeof opts.speedMax === "number") ? opts.speedMax : 2.0;
+    const lifeMin = (opts && typeof opts.lifeMin === "number") ? opts.lifeMin : 0.9;
+    const lifeMax = (opts && typeof opts.lifeMax === "number") ? opts.lifeMax : 0.8;
+    const offset = (opts && typeof opts.offset === "number") ? opts.offset : 0.08;
+    const spin = (opts && typeof opts.spin === "number") ? opts.spin : 6;
+    const baseVx = (opts && typeof opts.baseVx === "number") ? opts.baseVx : 0;
+    const baseVy = (opts && typeof opts.baseVy === "number") ? opts.baseVy : 0;
+    for (let i = 0; i < pieces; i++){
+      const ang = Math.random() * Math.PI * 2;
+      const sp = speedMin + Math.random() * speedMax;
+      this.debris.push({
+        x: x + Math.cos(ang) * offset,
+        y: y + Math.sin(ang) * offset,
+        vx: baseVx + Math.cos(ang) * sp,
+        vy: baseVy + Math.sin(ang) * sp,
+        a: Math.random() * Math.PI * 2,
+        w: (Math.random() - 0.5) * spin,
+        life: lifeMin + Math.random() * lifeMax,
+      });
+    }
+  }
+
+  /**
+   * @param {any} p
+   * @returns {void}
+   */
+  _destroyFactoryProp(p){
+    if (!p || p.dead) return;
+    p.hp = 0;
+    p.dead = true;
+    const s = p.scale || 1;
+    this.entityExplosions.push({ x: p.x, y: p.y, life: 0.65, radius: 0.95 * s });
+    this._spawnDebrisBurst(p.x, p.y, {
+      pieces: 9,
+      speedMin: 0.95,
+      speedMax: 1.8,
+      lifeMin: 0.8,
+      lifeMax: 0.7,
+      offset: 0.1 * s,
+      spin: 7,
+    });
+    this._playSfx("enemy_destroyed", {
+      volume: 0.78,
+      rate: 0.85 + Math.random() * 0.14,
+    });
+  }
+
+  /**
+   * @param {number} x
+   * @param {number} y
    * @param {number} radius
    * @param {number} damage
    * @param {boolean} forceKill
@@ -1016,9 +1082,8 @@ export class GameLoop {
         p.hp = Math.max(0, cur - Math.max(0.1, damage));
       }
       if ((p.hp || 0) <= 0){
-        p.dead = true;
+        this._destroyFactoryProp(p);
         factoryDestroyed = true;
-        this.entityExplosions.push({ x: p.x, y: p.y, life: 0.65, radius: 0.95 * (p.scale || 1) });
       } else {
         this.entityExplosions.push({ x: p.x, y: p.y, life: 0.25, radius: 0.35 * (p.scale || 1) });
       }
@@ -2413,11 +2478,15 @@ export class GameLoop {
         s.x += s.vx * dt;
         s.y += s.vy * dt;
         s.life -= dt;
-        if (s.life <= 0 || this.collision.airValueAtWorld(s.x, s.y) <= 0.5){
+        if (s.life <= 0){
           this.playerShots.splice(i, 1);
           continue;
         }
         if (this.planet.handleFeatureShot(s.x, s.y, this.PLAYER_SHOT_RADIUS, this.featureCallbacks)){
+          this.playerShots.splice(i, 1);
+          continue;
+        }
+        if (this.collision.airValueAtWorld(s.x, s.y) <= 0.5){
           this.playerShots.splice(i, 1);
           continue;
         }
@@ -3289,10 +3358,8 @@ export class GameLoop {
       for (const p of this.planet.props){
         if (p.type !== "factory") continue;
         if (p.dead || (typeof p.hp === "number" && p.hp <= 0)) continue;
-        p.hp = 0;
-        p.dead = true;
+        this._destroyFactoryProp(p);
         factories++;
-        this.entityExplosions.push({ x: p.x, y: p.y, life: 0.65, radius: 0.95 * (p.scale || 1) });
       }
     }
     if (factories > 0){

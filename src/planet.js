@@ -5,7 +5,7 @@ import { RadialGraph, buildPassableMask, dijkstraMap, nearestRadialNode } from "
 import { MapGen } from "./mapgen.js";
 import { CFG, GAME } from "./config.js";
 import { mulberry32 } from "./rng.js";
-import { buildPlanetMaterials, createIceShardHazard, createMushroomHazard, createPlanetFeatures } from "./planet_materials.js";
+import { buildPlanetMaterials, createIceShardHazard, createRidgeSpikeHazard, createMushroomHazard, createPlanetFeatures } from "./planet_materials.js";
 
 /**
  * Planet terrain abstraction backed by mapgen grid truth.
@@ -39,6 +39,7 @@ export class Planet {
     this.material = mats.material;
     this.props = mats.props;
     this.iceShardHazard = createIceShardHazard(this.props || []);
+    this.ridgeSpikeHazard = createRidgeSpikeHazard(this.props || []);
     this.mushroomHazard = createMushroomHazard(this.props || []);
     /** @type {Array<[number,number,number,number]>} */
     this._standablePoints = [];
@@ -60,7 +61,7 @@ export class Planet {
       this._standablePoints = this._buildStandablePoints();
     }
 
-    this.features = createPlanetFeatures(this, this.props || [], this.iceShardHazard, this.mushroomHazard);
+    this.features = createPlanetFeatures(this, this.props || [], this.iceShardHazard, this.ridgeSpikeHazard, this.mushroomHazard);
 
     /** @type {Array<[number,number,boolean,number]>|null} */
     this._radialDebugPoints = null;

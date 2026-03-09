@@ -1993,6 +1993,50 @@ function drawFrameImpl(renderer, state, planet){
       pushHexOutline(pos, col, p.x, p.y, 0.28 * s, rot, 0.60, 0.62, 0.66, 0.78);
       lineVerts += 12;
     }
+    const basisAt = (x, y) => {
+      const len = Math.hypot(x, y) || 1;
+      const ux = x / len;
+      const uy = y / len;
+      const tx = -uy;
+      const ty = ux;
+      return { ux, uy, tx, ty };
+    };
+    const toWorld = (x, y, tx, ty, ux, uy, lx, ly) => {
+      return [x + tx * lx + ux * ly, y + ty * lx + uy * ly];
+    };
+    for (const p of props){
+      if (p.dead || (typeof p.hp === "number" && p.hp <= 0)) continue;
+      if (p.type !== "ridge_spike" && p.type !== "stalactite" && p.type !== "ice_shard") continue;
+      if (state.fogEnabled && !planet.fogSeenAt(p.x, p.y)) continue;
+      let ux, uy, tx, ty;
+      if (typeof p.nx === "number" && typeof p.ny === "number"){
+        const nlen = Math.hypot(p.nx, p.ny) || 1;
+        ux = p.nx / nlen;
+        uy = p.ny / nlen;
+        tx = -uy;
+        ty = ux;
+      } else {
+        ({ ux, uy, tx, ty } = basisAt(p.x, p.y));
+      }
+      const s = p.scale || 1;
+      const isIce = p.type === "ice_shard";
+      const cx = p.x - ux * (isIce ? 0.0 : 0.02 * s);
+      const cy = p.y - uy * (isIce ? 0.0 : 0.02 * s);
+      const tipY = (isIce ? 0.70 : 0.62) * s;
+      const tip = toWorld(cx, cy, tx, ty, ux, uy, 0, tipY);
+      const hash = Math.abs(Math.sin(p.x * 17.23 + p.y * 29.71));
+      const pulse = Math.max(0, Math.sin(now * (6.0 + hash * 4.0) + hash * Math.PI * 2));
+      const twinkle = pulse * pulse * pulse;
+      if (twinkle <= 0.02) continue;
+      const arm = (isIce ? (0.032 + 0.055 * twinkle) : (0.03 + 0.05 * twinkle)) * s;
+      const alpha = 0.2 + 0.8 * twinkle;
+      const tr = isIce ? 0.70 : 1.0;
+      const tg = isIce ? 0.94 : 0.93;
+      const tb = isIce ? 1.0 : 0.62;
+      pushLine(pos, col, tip[0] - tx * arm, tip[1] - ty * arm, tip[0] + tx * arm, tip[1] + ty * arm, tr, tg, tb, alpha);
+      pushLine(pos, col, tip[0] - ux * arm, tip[1] - uy * arm, tip[0] + ux * arm, tip[1] + uy * arm, tr, tg, tb, alpha);
+      lineVerts += 4;
+    }
   }
   const bubbleParticles = featureParticles ? featureParticles.bubbles : null;
   if (bubbleParticles && bubbleParticles.length){
