@@ -157,6 +157,7 @@ export function createLoopSaveSnapshot(loop){
     debug: {
       collisions: !!loop.debugCollisions,
       planetTriangles: !!loop.debugPlanetTriangles,
+      collisionContours: !!loop.debugCollisionContours,
       devHudVisible: !!loop.devHudVisible,
     },
     title: {
@@ -252,6 +253,7 @@ export function restoreLoopFromSaveSnapshot(loop, snapshot){
     const debug = snapshot.debug || {};
     loop.debugCollisions = !!debug.collisions;
     loop.debugPlanetTriangles = !!debug.planetTriangles;
+    loop.debugCollisionContours = !!debug.collisionContours;
     loop.devHudVisible = !!debug.devHudVisible;
     loop.hud.style.display = loop.devHudVisible ? "block" : "none";
 

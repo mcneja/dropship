@@ -38,6 +38,7 @@ export class Input {
       toggleDevHud: false,
       togglePlanetView: false,
       togglePlanetTriangles: false,
+      toggleCollisionContours: false,
       toggleFog: false,
       toggleMusic: false,
       toggleCombatMusic: false,
@@ -244,6 +245,7 @@ export class Input {
         code === "KeyN" ||
         code === "KeyV" ||
         code === "KeyT" ||
+        code === "KeyY" ||
         code === "KeyF" ||
         code === "KeyP" ||
         code === "KeyX" ||
@@ -267,6 +269,7 @@ export class Input {
     }
     if (debugChord && code === "KeyV") this.oneshot.togglePlanetView = true;
     if (debugChord && code === "KeyT") this.oneshot.togglePlanetTriangles = true;
+    if (debugChord && code === "KeyY") this.oneshot.toggleCollisionContours = true;
     if (debugChord && code === "KeyF") this.oneshot.toggleFog = true;
     if ((key === "-" || key === "_") && !e.ctrlKey && !e.metaKey && !e.altKey){
       this.oneshot.musicVolumeDown = true;
@@ -687,6 +690,7 @@ export class Input {
         toggleDevHud: false,
         togglePlanetView: false,
         togglePlanetTriangles: false,
+        toggleCollisionContours: false,
         toggleFog: false,
         toggleMusic: false,
         toggleCombatMusic: false,
@@ -849,6 +853,7 @@ export class Input {
       toggleDevHud: this.oneshot.toggleDevHud,
       togglePlanetView: this.oneshot.togglePlanetView,
       togglePlanetTriangles: this.oneshot.togglePlanetTriangles,
+      toggleCollisionContours: this.oneshot.toggleCollisionContours,
       toggleFog: this.oneshot.toggleFog,
       toggleMusic: this.oneshot.toggleMusic,
       toggleCombatMusic: this.oneshot.toggleCombatMusic,
@@ -890,6 +895,7 @@ export class Input {
     this.oneshot.toggleDevHud = false;
     this.oneshot.togglePlanetView = false;
     this.oneshot.togglePlanetTriangles = false;
+    this.oneshot.toggleCollisionContours = false;
     this.oneshot.toggleFog = false;
     this.oneshot.toggleMusic = false;
     this.oneshot.toggleCombatMusic = false;

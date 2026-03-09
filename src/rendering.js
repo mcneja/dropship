@@ -251,6 +251,94 @@ function pushTriangleOutline(pos, col, ax, ay, bx, by, cx, cy, r, g, b, a){
 }
 
 /**
+ * @param {Array<{x:number,y:number,air:number}>} tri
+ * @param {number} x
+ * @param {number} y
+ * @returns {number}
+ */
+function triAirAtWorld(tri, x, y){
+  const a = tri[0], b = tri[1], c = tri[2];
+  const det = (b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y);
+  if (Math.abs(det) < 1e-6){
+    return (a.air + b.air + c.air) / 3;
+  }
+  const l1 = ((b.y - c.y) * (x - c.x) + (c.x - b.x) * (y - c.y)) / det;
+  const l2 = ((c.y - a.y) * (x - c.x) + (a.x - c.x) * (y - c.y)) / det;
+  const l3 = 1 - l1 - l2;
+  return a.air * l1 + b.air * l2 + c.air * l3;
+}
+
+/**
+ * @param {Array<[number, number]>} out
+ * @param {number} x
+ * @param {number} y
+ * @returns {void}
+ */
+function pushUniquePoint(out, x, y){
+  const eps2 = 1e-10;
+  for (const p of out){
+    const dx = p[0] - x;
+    const dy = p[1] - y;
+    if ((dx * dx + dy * dy) <= eps2) return;
+  }
+  out.push([x, y]);
+}
+
+/**
+ * @param {Array<{x:number,y:number,air:number}>} tri
+ * @param {number} [threshold]
+ * @returns {[[number, number], [number, number]]|null}
+ */
+function triIsoSegment(tri, threshold = 0.5){
+  /** @type {Array<[number, number]>} */
+  const pts = [];
+  const edges = [[tri[0], tri[1]], [tri[1], tri[2]], [tri[2], tri[0]]];
+  const eps = 1e-6;
+  for (const [a, b] of edges){
+    const va = a.air;
+    const vb = b.air;
+    const da = va - threshold;
+    const db = vb - threshold;
+    if (Math.abs(da) <= eps && Math.abs(db) <= eps){
+      pushUniquePoint(pts, a.x, a.y);
+      pushUniquePoint(pts, b.x, b.y);
+      continue;
+    }
+    if (Math.abs(da) <= eps){
+      pushUniquePoint(pts, a.x, a.y);
+      continue;
+    }
+    if (Math.abs(db) <= eps){
+      pushUniquePoint(pts, b.x, b.y);
+      continue;
+    }
+    if (da * db < 0){
+      const t = (threshold - va) / ((vb - va) || 1);
+      const clampedT = Math.max(0, Math.min(1, t));
+      pushUniquePoint(pts, a.x + (b.x - a.x) * clampedT, a.y + (b.y - a.y) * clampedT);
+    }
+  }
+  if (pts.length < 2) return null;
+  if (pts.length === 2) return [pts[0], pts[1]];
+  let iBest = 0;
+  let jBest = 1;
+  let bestD2 = -1;
+  for (let i = 0; i < pts.length; i++){
+    for (let j = i + 1; j < pts.length; j++){
+      const dx = pts[j][0] - pts[i][0];
+      const dy = pts[j][1] - pts[i][1];
+      const d2 = dx * dx + dy * dy;
+      if (d2 > bestD2){
+        bestD2 = d2;
+        iBest = i;
+        jBest = j;
+      }
+    }
+  }
+  return [pts[iBest], pts[jBest]];
+}
+
+/**
  * @param {Float32Array} triPositions
  * @returns {{positions:Float32Array,colors:Float32Array,vertCount:number}}
  */
@@ -2078,6 +2166,39 @@ function drawFrameImpl(renderer, state, planet){
       if (air) col.push(0.45, 1.0, 0.55, 0.9);
       else col.push(1.0, 0.3, 0.3, 0.9);
       pointVerts += 1;
+    }
+  }
+  if (state.debugCollisionContours && dbgSamples && planet.radial && typeof planet.radial.findTriAtWorld === "function"){
+    /** @type {Array<Array<{x:number,y:number,air:number}>>} */
+    const testedTris = [];
+    for (const [sxw, syw, air, av] of dbgSamples){
+      const tri = planet.radial.findTriAtWorld(sxw, syw);
+      if (!tri) continue;
+      if (testedTris.indexOf(tri) < 0) testedTris.push(tri);
+
+      if (!state.debugCollisions){
+        pos.push(sxw, syw);
+        if (air) col.push(0.45, 1.0, 0.55, 0.9);
+        else col.push(1.0, 0.3, 0.3, 0.9);
+        pointVerts += 1;
+      }
+
+      const airRaw = triAirAtWorld(tri, sxw, syw);
+      const nearBoundary = Math.abs(airRaw - 0.5);
+      if (nearBoundary <= 0.06){
+        pushSquareOutline(pos, col, sxw, syw, 0.04, 1.0, 0.9, 0.2, 0.95);
+        lineVerts += 8;
+      }
+    }
+
+    for (const tri of testedTris){
+      const a = tri[0], b = tri[1], c = tri[2];
+      pushTriangleOutline(pos, col, a.x, a.y, b.x, b.y, c.x, c.y, 0.25, 0.65, 1.0, 0.25);
+      lineVerts += 6;
+      const seg = triIsoSegment(tri, 0.5);
+      if (!seg) continue;
+      pushLine(pos, col, seg[0][0], seg[0][1], seg[1][0], seg[1][1], 1.0, 0.95, 0.2, 0.95);
+      lineVerts += 2;
     }
   }
   const dbg = state.debugPoints;

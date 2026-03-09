@@ -197,6 +197,7 @@ export class GameLoop {
     this.fps = 0;
     this.debugCollisions = GAME.DEBUG_COLLISION;
     this.debugPlanetTriangles = false;
+    this.debugCollisionContours = false;
     this.devHudVisible = false;
     this.levelAdvanceReady = false;
     this.lastHeat = 0;
@@ -2947,6 +2948,10 @@ export class GameLoop {
       this.debugPlanetTriangles = !this.debugPlanetTriangles;
       this._showStatusCue(this.debugPlanetTriangles ? "Planet triangle outlines on" : "Planet triangle outlines off");
     }
+    if (inputState.toggleCollisionContours){
+      this.debugCollisionContours = !this.debugCollisionContours;
+      this._showStatusCue(this.debugCollisionContours ? "Collision contour debug on" : "Collision contour debug off");
+    }
     if (inputState.toggleFog){
       this.fogEnabled = !this.fogEnabled;
     }
@@ -3023,7 +3028,8 @@ export class GameLoop {
       debugCollisions: this.debugCollisions,
       debugNodes: GAME.DEBUG_NODES,
       debugPlanetTriangles: this.debugPlanetTriangles,
-      debugCollisionSamples: this.debugCollisions ? (this.ship._samples || []) : null,
+      debugCollisionContours: this.debugCollisionContours,
+      debugCollisionSamples: (this.debugCollisions || this.debugCollisionContours) ? (this.ship._samples || []) : null,
       debugPoints: (this.debugCollisions && GAME.DEBUG_NODES) ? this.planet.debugPoints() : null,
       fogEnabled: this.fogEnabled,
       fps: this.fps,
@@ -3220,7 +3226,7 @@ export class GameLoop {
     if (inputState.left || inputState.right || inputState.thrust || inputState.down) return true;
     if (inputState.shoot || inputState.bomb || inputState.reset || inputState.abandonRun) return true;
     if (inputState.regen || inputState.nextLevel || inputState.prevLevel) return true;
-    if (inputState.toggleDebug || inputState.toggleDevHud || inputState.togglePlanetView || inputState.toggleFog) return true;
+    if (inputState.toggleDebug || inputState.toggleDevHud || inputState.togglePlanetView || inputState.toggleCollisionContours || inputState.toggleFog) return true;
     if (inputState.rescueAll || inputState.spawnEnemyType !== null) return true;
     if (inputState.inputType === "touch" && (inputState.aim || inputState.aimShoot || inputState.aimBomb)) return true;
     if (inputState.inputType === "gamepad" && (inputState.aim || inputState.aimShoot || inputState.aimBomb)) return true;
