@@ -146,6 +146,7 @@
  * @property {InputState} input
  * @property {boolean} debugCollisions
  * @property {boolean} debugNodes
+ * @property {boolean} debugPlanetTriangles
  * @property {boolean} fogEnabled
  * @property {Array<[number,number,boolean,number]>|null} [debugCollisionSamples]
  * @property {Array<[number,number,boolean,number]>|null} [debugPoints]
@@ -183,6 +184,7 @@
  * @property {boolean} toggleDebug
  * @property {boolean} toggleDevHud
  * @property {boolean} togglePlanetView
+ * @property {boolean} togglePlanetTriangles
  * @property {boolean} toggleFog
  * @property {boolean} toggleMusic
  * @property {boolean} toggleCombatMusic

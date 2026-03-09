@@ -13,6 +13,7 @@ import { mulberry32 } from "./rng.js";
 /** @typedef {import("./types.d.js").Ship} Ship */
 /** @typedef {import("./types.d.js").Miner} Miner */
 /** @typedef {import("./types.d.js").Ui} Ui */
+/** @typedef {import("./help_popup.js").HelpPopup} HelpPopup */
 /** @typedef {import("./planet_config.js").PlanetTypeId} PlanetTypeId */
 /** @typedef {import("./planet_config.js").PlanetConfig} PlanetConfig */
 
@@ -31,8 +32,9 @@ export class GameLoop {
    * @param {HTMLElement} [deps.objectiveLabel]
    * @param {HTMLElement} [deps.shipStatusLabel]
    * @param {HTMLElement} [deps.heatMeter]
+   * @param {HelpPopup} [deps.helpPopup]
    */
-  constructor({ renderer, input, ui, audio, canvas, hud, overlay, planetLabel, objectiveLabel, shipStatusLabel, heatMeter }){
+  constructor({ renderer, input, ui, audio, canvas, hud, overlay, planetLabel, objectiveLabel, shipStatusLabel, heatMeter, helpPopup }){
     this.level = 1;
     // const seed = CFG.seed;
     const seed = performance.now();
@@ -52,6 +54,7 @@ export class GameLoop {
     this.objectiveLabel = objectiveLabel || null;
     this.shipStatusLabel = shipStatusLabel || null;
     this.heatMeter = heatMeter || null;
+    this.helpPopup = helpPopup || null;
     this.overlay = overlay || null;
     this.overlayCtx = this.overlay ? this.overlay.getContext("2d") : null;
 
@@ -190,6 +193,7 @@ export class GameLoop {
     this.fpsFrames = 0;
     this.fps = 0;
     this.debugCollisions = GAME.DEBUG_COLLISION;
+    this.debugPlanetTriangles = false;
     this.devHudVisible = false;
     this.levelAdvanceReady = false;
     this.lastHeat = 0;
@@ -757,6 +761,33 @@ export class GameLoop {
   _aimWorldDistance(screenFrac){
     const s = GAME.PLANETSIDE_ZOOM / (this.planetParams.RMAX + this.planetParams.PAD);
     return (2 * screenFrac) / s;
+  }
+
+  /**
+   * Seed a stable default reticle ahead of the ship when no pointer/stick aim exists.
+   * @returns {{x:number,y:number}|null}
+   */
+  _defaultAimScreenFromShip(){
+    const r = Math.hypot(this.ship.x, this.ship.y) || 1;
+    const upx = this.ship.x / r;
+    const upy = this.ship.y / r;
+    const rightx = upy;
+    const righty = -upx;
+    const side = this.ship.cabinSide || 1;
+    const dirx = rightx * side;
+    const diry = righty * side;
+    const gunOrigin = this._shipGunPivotWorld();
+    const aimLen = Math.max(4.0, this._aimWorldDistance(GAME.AIM_SCREEN_RADIUS || 0.25));
+    const aimWorldX = gunOrigin.x + dirx * aimLen;
+    const aimWorldY = gunOrigin.y + diry * aimLen;
+    const rect = this.canvas.getBoundingClientRect();
+    const w = Math.max(1, rect.width);
+    const h = Math.max(1, rect.height);
+    const screen = this._worldToScreenNorm(aimWorldX, aimWorldY, this._screenTransform(w / h));
+    return {
+      x: Math.max(0, Math.min(1, screen.x)),
+      y: Math.max(0, Math.min(1, screen.y)),
+    };
   }
 
   /**
@@ -1921,6 +1952,14 @@ export class GameLoop {
         }
         this.ship.state = "flying";
         this.ship._dock = null;
+        if (!aim && !aimShoot && !aimBomb && !this.lastAimScreen){
+          const seededAim = this._defaultAimScreenFromShip();
+          if (seededAim){
+            aim = seededAim;
+            aimShoot = seededAim;
+            aimBomb = seededAim;
+          }
+        }
       } else {
         const { lx, ly } = this.ship._dock;
         const c = Math.cos(this.mothership.angle);
@@ -2679,17 +2718,30 @@ export class GameLoop {
    */
   _frame(){
     const now = performance.now();
-    const dt = Math.min(0.05, (now - this.lastTime) / 1000);
+    const rawDt = Math.min(0.05, (now - this.lastTime) / 1000);
     this.lastTime = now;
-    this.accumulator += dt;
+    const touchStartPromptActive = this._touchStartPromptActive();
+    this.input.setTouchStartPromptActive(touchStartPromptActive);
+    this.input.setGameOver(this.ship.state === "crashed");
+    const inputState = this.input.update();
+    if (this.helpPopup && typeof this.helpPopup.setTouchMode === "function"){
+      const touchCapable = (typeof navigator !== "undefined") && ((navigator.maxTouchPoints || 0) > 0);
+      this.helpPopup.setTouchMode(inputState.inputType === "touch" || (touchCapable && inputState.inputType === null));
+    }
+    const helpOpen = !!(this.helpPopup && this.helpPopup.isOpen && this.helpPopup.isOpen());
+    const dt = helpOpen ? 0 : rawDt;
+    if (helpOpen){
+      this.accumulator = 0;
+      this._setThrustLoopActive(false);
+    } else {
+      this.accumulator += dt;
+    }
 
     this.levelAdvanceReady =
       this.pendingPerkChoice === null &&
       this.ship.mothershipEngineers <= 0 &&
       this._objectiveComplete() &&
       this._isDockedWithMothership();
-    this.input.setGameOver(this.ship.state === "crashed");
-    const inputState = this.input.update();
     this._updateStartTitle(dt, inputState);
     this._updateLevelWipe(dt);
 
@@ -2719,6 +2771,10 @@ export class GameLoop {
     }
     if (inputState.togglePlanetView){
       this.planetView = !this.planetView;
+    }
+    if (inputState.togglePlanetTriangles){
+      this.debugPlanetTriangles = !this.debugPlanetTriangles;
+      this._showStatusCue(this.debugPlanetTriangles ? "Planet triangle outlines on" : "Planet triangle outlines off");
     }
     if (inputState.toggleFog){
       this.fogEnabled = !this.fogEnabled;
@@ -2788,6 +2844,7 @@ export class GameLoop {
       input: inputState,
       debugCollisions: this.debugCollisions,
       debugNodes: GAME.DEBUG_NODES,
+      debugPlanetTriangles: this.debugPlanetTriangles,
       debugCollisionSamples: this.debugCollisions ? (this.ship._samples || []) : null,
       debugPoints: (this.debugCollisions && GAME.DEBUG_NODES) ? this.planet.debugPoints() : null,
       fogEnabled: this.fogEnabled,
@@ -2810,7 +2867,7 @@ export class GameLoop {
       aimOrigin: this._shipGunPivotWorld(),
       planetPalette: this._planetPalette(),
       touchUi: gameOver ? null : inputState.touchUi,
-      touchStart: (gameOver || this.levelAdvanceReady) && inputState.inputType === "touch",
+      touchStart: touchStartPromptActive && inputState.inputType === "touch",
     }, this.planet);
 
     this._drawMinerPopups();
@@ -2984,8 +3041,8 @@ export class GameLoop {
    */
   _objectivePromptText(inputType){
     const type = inputType || "keyboard";
-    const resetButtonPrefix =
-      (type === "touch") ? "Tap Restart to " :
+    const startButtonPrefix =
+      (type === "touch") ? "Tap Start to " :
       (type === "gamepad") ? "Press Start to " :
       "Press R to ";
     if (this.pendingPerkChoice){
@@ -2994,20 +3051,20 @@ export class GameLoop {
       return "Choose upgrade: press left/right.";
     } else if (this.ship.state === "crashed"){
       if (this.ship.mothershipPilots > 0){
-        return resetButtonPrefix + "launch a new dropship.";
+        return startButtonPrefix + "launch a new dropship.";
       } else {
-        return "No more pilots! " + resetButtonPrefix + "start a new game.";
+        return "No more pilots! " + startButtonPrefix + "start a new game.";
       }
     } else if (this._isDockedWithMothership()) {
       if (this.ship.mothershipEngineers > 0){
-        return resetButtonPrefix + "choose an upgrade.";
+        return startButtonPrefix + "choose an upgrade.";
       } else if (this.levelAdvanceReady){
-        return resetButtonPrefix + "fly to next planet.";
+        return startButtonPrefix + "fly to next planet.";
       } else if (this.ship.planetScanner){
         if (this.planetView){
-          return resetButtonPrefix + "exit planet scan.";
+          return startButtonPrefix + "exit planet scan.";
         } else {
-          return resetButtonPrefix + "view planet scan.";
+          return startButtonPrefix + "view planet scan.";
         }
       }
     } else if (this._objectiveComplete()) {
@@ -3017,6 +3074,22 @@ export class GameLoop {
       return "Objective complete! Return to mothership.";
     }
     return "";
+  }
+
+  /**
+   * @returns {boolean}
+   */
+  _touchStartPromptActive(){
+    if (this.ship.state === "crashed"){
+      return true;
+    }
+    if (!this._isDockedWithMothership()){
+      return false;
+    }
+    if (this.pendingPerkChoice !== null){
+      return false;
+    }
+    return this.ship.mothershipEngineers > 0 || this.levelAdvanceReady || this.ship.planetScanner;
   }
 
   /**
@@ -3290,44 +3363,148 @@ export class GameLoop {
     }
 
     if (this.pendingPerkChoice){
-      const panelW = Math.min(w * 0.86, 900 * dpr);
-      const panelH = Math.min(h * 0.42, 320 * dpr);
+      const panelW = Math.min(w * 0.92, 900 * dpr);
+      const panelH = Math.min(h * 0.52, 380 * dpr);
       const x = (w - panelW) * 0.5;
       const y = (h - panelH) * 0.5;
+
+      const panelGrad = ctx.createLinearGradient(0, y, 0, y + panelH);
+      panelGrad.addColorStop(0, "rgba(14, 16, 28, 0.96)");
+      panelGrad.addColorStop(1, "rgba(8, 10, 18, 0.96)");
       ctx.globalAlpha = 0.9;
-      ctx.fillStyle = "rgba(10, 10, 18, 1)";
+      ctx.fillStyle = panelGrad;
       ctx.fillRect(x, y, panelW, panelH);
       ctx.globalAlpha = 1;
       ctx.strokeStyle = "rgba(255, 215, 110, 0.95)";
       ctx.lineWidth = Math.max(1, Math.round(2 * dpr));
       ctx.strokeRect(x, y, panelW, panelH);
+      const lineY = y + panelH * 0.30;
+      const linePad = panelW * 0.12;
+      ctx.strokeStyle = "rgba(120, 210, 255, 0.55)";
+      ctx.lineWidth = Math.max(1, Math.round(1.25 * dpr));
+      ctx.beginPath();
+      ctx.moveTo(x + linePad, lineY);
+      ctx.lineTo(x + panelW - linePad, lineY);
+      ctx.stroke();
 
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillStyle = "rgba(255, 240, 190, 1)";
-      ctx.font = `700 ${Math.max(12, Math.round(22 * dpr))}px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace`;
-      ctx.fillText(`Choose an Upgrade`, x + panelW * 0.5, y + panelH * 0.20);
+      const fontFamily = "\"Science Gothic\", ui-sans-serif, system-ui, sans-serif";
+      const titlePx = fitCanvasFontPx(ctx, "Choose an Upgrade", 700, Math.round(24 * dpr), Math.round(14 * dpr), panelW * 0.84, fontFamily);
+      ctx.font = `700 ${titlePx}px ${fontFamily}`;
+      ctx.fillText("Choose an Upgrade", x + panelW * 0.5, y + panelH * 0.18);
 
       const left = this.pendingPerkChoice[0];
       const right = this.pendingPerkChoice[1];
-      ctx.font = `600 ${Math.max(11, Math.round(17 * dpr))}px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace`;
+      const bodyPx = Math.max(Math.round(12 * dpr), Math.round(panelW * 0.017));
+      const lineHeight = Math.max(Math.round(15 * dpr), Math.round(bodyPx * 1.24));
+      ctx.font = `600 ${bodyPx}px ${fontFamily}`;
       ctx.fillStyle = "rgba(200, 235, 255, 1)";
-      ctx.fillText(`[LEFT] ${left ? left.text : ""}`, x + panelW * 0.5, y + panelH * 0.48);
+      drawCenteredWrappedText(ctx, `[LEFT] ${left ? left.text : ""}`, x + panelW * 0.5, y + panelH * 0.40, panelW * 0.84, lineHeight, 2);
       ctx.fillStyle = "rgba(255, 214, 180, 1)";
-      ctx.fillText(`[RIGHT] ${right ? right.text : ""}`, x + panelW * 0.5, y + panelH * 0.70);
+      drawCenteredWrappedText(ctx, `[RIGHT] ${right ? right.text : ""}`, x + panelW * 0.5, y + panelH * 0.64, panelW * 0.84, lineHeight, 2);
     }
 
     if (drawStartTitle){
-      const fontPx = Math.max(Math.round(58 * dpr), Math.min(Math.round(w * 0.2), Math.round(150 * dpr)));
+      const fontFamily = "\"Science Gothic\", ui-sans-serif, system-ui, sans-serif";
+      const fontPx = fitCanvasFontPx(
+        ctx,
+        this.startTitleText,
+        700,
+        Math.min(Math.round(w * 0.18), Math.round(140 * dpr)),
+        Math.round(20 * dpr),
+        w * 0.9,
+        fontFamily,
+      );
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.font = `700 ${fontPx}px "Science Gothic", ui-sans-serif, system-ui, sans-serif`;
+      ctx.font = `700 ${fontPx}px ${fontFamily}`;
       ctx.globalAlpha = this.startTitleAlpha;
       ctx.fillStyle = "rgba(224, 64, 48, 1)";
       ctx.fillText(this.startTitleText, w * 0.5, h * 0.25);
     }
     this._drawLevelWipe(ctx, w, h, dpr);
     ctx.globalAlpha = 1;
+  }
+}
+
+/**
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {string} text
+ * @param {number} weight
+ * @param {number} maxPx
+ * @param {number} minPx
+ * @param {number} maxWidth
+ * @param {string} family
+ * @returns {number}
+ */
+function fitCanvasFontPx(ctx, text, weight, maxPx, minPx, maxWidth, family){
+  let px = Math.max(minPx, maxPx);
+  while (px > minPx){
+    ctx.font = `${weight} ${px}px ${family}`;
+    if (ctx.measureText(text).width <= maxWidth) break;
+    px -= 1;
+  }
+  return Math.max(minPx, px);
+}
+
+/**
+ * Draw centered wrapped text from a top anchor.
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {string} text
+ * @param {number} cx
+ * @param {number} topY
+ * @param {number} maxWidth
+ * @param {number} lineHeight
+ * @param {number} maxLines
+ * @returns {void}
+ */
+function drawCenteredWrappedText(ctx, text, cx, topY, maxWidth, lineHeight, maxLines){
+  const rawWords = String(text || "").trim().split(/\s+/).filter(Boolean);
+  if (!rawWords.length) return;
+  /** @type {string[]} */
+  const words = [];
+  for (const token of rawWords){
+    if (ctx.measureText(token).width <= maxWidth){
+      words.push(token);
+      continue;
+    }
+    let chunk = "";
+    for (const ch of token){
+      const next = chunk + ch;
+      if (chunk && ctx.measureText(next).width > maxWidth){
+        words.push(chunk);
+        chunk = ch;
+      } else {
+        chunk = next;
+      }
+    }
+    if (chunk) words.push(chunk);
+  }
+
+  /** @type {string[]} */
+  const lines = [];
+  let line = "";
+  for (const word of words){
+    const next = line ? `${line} ${word}` : word;
+    if (line && ctx.measureText(next).width > maxWidth){
+      lines.push(line);
+      line = word;
+      if (lines.length >= maxLines - 1) break;
+    } else {
+      line = next;
+    }
+  }
+  if (line && lines.length < maxLines){
+    lines.push(line);
+  }
+  if (!lines.length) return;
+
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  for (let i = 0; i < lines.length; i++){
+    ctx.fillText(lines[i], cx, topY + i * lineHeight);
   }
 }
 

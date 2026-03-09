@@ -251,6 +251,43 @@ function pushTriangleOutline(pos, col, ax, ay, bx, by, cx, cy, r, g, b, a){
 }
 
 /**
+ * @param {Float32Array} triPositions
+ * @returns {{positions:Float32Array,colors:Float32Array,vertCount:number}}
+ */
+function buildTriangleWireframe(triPositions){
+  const triCount = Math.floor(triPositions.length / 6);
+  const positions = new Float32Array(triCount * 12);
+  const colors = new Float32Array(triCount * 24);
+  let pi = 0;
+  let ci = 0;
+  const r = 0.96, g = 0.97, b = 1.0, a = 0.33;
+  for (let i = 0; i < triCount; i++){
+    const i0 = i * 6;
+    const ax = triPositions[i0];
+    const ay = triPositions[i0 + 1];
+    const bx = triPositions[i0 + 2];
+    const by = triPositions[i0 + 3];
+    const cx = triPositions[i0 + 4];
+    const cy = triPositions[i0 + 5];
+
+    positions[pi++] = ax; positions[pi++] = ay;
+    positions[pi++] = bx; positions[pi++] = by;
+    positions[pi++] = bx; positions[pi++] = by;
+    positions[pi++] = cx; positions[pi++] = cy;
+    positions[pi++] = cx; positions[pi++] = cy;
+    positions[pi++] = ax; positions[pi++] = ay;
+
+    for (let j = 0; j < 6; j++){
+      colors[ci++] = r;
+      colors[ci++] = g;
+      colors[ci++] = b;
+      colors[ci++] = a;
+    }
+  }
+  return { positions, colors, vertCount: triCount * 6 };
+}
+
+/**
  * @param {number[]} pos
  * @param {number[]} col
  * @param {number} x
@@ -720,6 +757,7 @@ function drawFrameImpl(renderer, state, planet){
     uRockDark, uRockLight, uSurfaceRockDark, uSurfaceRockLight,
       uAirDark, uAirLight, uSurfaceBand, uRmax, uMeshRmax,
     ouScale, ouCam, ouRot, oPos, oCol,
+    planetWireVao, planetWireVertCount,
     starProg, starVao, starRot, starTime, starAspect, starSpan, starSaturation,
     starVertCount,
   } = renderer;
@@ -2110,6 +2148,12 @@ function drawFrameImpl(renderer, state, planet){
   gl.uniform2f(ouCam, state.view.xCenter, state.view.yCenter);
   gl.uniform1f(ouRot, camRot);
 
+  if (state.debugPlanetTriangles && planetWireVao && planetWireVertCount > 0){
+    gl.bindVertexArray(planetWireVao);
+    gl.drawArrays(gl.LINES, 0, planetWireVertCount);
+    gl.bindVertexArray(oVao);
+  }
+
   gl.bindBuffer(gl.ARRAY_BUFFER, oPos);
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pos), gl.DYNAMIC_DRAW);
   gl.bindBuffer(gl.ARRAY_BUFFER, oCol);
@@ -2191,6 +2235,40 @@ function drawFrameImpl(renderer, state, planet){
     }
   }
 
+  if (state.touchStart){
+    /** @type {number[]} */
+    const linePos = [];
+    /** @type {number[]} */
+    const lineCol = [];
+    const w = canvas.width;
+    const h = canvas.height;
+    const minDim = Math.max(1, Math.min(w, h));
+    const centerX = TOUCH_UI.start.x * w;
+    const centerY = (1 - TOUCH_UI.start.y) * h;
+    const radius = TOUCH_UI.start.r * minDim;
+
+    pushCircle(linePos, lineCol, centerX, centerY, radius, 0.62, 1.0, 0.56, 0.98, 64);
+    const triLeft = centerX - radius * 0.28;
+    const triRight = centerX + radius * 0.40;
+    const triTop = centerY + radius * 0.40;
+    const triBottom = centerY - radius * 0.40;
+    pushTriangleOutline(linePos, lineCol, triLeft, triTop, triRight, centerY, triLeft, triBottom, 0.82, 1.0, 0.76, 0.98);
+
+    const uiLine = linePos.length / 2;
+    gl.uniform2f(ouScale, 2 / w, 2 / h);
+    gl.uniform2f(ouCam, w * 0.5, h * 0.5);
+    gl.uniform1f(ouRot, 0);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, oPos);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(linePos), gl.DYNAMIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, oCol);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(lineCol), gl.DYNAMIC_DRAW);
+
+    if (uiLine > 0){
+      gl.drawArrays(gl.LINES, 0, uiLine);
+    }
+  }
+
   gl.bindVertexArray(null);
   gl.disable(gl.BLEND);
 }
@@ -2216,6 +2294,9 @@ export class Renderer {
     this.fogBuf = null;
     this.vertCount = 0;
     this.shadeTex = null;
+    this.planetWirePosBuf = null;
+    this.planetWireColBuf = null;
+    this.planetWireVertCount = 0;
 
     const vs = `#version 300 es
   precision highp float;
@@ -2417,10 +2498,13 @@ export class Renderer {
     /** @type {WebGLVertexArrayObject|null} */
     const oVao = gl.createVertexArray();
     /** @type {WebGLVertexArrayObject|null} */
+    const planetWireVao = gl.createVertexArray();
+    /** @type {WebGLVertexArrayObject|null} */
     const starVao = gl.createVertexArray();
-    if (!vao || !oVao || !starVao) throw new Error("Failed to create VAO");
+    if (!vao || !oVao || !planetWireVao || !starVao) throw new Error("Failed to create VAO");
     this.vao = vao;
     this.oVao = oVao;
+    this.planetWireVao = planetWireVao;
     this.starVao = starVao;
 
     gl.useProgram(prog);
@@ -2523,6 +2607,15 @@ export class Renderer {
     this.fogBuf = uploadAttrib(gl, 3, fog, 1);
     gl.bindVertexArray(null);
     this.vertCount = mesh.vertCount;
+
+    if (this.planetWirePosBuf) gl.deleteBuffer(this.planetWirePosBuf);
+    if (this.planetWireColBuf) gl.deleteBuffer(this.planetWireColBuf);
+    const wire = buildTriangleWireframe(mesh.positions);
+    gl.bindVertexArray(this.planetWireVao);
+    this.planetWirePosBuf = uploadAttrib(gl, 0, wire.positions, 2);
+    this.planetWireColBuf = uploadAttrib(gl, 1, wire.colors, 4);
+    gl.bindVertexArray(null);
+    this.planetWireVertCount = wire.vertCount;
   }
 
 

@@ -35,6 +35,7 @@ export class Input {
       toggleDebug: false,
       toggleDevHud: false,
       togglePlanetView: false,
+      togglePlanetTriangles: false,
       toggleFog: false,
       toggleMusic: false,
       toggleCombatMusic: false,
@@ -82,6 +83,10 @@ export class Input {
     this.pointerLocked = false;
     /** @type {boolean} */
     this.gameOver = false;
+    /** @type {boolean} */
+    this.modalOpen = false;
+    /** @type {boolean} */
+    this.touchStartPromptActive = false;
 
     window.addEventListener("keydown", (e) => this._onKeyDown(e), { passive: false });
     window.addEventListener("keyup", (e) => this._onKeyUp(e), { passive: false });
@@ -137,6 +142,44 @@ export class Input {
   }
 
   /**
+   * @param {boolean} modalOpen
+   * @returns {void}
+   */
+  setModalOpen(modalOpen){
+    this.modalOpen = !!modalOpen;
+    if (!this.modalOpen) return;
+    this.keys.clear();
+    this.justPressed.clear();
+    this.aimMouse = null;
+    this.aimTouchShoot = null;
+    this.aimTouchBomb = null;
+    this.aimTouchShootFrom = null;
+    this.aimTouchShootTo = null;
+    this.aimTouchBombFrom = null;
+    this.aimTouchBombTo = null;
+    this.bombReleaseFrom = null;
+    this.bombReleaseTo = null;
+    this.leftControl.id = null;
+    this.leftControl.pos = null;
+    this.leftControl.start = null;
+    this.laserControl.id = null;
+    this.laserControl.pos = null;
+    this.laserControl.start = null;
+    this.bombControl.id = null;
+    this.bombControl.pos = null;
+    this.bombControl.start = null;
+    this._resetOneShotFlags();
+  }
+
+  /**
+   * @param {boolean} active
+   * @returns {void}
+   */
+  setTouchStartPromptActive(active){
+    this.touchStartPromptActive = !!active;
+  }
+
+  /**
    * @param {number} now
    * @returns {void}
    */
@@ -156,6 +199,9 @@ export class Input {
    * @returns {void}
    */
   _onKeyDown(e){
+    if (this.modalOpen){
+      return;
+    }
     const key = e.key;
     const code = e.code;
     const debugChord = e.altKey && !e.ctrlKey && !e.metaKey;
@@ -166,6 +212,7 @@ export class Input {
         code === "KeyC" ||
         code === "KeyN" ||
         code === "KeyV" ||
+        code === "KeyT" ||
         code === "KeyF" ||
         code === "KeyP" ||
         code === "KeyX" ||
@@ -186,6 +233,7 @@ export class Input {
     }
     if (key === "r" || key === "R") this.oneshot.reset = true;
     if (debugChord && code === "KeyV") this.oneshot.togglePlanetView = true;
+    if (debugChord && code === "KeyT") this.oneshot.togglePlanetTriangles = true;
     if (debugChord && code === "KeyF") this.oneshot.toggleFog = true;
     if ((key === "-" || key === "_") && !e.ctrlKey && !e.metaKey && !e.altKey){
       this.oneshot.musicVolumeDown = true;
@@ -262,6 +310,9 @@ export class Input {
    * @returns {void}
    */
   _onPointerDown(e){
+    if (this.modalOpen){
+      return;
+    }
     if (this.gameOver && e.pointerType !== "touch"){
       return;
     }
@@ -282,8 +333,11 @@ export class Input {
     this.lastInputType = "touch";
     const p = this._pointerPos(e);
     this.canvas.setPointerCapture(e.pointerId);
-    if (this.gameOver && this._inCircle(p, TOUCH_UI.start, TOUCH_UI.start.r)){
+    if (this.touchStartPromptActive && this._inCircle(p, TOUCH_UI.start, TOUCH_UI.start.r)){
       this.oneshot.reset = true;
+      return;
+    }
+    if (this.gameOver){
       return;
     }
     if (this.leftControl.id === null && this._inCircle(p, TOUCH_UI.left, TOUCH_UI.left.r)){
@@ -308,6 +362,9 @@ export class Input {
    * @returns {void}
    */
   _onPointerMove(e){
+    if (this.modalOpen){
+      return;
+    }
     if (this.gameOver && e.pointerType !== "touch"){
       return;
     }
@@ -343,6 +400,9 @@ export class Input {
    * @returns {void}
    */
   _onPointerUp(e){
+    if (this.modalOpen){
+      return;
+    }
     if (this.gameOver && e.pointerType !== "touch"){
       return;
     }
@@ -517,6 +577,46 @@ export class Input {
    * @returns {InputState}
    */
   update(){
+    if (this.modalOpen){
+      const state = {
+        stickThrust: { x: 0, y: 0 },
+        left: false,
+        right: false,
+        thrust: false,
+        down: false,
+        reset: false,
+        regen: false,
+        toggleDebug: false,
+        toggleDevHud: false,
+        togglePlanetView: false,
+        togglePlanetTriangles: false,
+        toggleFog: false,
+        toggleMusic: false,
+        toggleCombatMusic: false,
+        musicVolumeUp: false,
+        musicVolumeDown: false,
+        nextLevel: false,
+        prevLevel: false,
+        shoot: false,
+        bomb: false,
+        rescueAll: false,
+        killAllEnemies: false,
+        spawnEnemyType: null,
+        aim: null,
+        aimShoot: null,
+        aimBomb: null,
+        aimShootFrom: null,
+        aimShootTo: null,
+        aimBombFrom: null,
+        aimBombTo: null,
+        touchUi: null,
+        touchUiVisible: false,
+        inputType: this.lastInputType,
+      };
+      this._resetOneShotFlags();
+      return state;
+    }
+
     const now = performance.now();
     const keyState = {
       left: false,
@@ -605,6 +705,7 @@ export class Input {
       toggleDebug: this.oneshot.toggleDebug,
       toggleDevHud: this.oneshot.toggleDevHud,
       togglePlanetView: this.oneshot.togglePlanetView,
+      togglePlanetTriangles: this.oneshot.togglePlanetTriangles,
       toggleFog: this.oneshot.toggleFog,
       toggleMusic: this.oneshot.toggleMusic,
       toggleCombatMusic: this.oneshot.toggleCombatMusic,
@@ -629,12 +730,22 @@ export class Input {
       inputType: this.lastInputType,
     };
 
+    this._resetOneShotFlags();
+
+    return state;
+  }
+
+  /**
+   * @returns {void}
+   */
+  _resetOneShotFlags(){
     this.justPressed.clear();
     this.oneshot.reset = false;
     this.oneshot.regen = false;
     this.oneshot.toggleDebug = false;
     this.oneshot.toggleDevHud = false;
     this.oneshot.togglePlanetView = false;
+    this.oneshot.togglePlanetTriangles = false;
     this.oneshot.toggleFog = false;
     this.oneshot.toggleMusic = false;
     this.oneshot.toggleCombatMusic = false;
@@ -649,7 +760,5 @@ export class Input {
     this.oneshot.spawnEnemyType = null;
     this.bombReleaseFrom = null;
     this.bombReleaseTo = null;
-
-    return state;
   }
 }

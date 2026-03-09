@@ -6,6 +6,7 @@ import { Input } from "./input.js";
 import { updateHud, updatePlanetLabel, updateObjectiveLabel, updateShipStatusLabel, updateHeatMeter } from "./ui.js";
 import { GameLoop } from "./loop.js";
 import { BackgroundMusic } from "./audio.js";
+import { HelpPopup } from "./help_popup.js";
 
 const canvas = /** @type {HTMLCanvasElement} */ (document.getElementById("gl"));
 const hud = /** @type {HTMLElement} */ (document.getElementById("hud"));
@@ -18,6 +19,9 @@ const renderer = new Renderer(canvas, GAME);
 
 const input = new Input(canvas);
 const bgm = new BackgroundMusic({ volume: 0.35 });
+const helpPopup = new HelpPopup({
+  onToggle: (open) => input.setModalOpen(open),
+});
 
 const loop = new GameLoop({
   renderer,
@@ -31,6 +35,7 @@ const loop = new GameLoop({
   objectiveLabel,
   shipStatusLabel,
   heatMeter,
+  helpPopup,
 });
 
 loop.start();
