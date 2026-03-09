@@ -1795,21 +1795,23 @@ export class GameLoop {
 
   /**
    * Approximate ship body using several circles (includes a center collider).
+   * @param {number} [shipX]
+   * @param {number} [shipY]
    * @returns {Array<{x:number,y:number,r:number}>}
    */
-  _shipShotColliders(){
+  _shipShotColliders(shipX = this.ship.x, shipY = this.ship.y){
     const shipR = this._shipRadius();
-    const rLen = Math.hypot(this.ship.x, this.ship.y) || 1;
-    const upx = this.ship.x / rLen;
-    const upy = this.ship.y / rLen;
+    const rLen = Math.hypot(shipX, shipY) || 1;
+    const upx = shipX / rLen;
+    const upy = shipY / rLen;
     const rightx = -upy;
     const righty = upx;
     return [
-      { x: this.ship.x, y: this.ship.y, r: shipR * 0.50 }, // center guard
-      { x: this.ship.x + upx * shipR * 0.55, y: this.ship.y + upy * shipR * 0.55, r: shipR * 0.42 },
-      { x: this.ship.x - upx * shipR * 0.38, y: this.ship.y - upy * shipR * 0.38, r: shipR * 0.38 },
-      { x: this.ship.x + rightx * shipR * 0.48, y: this.ship.y + righty * shipR * 0.48, r: shipR * 0.30 },
-      { x: this.ship.x - rightx * shipR * 0.48, y: this.ship.y - righty * shipR * 0.48, r: shipR * 0.30 },
+      { x: shipX, y: shipY, r: shipR * 0.50 }, // center guard
+      { x: shipX + upx * shipR * 0.55, y: shipY + upy * shipR * 0.55, r: shipR * 0.42 },
+      { x: shipX - upx * shipR * 0.38, y: shipY - upy * shipR * 0.38, r: shipR * 0.38 },
+      { x: shipX + rightx * shipR * 0.48, y: shipY + righty * shipR * 0.48, r: shipR * 0.30 },
+      { x: shipX - rightx * shipR * 0.48, y: shipY - righty * shipR * 0.48, r: shipR * 0.30 },
     ];
   }
 
@@ -1820,14 +1822,44 @@ export class GameLoop {
    * @returns {boolean}
    */
   _enemyShotHitsShip(shot, dt){
-    const prevX = shot.x - shot.vx * dt;
-    const prevY = shot.y - shot.vy * dt;
-    const colliders = this._shipShotColliders();
-    for (const c of colliders){
-      const dx = c.x - shot.x;
-      const dy = c.y - shot.y;
-      if (dx * dx + dy * dy <= c.r * c.r) return true;
-      if (this._distPointToSegment(c.x, c.y, prevX, prevY, shot.x, shot.y) <= c.r) return true;
+    const shotX0 = shot.x - shot.vx * dt;
+    const shotY0 = shot.y - shot.vy * dt;
+    const shotX1 = shot.x;
+    const shotY1 = shot.y;
+    const shipX1 = this.ship.x;
+    const shipY1 = this.ship.y;
+    // Approximate previous ship center from current velocity for relative swept test.
+    const shipX0 = shipX1 - this.ship.vx * dt;
+    const shipY0 = shipY1 - this.ship.vy * dt;
+
+    const colliders0 = this._shipShotColliders(shipX0, shipY0);
+    const colliders1 = this._shipShotColliders(shipX1, shipY1);
+    const hitPad = 0.02;
+    for (let i = 0; i < colliders1.length; i++){
+      const c0 = colliders0[i];
+      const c1 = colliders1[i];
+      if (!c0 || !c1) continue;
+      const r = Math.max(c0.r, c1.r) + hitPad;
+      // Relative-space sweep: moving shot vs moving collider center.
+      const rx0 = shotX0 - c0.x;
+      const ry0 = shotY0 - c0.y;
+      const rx1 = shotX1 - c1.x;
+      const ry1 = shotY1 - c1.y;
+      if (this._distPointToSegment(0, 0, rx0, ry0, rx1, ry1) <= r) return true;
+    }
+
+    // Fallback against actual ship hull to close rare gaps between circle colliders.
+    const travel = Math.hypot(shotX1 - shotX0, shotY1 - shotY0);
+    const steps = Math.max(2, Math.min(10, Math.ceil(travel / 0.08) + 1));
+    for (let i = 0; i < steps; i++){
+      const t = (steps <= 1) ? 1 : (i / (steps - 1));
+      const px = shotX0 + (shotX1 - shotX0) * t;
+      const py = shotY0 + (shotY1 - shotY0) * t;
+      const sx = shipX0 + (shipX1 - shipX0) * t;
+      const sy = shipY0 + (shipY1 - shipY0) * t;
+      if (this._shipHullDistance(px, py, sx, sy) <= hitPad){
+        return true;
+      }
     }
     return false;
   }
@@ -2784,7 +2816,7 @@ export class GameLoop {
         if (this._enemyShotHitsShip(s, dt)){
           this.enemies.shots.splice(i, 1);
           this._damageShip(s.x, s.y);
-          break;
+          continue;
         }
       }
     }
