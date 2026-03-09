@@ -2475,7 +2475,60 @@ export class GameLoop {
     if (this.ship.state === "crashed"){
       this.ship.guidePath = null;
     } else {
-      this.ship.guidePath = this.planet.surfaceGuidePathTo(this.ship.x, this.ship.y, GAME.MINER_CALL_RADIUS);
+      /**
+       * @param {number} px
+       * @param {number} py
+       * @returns {{path:Array<{x:number,y:number}>,indexClosest:number}|null}
+       */
+      const tryGuidePath = (px, py) => {
+        const gp = this.planet.surfaceGuidePathTo(px, py, GAME.MINER_CALL_RADIUS);
+        if (!gp || !gp.path || gp.path.length < 2){
+          return null;
+        }
+        if (!Number.isFinite(gp.indexClosest)) return null;
+        for (const p of gp.path){
+          if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)){
+            return null;
+          }
+        }
+        return gp;
+      };
+
+      let guidePath = tryGuidePath(this.ship.x, this.ship.y);
+      // Restored landed positions can occasionally sit on a degenerate sample point.
+      // Probe nearby points and keep the first usable multi-segment path.
+      if (!guidePath && this.ship.state === "landed"){
+        const info = this.planet.surfaceInfoAtWorld(this.ship.x, this.ship.y, 0.24);
+        if (info){
+          const tx = -info.ny;
+          const ty = info.nx;
+          const nx = info.nx;
+          const ny = info.ny;
+          const probes = [
+            [ tx * 0.30, ty * 0.30],
+            [-tx * 0.30,-ty * 0.30],
+            [ tx * 0.60, ty * 0.60],
+            [-tx * 0.60,-ty * 0.60],
+            [ nx * 0.18, ny * 0.18],
+            [-nx * 0.18,-ny * 0.18],
+          ];
+          for (let i = 0; i < probes.length && !guidePath; i++){
+            const p = probes[i];
+            guidePath = tryGuidePath(this.ship.x + p[0], this.ship.y + p[1]);
+          }
+        }
+        if (!guidePath){
+          const ringOffsets = [0.35, 0.65];
+          for (let i = 0; i < ringOffsets.length && !guidePath; i++){
+            const r = ringOffsets[i];
+            for (let a = 0; a < 8 && !guidePath; a++){
+              const ang = (Math.PI * 2 * a) / 8;
+              guidePath = tryGuidePath(this.ship.x + Math.cos(ang) * r, this.ship.y + Math.sin(ang) * r);
+            }
+          }
+        }
+      }
+      this.ship.guidePath = guidePath;
     }
     this._resolveShipSolidPropCollisions();
 
@@ -2720,25 +2773,9 @@ export class GameLoop {
       }
     }
 
-    // Build bounding box for guide path for quick rejection
-    const guidepathMargin = 1;
-    let guidePathMinX = Infinity;
-    let guidePathMinY = Infinity;
-    let guidePathMaxX = -Infinity;
-    let guidePathMaxY = -Infinity;
+    const guidepathMargin = 1.5;
     const guidePath = this.ship.guidePath;
-    if (guidePath) {
-      for (const pos of guidePath.path) {
-        guidePathMinX = Math.min(guidePathMinX, pos.x);
-        guidePathMinY = Math.min(guidePathMinY, pos.y);
-        guidePathMaxX = Math.max(guidePathMaxX, pos.x);
-        guidePathMaxY = Math.max(guidePathMaxY, pos.y);
-      }
-      guidePathMinX -= guidepathMargin;
-      guidePathMinY -= guidepathMargin;
-      guidePathMaxX += guidepathMargin;
-      guidePathMaxY += guidepathMargin;
-    }
+    const guidePathUsable = !!(guidePath && guidePath.path && guidePath.path.length > 1 && Number.isFinite(guidePath.indexClosest));
 
     const landed = this.ship.state === "landed";
 
@@ -2746,7 +2783,7 @@ export class GameLoop {
       const miner = this.miners[i];
 
       let indexPathMiner = null;
-      if (landed && miner.x >= guidePathMinX && miner.y >= guidePathMinY && miner.x <= guidePathMaxX && miner.y <= guidePathMaxY) {
+      if (landed && guidePathUsable) {
         indexPathMiner = indexPathFromPos(guidePath.path, guidepathMargin, miner.x, miner.y);
       }
 
