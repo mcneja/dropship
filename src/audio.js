@@ -68,7 +68,7 @@ const SFX_POOL_SIZE = {
 const SFX_MIN_INTERVAL_MS = {
   ship_laser: 70,
 };
-const WEB_AUDIO_SFX_IDS = Object.freeze(["ship_laser"]);
+const WEB_AUDIO_SFX_IDS = Object.freeze(["ship_laser", "enemy_fire"]);
 const WEB_AUDIO_SFX_VARIANT_RATES = Object.freeze({
   ship_laser: [0.96, 1.0, 1.04],
 });
