@@ -1115,7 +1115,7 @@ export function clampPlanetConfig(sample){
   const limits = {
     RMAX: [8, 26],
     PAD: [0.8, 2.0],
-    MOTHERSHIP_ORBIT_HEIGHT: [8, 26],
+    MOTHERSHIP_ORBIT_HEIGHT: [4, 26],
     SURFACE_G: [1.2, 3.2],
     DRAG_MULT: [0.7, 2.0],
     THRUST_MULT: [0.7, 1.4],

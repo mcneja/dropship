@@ -123,7 +123,10 @@ export class Mothership {
       if (r2 > maxR2) maxR2 = r2;
     }
 
-    const orbitRadius = cfg.RMAX + 15;
+    const orbitHeight = (typeof cfg.MOTHERSHIP_ORBIT_HEIGHT === "number")
+      ? cfg.MOTHERSHIP_ORBIT_HEIGHT
+      : 15;
+    const orbitRadius = cfg.RMAX + orbitHeight;
     const mu = planet.gravitationalConstant;
     const speed = Math.sqrt(mu / orbitRadius);
 

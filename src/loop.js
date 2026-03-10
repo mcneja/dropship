@@ -1,9 +1,8 @@
 ﻿// @ts-check
 
-import { GAME } from "./config.js";
 import { Enemies } from "./enemies.js";
 import { createCollisionRouter } from "./collision-router.js";
-import { CFG } from "./config.js";
+import { GAME, CFG } from "./config.js";
 import { Mothership, updateMothership, mothershipCollisionInfo } from "./mothership.js";
 import { Planet } from "./planet.js";
 import { pickPlanetConfig, pickPlanetConfigById, resolveLevelProgression, resolvePlanetParams } from "./planet_config.js";

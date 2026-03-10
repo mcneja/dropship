@@ -940,6 +940,28 @@ function drawFrameImpl(renderer, state, planet){
   gl.drawArrays(gl.TRIANGLES, 0, vertCount);
   gl.bindVertexArray(null);
 
+  const visRange = (params && typeof params.VIS_RANGE === "number") ? params.VIS_RANGE : 0;
+  const visRange2 = visRange * visRange;
+  /**
+   * Runtime visibility for dynamic hostile actors/FX.
+   * Use immediate LOS rather than chunked fog buffers to avoid on/off flicker.
+   * @param {number} x
+   * @param {number} y
+   * @returns {boolean}
+   */
+  const visibleHostileNow = (x, y) => {
+    if (!state.fogEnabled) return true;
+    const ship = state.ship;
+    if (!ship) return true;
+    const dx = x - ship.x;
+    const dy = y - ship.y;
+    if (visRange > 0 && (dx * dx + dy * dy > visRange2)) return false;
+    if (planet.radial && typeof planet.radial.lineOfSight === "function"){
+      return planet.radial.lineOfSight(ship.x, ship.y, x, y);
+    }
+    return lineOfSightAir(planet, ship.x, ship.y, x, y, 0.2);
+  };
+
   const shipHWorld = 0.7 * game.SHIP_SCALE;
   const shipWWorld = 0.75 * game.SHIP_SCALE;
   const bodyLiftN = 0.18;
@@ -1262,7 +1284,7 @@ function drawFrameImpl(renderer, state, planet){
     const tNow = performance.now() * 0.001;
     const outlineSize = 1/16;
     for (const enemy of state.enemies){
-      if (state.fogEnabled && !planet.fogSeenAt(enemy.x, enemy.y)) continue;
+      if (!visibleHostileNow(enemy.x, enemy.y)) continue;
       /** @type {EnemyRender} */
       const enemyRender = enemy;
       /** @type {[number,number,number]} */
@@ -1445,6 +1467,7 @@ function drawFrameImpl(renderer, state, planet){
   if (state.shots && state.shots.length){
     const size = 0.10;
     for (const s of state.shots){
+      if (!visibleHostileNow(s.x, s.y)) continue;
       if (s.owner === "hunter") pushDiamond(pos, col, s.x, s.y, size, 1.0, 0.35, 0.3, 0.9);
       else if (s.owner === "ranger") pushDiamond(pos, col, s.x, s.y, size, 0.3, 0.8, 1.0, 0.9);
       else pushDiamond(pos, col, s.x, s.y, size, 0.5, 0.125, 1.0, 0.9);
