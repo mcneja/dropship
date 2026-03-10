@@ -2461,13 +2461,73 @@ function drawFrameImpl(renderer, state, planet){
     const centerX = TOUCH_UI.start.x * w;
     const centerY = (1 - TOUCH_UI.start.y) * h;
     const radius = TOUCH_UI.start.r * minDim;
+    const touchStartMode = (typeof state.touchStartMode === "string") ? state.touchStartMode : "play";
 
-    pushCircle(linePos, lineCol, centerX, centerY, radius, 0.62, 1.0, 0.56, 0.98, 64);
-    const triLeft = centerX - radius * 0.28;
-    const triRight = centerX + radius * 0.40;
-    const triTop = centerY + radius * 0.40;
-    const triBottom = centerY - radius * 0.40;
-    pushTriangleOutline(linePos, lineCol, triLeft, triTop, triRight, centerY, triLeft, triBottom, 0.82, 1.0, 0.76, 0.98);
+    let ringR = 0.62;
+    let ringG = 1.0;
+    let ringB = 0.56;
+    if (touchStartMode === "upgrade"){
+      ringR = 1.0; ringG = 0.92; ringB = 0.58;
+    } else if (touchStartMode === "nextLevel"){
+      ringR = 0.58; ringG = 0.92; ringB = 1.0;
+    } else if (touchStartMode === "viewMap" || touchStartMode === "exitMap"){
+      ringR = 0.66; ringG = 0.84; ringB = 1.0;
+    } else if (touchStartMode === "respawnShip"){
+      ringR = 1.0; ringG = 0.68; ringB = 0.56;
+    } else if (touchStartMode === "restartGame"){
+      ringR = 1.0; ringG = 0.74; ringB = 0.42;
+    }
+    pushCircle(linePos, lineCol, centerX, centerY, radius, ringR, ringG, ringB, 0.98, 64);
+
+    const iconR = Math.min(1, ringR + 0.2);
+    const iconG = Math.min(1, ringG + 0.2);
+    const iconB = Math.min(1, ringB + 0.2);
+    const iconA = 0.98;
+    if (touchStartMode === "upgrade"){
+      const d = radius * 0.34;
+      pushLine(linePos, lineCol, centerX - d, centerY, centerX + d, centerY, iconR, iconG, iconB, iconA);
+      pushLine(linePos, lineCol, centerX, centerY - d, centerX, centerY + d, iconR, iconG, iconB, iconA);
+    } else if (touchStartMode === "nextLevel"){
+      const dx = radius * 0.16;
+      const dy = radius * 0.30;
+      const cx0 = centerX - radius * 0.18;
+      const cx1 = centerX + radius * 0.14;
+      pushLine(linePos, lineCol, cx0 - dx, centerY - dy, cx0 + dx, centerY, iconR, iconG, iconB, iconA);
+      pushLine(linePos, lineCol, cx0 + dx, centerY, cx0 - dx, centerY + dy, iconR, iconG, iconB, iconA);
+      pushLine(linePos, lineCol, cx1 - dx, centerY - dy, cx1 + dx, centerY, iconR, iconG, iconB, iconA);
+      pushLine(linePos, lineCol, cx1 + dx, centerY, cx1 - dx, centerY + dy, iconR, iconG, iconB, iconA);
+    } else if (touchStartMode === "viewMap" || touchStartMode === "exitMap"){
+      const rr = radius * 0.38;
+      pushSquareOutline(linePos, lineCol, centerX, centerY, rr, iconR, iconG, iconB, iconA);
+      pushLine(linePos, lineCol, centerX - rr * 0.33, centerY - rr, centerX - rr * 0.33, centerY + rr, iconR, iconG, iconB, iconA);
+      pushLine(linePos, lineCol, centerX + rr * 0.33, centerY - rr, centerX + rr * 0.33, centerY + rr, iconR, iconG, iconB, iconA);
+      if (touchStartMode === "exitMap"){
+        const xr = rr * 0.78;
+        pushLine(linePos, lineCol, centerX - xr, centerY - xr, centerX + xr, centerY + xr, iconR, iconG, iconB, iconA);
+        pushLine(linePos, lineCol, centerX - xr, centerY + xr, centerX + xr, centerY - xr, iconR, iconG, iconB, iconA);
+      }
+    } else {
+      const triLeft = centerX - radius * 0.28;
+      const triRight = centerX + radius * 0.40;
+      const triTop = centerY + radius * 0.40;
+      const triBottom = centerY - radius * 0.40;
+      pushTriangleOutline(linePos, lineCol, triLeft, triTop, triRight, centerY, triLeft, triBottom, iconR, iconG, iconB, iconA);
+      if (touchStartMode === "respawnShip"){
+        const d = radius * 0.16;
+        const px = centerX + radius * 0.28;
+        const py = centerY - radius * 0.28;
+        pushLine(linePos, lineCol, px - d, py, px + d, py, iconR, iconG, iconB, iconA);
+        pushLine(linePos, lineCol, px, py - d, px, py + d, iconR, iconG, iconB, iconA);
+      } else if (touchStartMode === "restartGame"){
+        // Distinct restart glyph: circular ring with arrow head.
+        pushCircle(linePos, lineCol, centerX, centerY, radius * 0.43, iconR, iconG, iconB, iconA, 40);
+        const ahx = centerX + radius * 0.33;
+        const ahy = centerY - radius * 0.20;
+        const d = radius * 0.11;
+        pushLine(linePos, lineCol, ahx - d, ahy, ahx + d, ahy, iconR, iconG, iconB, iconA);
+        pushLine(linePos, lineCol, ahx + d, ahy, ahx, ahy + d, iconR, iconG, iconB, iconA);
+      }
+    }
 
     const uiLine = linePos.length / 2;
     gl.uniform2f(ouScale, 2 / w, 2 / h);

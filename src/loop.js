@@ -2933,7 +2933,8 @@ export class GameLoop {
     if (this.newGameHelpPromptT > 0){
       this.newGameHelpPromptT = Math.max(0, this.newGameHelpPromptT - rawDt);
     }
-    const touchStartPromptActive = this._touchStartPromptActive();
+    const touchStartActionMode = this._touchStartActionMode();
+    const touchStartPromptActive = touchStartActionMode !== null;
     this.input.setTouchStartPromptActive(touchStartPromptActive);
     this.input.setGameOver(this.ship.state === "crashed");
     if (this.input && typeof this.input.setDebugCommandsEnabled === "function"){
@@ -3093,11 +3094,12 @@ export class GameLoop {
       playerBombs: this.playerBombs,
       featureParticles: this.planet.getFeatureParticles(),
       entityExplosions: this.entityExplosions,
-      aimWorld: this.lastAimWorld,
-      aimOrigin: this._shipGunPivotWorld(),
+      aimWorld: gameOver ? null : this.lastAimWorld,
+      aimOrigin: gameOver ? null : this._shipGunPivotWorld(),
       planetPalette: this._planetPalette(),
       touchUi: gameOver ? null : inputState.touchUi,
-      touchStart: inputState.inputType === "touch",
+      touchStart: inputState.inputType === "touch" && touchStartPromptActive,
+      touchStartMode: inputState.inputType === "touch" ? touchStartActionMode : null,
     }, this.planet);
 
     this._drawMinerPopups();
@@ -3287,7 +3289,7 @@ export class GameLoop {
   _objectivePromptText(inputType){
     const type = inputType || "keyboard";
     const startButtonPrefix =
-      (type === "touch") ? "Tap Start to " :
+      (type === "touch") ? "Tap Play to " :
       (type === "gamepad") ? "Press Button0 to " :
       "Press R to ";
     if (this.pendingPerkChoice){
@@ -3298,7 +3300,7 @@ export class GameLoop {
       if (this.ship.mothershipPilots > 0){
         return startButtonPrefix + "launch a new dropship.";
       } else {
-        return "No more pilots! " + startButtonPrefix + "start a new game.";
+        return "Game over. " + startButtonPrefix + "start a new game.";
       }
     } else if (this._isDockedWithMothership()) {
       if (this.ship.mothershipEngineers > 0){
@@ -3343,9 +3345,9 @@ export class GameLoop {
    */
   _abandonPromptText(inputType){
     const type = inputType || "keyboard";
-    if (type === "touch") return "Hold Start 3s to abandon run.";
-    if (type === "gamepad") return "Hold Start 3s to abandon run.";
-    return "Hold Shift+R 3s to abandon run.";
+    if (type === "touch") return "Hold ↻ to restart.";
+    if (type === "gamepad") return "Hold Start to restart.";
+    return "Hold Shift+R to restart.";
   }
 
   /**
@@ -3353,7 +3355,7 @@ export class GameLoop {
    */
   _abandonHoldCountdownText(remainingMs){
     const ms = Math.max(0, remainingMs || 0);
-    return `Restarting game in ${Math.ceil(ms / 1000)} seconds`;
+    return `Abandoning run in ${Math.ceil(ms / 1000)} seconds`;
   }
 
   /**
@@ -3378,19 +3380,22 @@ export class GameLoop {
   }
 
   /**
-   * @returns {boolean}
+   * @returns {"respawnShip"|"restartGame"|"upgrade"|"nextLevel"|"viewMap"|"exitMap"|null}
    */
-  _touchStartPromptActive(){
+  _touchStartActionMode(){
     if (this.ship.state === "crashed"){
-      return true;
+      return (this.ship.mothershipPilots > 0) ? "respawnShip" : "restartGame";
     }
     if (!this._isDockedWithMothership()){
-      return false;
+      return null;
     }
     if (this.pendingPerkChoice !== null){
-      return false;
+      return null;
     }
-    return this.ship.mothershipEngineers > 0 || this.levelAdvanceReady || this.ship.planetScanner;
+    if (this.ship.mothershipEngineers > 0) return "upgrade";
+    if (this.levelAdvanceReady) return "nextLevel";
+    if (this.ship.planetScanner) return this.planetView ? "exitMap" : "viewMap";
+    return null;
   }
 
   /**
@@ -3535,7 +3540,6 @@ export class GameLoop {
     console.log('Restart: num pilots', this.ship.mothershipPilots);
     this.ship.mothershipPilots = Math.max(0, this.ship.mothershipPilots - 1);
     this._resetShip();
-    this._resetStartTitle();
   }
 
   /**

@@ -38,6 +38,8 @@ const HELP_CONTENT = `
       <div class="help-k">Touch Movement</div><div class="help-v">Left circular pad (lower-left): drag for strafe + thrust/down.</div>
       <div class="help-k">Touch Aim / Fire</div><div class="help-v">Right diamond (lower-right): drag to aim, hold to fire.</div>
       <div class="help-k">Touch Bomb</div><div class="help-v">Right square (upper-right): drag + release to throw bomb.</div>
+      <div class="help-k">Touch Play</div><div class="help-v">Large play circle (upper-left area): appears for context actions (new dropship, upgrades, scanner, next level).</div>
+      <div class="help-k">Touch Restart</div><div class="help-v">Small <span class="help-chip">↻</span> button next to <span class="help-chip">?</span>: hold 3s to restart run during active play.</div>
       <div class="help-k">Touch Help</div><div class="help-v">Small circled <span class="help-chip">?</span> button in upper-left.</div>
       <div class="help-k">Gamepad Move</div><div class="help-v">Left stick (analog thrust vector).</div>
       <div class="help-k">Gamepad Aim</div><div class="help-v">Right stick.</div>
@@ -318,6 +320,37 @@ function ensureHelpStyles(){
       touch-action: manipulation;
     }
     #help-touch-toggle.help-touch-visible { display: grid; }
+    #touch-restart-toggle {
+      position: fixed;
+      left: calc(max(8px, env(safe-area-inset-left)) + 40px);
+      top: calc(max(8px, env(safe-area-inset-top)));
+      width: 34px;
+      height: 34px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 130, 90, 0.95);
+      background: rgba(22, 15, 18, 0.9);
+      color: rgba(255, 190, 170, 1);
+      display: none;
+      place-items: center;
+      z-index: 45;
+      font: 700 19px/1 "Science Gothic", ui-sans-serif, system-ui, sans-serif;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.7);
+      box-shadow: 0 3px 12px rgba(0,0,0,0.35);
+      padding: 0;
+      pointer-events: auto;
+      touch-action: manipulation;
+      --restart-hold-progress: 0%;
+    }
+    body.help-touch-visible #touch-restart-toggle { display: grid; }
+    body.help-touch-visible #touch-restart-toggle.touch-restart-disabled { display: none; }
+    #touch-restart-toggle.touch-restart-holding {
+      border-color: rgba(255, 98, 70, 1);
+      background:
+        conic-gradient(
+          rgba(255, 98, 70, 0.92) var(--restart-hold-progress),
+          rgba(22, 15, 18, 0.9) 0
+        );
+    }
     @media (max-width: 780px) {
       #help-popup .help-panel {
         width: calc(100vw - max(12px, env(safe-area-inset-left)) - max(12px, env(safe-area-inset-right)));

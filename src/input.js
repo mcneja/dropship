@@ -31,6 +31,8 @@ export class Input {
     this.bombControl = { id: null, pos: null, start: null, lastFire: 0 };
     /** @type {{id:number|null,downAt:number,triggered:boolean}} */
     this.startControl = { id: null, downAt: 0, triggered: false };
+    /** @type {{id:number|null,downAt:number,triggered:boolean}} */
+    this.touchRestartControl = { id: null, downAt: 0, triggered: false };
 
     this.oneshot = {
       regen: false,
@@ -96,6 +98,8 @@ export class Input {
     this.touchStartPromptActive = false;
     /** @type {boolean} */
     this.debugCommandsEnabled = false;
+    /** @type {HTMLButtonElement|null} */
+    this.touchRestartButton = null;
 
     window.addEventListener("keydown", (e) => this._onKeyDown(e), { passive: false });
     window.addEventListener("keyup", (e) => this._onKeyUp(e), { passive: false });
@@ -135,6 +139,7 @@ export class Input {
    * @returns {void}
    */
   setGameOver(gameOver){
+    if (this.gameOver === gameOver) return;
     this.gameOver = gameOver;
     if (gameOver){
       this.aimMouse = null;
@@ -158,6 +163,7 @@ export class Input {
       this.startControl.id = null;
       this.startControl.downAt = 0;
       this.startControl.triggered = false;
+      this._clearTouchRestartControl();
       this.mouseShootHeld = false;
       this.prevPadShoot = false;
       this.prevPadBomb = false;
@@ -205,6 +211,7 @@ export class Input {
     this.startControl.id = null;
     this.startControl.downAt = 0;
     this.startControl.triggered = false;
+    this._clearTouchRestartControl();
     this.mouseShootHeld = false;
     this.prevPadShoot = false;
     this.prevPadBomb = false;
@@ -230,6 +237,84 @@ export class Input {
    */
   setDebugCommandsEnabled(enabled){
     this.debugCommandsEnabled = !!enabled;
+  }
+
+  /**
+   * @returns {HTMLButtonElement|null}
+   */
+  _ensureTouchRestartButton(){
+    if (typeof document === "undefined" || !document.body) return null;
+    const existing = document.getElementById("touch-restart-toggle");
+    if (existing && existing.parentElement){
+      existing.parentElement.removeChild(existing);
+    }
+    const button = document.createElement("button");
+    button.id = "touch-restart-toggle";
+    button.type = "button";
+    button.setAttribute("aria-label", "Hold 3 seconds to abandon run");
+    button.textContent = "↻";
+    button.style.setProperty("--restart-hold-progress", "0%");
+    button.addEventListener("pointerdown", (e) => {
+      if (this.modalOpen) return;
+      if (e.pointerType !== "touch") return;
+      if (this.gameOver) return;
+      e.preventDefault();
+      e.stopPropagation();
+      this.lastInputType = "touch";
+      this.touchRestartControl.id = e.pointerId;
+      this.touchRestartControl.downAt = performance.now();
+      this.touchRestartControl.triggered = false;
+      if (button.setPointerCapture){
+        try {
+          button.setPointerCapture(e.pointerId);
+        } catch (_err){
+          // Ignore pointer capture failures on older/mobile browsers.
+        }
+      }
+      this._updateTouchRestartButtonVisual(this.touchRestartControl.downAt);
+    });
+    const finishHold = (e) => {
+      if (e.pointerType !== "touch") return;
+      if (this.touchRestartControl.id !== e.pointerId) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const cancelled = e.type === "pointercancel";
+      const heldMs = performance.now() - this.touchRestartControl.downAt;
+      if (!cancelled && !this.touchRestartControl.triggered && heldMs >= this.HOLD_ABANDON_MS){
+        this.oneshot.abandonRun = true;
+      }
+      this._clearTouchRestartControl();
+    };
+    button.addEventListener("pointerup", finishHold);
+    button.addEventListener("pointercancel", finishHold);
+    button.addEventListener("contextmenu", (e) => e.preventDefault());
+    document.body.appendChild(button);
+    return button;
+  }
+
+  /**
+   * @returns {void}
+   */
+  _clearTouchRestartControl(){
+    this.touchRestartControl.id = null;
+    this.touchRestartControl.downAt = 0;
+    this.touchRestartControl.triggered = false;
+    this._updateTouchRestartButtonVisual(performance.now());
+  }
+
+  /**
+   * @param {number} now
+   * @returns {void}
+   */
+  _updateTouchRestartButtonVisual(now){
+    if (!this.touchRestartButton) return;
+    const holding = this.touchRestartControl.id !== null;
+    const heldMs = holding ? Math.max(0, now - this.touchRestartControl.downAt) : 0;
+    const holdProgress = holding ? Math.max(0, Math.min(1, heldMs / this.HOLD_ABANDON_MS)) : 0;
+    const disabled = this.gameOver || this.modalOpen;
+    this.touchRestartButton.classList.toggle("touch-restart-disabled", disabled);
+    this.touchRestartButton.classList.toggle("touch-restart-holding", holding);
+    this.touchRestartButton.style.setProperty("--restart-hold-progress", `${(holdProgress * 100).toFixed(1)}%`);
   }
 
   /** @returns {void} */
@@ -387,7 +472,7 @@ export class Input {
     this.lastInputType = "touch";
     const p = this._pointerPos(e);
     this.canvas.setPointerCapture(e.pointerId);
-    if (this._inCircle(p, TOUCH_UI.start, TOUCH_UI.start.r)){
+    if (this.touchStartPromptActive && this._inCircle(p, TOUCH_UI.start, TOUCH_UI.start.r)){
       this.startControl.id = e.pointerId;
       this.startControl.downAt = performance.now();
       this.startControl.triggered = false;
@@ -473,13 +558,8 @@ export class Input {
     }
     if (this.startControl.id === e.pointerId){
       const cancelled = e.type === "pointercancel";
-      const heldMs = performance.now() - this.startControl.downAt;
       if (!cancelled && !this.startControl.triggered){
-        if (heldMs >= this.HOLD_ABANDON_MS){
-          this.oneshot.abandonRun = true;
-        } else {
-          this.oneshot.reset = true;
-        }
+        this.oneshot.reset = true;
       }
       this.startControl.id = null;
       this.startControl.downAt = 0;
@@ -686,6 +766,9 @@ export class Input {
    * @returns {InputState}
    */
   update(){
+    if (!this.touchRestartButton){
+      this.touchRestartButton = this._ensureTouchRestartButton();
+    }
     if (this.modalOpen){
       const state = {
         stickThrust: { x: 0, y: 0 },
@@ -774,12 +857,11 @@ export class Input {
     this.prevPadShoot = g.shoot;
     this.prevPadBomb = g.bomb;
     this.prevPadReset = g.reset;
-
     const keyboardAbandonHeld =
       this.keys.has("Shift") &&
       (this.keys.has("r") || this.keys.has("R"));
     const gamepadAbandonHeld = !!g.abandonRun;
-    const touchAbandonHeld = this.startControl.id !== null;
+    const touchAbandonHeld = !this.gameOver && this.touchRestartControl.id !== null;
     const holdSource = touchAbandonHeld ? "touch" : gamepadAbandonHeld ? "gamepad" : keyboardAbandonHeld ? "keyboard" : null;
     if (holdSource){
       if (this.abandonHoldSource !== holdSource){
@@ -791,7 +873,7 @@ export class Input {
         this.oneshot.abandonRun = true;
         this.abandonHoldTriggered = true;
         if (holdSource === "touch"){
-          this.startControl.triggered = true;
+          this.touchRestartControl.triggered = true;
         }
       }
     } else {
@@ -803,6 +885,7 @@ export class Input {
     const abandonHoldRemainingMs = abandonHoldActive
       ? Math.max(0, this.HOLD_ABANDON_MS - (now - this.abandonHoldStartMs))
       : 0;
+    this._updateTouchRestartButtonVisual(now);
 
     if (!this.gameOver && this.aimTouchShoot && this.laserControl.id !== null){
       if (now - this.laserControl.lastFire >= this.LASER_INTERVAL_MS){
