@@ -46,6 +46,9 @@ export class Input {
       toggleCombatMusic: false,
       musicVolumeUp: false,
       musicVolumeDown: false,
+      copyScreenshot: false,
+      copyScreenshotClean: false,
+      copyScreenshotCleanTitle: false,
       reset: false,
       abandonRun: false,
       nextLevel: false,
@@ -171,6 +174,9 @@ export class Input {
       this.oneshot.killAllEnemies = false;
       this.oneshot.musicVolumeUp = false;
       this.oneshot.musicVolumeDown = false;
+      this.oneshot.copyScreenshot = false;
+      this.oneshot.copyScreenshotClean = false;
+      this.oneshot.copyScreenshotCleanTitle = false;
       this.abandonHoldSource = null;
       this.abandonHoldStartMs = 0;
       this.abandonHoldTriggered = false;
@@ -227,7 +233,7 @@ export class Input {
   }
 
   /**
-   * Enable/disable debug keyboard commands (except Alt+\ toggle).
+   * Enable/disable debug keyboard commands (except Alt+\ and screenshot shortcuts).
    * @param {boolean} enabled
    * @returns {void}
    */
@@ -331,20 +337,22 @@ export class Input {
     const debugChord = e.altKey && !e.ctrlKey && !e.metaKey;
     const debugDigit = code.startsWith("Digit") && code.length === 6 && code[5] >= "1" && code[5] <= "9";
     const debugToggleHud = debugChord && code === "Backslash";
+    const screenshotTitleShortcut = debugChord && code === "KeyV";
     const debugAction =
       debugChord && (
         code === "KeyM" ||
-        code === "KeyC" ||
+        code === "KeyI" ||
         code === "KeyN" ||
         code === "KeyV" ||
         code === "KeyT" ||
         code === "KeyY" ||
         code === "KeyF" ||
+        code === "KeyC" ||
         code === "KeyP" ||
         code === "KeyX" ||
         debugDigit
       );
-    const debugShortcut = debugToggleHud || debugAction;
+    const debugShortcut = debugToggleHud || debugAction || screenshotTitleShortcut;
     if (["ArrowLeft","ArrowRight","ArrowUp","ArrowDown"," ","Space"].includes(key)) e.preventDefault();
     if (debugShortcut) e.preventDefault();
     if (!this.keys.has(key)) this.justPressed.add(key);
@@ -353,7 +361,7 @@ export class Input {
 
     if (debugToggleHud) this.oneshot.toggleDevHud = true;
     if (this.debugCommandsEnabled && debugChord && code === "KeyM") this.oneshot.regen = true;
-    if (this.debugCommandsEnabled && debugChord && code === "KeyC") this.oneshot.toggleDebug = true;
+    if (this.debugCommandsEnabled && debugChord && code === "KeyI") this.oneshot.toggleDebug = true;
     if (this.debugCommandsEnabled && debugChord && code === "KeyN"){
       if (e.shiftKey) this.oneshot.prevLevel = true;
       else this.oneshot.nextLevel = true;
@@ -365,6 +373,11 @@ export class Input {
     if (this.debugCommandsEnabled && debugChord && code === "KeyT") this.oneshot.togglePlanetTriangles = true;
     if (this.debugCommandsEnabled && debugChord && code === "KeyY") this.oneshot.toggleCollisionContours = true;
     if (this.debugCommandsEnabled && debugChord && code === "KeyF") this.oneshot.toggleFog = true;
+    if (debugChord && code === "KeyC"){
+      if (e.shiftKey) this.oneshot.copyScreenshotClean = true;
+      else this.oneshot.copyScreenshot = true;
+    }
+    if (screenshotTitleShortcut) this.oneshot.copyScreenshotCleanTitle = true;
     if ((key === "-" || key === "_") && !e.ctrlKey && !e.metaKey && !e.altKey){
       this.oneshot.musicVolumeDown = true;
     }
@@ -794,6 +807,9 @@ export class Input {
         toggleCombatMusic: false,
         musicVolumeUp: false,
         musicVolumeDown: false,
+        copyScreenshot: false,
+        copyScreenshotClean: false,
+        copyScreenshotCleanTitle: false,
         nextLevel: false,
         prevLevel: false,
         shootHeld: false,
@@ -948,6 +964,9 @@ export class Input {
       toggleCombatMusic: this.oneshot.toggleCombatMusic,
       musicVolumeUp: this.oneshot.musicVolumeUp,
       musicVolumeDown: this.oneshot.musicVolumeDown,
+      copyScreenshot: this.oneshot.copyScreenshot,
+      copyScreenshotClean: this.oneshot.copyScreenshotClean,
+      copyScreenshotCleanTitle: this.oneshot.copyScreenshotCleanTitle,
       nextLevel: this.oneshot.nextLevel,
       prevLevel: this.oneshot.prevLevel,
       shootHeld,
@@ -992,6 +1011,9 @@ export class Input {
     this.oneshot.toggleCombatMusic = false;
     this.oneshot.musicVolumeUp = false;
     this.oneshot.musicVolumeDown = false;
+    this.oneshot.copyScreenshot = false;
+    this.oneshot.copyScreenshotClean = false;
+    this.oneshot.copyScreenshotCleanTitle = false;
     this.oneshot.nextLevel = false;
     this.oneshot.prevLevel = false;
     this.oneshot.shoot = false;

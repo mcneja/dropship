@@ -8,6 +8,7 @@ import { Planet } from "./planet.js";
 import { pickPlanetConfig, pickPlanetConfigById, resolveLevelProgression, resolvePlanetParams } from "./planet_config.js";
 import { mulberry32 } from "./rng.js";
 import { clearSavedGame, createLoopSaveSnapshot, restoreLoopFromSaveSnapshot } from "./save_state.js";
+import { copyGameplayScreenshotToClipboard, drawStartTitle } from "./screenshot.js";
 
 /** @typedef {import("./types.d.js").ViewState} ViewState */
 /** @typedef {import("./types.d.js").Ship} Ship */
@@ -207,6 +208,7 @@ export class GameLoop {
     this.lastHeat = 0;
     this.statusCueText = "";
     this.statusCueUntil = 0;
+    this.screenshotCopyInFlight = false;
     this._resetStartTitle();
     this.NEW_GAME_HELP_PROMPT_SECS = 10;
     this.newGameHelpPromptT = 0;
@@ -3091,6 +3093,9 @@ export class GameLoop {
     if (inputState.killAllEnemies){
       this._killAllEnemiesAndFactories();
     }
+    const captureScreenshot = !!inputState.copyScreenshot;
+    const captureScreenshotClean = !!inputState.copyScreenshotClean;
+    const captureScreenshotCleanTitle = !!inputState.copyScreenshotCleanTitle;
 
     const fixed = 1 / 60;
     const maxSteps = 4;
@@ -3144,7 +3149,7 @@ export class GameLoop {
 
     const gameOver = this.ship.state === "crashed";
     this.planet.syncRenderFog(this.renderer, this.ship.x, this.ship.y);
-    this.renderer.drawFrame({
+    const renderState = {
       view: this._viewState(),
       ship: this.ship,
       mothership: this.mothership,
@@ -3178,9 +3183,45 @@ export class GameLoop {
       touchUi: gameOver ? null : inputState.touchUi,
       touchStart: inputState.inputType === "touch" && touchStartPromptActive,
       touchStartMode: inputState.inputType === "touch" ? touchStartActionMode : null,
-    }, this.planet);
+    };
+    this.renderer.drawFrame(renderState, this.planet);
 
     this._drawMinerPopups();
+    if ((captureScreenshotClean || captureScreenshot || captureScreenshotCleanTitle) && !this.screenshotCopyInFlight){
+      const mode = captureScreenshotCleanTitle ? "cleanTitle" : (captureScreenshotClean ? "clean" : "full");
+      const clean = mode !== "full";
+      const includeStartTitle = mode === "cleanTitle" || (clean && !this.startTitleSeen && this.startTitleAlpha > 0);
+      this.screenshotCopyInFlight = true;
+      void copyGameplayScreenshotToClipboard({
+        canvas: this.canvas,
+        overlay: this.overlay,
+        renderState,
+        clean,
+        drawFrame: (state) => this.renderer.drawFrame(state, this.planet),
+        redrawOverlay: () => this._drawMinerPopups(),
+        includeStartTitle,
+        startTitleText: this.startTitleText || "DROPSHIP",
+        startTitleAlpha: (mode === "cleanTitle")
+          ? 1
+          : this.startTitleAlpha,
+      }).then((result) => {
+        if (result === "ok"){
+          this._showStatusCue(
+            mode === "cleanTitle"
+              ? "Title screenshot copied"
+              : clean
+                ? "Clean screenshot copied"
+                : "Screenshot copied"
+          );
+        } else if (result === "unsupported"){
+          this._showStatusCue("Clipboard image copy unsupported");
+        } else {
+          this._showStatusCue("Screenshot copy failed");
+        }
+      }).finally(() => {
+        this.screenshotCopyInFlight = false;
+      });
+    }
 
     if (this.devHudVisible){
       this.ui.updateHud(this.hud, {
@@ -3353,6 +3394,7 @@ export class GameLoop {
     if (inputState.shootHeld || inputState.shootPressed || inputState.shoot || inputState.bomb || inputState.reset || inputState.abandonRun) return true;
     if (inputState.regen || inputState.nextLevel || inputState.prevLevel) return true;
     if (inputState.toggleDebug || inputState.toggleDevHud || inputState.togglePlanetView || inputState.toggleCollisionContours || inputState.toggleFog) return true;
+    if (inputState.copyScreenshot || inputState.copyScreenshotClean || inputState.copyScreenshotCleanTitle) return true;
     if (inputState.rescueAll || inputState.spawnEnemyType !== null) return true;
     if (inputState.inputType === "touch" && (inputState.aim || inputState.aimShoot || inputState.aimBomb)) return true;
     if (inputState.inputType === "gamepad" && (inputState.aim || inputState.aimShoot || inputState.aimBomb)) return true;
@@ -3723,8 +3765,8 @@ export class GameLoop {
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, w, h);
-    const drawStartTitle = !this.startTitleSeen && this.startTitleAlpha > 0;
-    if (!drawStartTitle && !this.minerPopups.length && !this.shipHitPopups.length && !this.lastAimScreen && !this.pendingPerkChoice && !this.levelWipeActive){
+    const showStartTitle = !this.startTitleSeen && this.startTitleAlpha > 0;
+    if (!showStartTitle && !this.minerPopups.length && !this.shipHitPopups.length && !this.lastAimScreen && !this.pendingPerkChoice && !this.levelWipeActive){
       return;
     }
 
@@ -3815,23 +3857,8 @@ export class GameLoop {
       drawCenteredWrappedText(ctx, `[RIGHT] ${right ? right.text : ""}`, x + panelW * 0.5, y + panelH * 0.64, panelW * 0.84, lineHeight, 2);
     }
 
-    if (drawStartTitle){
-      const fontFamily = "\"Science Gothic\", ui-sans-serif, system-ui, sans-serif";
-      const fontPx = fitCanvasFontPx(
-        ctx,
-        this.startTitleText,
-        700,
-        Math.min(Math.round(w * 0.18), Math.round(140 * dpr)),
-        Math.round(20 * dpr),
-        w * 0.9,
-        fontFamily,
-      );
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.font = `700 ${fontPx}px ${fontFamily}`;
-      ctx.globalAlpha = this.startTitleAlpha;
-      ctx.fillStyle = "rgba(224, 64, 48, 1)";
-      ctx.fillText(this.startTitleText, w * 0.5, h * 0.25);
+    if (showStartTitle){
+      drawStartTitle(ctx, w, h, dpr, this.startTitleText, this.startTitleAlpha);
     }
     this._drawLevelWipe(ctx, w, h, dpr);
     ctx.globalAlpha = 1;

@@ -173,6 +173,7 @@
  * @property {{leftTouch:{x:number,y:number}|null,laserTouch:{x:number,y:number}|null,bombTouch:{x:number,y:number}|null}|null|undefined} touchUi
  * @property {boolean} [touchStart]
  * @property {"respawnShip"|"restartGame"|"upgrade"|"nextLevel"|"viewMap"|"exitMap"|null} [touchStartMode]
+ * @property {boolean} [showGameplayIndicators]
  */
 
 /**
@@ -197,6 +198,9 @@
  * @property {boolean} toggleCombatMusic
  * @property {boolean} musicVolumeUp
  * @property {boolean} musicVolumeDown
+ * @property {boolean} copyScreenshot
+ * @property {boolean} copyScreenshotClean
+ * @property {boolean} copyScreenshotCleanTitle
  * @property {boolean} nextLevel
  * @property {boolean} prevLevel
  * @property {boolean} shootHeld

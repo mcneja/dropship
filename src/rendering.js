@@ -2,7 +2,7 @@
 
 import { CFG, TOUCH_UI } from "./config.js";
 import { buildStarfieldMesh } from "./starfield.js";
-import { dijkstraMap, findPathAStar, nearestRadialNode } from "./navigation.js";
+import { dijkstraMap, findPathAStar, nearestRadialNode, lineOfSightAir } from "./navigation.js";
 
 /** @typedef {import("./types.d.js").RenderState} RenderState */
 /** @typedef {import("./planet.js").Planet} Planet */
@@ -878,6 +878,7 @@ function drawFrameImpl(renderer, state, planet){
   } = renderer;
   const vertCount = renderer.vertCount;
   renderer.resize();
+  const showGameplayIndicators = state.showGameplayIndicators !== false;
 
   gl.viewport(0,0,canvas.width,canvas.height);
   gl.clearColor(0,0,0,1);
@@ -1987,25 +1988,27 @@ function drawFrameImpl(renderer, state, planet){
       }
     };
 
-    if (state.mothership) {
-      drawOffscreenIndicator(state.mothership.x, state.mothership.y, 0.5, 0.84, 1.0);
-    }
-
-    if (state.ship.rescueeDetector){
-      let closestRescuee = null;
-      let closestDistSqr = Infinity;
-      for (const miner of state.miners){
-        const dx = miner.x - state.ship.x;
-        const dy = miner.y - state.ship.y;
-        const distSqr = dx*dx + dy*dy;
-        if (distSqr < closestDistSqr){
-          closestDistSqr = distSqr;
-          closestRescuee = miner;
-        }
+    if (showGameplayIndicators){
+      if (state.mothership) {
+        drawOffscreenIndicator(state.mothership.x, state.mothership.y, 0.5, 0.84, 1.0);
       }
-      if (closestRescuee !== null){
-        const [r, g, b] = minerColor("miner");
-        drawOffscreenIndicator(closestRescuee.x, closestRescuee.y, r, g, b);
+
+      if (state.ship.rescueeDetector){
+        let closestRescuee = null;
+        let closestDistSqr = Infinity;
+        for (const miner of state.miners){
+          const dx = miner.x - state.ship.x;
+          const dy = miner.y - state.ship.y;
+          const distSqr = dx*dx + dy*dy;
+          if (distSqr < closestDistSqr){
+            closestDistSqr = distSqr;
+            closestRescuee = miner;
+          }
+        }
+        if (closestRescuee !== null){
+          const [r, g, b] = minerColor("miner");
+          drawOffscreenIndicator(closestRescuee.x, closestRescuee.y, r, g, b);
+        }
       }
     }
 
@@ -2030,7 +2033,7 @@ function drawFrameImpl(renderer, state, planet){
     }
   }
 
-  if (state.ship.state === "flying"){
+  if (showGameplayIndicators && state.ship.state === "flying"){
     // Braking line
     const vscale = vScaleStopping(planet, state.ship.x, state.ship.y, state.ship.vx, state.ship.vy, game.THRUST);
     pushLine(pos, col, state.ship.x, state.ship.y, state.ship.x + state.ship.vx * vscale, state.ship.y + state.ship.vy * vscale, 0.5, 0.84, 1.0, 0.5);
@@ -2061,7 +2064,7 @@ function drawFrameImpl(renderer, state, planet){
     }
   }
 
-  if (state.aimWorld){
+  if (showGameplayIndicators && state.aimWorld){
     const ao = state.aimOrigin || state.ship;
     pushLine(pos, col, ao.x, ao.y, state.aimWorld.x, state.aimWorld.y, 0.85, 0.9, 1.0, 0.65);
     lineVerts += 2;
@@ -2101,6 +2104,7 @@ function drawFrameImpl(renderer, state, planet){
 
     if (state.enemyDebris && state.enemyDebris.length){
       for (const d of state.enemyDebris){
+        if (!visibleHostileNow(d.x, d.y)) continue;
         const len = 0.2 * game.ENEMY_SCALE;
         const hx = Math.cos(d.a) * len;
         const hy = Math.sin(d.a) * len;
@@ -2111,6 +2115,7 @@ function drawFrameImpl(renderer, state, planet){
 
   if (state.explosions && state.explosions.length){
     for (const ex of state.explosions){
+      if (!visibleHostileNow(ex.x, ex.y)) continue;
       const t = Math.max(0, Math.min(1, ex.life / 0.5));
       const r = 0.35 + (1 - t) * 0.6;
       const colr = ex.owner === "crawler" ? [1.0, 0.7, 0.2] : [1.0, 0.5, 0.3];
@@ -2409,7 +2414,7 @@ function drawFrameImpl(renderer, state, planet){
     gl.drawArrays(gl.POINTS, offset, pointVerts);
   }
 
-  if (state.touchUi){
+  if (showGameplayIndicators && state.touchUi){
     /** @type {number[]} */
     const linePos = [];
     /** @type {number[]} */
@@ -2473,7 +2478,7 @@ function drawFrameImpl(renderer, state, planet){
     }
   }
 
-  if (state.touchStart){
+  if (showGameplayIndicators && state.touchStart){
     /** @type {number[]} */
     const linePos = [];
     /** @type {number[]} */
