@@ -68,6 +68,7 @@ const SFX_POOL_SIZE = {
 const SFX_MIN_INTERVAL_MS = {
   ship_laser: 70,
 };
+const WEB_AUDIO_SFX_IDS = Object.freeze(["ship_laser"]);
 
 const SFX_PLACEHOLDER_URLS = {
   ship_laser: pistol256Url,
@@ -123,6 +124,14 @@ export class BackgroundMusic {
     this.sfxEnabled = true;
     this.sfxMasterVolume = 0.7;
     this.combatMusicEnabled = true;
+    /** @type {AudioContext|null} */
+    this.webAudioCtx = null;
+    /** @type {Map<SfxId, AudioBuffer>} */
+    this.webAudioBuffers = new Map();
+    /** @type {Map<SfxId, Promise<AudioBuffer|null>>} */
+    this.webAudioBufferPromises = new Map();
+    /** @type {Set<SfxId>} */
+    this.webAudioSfxIds = new Set(/** @type {SfxId[]} */ (WEB_AUDIO_SFX_IDS));
 
     this.audioUnlocked = false;
     this.sfxPrimed = false;
@@ -192,6 +201,8 @@ export class BackgroundMusic {
     this._onFirstGesture = () => {
       this.audioUnlocked = true;
       this._detachGestureListeners();
+      this._initWebAudioContext();
+      this._preloadWebAudioSfx();
       this._playModeIfEnabled();
       this._primeSfx();
       this._flushPendingSfx();
@@ -271,6 +282,123 @@ export class BackgroundMusic {
     const maybePromise = el.play();
     if (maybePromise && typeof maybePromise.then === "function"){
       maybePromise.catch(() => {});
+    }
+  }
+
+  /**
+   * @returns {AudioContext|null}
+   */
+  _initWebAudioContext(){
+    if (this.webAudioCtx) return this.webAudioCtx;
+    const Ctor = window.AudioContext ||
+      /** @type {typeof AudioContext | undefined} */ (/** @type {any} */ (window).webkitAudioContext);
+    if (!Ctor) return null;
+    try {
+      this.webAudioCtx = new Ctor();
+    } catch (_err){
+      this.webAudioCtx = null;
+    }
+    return this.webAudioCtx;
+  }
+
+  /**
+   * @param {AudioContext} ctx
+   * @param {ArrayBuffer} data
+   * @returns {Promise<AudioBuffer>}
+   */
+  _decodeAudioData(ctx, data){
+    return new Promise((resolve, reject) => {
+      const done = (buffer) => resolve(buffer);
+      const fail = (err) => reject(err);
+      try {
+        const maybe = ctx.decodeAudioData(data, done, fail);
+        if (maybe && typeof maybe.then === "function"){
+          maybe.then(done).catch(fail);
+        }
+      } catch (err){
+        reject(err);
+      }
+    });
+  }
+
+  /**
+   * @param {SfxId} id
+   * @returns {Promise<AudioBuffer|null>}
+   */
+  _ensureWebAudioBuffer(id){
+    if (!this.webAudioSfxIds.has(id)) return Promise.resolve(null);
+    const existing = this.webAudioBuffers.get(id);
+    if (existing) return Promise.resolve(existing);
+    const pending = this.webAudioBufferPromises.get(id);
+    if (pending) return pending;
+    const url = SFX_PLACEHOLDER_URLS[id];
+    const ctx = this._initWebAudioContext();
+    if (!url || !ctx) return Promise.resolve(null);
+    const request = fetch(url)
+      .then((r) => {
+        if (!r.ok) throw new Error("SFX fetch failed");
+        return r.arrayBuffer();
+      })
+      .then((ab) => this._decodeAudioData(ctx, ab))
+      .then((buffer) => {
+        this.webAudioBuffers.set(id, buffer);
+        this.webAudioBufferPromises.delete(id);
+        return buffer;
+      })
+      .catch((_err) => {
+        this.webAudioBufferPromises.delete(id);
+        return null;
+      });
+    this.webAudioBufferPromises.set(id, request);
+    return request;
+  }
+
+  /**
+   * @returns {void}
+   */
+  _preloadWebAudioSfx(){
+    this.webAudioSfxIds.forEach((id) => {
+      this._ensureWebAudioBuffer(id);
+    });
+  }
+
+  /**
+   * @param {SfxId} id
+   * @param {number} volume
+   * @param {number} rate
+   * @returns {boolean}
+   */
+  _playWebAudioSfx(id, volume, rate){
+    if (!this.webAudioSfxIds.has(id)) return false;
+    const ctx = this._initWebAudioContext();
+    if (!ctx) return false;
+    if (ctx.state === "suspended"){
+      const maybe = ctx.resume();
+      if (maybe && typeof maybe.then === "function"){
+        maybe.catch(() => {});
+      }
+    }
+    const buffer = this.webAudioBuffers.get(id);
+    if (!buffer){
+      this._ensureWebAudioBuffer(id);
+      return false;
+    }
+    try {
+      const source = ctx.createBufferSource();
+      const gain = ctx.createGain();
+      source.buffer = buffer;
+      source.playbackRate.value = Math.max(0.5, Math.min(2, rate));
+      gain.gain.value = Math.max(0, Math.min(1, volume * this.sfxMasterVolume));
+      source.connect(gain);
+      gain.connect(ctx.destination);
+      source.onended = () => {
+        source.disconnect();
+        gain.disconnect();
+      };
+      source.start(0);
+      return true;
+    } catch (_err){
+      return false;
     }
   }
 
@@ -678,11 +806,14 @@ export class BackgroundMusic {
     if (minInterval > 0 && (nowMs - lastPlay) < minInterval){
       return false;
     }
-    const pool = this.sfxPools.get(id);
-    if (!pool || !pool.voices.length) return false;
-
     const volume = opts && typeof opts.volume === "number" ? opts.volume : 1;
     const rate = opts && typeof opts.rate === "number" ? opts.rate : 1;
+    if (this._playWebAudioSfx(id, volume, rate)){
+      this.sfxLastPlayAtMs.set(id, nowMs);
+      return true;
+    }
+    const pool = this.sfxPools.get(id);
+    if (!pool || !pool.voices.length) return false;
     let voice = pool.voices.find((v) => v.paused || v.ended);
     if (!voice){
       voice = pool.voices[pool.next];
