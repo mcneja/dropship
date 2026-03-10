@@ -600,13 +600,14 @@ export class Input {
   }
 
   /**
-   * @returns {{left:boolean,right:boolean,thrust:boolean,down:boolean}}
+   * @returns {{stickThrust:Point,left:boolean,right:boolean,thrust:boolean,down:boolean}}
    */
   _touchState(){
     let left = false;
     let right = false;
     let thrust = false;
     let down = false;
+    let stickThrust = { x: 0, y: 0 };
 
     this.aimTouchShoot = null;
     this.aimTouchBomb = null;
@@ -622,6 +623,16 @@ export class Input {
       if (dx > dead) right = true;
       if (dy < -dead) thrust = true;
       if (dy > dead) down = true;
+      const len = Math.hypot(dx, dy);
+      const maxRadius = Math.max(dead + 1e-4, TOUCH_UI.left.r || 0);
+      const clampedLen = Math.min(len, maxRadius);
+      let lenAdjusted = (clampedLen - dead) / Math.max(1e-4, maxRadius - dead);
+      lenAdjusted = Math.max(0, Math.min(1, lenAdjusted));
+      if (len > 1e-4 && lenAdjusted > 0){
+        const ux = dx / len;
+        const uy = dy / len;
+        stickThrust = { x: ux * lenAdjusted, y: -uy * lenAdjusted };
+      }
     }
 
     /**
@@ -657,7 +668,7 @@ export class Input {
       this.aimTouchBombTo = { x: this.bombControl.pos.x, y: this.bombControl.pos.y };
     }
 
-    return { left, right, thrust, down };
+    return { stickThrust, left, right, thrust, down };
   }
 
   /**
@@ -830,6 +841,11 @@ export class Input {
     let thrust = keyState.thrust || t.thrust || g.thrust;
     let down = keyState.down || t.down || g.down;
     let stickThrust = g.stickThrust;
+    const touchStickMag = Math.hypot(t.stickThrust.x, t.stickThrust.y);
+    const gamepadStickMag = Math.hypot(stickThrust.x, stickThrust.y);
+    if (touchStickMag > gamepadStickMag){
+      stickThrust = t.stickThrust;
+    }
 
     if (!this.gameOver && g.shoot && !this.prevPadShoot){
       this.oneshot.shoot = true;
