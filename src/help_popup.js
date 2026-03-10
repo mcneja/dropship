@@ -101,6 +101,12 @@ function ensureHelpStyles(){
       flex-direction: column;
       overflow: hidden;
     }
+    #help-popup .help-panel,
+    #help-popup .help-panel * {
+      user-select: text;
+      -webkit-user-select: text;
+      -webkit-touch-callout: default;
+    }
     #help-popup .help-header {
       display: flex;
       align-items: center;
@@ -133,6 +139,9 @@ function ensureHelpStyles(){
       height: 32px;
       cursor: pointer;
       flex: 0 0 auto;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
     }
     #help-popup .help-scroll {
       overflow-y: auto;
