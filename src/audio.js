@@ -69,6 +69,9 @@ const SFX_MIN_INTERVAL_MS = {
   ship_laser: 70,
 };
 const WEB_AUDIO_SFX_IDS = Object.freeze(["ship_laser"]);
+const WEB_AUDIO_SFX_VARIANT_RATES = Object.freeze({
+  ship_laser: [0.96, 1.0, 1.04],
+});
 
 const SFX_PLACEHOLDER_URLS = {
   ship_laser: pistol256Url,
@@ -128,6 +131,8 @@ export class BackgroundMusic {
     this.webAudioCtx = null;
     /** @type {Map<SfxId, AudioBuffer>} */
     this.webAudioBuffers = new Map();
+    /** @type {Map<SfxId, AudioBuffer[]>} */
+    this.webAudioVariantBuffers = new Map();
     /** @type {Map<SfxId, Promise<AudioBuffer|null>>} */
     this.webAudioBufferPromises = new Map();
     /** @type {Set<SfxId>} */
@@ -322,6 +327,54 @@ export class BackgroundMusic {
   }
 
   /**
+   * Pre-render one pitch-shifted variant so playback can stay at rate=1.
+   * @param {AudioBuffer} baseBuffer
+   * @param {number} rate
+   * @returns {Promise<AudioBuffer|null>}
+   */
+  _renderPitchVariant(baseBuffer, rate){
+    const r = Math.max(0.5, Math.min(2, rate));
+    if (!window.OfflineAudioContext) return Promise.resolve(null);
+    try {
+      const channels = Math.max(1, baseBuffer.numberOfChannels || 1);
+      const length = Math.max(1, Math.ceil(baseBuffer.length / r));
+      const offline = new OfflineAudioContext(channels, length, baseBuffer.sampleRate);
+      const source = offline.createBufferSource();
+      source.buffer = baseBuffer;
+      source.playbackRate.value = r;
+      source.connect(offline.destination);
+      source.start(0);
+      return offline.startRendering().catch(() => null);
+    } catch (_err){
+      return Promise.resolve(null);
+    }
+  }
+
+  /**
+   * @param {SfxId} id
+   * @param {AudioBuffer} baseBuffer
+   * @returns {Promise<AudioBuffer[]>}
+   */
+  async _buildWebAudioVariants(id, baseBuffer){
+    const rates = WEB_AUDIO_SFX_VARIANT_RATES[id];
+    if (!Array.isArray(rates) || rates.length <= 1){
+      return [baseBuffer];
+    }
+    /** @type {AudioBuffer[]} */
+    const out = [];
+    for (const rate of rates){
+      if (Math.abs(rate - 1) < 1e-6){
+        out.push(baseBuffer);
+        continue;
+      }
+      // eslint-disable-next-line no-await-in-loop
+      const variant = await this._renderPitchVariant(baseBuffer, rate);
+      out.push(variant || baseBuffer);
+    }
+    return out.length ? out : [baseBuffer];
+  }
+
+  /**
    * @param {SfxId} id
    * @returns {Promise<AudioBuffer|null>}
    */
@@ -340,8 +393,11 @@ export class BackgroundMusic {
         return r.arrayBuffer();
       })
       .then((ab) => this._decodeAudioData(ctx, ab))
-      .then((buffer) => {
+      .then(async (buffer) => {
         this.webAudioBuffers.set(id, buffer);
+        this.webAudioVariantBuffers.set(id, [buffer]);
+        const variants = await this._buildWebAudioVariants(id, buffer);
+        this.webAudioVariantBuffers.set(id, variants);
         this.webAudioBufferPromises.delete(id);
         return buffer;
       })
@@ -378,7 +434,14 @@ export class BackgroundMusic {
         maybe.catch(() => {});
       }
     }
-    const buffer = this.webAudioBuffers.get(id);
+    const variants = this.webAudioVariantBuffers.get(id);
+    let buffer = null;
+    if (variants && variants.length){
+      const i = (variants.length > 1) ? Math.floor(Math.random() * variants.length) : 0;
+      buffer = variants[i];
+    } else {
+      buffer = this.webAudioBuffers.get(id) || null;
+    }
     if (!buffer){
       this._ensureWebAudioBuffer(id);
       return false;
@@ -387,7 +450,8 @@ export class BackgroundMusic {
       const source = ctx.createBufferSource();
       const gain = ctx.createGain();
       source.buffer = buffer;
-      source.playbackRate.value = Math.max(0.5, Math.min(2, rate));
+      const usePreBakedPitch = !!(variants && variants.length > 1);
+      source.playbackRate.value = usePreBakedPitch ? 1 : Math.max(0.5, Math.min(2, rate));
       gain.gain.value = Math.max(0, Math.min(1, volume * this.sfxMasterVolume));
       source.connect(gain);
       gain.connect(ctx.destination);
