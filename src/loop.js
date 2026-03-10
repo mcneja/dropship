@@ -3027,6 +3027,13 @@ export class GameLoop {
     let steps = 0;
     while (this.accumulator >= fixed && steps < maxSteps){
       this._step(fixed, inputState);
+      // One-shot actions are generated once per rendered frame. Consume them
+      // after the first fixed step so catch-up substeps cannot replay them.
+      inputState.reset = false;
+      inputState.abandonRun = false;
+      inputState.shoot = false;
+      inputState.bomb = false;
+      inputState.spawnEnemyType = null;
       this.accumulator -= fixed;
       steps++;
     }
