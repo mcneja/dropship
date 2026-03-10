@@ -1578,6 +1578,7 @@ function buildProps(mapgen, planetConfig, params, material){
  * }}
  */
 export function createIceShardHazard(props){
+  const shards = props.filter((p) => p && p.type === "ice_shard");
   /**
    * @param {PlanetProp} p
    */
@@ -1593,7 +1594,7 @@ export function createIceShardHazard(props){
       return burstProp(prop);
     },
     hitAt: (x, y, radius) => {
-      for (const p of props){
+      for (const p of shards){
         if (!isAliveShard(p)) continue;
         const sr = 0.32 * (p.scale || 1);
         const dx = p.x - x;
@@ -1608,7 +1609,7 @@ export function createIceShardHazard(props){
     burstAllInRadius: (x, y, radius) => {
       /** @type {Array<{x:number,y:number,scale:number}>} */
       const bursts = [];
-      for (const p of props){
+      for (const p of shards){
         if (!isAliveShard(p)) continue;
         const sr = 0.32 * (p.scale || 1);
         const dx = p.x - x;
@@ -1624,7 +1625,7 @@ export function createIceShardHazard(props){
     breakIfExposed: (planet, x, y, radius) => {
       /** @type {Array<{x:number,y:number,scale:number}>} */
       const bursts = [];
-      for (const p of props){
+      for (const p of shards){
         if (!isAliveShard(p)) continue;
         const sr = 0.32 * (p.scale || 1);
         const dx = p.x - x;
@@ -1651,6 +1652,7 @@ export function createIceShardHazard(props){
  * }}
  */
 export function createRidgeSpikeHazard(props){
+  const spikes = props.filter((p) => p && (p.type === "ridge_spike" || p.type === "stalactite"));
   const isAlive = (p) => (p.type === "ridge_spike" || p.type === "stalactite") && !p.dead && !(typeof p.hp === "number" && p.hp <= 0);
   const burstProp = (prop) => {
     if (!isAlive(prop)) return null;
@@ -1691,7 +1693,7 @@ export function createRidgeSpikeHazard(props){
   return {
     burst: (prop) => burstProp(prop),
     hitAt: (x, y, radius) => {
-      for (const p of props){
+      for (const p of spikes){
         if (!isAlive(p)) continue;
         if (overlapsSpike(p, x, y, radius)){
           return p;
@@ -1702,7 +1704,7 @@ export function createRidgeSpikeHazard(props){
     burstAllInRadius: (x, y, radius) => {
       /** @type {Array<{x:number,y:number,scale:number}>} */
       const bursts = [];
-      for (const p of props){
+      for (const p of spikes){
         if (!isAlive(p)) continue;
         if (overlapsSpike(p, x, y, radius)){
           const info = burstProp(p);
@@ -1714,7 +1716,7 @@ export function createRidgeSpikeHazard(props){
     breakIfExposed: (planet, x, y, radius) => {
       /** @type {Array<{x:number,y:number,scale:number}>} */
       const bursts = [];
-      for (const p of props){
+      for (const p of spikes){
         if (!isAlive(p)) continue;
         if (!overlapsSpike(p, x, y, radius)) continue;
         if (planet.airValueAtWorld(p.x, p.y) > 0.5){
@@ -1737,6 +1739,7 @@ export function createRidgeSpikeHazard(props){
  * }}
  */
 export function createMushroomHazard(props){
+  const mushrooms = props.filter((p) => p && p.type === "mushroom");
   const isAlive = (p) => p.type === "mushroom" && !p.dead && !(typeof p.hp === "number" && p.hp <= 0);
   const burstProp = (prop) => {
     if (!isAlive(prop)) return null;
@@ -1747,7 +1750,7 @@ export function createMushroomHazard(props){
   return {
     burst: (prop) => burstProp(prop),
     hitAt: (x, y, radius) => {
-      for (const p of props){
+      for (const p of mushrooms){
         if (!isAlive(p)) continue;
         const sr = 0.28 * (p.scale || 1);
         const dx = p.x - x;
@@ -1762,7 +1765,7 @@ export function createMushroomHazard(props){
     burstAllInRadius: (x, y, radius) => {
       /** @type {Array<{x:number,y:number,scale:number}>} */
       const bursts = [];
-      for (const p of props){
+      for (const p of mushrooms){
         if (!isAlive(p)) continue;
         const sr = 0.28 * (p.scale || 1);
         const dx = p.x - x;
@@ -1778,7 +1781,7 @@ export function createMushroomHazard(props){
     breakIfExposed: (planet, x, y, radius) => {
       /** @type {Array<{x:number,y:number,scale:number}>} */
       const bursts = [];
-      for (const p of props){
+      for (const p of mushrooms){
         if (!isAlive(p)) continue;
         const sr = 0.28 * (p.scale || 1);
         const dx = p.x - x;

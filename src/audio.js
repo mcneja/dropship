@@ -60,10 +60,13 @@ const THRUST_LOOP_FADE_OUT_MS = 320;
 const MAX_PENDING_SFX = 24;
 const DEFAULT_SFX_POOL_SIZE = 3;
 const SFX_POOL_SIZE = {
-  ship_laser: 6,
+  ship_laser: 4,
   enemy_fire: 4,
   bomb_explosion: 3,
   water_splash: 4,
+};
+const SFX_MIN_INTERVAL_MS = {
+  ship_laser: 70,
 };
 
 const SFX_PLACEHOLDER_URLS = {
@@ -166,6 +169,8 @@ export class BackgroundMusic {
 
     /** @type {Map<SfxId, {voices:HTMLAudioElement[], next:number}>} */
     this.sfxPools = new Map();
+    /** @type {Map<SfxId, number>} */
+    this.sfxLastPlayAtMs = new Map();
     /** @type {Array<{id:SfxId,opts:{volume?:number,rate?:number}|undefined}>} */
     this.pendingSfx = [];
     for (const [id, url] of Object.entries(SFX_PLACEHOLDER_URLS)){
@@ -667,6 +672,12 @@ export class BackgroundMusic {
       this._queuePendingSfx(id, opts);
       return false;
     }
+    const nowMs = performance.now();
+    const minInterval = SFX_MIN_INTERVAL_MS[id] || 0;
+    const lastPlay = this.sfxLastPlayAtMs.get(id) || -Infinity;
+    if (minInterval > 0 && (nowMs - lastPlay) < minInterval){
+      return false;
+    }
     const pool = this.sfxPools.get(id);
     if (!pool || !pool.voices.length) return false;
 
@@ -684,6 +695,7 @@ export class BackgroundMusic {
     if (maybePromise && typeof maybePromise.then === "function"){
       maybePromise.catch(() => {});
     }
+    this.sfxLastPlayAtMs.set(id, nowMs);
     return true;
   }
 

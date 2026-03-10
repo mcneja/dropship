@@ -1102,11 +1102,24 @@ export class GameLoop {
    */
   _damageFactoriesAt(x, y, radius, damage = 1, forceKill = false){
     if (!this._isMechanizedLevel()) return false;
-    if (!this.planet || !this.planet.props || !this.planet.props.length) return false;
+    return this._damageFactoryPropsAt(this._factoryPropsAlive(), x, y, radius, damage, forceKill);
+  }
+
+  /**
+   * @param {Array<any>|null|undefined} factories
+   * @param {number} x
+   * @param {number} y
+   * @param {number} radius
+   * @param {number} damage
+   * @param {boolean} forceKill
+   * @returns {boolean}
+   */
+  _damageFactoryPropsAt(factories, x, y, radius, damage = 1, forceKill = false){
+    if (!factories || !factories.length) return false;
     let hit = false;
     let factoryDestroyed = false;
-    for (const p of this.planet.props){
-      if (p.type !== "factory") continue;
+    for (const p of factories){
+      if (!p || p.type !== "factory") continue;
       if (p.dead || (typeof p.hp === "number" && p.hp <= 0)) continue;
       const rr = radius + this._factoryHitRadius(p);
       const dx = p.x - x;
@@ -1867,6 +1880,15 @@ export class GameLoop {
     // Approximate previous ship center from current velocity for relative swept test.
     const shipX0 = shipX1 - this.ship.vx * dt;
     const shipY0 = shipY1 - this.ship.vy * dt;
+    const broadR = this._shipRadius()
+      + Math.hypot(shot.vx, shot.vy) * dt
+      + Math.hypot(this.ship.vx, this.ship.vy) * dt
+      + 0.35;
+    const dxBroad = shotX1 - shipX1;
+    const dyBroad = shotY1 - shipY1;
+    if (dxBroad * dxBroad + dyBroad * dyBroad > broadR * broadR){
+      return false;
+    }
 
     const colliders0 = this._shipShotColliders(shipX0, shipY0);
     const colliders1 = this._shipShotColliders(shipX1, shipY1);
@@ -2562,7 +2584,6 @@ export class GameLoop {
           });
           this._playSfx("ship_laser", {
             volume: 0.1,
-            rate: 0.96 + Math.random() * 0.08,
           });
         }
       }
@@ -2623,6 +2644,28 @@ export class GameLoop {
         this._triggerCrash();
       }
     }
+    const mechanizedLevel = this._isMechanizedLevel();
+    /** @type {Array<any>|null} */
+    let mechShotBlockers = null;
+    /** @type {Array<any>|null} */
+    let mechBombBlockers = null;
+    /** @type {Array<any>|null} */
+    let mechFactories = null;
+    if (mechanizedLevel && this.planet && this.planet.props && this.planet.props.length){
+      mechShotBlockers = [];
+      mechBombBlockers = [];
+      mechFactories = [];
+      for (const p of this.planet.props){
+        if (!p) continue;
+        if (p.type === "factory"){
+          mechFactories.push(p);
+          mechBombBlockers.push(p);
+        } else if (p.type === "gate" || p.type === "tether"){
+          mechShotBlockers.push(p);
+          mechBombBlockers.push(p);
+        }
+      }
+    }
 
     if (this.playerShots.length){
       for (let i = this.playerShots.length - 1; i >= 0; i--){
@@ -2642,11 +2685,11 @@ export class GameLoop {
           this.playerShots.splice(i, 1);
           continue;
         }
-        if (this._isMechanizedLevel()){
+        if (mechanizedLevel){
           let blocked = false;
-          if (this.planet && this.planet.props){
-            for (const p of this.planet.props){
-              if ((p.type !== "gate" && p.type !== "tether") || p.dead) continue;
+          if (mechShotBlockers){
+            for (const p of mechShotBlockers){
+              if (p.dead) continue;
               if (this._solidPropPenetration(p, s.x, s.y, this.PLAYER_SHOT_RADIUS * 0.5)){
                 blocked = true;
                 break;
@@ -2657,7 +2700,7 @@ export class GameLoop {
             this.playerShots.splice(i, 1);
             continue;
           }
-          if (this._damageFactoriesAt(s.x, s.y, this.PLAYER_SHOT_RADIUS, 1, false)){
+          if (this._damageFactoryPropsAt(mechFactories, s.x, s.y, this.PLAYER_SHOT_RADIUS, 1, false)){
             this.playerShots.splice(i, 1);
             continue;
           }
@@ -2711,10 +2754,9 @@ export class GameLoop {
           }
         }
         if (!hit){
-          if (this._isMechanizedLevel() && this.planet && this.planet.props){
-            for (const p of this.planet.props){
+          if (mechanizedLevel && mechBombBlockers){
+            for (const p of mechBombBlockers){
               if (p.dead) continue;
-              if (p.type !== "gate" && p.type !== "factory" && p.type !== "tether") continue;
               if (this._solidPropPenetration(p, b.x, b.y, this.PLAYER_BOMB_RADIUS * 0.8)){
                 hit = true;
                 hitSource = "planet";
