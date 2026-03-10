@@ -2,6 +2,7 @@
 
 import { mulberry32 } from "./rng.js";
 import { GAME } from "./config.js";
+import { lineOfSightAir } from "./navigation.js";
 
 /**
  * Feature routing for planet-specific hazards and props.
@@ -599,7 +600,7 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
     coreHeatRise: 22,
     coreHeatDecay: 10,
     mushroom: {
-      life: 1.0,
+      life: 2.0,
       speed: 4.0,
       radius: 0.25,
       pieces: 12,
@@ -736,8 +737,9 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
     }
   };
 
-  const mushroomProximityRadius = 3.0;
+  const mushroomProximityRadius = 4.0;
   const mushroomProximityRadius2 = mushroomProximityRadius * mushroomProximityRadius;
+  const mushroomLosStep = 0.2;
   /**
    * @param {{x:number,y:number,scale:number}|null} info
    */
@@ -798,8 +800,13 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
     if (mushroomHazard && !hit){
       const bursts = mushroomHazard.burstAllInRadius(x, y, mushroomProximityRadius);
       if (bursts.length){
-        hit = true;
-        for (const info of bursts) triggerMushroomBurst(info);
+        let triggered = false;
+        for (const info of bursts){
+          if (!lineOfSightAir(planet, x, y, info.x, info.y, mushroomLosStep)) continue;
+          triggerMushroomBurst(info);
+          triggered = true;
+        }
+        if (triggered) hit = true;
       }
     }
     if (ridgeSpikeHazard){
