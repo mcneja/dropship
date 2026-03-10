@@ -25,10 +25,10 @@ export class Input {
 
     /** @type {{id:number|null,pos:Point|null,start:Point|null}} */
     this.leftControl = { id: null, pos: null, start: null };
-    /** @type {{id:number|null,pos:Point|null,start:Point|null,lastFire:number}} */
-    this.laserControl = { id: null, pos: null, start: null, lastFire: 0 };
-    /** @type {{id:number|null,pos:Point|null,start:Point|null,lastFire:number}} */
-    this.bombControl = { id: null, pos: null, start: null, lastFire: 0 };
+    /** @type {{id:number|null,pos:Point|null,start:Point|null}} */
+    this.laserControl = { id: null, pos: null, start: null };
+    /** @type {{id:number|null,pos:Point|null,start:Point|null}} */
+    this.bombControl = { id: null, pos: null, start: null };
     /** @type {{id:number|null,downAt:number,triggered:boolean}} */
     this.startControl = { id: null, downAt: 0, triggered: false };
     /** @type {{id:number|null,downAt:number,triggered:boolean}} */
@@ -84,10 +84,6 @@ export class Input {
     this.lastInputType = null;
     /** @type {boolean} */
     this.mouseShootHeld = false;
-    this.mouseShootLastFire = 0;
-    this.padShootLastFire = 0;
-    this.LASER_INTERVAL_MS = 200;
-    this.BOMB_INTERVAL_MS = 2000;
     this.HOLD_ABANDON_MS = 3000;
     this.pointerLocked = false;
     /** @type {boolean} */
@@ -458,11 +454,9 @@ export class Input {
       if (!this.pointerLocked){
         this.aimMouse = this._pointerPos(e);
       }
-      const now = performance.now();
       if (e.button === 2) this._fireBomb();
       if ((e.button === 0 || (e.buttons & 1)) && !this.mouseShootHeld){
         this.mouseShootHeld = true;
-        this.mouseShootLastFire = now;
         this.oneshot.shoot = true;
       }
       this.lastInputType = "mouse";
@@ -489,12 +483,10 @@ export class Input {
       this.laserControl.id = e.pointerId;
       this.laserControl.pos = p;
       this.laserControl.start = p;
-      this.laserControl.lastFire = performance.now() - this.LASER_INTERVAL_MS;
     } else if (this.bombControl.id === null && this._inSquare(p, TOUCH_UI.bomb, TOUCH_UI.bomb.r)){
       this.bombControl.id = e.pointerId;
       this.bombControl.pos = p;
       this.bombControl.start = p;
-      this.bombControl.lastFire = performance.now() - this.BOMB_INTERVAL_MS;
     }
   }
 
@@ -793,6 +785,8 @@ export class Input {
         musicVolumeDown: false,
         nextLevel: false,
         prevLevel: false,
+        shootHeld: false,
+        shootPressed: false,
         shoot: false,
         bomb: false,
         rescueAll: false,
@@ -837,20 +831,8 @@ export class Input {
     let down = keyState.down || t.down || g.down;
     let stickThrust = g.stickThrust;
 
-    if (!this.gameOver && this.mouseShootHeld){
-      if (now - this.mouseShootLastFire >= this.LASER_INTERVAL_MS){
-        this.oneshot.shoot = true;
-        this.mouseShootLastFire = now;
-      }
-    }
-    if (!this.gameOver && g.shoot){
-      if (!this.prevPadShoot){
-        this.padShootLastFire = now - this.LASER_INTERVAL_MS;
-      }
-      if (now - this.padShootLastFire >= this.LASER_INTERVAL_MS){
-        this.oneshot.shoot = true;
-        this.padShootLastFire = now;
-      }
+    if (!this.gameOver && g.shoot && !this.prevPadShoot){
+      this.oneshot.shoot = true;
     }
     if (g.bomb && !this.prevPadBomb) this.oneshot.bomb = true;
     if (g.reset && !this.prevPadReset) this.oneshot.reset = true;
@@ -886,13 +868,6 @@ export class Input {
       ? Math.max(0, this.HOLD_ABANDON_MS - (now - this.abandonHoldStartMs))
       : 0;
     this._updateTouchRestartButtonVisual(now);
-
-    if (!this.gameOver && this.aimTouchShoot && this.laserControl.id !== null){
-      if (now - this.laserControl.lastFire >= this.LASER_INTERVAL_MS){
-        this.oneshot.shoot = true;
-        this.laserControl.lastFire = now;
-      }
-    }
     const touchUiVisible = !this.gameOver && this.lastInputType === "touch";
     const touchUi = touchUiVisible ? {
       leftTouch: this.leftControl.pos,
@@ -932,6 +907,9 @@ export class Input {
       aimBomb = this.aimTouchBomb || aimShoot;
       aim = aimShoot || aimBomb || null;
     }
+    const touchShootHeld = !this.gameOver && this.laserControl.id !== null && !!this.aimTouchShoot;
+    const shootHeld = !this.gameOver && (this.mouseShootHeld || !!g.shoot || touchShootHeld);
+    const shootPressed = this.oneshot.shoot;
 
     const state = {
       stickThrust: stickThrust,
@@ -956,7 +934,9 @@ export class Input {
       musicVolumeDown: this.oneshot.musicVolumeDown,
       nextLevel: this.oneshot.nextLevel,
       prevLevel: this.oneshot.prevLevel,
-      shoot: this.oneshot.shoot,
+      shootHeld,
+      shootPressed,
+      shoot: shootPressed,
       bomb: this.oneshot.bomb,
       rescueAll: this.oneshot.rescueAll,
       killAllEnemies: this.oneshot.killAllEnemies,

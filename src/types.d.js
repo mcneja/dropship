@@ -199,7 +199,9 @@
  * @property {boolean} musicVolumeDown
  * @property {boolean} nextLevel
  * @property {boolean} prevLevel
- * @property {boolean} shoot
+ * @property {boolean} shootHeld
+ * @property {boolean} shootPressed
+ * @property {boolean} [shoot]
  * @property {boolean} bomb
  * @property {boolean} rescueAll
  * @property {boolean} killAllEnemies

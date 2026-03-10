@@ -130,6 +130,8 @@ export class GameLoop {
     this.PLAYER_SHOT_SPEED = 7.5;
     this.PLAYER_SHOT_LIFE = 1.2;
     this.PLAYER_SHOT_RADIUS = 0.22;
+    this.PLAYER_SHOT_INTERVAL = 0.2;
+    this.playerShotCooldown = 0;
     this.PLAYER_BOMB_SPEED = 4.5;
     this.PLAYER_BOMB_LIFE = 3.2;
     this.PLAYER_BOMB_RADIUS = 0.35;
@@ -535,6 +537,7 @@ export class GameLoop {
     this.entityExplosions.length = 0;
     this.minerPopups.length = 0;
     this.shipHitPopups.length = 0;
+    this.playerShotCooldown = 0;
     this.planet.clearFeatureParticles();
     this.lastAimWorld = null;
     this.lastAimScreen = null;
@@ -2005,7 +2008,30 @@ export class GameLoop {
    * @returns {void}
    */
   _step(dt, inputState){
-    let { stickThrust, left, right, thrust, down, reset, abandonRun, shoot, bomb, aim, aimShoot, aimBomb, aimShootFrom, aimShootTo, aimBombFrom, aimBombTo, spawnEnemyType } = inputState;
+    let {
+      stickThrust,
+      left,
+      right,
+      thrust,
+      down,
+      reset,
+      abandonRun,
+      shootHeld = false,
+      shootPressed = false,
+      shoot = false,
+      bomb,
+      aim,
+      aimShoot,
+      aimBomb,
+      aimShootFrom,
+      aimShootTo,
+      aimBombFrom,
+      aimBombTo,
+      spawnEnemyType,
+    } = inputState;
+    if (!shootPressed && shoot){
+      shootPressed = true;
+    }
 
     if (abandonRun){
       this._abandonRunAndRestart();
@@ -2014,6 +2040,7 @@ export class GameLoop {
       inputState.abandonHoldRemainingMs = 0;
       return;
     }
+    this.playerShotCooldown = Math.max(0, this.playerShotCooldown - dt);
 
     if (inputState.inputType === "gamepad"){
       const aimAdjusted = this._aimScreenAroundShip(aim);
@@ -2555,7 +2582,8 @@ export class GameLoop {
     this._resolveShipSolidPropCollisions();
 
     if (this.ship.state !== "crashed"){
-      if (shoot){
+      const wantsShoot = !!(shootPressed || shootHeld);
+      if (wantsShoot && this.playerShotCooldown <= 0){
         let dirx = 0, diry = 0;
         if (aimShootFrom && aimShootTo){
           const wFrom = this._toWorldFromAim(aimShootFrom);
@@ -2582,6 +2610,7 @@ export class GameLoop {
             vy: diry * this.PLAYER_SHOT_SPEED + this.ship.vy,
             life: this.PLAYER_SHOT_LIFE,
           });
+          this.playerShotCooldown = this.PLAYER_SHOT_INTERVAL;
           this._playSfx("ship_laser", {
             volume: 0.1,
           });
@@ -3073,6 +3102,7 @@ export class GameLoop {
       // after the first fixed step so catch-up substeps cannot replay them.
       inputState.reset = false;
       inputState.abandonRun = false;
+      inputState.shootPressed = false;
       inputState.shoot = false;
       inputState.bomb = false;
       inputState.spawnEnemyType = null;
@@ -3321,7 +3351,7 @@ export class GameLoop {
    */
   _hasAnyPlayerInput(inputState){
     if (inputState.left || inputState.right || inputState.thrust || inputState.down) return true;
-    if (inputState.shoot || inputState.bomb || inputState.reset || inputState.abandonRun) return true;
+    if (inputState.shootHeld || inputState.shootPressed || inputState.shoot || inputState.bomb || inputState.reset || inputState.abandonRun) return true;
     if (inputState.regen || inputState.nextLevel || inputState.prevLevel) return true;
     if (inputState.toggleDebug || inputState.toggleDevHud || inputState.togglePlanetView || inputState.toggleCollisionContours || inputState.toggleFog) return true;
     if (inputState.rescueAll || inputState.spawnEnemyType !== null) return true;
