@@ -334,11 +334,14 @@ export class BackgroundMusic {
    */
   _renderPitchVariant(baseBuffer, rate){
     const r = Math.max(0.5, Math.min(2, rate));
-    if (!window.OfflineAudioContext) return Promise.resolve(null);
+    /** @type {typeof OfflineAudioContext|undefined} */
+    const OfflineCtor = window.OfflineAudioContext
+      || /** @type {any} */ (window).webkitOfflineAudioContext;
+    if (!OfflineCtor) return Promise.resolve(null);
     try {
       const channels = Math.max(1, baseBuffer.numberOfChannels || 1);
       const length = Math.max(1, Math.ceil(baseBuffer.length / r));
-      const offline = new OfflineAudioContext(channels, length, baseBuffer.sampleRate);
+      const offline = new OfflineCtor(channels, length, baseBuffer.sampleRate);
       const source = offline.createBufferSource();
       source.buffer = baseBuffer;
       source.playbackRate.value = r;
