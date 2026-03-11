@@ -2,7 +2,7 @@
 
 import { CFG, TOUCH_UI } from "./config.js";
 import { buildStarfieldMesh } from "./starfield.js";
-import { dijkstraMap, findPathAStar, nearestRadialNode, lineOfSightAir } from "./navigation.js";
+import { dijkstraMap, findPathAStar, nearestRadialNode } from "./navigation.js";
 
 /** @typedef {import("./types.d.js").RenderState} RenderState */
 /** @typedef {import("./planet.js").Planet} Planet */
@@ -941,26 +941,16 @@ function drawFrameImpl(renderer, state, planet){
   gl.drawArrays(gl.TRIANGLES, 0, vertCount);
   gl.bindVertexArray(null);
 
-  const visRange = (params && typeof params.VIS_RANGE === "number") ? params.VIS_RANGE : 0;
-  const visRange2 = visRange * visRange;
   /**
-   * Runtime visibility for dynamic hostile actors/FX.
-   * Use immediate LOS rather than chunked fog buffers to avoid on/off flicker.
+   * Runtime visibility for dynamic actors/FX tied to terrain exploration memory.
+   * If terrain has been seen once, actors in that region remain visible.
    * @param {number} x
    * @param {number} y
    * @returns {boolean}
    */
   const visibleHostileNow = (x, y) => {
     if (!state.fogEnabled) return true;
-    const ship = state.ship;
-    if (!ship) return true;
-    const dx = x - ship.x;
-    const dy = y - ship.y;
-    if (visRange > 0 && (dx * dx + dy * dy > visRange2)) return false;
-    if (planet.radial && typeof planet.radial.lineOfSight === "function"){
-      return planet.radial.lineOfSight(ship.x, ship.y, x, y);
-    }
-    return lineOfSightAir(planet, ship.x, ship.y, x, y, 0.2);
+    return planet.fogSeenAt(x, y);
   };
 
   const shipHWorld = 0.7 * game.SHIP_SCALE;
@@ -2160,6 +2150,7 @@ function drawFrameImpl(renderer, state, planet){
 
   if (state.entityExplosions && state.entityExplosions.length){
     for (const ex of state.entityExplosions){
+      if (!visibleHostileNow(ex.x, ex.y)) continue;
       const t = Math.max(0, Math.min(1, ex.life / 0.8));
       const r = (ex.radius ?? 1.0) * (0.4 + (1 - t) * 0.9);
       const alpha = 0.9 * t;
