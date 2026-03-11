@@ -962,35 +962,86 @@ export class Planet {
     }
     const seed = (this.mapgen.getWorld().seed | 0) + 913;
     const minDist = GAME.MINER_MIN_SEP;
-    const standable = this._standablePoints || [];
-    const flatPool = standable.filter((pt) => {
-      const info = this.surfaceInfoAtWorld(pt[0], pt[1], 0.18);
-      if (!info) return false;
-      const up = this._upDirAt(pt[0], pt[1]);
-      if (!up) return false;
-      if (info.slope > 0.08) return false;
-      if (info.nx * up.ux + info.ny * up.uy < 0.98) return false;
-      // Require support under both shoulders to avoid overhang placements.
-      const tx = -info.ny;
-      const ty = info.nx;
-      const shoulder = 0.38;
-      for (const dir of [-1, 1]){
-        const sx = pt[0] + tx * shoulder * dir;
-        const sy = pt[1] + ty * shoulder * dir;
-        if (this.airValueAtWorld(sx + info.nx * 0.12, sy + info.ny * 0.12) <= 0.5) return false;
-        if (this.airValueAtWorld(sx - info.nx * 0.09, sy - info.ny * 0.09) > 0.5) return false;
-      }
-      return true;
-    });
-    const pool = (flatPool.length >= pads.length) ? flatPool : standable;
     let placed = [];
-    if (pool !== standable){
-      const saved = this._standablePoints;
-      this._standablePoints = pool;
-      placed = this.sampleStandablePoints(pads.length, seed, "uniform", minDist, false);
-      this._standablePoints = saved;
+    if (forceHorizontalPads){
+      const rMax = (this.planetParams && typeof this.planetParams.RMAX === "number")
+        ? this.planetParams.RMAX
+        : CFG.RMAX;
+      const outerMinR = Math.max(0, rMax - 1.4);
+      const graph = this.radialGraph;
+      const nodes = graph && graph.nodes ? graph.nodes : [];
+      const neighbors = graph && graph.neighbors ? graph.neighbors : [];
+      const eps = 0.18;
+      /** @type {Array<[number,number,number,number]>} */
+      const outerBoundaryPool = [];
+      const seenAngles = new Set();
+      for (let i = 0; i < nodes.length; i++){
+        const n0 = nodes[i];
+        const a0 = this.airValueAtWorld(n0.x, n0.y);
+        const neigh = neighbors[i] || [];
+        for (const edge of neigh){
+          const j = edge.to;
+          if (j <= i) continue;
+          const n1 = nodes[j];
+          if (!n1) continue;
+          const a1 = this.airValueAtWorld(n1.x, n1.y);
+          if ((a0 > 0.5) === (a1 > 0.5)) continue;
+          const denom = (a1 - a0);
+          const t = (denom !== 0)
+            ? Math.max(0, Math.min(1, (0.5 - a0) / denom))
+            : 0.5;
+          const sx = n0.x + (n1.x - n0.x) * t;
+          const sy = n0.y + (n1.y - n0.y) * t;
+          const info = this.surfaceInfoAtWorld(sx, sy, eps);
+          if (!info) continue;
+          const x = sx + info.nx * 0.02;
+          const y = sy + info.ny * 0.02;
+          const r = Math.hypot(x, y);
+          if (r < outerMinR) continue;
+          if (!this.isLandableAtWorld(x, y, 0.45, 0.16, eps)) continue;
+          const ang = Math.atan2(y, x);
+          const bucket = Math.round(((ang + Math.PI) / (Math.PI * 2)) * 2048);
+          if (seenAngles.has(bucket)) continue;
+          seenAngles.add(bucket);
+          outerBoundaryPool.push([x, y, ang, r]);
+        }
+      }
+      if (outerBoundaryPool.length){
+        const saved = this._standablePoints;
+        this._standablePoints = outerBoundaryPool;
+        placed = this.sampleStandablePoints(pads.length, seed, "uniform", minDist, false);
+        this._standablePoints = saved;
+      }
     } else {
-      placed = this.sampleStandablePoints(pads.length, seed, "uniform", minDist, false);
+      const standable = this._standablePoints || [];
+      const flatPool = standable.filter((pt) => {
+        const info = this.surfaceInfoAtWorld(pt[0], pt[1], 0.18);
+        if (!info) return false;
+        const up = this._upDirAt(pt[0], pt[1]);
+        if (!up) return false;
+        if (info.slope > 0.08) return false;
+        if (info.nx * up.ux + info.ny * up.uy < 0.98) return false;
+        // Require support under both shoulders to avoid overhang placements.
+        const tx = -info.ny;
+        const ty = info.nx;
+        const shoulder = 0.38;
+        for (const dir of [-1, 1]){
+          const sx = pt[0] + tx * shoulder * dir;
+          const sy = pt[1] + ty * shoulder * dir;
+          if (this.airValueAtWorld(sx + info.nx * 0.12, sy + info.ny * 0.12) <= 0.5) return false;
+          if (this.airValueAtWorld(sx - info.nx * 0.09, sy - info.ny * 0.09) > 0.5) return false;
+        }
+        return true;
+      });
+      const pool = (flatPool.length >= pads.length) ? flatPool : standable;
+      if (pool !== standable){
+        const saved = this._standablePoints;
+        this._standablePoints = pool;
+        placed = this.sampleStandablePoints(pads.length, seed, "uniform", minDist, false);
+        this._standablePoints = saved;
+      } else {
+        placed = this.sampleStandablePoints(pads.length, seed, "uniform", minDist, false);
+      }
     }
     for (let i = 0; i < pads.length; i++){
       const p = pads[i];
