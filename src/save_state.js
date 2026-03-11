@@ -247,6 +247,7 @@ export function restoreLoopFromSaveSnapshot(loop, snapshot){
     loop.debugCollisions = GAME.DEBUG_COLLISION;
     loop.debugPlanetTriangles = false;
     loop.debugCollisionContours = false;
+    loop.debugMinerGuidePath = false;
     loop.devHudVisible = false;
     loop.hud.style.display = "none";
 

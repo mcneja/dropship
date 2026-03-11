@@ -149,6 +149,8 @@
  * @property {boolean} debugNodes
  * @property {boolean} debugPlanetTriangles
  * @property {boolean} debugCollisionContours
+ * @property {boolean} debugMinerGuidePath
+ * @property {Array<{x:number,y:number}>|null} [debugMinerPathToMiner]
  * @property {boolean} fogEnabled
  * @property {Array<[number,number,boolean,number]>|null} [debugCollisionSamples]
  * @property {Array<[number,number,boolean,number]>|null} [debugPoints]
@@ -193,6 +195,7 @@
  * @property {boolean} togglePlanetView
  * @property {boolean} togglePlanetTriangles
  * @property {boolean} toggleCollisionContours
+ * @property {boolean} toggleMinerGuidePath
  * @property {boolean} toggleFog
  * @property {boolean} toggleMusic
  * @property {boolean} toggleCombatMusic

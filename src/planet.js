@@ -2069,6 +2069,11 @@ export class Planet {
    * @returns {{path:Array<{x:number, y:number}>, indexClosest: number}|null}
    */
   surfaceGuidePathTo(x, y, maxDistance) {
+    const maxSlope = Math.max(0.08, Math.min(0.6, Number.isFinite(GAME.MINER_WALK_MAX_SLOPE) ? GAME.MINER_WALK_MAX_SLOPE : 0.28));
+    const stepSize = Math.max(0.12, Math.min(0.35, Number.isFinite(GAME.MINER_GUIDE_STEP) ? GAME.MINER_GUIDE_STEP : 0.22));
+    const maxSegmentLen = Math.max(0.2, Number.isFinite(GAME.MINER_GUIDE_MAX_SEGMENT) ? GAME.MINER_GUIDE_MAX_SEGMENT : 0.45);
+    const minDotUp = Math.max(0.2, 1 - maxSlope);
+
     /**
      * Snap candidate path point to the gameplay radial surface and reject
      * points that do not straddle a real air/rock boundary.
@@ -2077,8 +2082,9 @@ export class Planet {
      * @returns {{x:number,y:number}|null}
      */
     const projectToRadialSurface = (sx, sy) => {
-      const pos = this.posClosest(sx, sy);
-      if (!pos) return null;
+      const posRaw = this._posClosestForPath(sx, sy);
+      if (!posRaw) return null;
+      const pos = { x: posRaw.x, y: posRaw.y };
       const info = this.surfaceInfoAtWorld(pos.x, pos.y, 0.18);
       if (!info) return null;
       const airProbe = 0.08;
@@ -2088,6 +2094,7 @@ export class Planet {
       const by = pos.y - info.ny * airProbe;
       if (this.airValueAtWorld(ax, ay) <= 0.5) return null;
       if (this.airValueAtWorld(bx, by) > 0.5) return null;
+      if (!this.isWalkableAtWorld(pos.x, pos.y, maxSlope, 0.18)) return null;
       return pos;
     };
 
@@ -2119,10 +2126,10 @@ export class Planet {
      * 
      * @param {number} px 
      * @param {number} py 
-     * @param {number} stepSize 
+     * @param {number} stepSizeLocal 
      * @returns {{x:number, y:number}|null}
      */
-    const tryGetStep = (px, py, stepSize) => {
+    const tryGetStep = (px, py, stepSizeLocal) => {
       let n = tryGetNormalAt(px, py);
       if (!n) return null;
       const r = Math.hypot(px, py) || 1;
@@ -2131,21 +2138,28 @@ export class Planet {
         n = { nx: -n.nx, ny: -n.ny };
         dotUp = -dotUp;
       }
-      if (dotUp <= 0.5) return null;
-      const qx = px + n.ny * -stepSize;
-      const qy = py + n.nx *  stepSize;
+      if (dotUp < minDotUp) return null;
+      const stepSign = Math.sign(stepSizeLocal) || 1;
+      const tangentX = -n.ny * stepSign;
+      const tangentY = n.nx * stepSign;
+      const qx = px + tangentX * Math.abs(stepSizeLocal);
+      const qy = py + tangentY * Math.abs(stepSizeLocal);
       const posNextRaw = this._posClosestForPath(qx, qy);
       if (!posNextRaw) return null;
       const posNext = projectToRadialSurface(posNextRaw.x, posNextRaw.y);
       if (!posNext) return null;
       if (Math.hypot(posNext.x, posNext.y) > this.planetRadius + 0.02) return null;
+      const segDx = posNext.x - px;
+      const segDy = posNext.y - py;
+      const segLen = Math.hypot(segDx, segDy);
+      if (!Number.isFinite(segLen) || segLen < 1e-4 || segLen > maxSegmentLen) return null;
+      const dirDot = (segDx / segLen) * tangentX + (segDy / segLen) * tangentY;
+      if (dirDot < 0.25) return null;
       if (Math.hypot(posNext.x - x, posNext.y - y) > maxDistance) return null;
       return {x: posNext.x, y: posNext.y};
     };
 
-    const stepSize = 0.25;
-
-    const maxPointsPos = 16;
+    const maxPointsPos = Math.max(8, Math.ceil(maxDistance / Math.max(1e-3, stepSize)) + 2);
     while (path.length < maxPointsPos) {
       const posExtend = tryGetStep(path[0].x, path[0].y, stepSize);
       if (!posExtend) break;
@@ -2155,7 +2169,7 @@ export class Planet {
       ++indexClosest;
     }
 
-    const maxPointsNeg = path.length + 15;
+    const maxPointsNeg = path.length + Math.max(8, Math.ceil(maxDistance / Math.max(1e-3, stepSize)) + 2);
     while (path.length < maxPointsNeg) {
       const posExtend = tryGetStep(path[path.length-1].x, path[path.length-1].y, -stepSize);
       if (!posExtend) break;

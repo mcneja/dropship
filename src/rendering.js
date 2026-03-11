@@ -2215,6 +2215,30 @@ function drawFrameImpl(renderer, state, planet){
       lineVerts += 12;
     }
   }
+  if (state.debugMinerGuidePath && state.ship && state.ship.state === "landed" && state.ship.guidePath && state.ship.guidePath.path && state.ship.guidePath.path.length > 0){
+    const path = state.ship.guidePath.path;
+    for (let i = 1; i < path.length; ++i){
+      const p0 = path[i - 1];
+      const p1 = path[i];
+      pushLine(pos, col, p0.x, p0.y, p1.x, p1.y, 1.0, 0.9, 0.1, 0.85);
+      lineVerts += 2;
+    }
+    if (state.debugMinerPathToMiner && state.debugMinerPathToMiner.length > 1){
+      const minerPath = state.debugMinerPathToMiner;
+      for (let i = 1; i < minerPath.length; i++){
+        const p0 = minerPath[i - 1];
+        const p1 = minerPath[i];
+        pushLine(pos, col, p0.x, p0.y, p1.x, p1.y, 0.2, 0.95, 0.25, 0.98);
+        lineVerts += 2;
+      }
+    }
+    const iShip = Math.max(0, Math.min(path.length - 1, Math.round(state.ship.guidePath.indexClosest)));
+    const pShip = path[iShip];
+    if (pShip){
+      pushLine(pos, col, state.ship.x, state.ship.y, pShip.x, pShip.y, 0.2, 0.95, 1.0, 0.95);
+      lineVerts += 2;
+    }
+  }
 
   // Lines end here. Lock the line vertex count to buffer length.
   lineVerts = pos.length / 2 - triVerts;

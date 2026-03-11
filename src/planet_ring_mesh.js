@@ -397,14 +397,17 @@ export class RingMesh {
     const rim = this.rings[outer - 1];
     const inner = this.rings[outer - 2];
     if (!rim || !inner || rim.length < 3 || inner.length < 3) return;
-    /** @type {number[]} */
-    const clear = [];
-    for (let i = 0; i < rim.length; i++){
+    const wrap = (i, n) => {
+      let out = i % n;
+      if (out < 0) out += n;
+      return out;
+    };
+    /**
+     * @param {number} i
+     * @returns {boolean}
+     */
+    const hasInwardSupport = (i) => {
       const v = rim[i];
-      if (v.air > 0.5) continue;
-      const prev = rim[(i + rim.length - 1) % rim.length];
-      const next = rim[(i + 1) % rim.length];
-      if (prev.air <= 0.5 || next.air <= 0.5) continue;
       const len = Math.hypot(v.x, v.y) || 1;
       const ux = v.x / len;
       const uy = v.y / len;
@@ -419,13 +422,58 @@ export class RingMesh {
           best = j;
         }
       }
-      const jl = (best + inner.length - 1) % inner.length;
-      const jr = (best + 1) % inner.length;
-      const hasSupport = (inner[best].air <= 0.5) || (inner[jl].air <= 0.5) || (inner[jr].air <= 0.5);
-      if (!hasSupport){
+      const jl = wrap(best - 1, inner.length);
+      const jr = wrap(best + 1, inner.length);
+      return (inner[best].air <= 0.5) || (inner[jl].air <= 0.5) || (inner[jr].air <= 0.5);
+    };
+
+    /** @type {number[]} */
+    const clear = [];
+    /** @type {boolean[]} */
+    const support = new Array(rim.length).fill(false);
+    for (let i = 0; i < rim.length; i++){
+      support[i] = hasInwardSupport(i);
+    }
+
+    // Clear isolated unsupported spikes.
+    for (let i = 0; i < rim.length; i++){
+      const v = rim[i];
+      if (v.air > 0.5) continue;
+      const prev = rim[wrap(i - 1, rim.length)];
+      const next = rim[wrap(i + 1, rim.length)];
+      if (prev.air <= 0.5 || next.air <= 0.5) continue;
+      if (!support[i]){
         clear.push(i);
       }
     }
+
+    // Also clear unsupported runs bounded by air (common in outer-shell artifacts).
+    /** @type {boolean[]} */
+    const visited = new Array(rim.length).fill(false);
+    for (let i = 0; i < rim.length; i++){
+      if (visited[i]) continue;
+      if (rim[i].air > 0.5 || support[i]){
+        visited[i] = true;
+        continue;
+      }
+      let lenRun = 0;
+      let j = i;
+      while (!visited[j] && rim[j].air <= 0.5 && !support[j]){
+        visited[j] = true;
+        lenRun++;
+        j = wrap(j + 1, rim.length);
+      }
+      const start = i;
+      const end = wrap(j - 1, rim.length);
+      const before = rim[wrap(start - 1, rim.length)];
+      const after = rim[wrap(end + 1, rim.length)];
+      if (before.air > 0.5 && after.air > 0.5){
+        for (let k = 0; k < lenRun; k++){
+          clear.push(wrap(start + k, rim.length));
+        }
+      }
+    }
+
     for (const i of clear){
       rim[i].air = 1;
     }

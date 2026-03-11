@@ -41,6 +41,7 @@ export class Input {
       togglePlanetView: false,
       togglePlanetTriangles: false,
       toggleCollisionContours: false,
+      toggleMinerGuidePath: false,
       toggleFog: false,
       toggleMusic: false,
       toggleCombatMusic: false,
@@ -337,7 +338,7 @@ export class Input {
     const debugChord = e.altKey && !e.ctrlKey && !e.metaKey;
     const debugDigit = code.startsWith("Digit") && code.length === 6 && code[5] >= "1" && code[5] <= "9";
     const debugToggleHud = debugChord && code === "Backslash";
-    const screenshotTitleShortcut = debugChord && code === "KeyV";
+    const screenshotTitleShortcut = debugChord && code === "KeyZ";
     const debugAction =
       debugChord && (
         code === "KeyM" ||
@@ -346,10 +347,12 @@ export class Input {
         code === "KeyV" ||
         code === "KeyT" ||
         code === "KeyY" ||
+        code === "KeyU" ||
         code === "KeyF" ||
         code === "KeyC" ||
         code === "KeyP" ||
         code === "KeyX" ||
+        code === "KeyZ" ||
         debugDigit
       );
     const debugShortcut = debugToggleHud || debugAction || screenshotTitleShortcut;
@@ -372,6 +375,7 @@ export class Input {
     if (this.debugCommandsEnabled && debugChord && code === "KeyV") this.oneshot.togglePlanetView = true;
     if (this.debugCommandsEnabled && debugChord && code === "KeyT") this.oneshot.togglePlanetTriangles = true;
     if (this.debugCommandsEnabled && debugChord && code === "KeyY") this.oneshot.toggleCollisionContours = true;
+    if (this.debugCommandsEnabled && debugChord && code === "KeyU") this.oneshot.toggleMinerGuidePath = true;
     if (this.debugCommandsEnabled && debugChord && code === "KeyF") this.oneshot.toggleFog = true;
     if (debugChord && code === "KeyC"){
       if (e.shiftKey) this.oneshot.copyScreenshotClean = true;
@@ -802,6 +806,7 @@ export class Input {
         togglePlanetView: false,
         togglePlanetTriangles: false,
         toggleCollisionContours: false,
+        toggleMinerGuidePath: false,
         toggleFog: false,
         toggleMusic: false,
         toggleCombatMusic: false,
@@ -959,6 +964,7 @@ export class Input {
       togglePlanetView: this.oneshot.togglePlanetView,
       togglePlanetTriangles: this.oneshot.togglePlanetTriangles,
       toggleCollisionContours: this.oneshot.toggleCollisionContours,
+      toggleMinerGuidePath: this.oneshot.toggleMinerGuidePath,
       toggleFog: this.oneshot.toggleFog,
       toggleMusic: this.oneshot.toggleMusic,
       toggleCombatMusic: this.oneshot.toggleCombatMusic,
@@ -1006,6 +1012,7 @@ export class Input {
     this.oneshot.togglePlanetView = false;
     this.oneshot.togglePlanetTriangles = false;
     this.oneshot.toggleCollisionContours = false;
+    this.oneshot.toggleMinerGuidePath = false;
     this.oneshot.toggleFog = false;
     this.oneshot.toggleMusic = false;
     this.oneshot.toggleCombatMusic = false;

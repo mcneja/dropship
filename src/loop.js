@@ -200,6 +200,8 @@ export class GameLoop {
     this.debugCollisions = GAME.DEBUG_COLLISION;
     this.debugPlanetTriangles = false;
     this.debugCollisionContours = false;
+    this.debugMinerGuidePath = false;
+    this.debugMinerPathToMiner = null;
     this.devHudVisible = false;
     if (this.input && typeof this.input.setDebugCommandsEnabled === "function"){
       this.input.setDebugCommandsEnabled(this.devHudVisible);
@@ -1842,6 +1844,28 @@ export class GameLoop {
     return best;
   }
 
+  /**
+   * Convert world point to ship-local coordinates where local X is ship-right
+   * and local Y is ship-up (with ship orientation locked to planet tangent).
+   * @param {number} px
+   * @param {number} py
+   * @param {number} shipX
+   * @param {number} shipY
+   * @returns {{x:number,y:number}}
+   */
+  _shipLocalPoint(px, py, shipX, shipY){
+    const camRot = Math.atan2(shipX, shipY || 1e-6);
+    const shipRot = -camRot;
+    const c = Math.cos(shipRot);
+    const s = Math.sin(shipRot);
+    const dx = px - shipX;
+    const dy = py - shipY;
+    return {
+      x: c * dx + s * dy,
+      y: -s * dx + c * dy,
+    };
+  }
+
   _shipRadius(){
     return this.SHIP_RADIUS_BASE * 1.2;
   }
@@ -2532,7 +2556,7 @@ export class GameLoop {
        */
       const tryGuidePath = (px, py) => {
         const gp = this.planet.surfaceGuidePathTo(px, py, GAME.MINER_CALL_RADIUS);
-        if (!gp || !gp.path || gp.path.length < 2){
+        if (!gp || !gp.path || gp.path.length < 1){
           return null;
         }
         if (!Number.isFinite(gp.indexClosest)) return null;
@@ -2575,6 +2599,12 @@ export class GameLoop {
               const ang = (Math.PI * 2 * a) / 8;
               guidePath = tryGuidePath(this.ship.x + Math.cos(ang) * r, this.ship.y + Math.sin(ang) * r);
             }
+          }
+        }
+        if (!guidePath){
+          const posClosest = this.planet.posClosest(this.ship.x, this.ship.y);
+          if (posClosest && Number.isFinite(posClosest.x) && Number.isFinite(posClosest.y)){
+            guidePath = { path: [{ x: posClosest.x, y: posClosest.y }], indexClosest: 0 };
           }
         }
       }
@@ -2845,9 +2875,11 @@ export class GameLoop {
       }
     }
 
-    const guidepathMargin = 1.5;
+    const guidepathMargin = Math.max(0.15, GAME.MINER_GUIDE_ATTACH_RADIUS || 0.75);
     const guidePath = this.ship.guidePath;
     const guidePathUsable = !!(guidePath && guidePath.path && guidePath.path.length > 1 && Number.isFinite(guidePath.indexClosest));
+    let debugMinerPathToMiner = null;
+    let debugMinerPathScore = Infinity;
 
     const landed = this.ship.state === "landed";
 
@@ -2857,6 +2889,13 @@ export class GameLoop {
       let indexPathMiner = null;
       if (landed && guidePathUsable) {
         indexPathMiner = indexPathFromPos(guidePath.path, guidepathMargin, miner.x, miner.y);
+        if (indexPathMiner !== null){
+          const score = Math.abs(indexPathMiner - guidePath.indexClosest);
+          if (score < debugMinerPathScore){
+            debugMinerPathScore = score;
+            debugMinerPathToMiner = extractPathSegment(guidePath.path, guidePath.indexClosest, indexPathMiner);
+          }
+        }
       }
 
       miner.state = (indexPathMiner !== null) ? "running" :"idle";
@@ -2895,7 +2934,18 @@ export class GameLoop {
       const hullDistBody = this._shipHullDistance(miner.x, miner.y, this.ship.x, this.ship.y);
       const hullDistFeet = this._shipHullDistance(footX, footY, this.ship.x, this.ship.y);
       const hullDist = Math.min(hullDistHead, hullDistBody, hullDistFeet);
-      if (landed && hullDist <= GAME.MINER_BOARD_RADIUS){
+      const localHead = this._shipLocalPoint(headX, headY, this.ship.x, this.ship.y);
+      const localBody = this._shipLocalPoint(miner.x, miner.y, this.ship.x, this.ship.y);
+      const localFeet = this._shipLocalPoint(footX, footY, this.ship.x, this.ship.y);
+      const centerlineDist = Math.min(Math.abs(localHead.x), Math.abs(localBody.x), Math.abs(localFeet.x));
+      const centerDist = Math.min(
+        Math.hypot(headX - this.ship.x, headY - this.ship.y),
+        Math.hypot(miner.x - this.ship.x, miner.y - this.ship.y),
+        Math.hypot(footX - this.ship.x, footY - this.ship.y),
+      );
+      const boardCenterline = centerlineDist <= GAME.MINER_BOARD_RADIUS;
+      const boardNearShip = centerDist <= (this._shipRadius() + GAME.MINER_BOARD_RADIUS);
+      if (landed && hullDist <= GAME.MINER_BOARD_RADIUS && boardCenterline && boardNearShip){
         if (miner.type === "miner"){
           ++this.ship.dropshipMiners;
         } else if (miner.type === "pilot"){
@@ -2921,6 +2971,7 @@ export class GameLoop {
         this.miners.splice(i, 1);
       }
     }
+    this.debugMinerPathToMiner = (landed && guidePathUsable) ? debugMinerPathToMiner : null;
 
     if (this.minerPopups.length){
       for (let i = this.minerPopups.length - 1; i >= 0; i--){
@@ -3071,6 +3122,10 @@ export class GameLoop {
       this.debugCollisionContours = !this.debugCollisionContours;
       this._showStatusCue(this.debugCollisionContours ? "Collision contour debug on" : "Collision contour debug off");
     }
+    if (inputState.toggleMinerGuidePath){
+      this.debugMinerGuidePath = !this.debugMinerGuidePath;
+      this._showStatusCue(this.debugMinerGuidePath ? "Miner guide path debug on" : "Miner guide path debug off");
+    }
     if (inputState.toggleFog){
       this.fogEnabled = !this.fogEnabled;
     }
@@ -3159,6 +3214,8 @@ export class GameLoop {
       debugNodes: GAME.DEBUG_NODES,
       debugPlanetTriangles: this.debugPlanetTriangles,
       debugCollisionContours: this.debugCollisionContours,
+      debugMinerGuidePath: this.debugMinerGuidePath,
+      debugMinerPathToMiner: this.debugMinerPathToMiner,
       debugCollisionSamples: (this.debugCollisions || this.debugCollisionContours) ? (this.ship._samples || []) : null,
       debugPoints: (this.debugCollisions && GAME.DEBUG_NODES) ? this.planet.debugPoints() : null,
       fogEnabled: this.fogEnabled,
@@ -3393,7 +3450,7 @@ export class GameLoop {
     if (inputState.left || inputState.right || inputState.thrust || inputState.down) return true;
     if (inputState.shootHeld || inputState.shootPressed || inputState.shoot || inputState.bomb || inputState.reset || inputState.abandonRun) return true;
     if (inputState.regen || inputState.nextLevel || inputState.prevLevel) return true;
-    if (inputState.toggleDebug || inputState.toggleDevHud || inputState.togglePlanetView || inputState.toggleCollisionContours || inputState.toggleFog) return true;
+    if (inputState.toggleDebug || inputState.toggleDevHud || inputState.togglePlanetView || inputState.toggleCollisionContours || inputState.toggleMinerGuidePath || inputState.toggleFog) return true;
     if (inputState.copyScreenshot || inputState.copyScreenshotClean || inputState.copyScreenshotCleanTitle) return true;
     if (inputState.rescueAll || inputState.spawnEnemyType !== null) return true;
     if (inputState.inputType === "touch" && (inputState.aim || inputState.aimShoot || inputState.aimBomb)) return true;
@@ -4018,7 +4075,7 @@ function moveAlongPathPositive(path, indexPath, distRemaining, indexPathMax) {
   let iSeg = Math.floor(indexPath);
   let uSeg = indexPath - iSeg;
 
-  while (iSeg > 0 && iSeg + 1 < path.length) {
+  while (iSeg >= 0 && iSeg + 1 < path.length) {
     // Measure segment length
     const dSegX = path[iSeg+1].x - path[iSeg].x;
     const dSegY = path[iSeg+1].y - path[iSeg].y;
@@ -4064,7 +4121,7 @@ function moveAlongPathNegative(path, indexPath, distRemaining, indexPathMin) {
   let iSeg = Math.floor(indexPath);
   let uSeg = indexPath - iSeg;
 
-  while (iSeg > 0 && iSeg + 1 < path.length) {
+  while (iSeg >= 0 && iSeg + 1 < path.length) {
     // Measure segment length
     const dSegX = path[iSeg+1].x - path[iSeg].x;
     const dSegY = path[iSeg+1].y - path[iSeg].y;
@@ -4092,4 +4149,38 @@ function moveAlongPathNegative(path, indexPath, distRemaining, indexPathMin) {
   }
 
   return indexPath;
+}
+
+/**
+ * @param {Array<{x:number, y:number}>} path
+ * @param {number} indexA
+ * @param {number} indexB
+ * @returns {Array<{x:number, y:number}>|null}
+ */
+function extractPathSegment(path, indexA, indexB){
+  if (!path || path.length < 2) return null;
+  if (!Number.isFinite(indexA) || !Number.isFinite(indexB)) return null;
+  const lo = Math.min(indexA, indexB);
+  const hi = Math.max(indexA, indexB);
+  const forward = indexA <= indexB;
+  const out = [];
+  const pushUnique = (p) => {
+    const last = out.length ? out[out.length - 1] : null;
+    if (!last){
+      out.push({ x: p.x, y: p.y });
+      return;
+    }
+    if (Math.hypot(last.x - p.x, last.y - p.y) > 1e-4){
+      out.push({ x: p.x, y: p.y });
+    }
+  };
+  pushUnique(posFromPathIndex(path, lo));
+  const iMin = Math.max(0, Math.ceil(lo));
+  const iMax = Math.min(path.length - 1, Math.floor(hi));
+  for (let i = iMin; i <= iMax; i++){
+    pushUnique(path[i]);
+  }
+  pushUnique(posFromPathIndex(path, hi));
+  if (!forward) out.reverse();
+  return out.length >= 2 ? out : null;
 }
