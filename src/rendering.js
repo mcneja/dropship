@@ -1,6 +1,12 @@
 ﻿// @ts-check
 
 import { CFG, TOUCH_UI } from "./config.js";
+import {
+  DROPSHIP_MODEL,
+  getDropshipCargoBoundsN,
+  getDropshipRenderSize,
+  getDropshipThrusterPowers,
+} from "./dropship.js";
 import { buildStarfieldMesh } from "./starfield.js";
 import { dijkstraMap, findPathAStar, nearestRadialNode } from "./navigation.js";
 
@@ -953,18 +959,12 @@ function drawFrameImpl(renderer, state, planet){
     return planet.fogSeenAt(x, y);
   };
 
-  const shipHWorld = 0.7 * game.SHIP_SCALE;
-  const shipWWorld = 0.75 * game.SHIP_SCALE;
-  const bodyLiftN = 0.18;
-  const skiLiftN = 0.0;
+  const { shipHWorld, shipWWorld } = getDropshipRenderSize(game);
+  const { bodyLiftN, skiLiftN, cargoWidthScale, cargoBottomN, cargoTopBaseN } = DROPSHIP_MODEL;
   const cabinSide = state.ship.cabinSide || 1;
-  const cargoHeightScale = 2.0;
-  const cargoWidthScale = 2 / 3;
-  const cargoBottomN = -0.35;
-  const cargoHeightN = (0.18 - cargoBottomN) * cargoHeightScale;
-  const cargoTopN = cargoBottomN + cargoHeightN;
+  const { cargoTopN } = getDropshipCargoBoundsN();
   const cargoMidN = (cargoBottomN + cargoTopN) * 0.5;
-  const oldCargoMidN = (0.18 + -0.35) * 0.5;
+  const oldCargoMidN = (cargoTopBaseN + cargoBottomN) * 0.5;
   const thrustLiftAll = (cargoMidN - oldCargoMidN) * shipHWorld * 1.0;
   const thrustDownExtraUp = shipHWorld * 0.18;
   const thrustUpExtraDown = shipHWorld * -0.12;
@@ -2043,23 +2043,18 @@ function drawFrameImpl(renderer, state, planet){
     }
 
     const tc = [1.0, 0.55, 0.15];
-    const stick = state.input.stickThrust || { x: 0, y: 0 };
-    const analogLeft = Math.max(0, -stick.x);
-    const analogRight = Math.max(0, stick.x);
-    const analogUp = Math.max(0, stick.y);
-    const analogDown = Math.max(0, -stick.y);
-
-    if (state.input.thrust || analogUp > 0){
-      thrustV(0, 1, tc[0], tc[1], tc[2], shipHWorld * 0.2, thrustLiftAll + thrustUpExtraDown, Math.max(state.input.thrust ? 1 : 0, analogUp));
+    const thrusterPower = getDropshipThrusterPowers(state.input || {});
+    if (thrusterPower.up > 0){
+      thrustV(0, 1, tc[0], tc[1], tc[2], shipHWorld * 0.2, thrustLiftAll + thrustUpExtraDown, thrusterPower.up);
     }
-    if (state.input.down || analogDown > 0){
-      thrustV(0, -1, tc[0], tc[1], tc[2], shipHWorld * 0.35, thrustLiftAll + thrustDownExtraUp, Math.max(state.input.down ? 1 : 0, analogDown));
+    if (thrusterPower.down > 0){
+      thrustV(0, -1, tc[0], tc[1], tc[2], shipHWorld * 0.35, thrustLiftAll + thrustDownExtraUp, thrusterPower.down);
     }
-    if (state.input.left || analogLeft > 0){
-      thrustV(-1, 0, tc[0], tc[1], tc[2], shipWWorld * 0.5, thrustLiftAll, Math.max(state.input.left ? 1 : 0, analogLeft));
+    if (thrusterPower.left > 0){
+      thrustV(-1, 0, tc[0], tc[1], tc[2], shipWWorld * 0.5, thrustLiftAll, thrusterPower.left);
     }
-    if (state.input.right || analogRight > 0){
-      thrustV(1, 0, tc[0], tc[1], tc[2], shipWWorld * 0.5, thrustLiftAll, Math.max(state.input.right ? 1 : 0, analogRight));
+    if (thrusterPower.right > 0){
+      thrustV(1, 0, tc[0], tc[1], tc[2], shipWWorld * 0.5, thrustLiftAll, thrusterPower.right);
     }
   }
 

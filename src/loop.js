@@ -3,6 +3,14 @@
 import { Enemies } from "./enemies.js";
 import { createCollisionRouter } from "./collision-router.js";
 import { GAME, CFG } from "./config.js";
+import {
+  buildDropshipLocalHullPoints,
+  computeDropshipAcceleration,
+  getDropshipGunPivotLocal,
+  hasDropshipThrustInput,
+  resolveDropshipFacing,
+  wantsDropshipLiftoff,
+} from "./dropship.js";
 import { Mothership, updateMothership, mothershipCollisionInfo } from "./mothership.js";
 import { Planet } from "./planet.js";
 import { pickPlanetConfig, pickPlanetConfigById, resolveLevelProgression, resolvePlanetParams } from "./planet_config.js";
@@ -2038,49 +2046,17 @@ export class GameLoop {
   }
 
   _shipGunPivotWorld(){
-    const shipHWorld = 0.7 * GAME.SHIP_SCALE;
-    const shipWWorld = 0.75 * GAME.SHIP_SCALE;
-    const bodyLiftN = 0.18;
-    const cargoHeightScale = 2.0;
-    const cargoBottomN = -0.35;
-    const cargoHeightN = (0.18 - cargoBottomN) * cargoHeightScale;
-    const cargoTopN = cargoBottomN + cargoHeightN;
-    const gstrutHN = 0.12;
-    const gunLiftN = 0.04;
-    const localX = 0;
-    const localY = (cargoTopN + gstrutHN + gunLiftN + bodyLiftN) * shipHWorld;
+    const localPivot = getDropshipGunPivotLocal(GAME);
     const camRot = Math.atan2(this.ship.x, this.ship.y || 1e-6);
     const shipRot = -camRot;
     const c = Math.cos(shipRot), s = Math.sin(shipRot);
-    const wx = c * (localX * shipWWorld) - s * localY;
-    const wy = s * (localX * shipWWorld) + c * localY;
+    const wx = c * localPivot.x - s * localPivot.y;
+    const wy = s * localPivot.x + c * localPivot.y;
     return { x: this.ship.x + wx, y: this.ship.y + wy };
   }
 
   _shipLocalHullPoints(){
-    const shipHWorld = 0.7 * GAME.SHIP_SCALE;
-    const shipWWorld = 0.7 * GAME.SHIP_SCALE;
-    const bodyLiftN = 0.18;
-    const bodyLift = shipHWorld * bodyLiftN;
-    const cargoHeightScale = 2.0;
-    const cargoWidthScale = 2 / 3;
-    const cargoBottomN = -0.35;
-    const cargoHeightN = (0.18 - cargoBottomN) * cargoHeightScale;
-    const cargoTopN = cargoBottomN + cargoHeightN;
-    const cargoBottom = shipHWorld * cargoBottomN - bodyLift;
-    const cargoTop = shipHWorld * cargoTopN - bodyLift;
-    const bottomHalfW = shipWWorld * 0.87 * cargoWidthScale;
-    const topHalfW = shipWWorld * 0.65 * cargoWidthScale * 0.8;
-    const topRight = topHalfW;
-    const topLeft = -topHalfW;
-    return [
-      [topRight, cargoTop + bodyLift],
-      [bottomHalfW, cargoBottom + bodyLift],
-      [0, cargoBottom + bodyLift],
-      [-bottomHalfW, cargoBottom + bodyLift],
-      [topLeft, cargoTop + bodyLift],
-      [0, cargoTop + bodyLift],
-    ];
+    return buildDropshipLocalHullPoints(GAME);
   }
 
   /**
@@ -2305,52 +2281,30 @@ export class GameLoop {
     }
 
     if (this.ship.state === "flying"){
-      const stickFaceDead = 0.15;
-      const stickFaceLeft = stickThrust.x < -stickFaceDead;
-      const stickFaceRight = stickThrust.x > stickFaceDead;
-      const faceLeft = left || stickFaceLeft;
-      const faceRight = right || stickFaceRight;
-      if (faceLeft && !faceRight) this.ship.cabinSide = -1;
-      if (faceRight && !faceLeft) this.ship.cabinSide = 1;
-      const stickMag = Math.hypot(stickThrust.x, stickThrust.y);
-      this._setThrustLoopActive(left || right || thrust || down || stickMag > 0.12);
+      this.ship.cabinSide = resolveDropshipFacing(this.ship.cabinSide || 1, {
+        left,
+        right,
+        stickThrust,
+      });
+      this._setThrustLoopActive(hasDropshipThrustInput({
+        left,
+        right,
+        thrust,
+        down,
+        stickThrust,
+      }));
 
-      let ax = 0, ay = 0;
-      const r = Math.hypot(this.ship.x, this.ship.y) || 1;
-      const rx = this.ship.x / r;
-      const ry = this.ship.y / r;
-      const tx = -ry;
-      const ty = rx;
       const isWaterWorld = !!(planetCfg && planetCfg.id === "water");
       const outerRingR = (this.planet && this.planet.radial && this.planet.radial.rings && this.planet.radial.rings.length)
         ? (this.planet.radial.rings.length - 1)
         : Math.floor(this.planetParams.RMAX || 0);
+      const thrustMax = this.planetParams.THRUST * (1 + this.ship.thrust * 0.1);
+      const thrustAccel = computeDropshipAcceleration(this.ship, { left, right, thrust, down, stickThrust }, thrustMax);
+      let ax = thrustAccel.ax;
+      let ay = thrustAccel.ay;
+      const { r, rx, ry, tx, ty } = thrustAccel;
       const waterR = isWaterWorld ? Math.max(0, outerRingR) : 0;
       const shipInWaterBefore = !!(isWaterWorld && waterR > 0 && r <= waterR + 0.02 && this.planet.airValueAtWorld(this.ship.x, this.ship.y) > 0.5);
-
-      const thrustMax = this.planetParams.THRUST * (1 + this.ship.thrust * 0.1);
-
-      if (left){
-        ax += tx * thrustMax;
-        ay += ty * thrustMax;
-      }
-      if (right){
-        ax -= tx * thrustMax;
-        ay -= ty * thrustMax;
-      }
-      if (thrust){
-        ax += rx * thrustMax;
-        ay += ry * thrustMax;
-      }
-      if (down){
-        ax += -rx * thrustMax;
-        ay += -ry * thrustMax;
-      }
-
-      // Gamepad stick thrust is in local control space:
-      // x = tangent (left/right), y = radial (outward/inward).
-      ax += (stickThrust.x * -tx + stickThrust.y * rx) * thrustMax;
-      ay += (stickThrust.x * -ty + stickThrust.y * ry) * thrustMax;
 
       /*
       const aThrustSqr = ax*ax + ay*ay;
@@ -3125,7 +3079,7 @@ export class GameLoop {
     }
 
     if (this.ship.state === "landed"){
-      if (left || right || thrust || (stickThrust.x*stickThrust.x + stickThrust.y*stickThrust.y) > 0){
+      if (wantsDropshipLiftoff({ left, right, thrust, stickThrust })){
         this.ship.state = "flying";
         this.ship._dock = null;
         this.hasLaunchedPlayerShip = true;
