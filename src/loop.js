@@ -2072,6 +2072,134 @@ export class GameLoop {
   }
 
   /**
+   * Hard post-collision depenetration against planet terrain.
+   * Prevents sustained control input from nudging the ship through rock.
+   * @param {number} [maxIters]
+   * @returns {void}
+   */
+  _stabilizeShipAgainstPlanetPenetration(maxIters = 12){
+    const eps = this.COLLISION_EPS;
+    /**
+     * @param {number} x
+     * @param {number} y
+     * @returns {Array<[number, number]>}
+     */
+    const samplePointsAt = (x, y) => {
+      const out = this._shipCollisionPoints(x, y);
+      out.push([x, y]);
+      return out;
+    };
+
+    /**
+     * @param {number} x
+     * @param {number} y
+     * @returns {{x:number,y:number,av:number}|null}
+     */
+    const deepestPlanetHitAt = (x, y) => {
+      const pts = samplePointsAt(x, y);
+      /** @type {{x:number,y:number,av:number}|null} */
+      let hit = null;
+      for (const p of pts){
+        const av = this.collision.planetAirValueAtWorld(p[0], p[1]);
+        if (av > 0.5) continue;
+        if (!hit || av < hit.av){
+          hit = { x: p[0], y: p[1], av };
+        }
+      }
+      return hit;
+    };
+
+    /**
+     * @param {number} x
+     * @param {number} y
+     * @returns {boolean}
+     */
+    const collidesPlanetAt = (x, y) => deepestPlanetHitAt(x, y) !== null;
+
+    for (let iter = 0; iter < maxIters; iter++){
+      const planetHit = deepestPlanetHitAt(this.ship.x, this.ship.y);
+      if (!planetHit) break;
+
+      let nx = this.collision.planetAirValueAtWorld(planetHit.x + eps, planetHit.y)
+        - this.collision.planetAirValueAtWorld(planetHit.x - eps, planetHit.y);
+      let ny = this.collision.planetAirValueAtWorld(planetHit.x, planetHit.y + eps)
+        - this.collision.planetAirValueAtWorld(planetHit.x, planetHit.y - eps);
+      let nlen = Math.hypot(nx, ny);
+      if (nlen < 1e-4){
+        nx = this.ship.x - planetHit.x;
+        ny = this.ship.y - planetHit.y;
+        nlen = Math.hypot(nx, ny);
+      }
+      if (nlen < 1e-4){
+        const rr = Math.hypot(this.ship.x, this.ship.y) || 1;
+        nx = this.ship.x / rr;
+        ny = this.ship.y / rr;
+        nlen = 1;
+      }
+      nx /= nlen;
+      ny /= nlen;
+
+      const r = Math.hypot(this.ship.x, this.ship.y) || 1;
+      const upx = this.ship.x / r;
+      const upy = this.ship.y / r;
+      if (nx * upx + ny * upy < 0){
+        nx = -nx;
+        ny = -ny;
+      }
+
+      // Find minimum outward translation that clears planet collision.
+      const maxPush = Math.max(0.35, this._shipRadius() * 1.6);
+      let lo = 0;
+      let hi = 0.01;
+      while (hi < maxPush && collidesPlanetAt(this.ship.x + nx * hi, this.ship.y + ny * hi)){
+        lo = hi;
+        hi *= 2;
+      }
+      if (hi > maxPush) hi = maxPush;
+      if (collidesPlanetAt(this.ship.x + nx * hi, this.ship.y + ny * hi)){
+        this.ship.x += nx * hi;
+        this.ship.y += ny * hi;
+      } else {
+        for (let b = 0; b < 14; b++){
+          const mid = (lo + hi) * 0.5;
+          if (collidesPlanetAt(this.ship.x + nx * mid, this.ship.y + ny * mid)){
+            lo = mid;
+          } else {
+            hi = mid;
+          }
+        }
+        this.ship.x += nx * hi;
+        this.ship.y += ny * hi;
+      }
+
+      const vn = this.ship.vx * nx + this.ship.vy * ny;
+      if (vn < 0){
+        this.ship.vx -= nx * vn;
+        this.ship.vy -= ny * vn;
+      }
+      const vInward = -(this.ship.vx * upx + this.ship.vy * upy);
+      if (vInward > 0){
+        this.ship.vx += upx * vInward;
+        this.ship.vy += upy * vInward;
+      }
+    }
+
+    const refreshed = this.collision.sampleCollisionPoints(samplePointsAt(this.ship.x, this.ship.y));
+    this.ship._samples = refreshed.samples;
+    if (refreshed.hit){
+      this.ship._collision = {
+        x: refreshed.hit.x,
+        y: refreshed.hit.y,
+        source: refreshed.hitSource,
+        tri: this.planet.radial.findTriAtWorld(refreshed.hit.x, refreshed.hit.y),
+        node: this.planet.radial.nearestNodeOnRing(refreshed.hit.x, refreshed.hit.y),
+      };
+    } else {
+      this.ship._collision = null;
+    }
+  }
+
+  /**
    * @param {number} x
    * @param {number} y
    * @returns {boolean}
@@ -2563,6 +2691,9 @@ export class GameLoop {
         }
       }
     }
+    if (this.ship.state !== "crashed" && this.ship._collision && this.ship._collision.source === "planet"){
+      this._stabilizeShipAgainstPlanetPenetration(10);
+    }
     if (this.ship.state !== "flying"){
       this._setThrustLoopActive(false);
     }
@@ -2620,8 +2751,26 @@ export class GameLoop {
       let guideAnchorY = this.ship.y;
       const shipContact = this.ship._collision;
       if (this.ship.state === "landed" && shipContact && shipContact.source === "planet"){
-        guideAnchorX = shipContact.x;
-        guideAnchorY = shipContact.y;
+        let anchorBest = { x: shipContact.x, y: shipContact.y };
+        let rBest = Math.hypot(anchorBest.x, anchorBest.y);
+        const samples = this.ship._samples;
+        if (samples && samples.length){
+          for (const s of samples){
+            if (!s || s.length < 3) continue;
+            const sx = s[0];
+            const sy = s[1];
+            const isAir = !!s[2];
+            if (isAir) continue;
+            if (this.collision.planetAirValueAtWorld(sx, sy) > 0.5) continue;
+            const rs = Math.hypot(sx, sy);
+            if (rs > rBest){
+              rBest = rs;
+              anchorBest = { x: sx, y: sy };
+            }
+          }
+        }
+        guideAnchorX = anchorBest.x;
+        guideAnchorY = anchorBest.y;
       }
       let guidePath = tryGuidePath(guideAnchorX, guideAnchorY);
       // Restored landed positions can occasionally sit on a degenerate sample point.
@@ -2931,6 +3080,7 @@ export class GameLoop {
     }
 
     const guidepathMargin = Math.max(0.15, GAME.MINER_GUIDE_ATTACH_RADIUS || 0.75);
+    const guidepathAttachTolerance = 0.12;
     const guidePath = this.ship.guidePath;
     const guidePathUsable = !!(guidePath && guidePath.path && guidePath.path.length > 1 && Number.isFinite(guidePath.indexClosest));
     let debugMinerPathToMiner = null;
@@ -2943,7 +3093,17 @@ export class GameLoop {
 
       let indexPathMiner = null;
       if (landed && guidePathUsable) {
-        indexPathMiner = indexPathFromPos(guidePath.path, guidepathMargin, miner.x, miner.y);
+        const rMiner = Math.hypot(miner.x, miner.y);
+        const attachDist = guidepathMargin + guidepathAttachTolerance;
+        indexPathMiner = indexPathFromPos(guidePath.path, attachDist, miner.x, miner.y, rMiner, 0.65);
+        if (indexPathMiner === null){
+          indexPathMiner = indexPathFromPos(guidePath.path, attachDist, miner.x, miner.y, rMiner, 1.35);
+        }
+        if (indexPathMiner === null){
+          // Final fallback: allow non-band-matched projection so miners on
+          // ledge corners still attach and run instead of idling.
+          indexPathMiner = indexPathFromPos(guidePath.path, attachDist + 0.45, miner.x, miner.y);
+        }
         if (indexPathMiner !== null){
           const score = Math.abs(indexPathMiner - guidePath.indexClosest);
           if (score < debugMinerPathScore){
@@ -4065,20 +4225,30 @@ function drawCenteredWrappedText(ctx, text, cx, topY, maxWidth, lineHeight, maxL
  * @param {Array<{x:number, y:number}>} path 
  * @param {number} distMax
  * @param {number} x 
- * @param {number} y 
+ * @param {number} y
+ * @param {number|null} [rHint]
+ * @param {number} [rTol]
  * @returns {number|null}
  */
-function indexPathFromPos(path, distMax, x, y) {
+function indexPathFromPos(path, distMax, x, y, rHint = null, rTol = Infinity) {
   let distClosestSqr = Infinity;
   let indexPath = null;
   for (let i = 1; i < path.length; ++i) {
     const pos0 = path[i-1];
     const pos1 = path[i];
+    if (rHint !== null && Number.isFinite(rHint) && Number.isFinite(rTol)){
+      const mx = (pos0.x + pos1.x) * 0.5;
+      const my = (pos0.y + pos1.y) * 0.5;
+      const rMid = Math.hypot(mx, my);
+      if (Math.abs(rMid - rHint) > rTol) continue;
+    }
     const dSegX = pos1.x - pos0.x;
     const dSegY = pos1.y - pos0.y;
+    const dSeg2 = dSegX * dSegX + dSegY * dSegY;
+    if (dSeg2 < 1e-10) continue;
     const dPosX = x - pos0.x;
     const dPosY = y - pos0.y;
-    let u = (dSegX * dPosX + dSegY * dPosY) / (dSegX * dSegX + dSegY * dSegY);
+    let u = (dSegX * dPosX + dSegY * dPosY) / dSeg2;
     u = Math.max(0, Math.min(1, u));
     const dPosClosestX = dSegX * u - dPosX;
     const dPosClosestY = dSegY * u - dPosY;
