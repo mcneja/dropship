@@ -1,7 +1,7 @@
 ﻿// @ts-check
 
 import { Enemies } from "./enemies.js";
-import { createCollisionRouter } from "./collision-router.js";
+import { createCollisionRouter } from "./collision_helpers.js";
 import { GAME, CFG } from "./config.js";
 import {
   buildDropshipLocalHullPoints,
@@ -17,6 +17,7 @@ import { pickPlanetConfig, pickPlanetConfigById, resolveLevelProgression, resolv
 import { mulberry32 } from "./rng.js";
 import { clearSavedGame, createLoopSaveSnapshot, restoreLoopFromSaveSnapshot } from "./save_state.js";
 import { copyGameplayScreenshotToClipboard, drawStartTitle } from "./screenshot.js";
+import { stabilizeShipAgainstPlanetPenetration } from "./ship_collision_stabilizer.js";
 
 /** @typedef {import("./types.d.js").ViewState} ViewState */
 /** @typedef {import("./types.d.js").Ship} Ship */
@@ -2079,125 +2080,14 @@ export class GameLoop {
    * @returns {void}
    */
   _stabilizeShipAgainstPlanetPenetration(maxIters = 12){
-    const eps = this.COLLISION_EPS;
-    /**
-     * @param {number} x
-     * @param {number} y
-     * @returns {Array<[number, number]>}
-     */
-    const samplePointsAt = (x, y) => {
-      const out = this._shipCollisionPoints(x, y);
-      out.push([x, y]);
-      return out;
-    };
-
-    /**
-     * @param {number} x
-     * @param {number} y
-     * @returns {{x:number,y:number,av:number}|null}
-     */
-    const deepestPlanetHitAt = (x, y) => {
-      const pts = samplePointsAt(x, y);
-      /** @type {{x:number,y:number,av:number}|null} */
-      let hit = null;
-      for (const p of pts){
-        const av = this.collision.planetAirValueAtWorld(p[0], p[1]);
-        if (av > 0.5) continue;
-        if (!hit || av < hit.av){
-          hit = { x: p[0], y: p[1], av };
-        }
-      }
-      return hit;
-    };
-
-    /**
-     * @param {number} x
-     * @param {number} y
-     * @returns {boolean}
-     */
-    const collidesPlanetAt = (x, y) => deepestPlanetHitAt(x, y) !== null;
-
-    for (let iter = 0; iter < maxIters; iter++){
-      const planetHit = deepestPlanetHitAt(this.ship.x, this.ship.y);
-      if (!planetHit) break;
-
-      let nx = this.collision.planetAirValueAtWorld(planetHit.x + eps, planetHit.y)
-        - this.collision.planetAirValueAtWorld(planetHit.x - eps, planetHit.y);
-      let ny = this.collision.planetAirValueAtWorld(planetHit.x, planetHit.y + eps)
-        - this.collision.planetAirValueAtWorld(planetHit.x, planetHit.y - eps);
-      let nlen = Math.hypot(nx, ny);
-      if (nlen < 1e-4){
-        nx = this.ship.x - planetHit.x;
-        ny = this.ship.y - planetHit.y;
-        nlen = Math.hypot(nx, ny);
-      }
-      if (nlen < 1e-4){
-        const rr = Math.hypot(this.ship.x, this.ship.y) || 1;
-        nx = this.ship.x / rr;
-        ny = this.ship.y / rr;
-        nlen = 1;
-      }
-      nx /= nlen;
-      ny /= nlen;
-
-      const r = Math.hypot(this.ship.x, this.ship.y) || 1;
-      const upx = this.ship.x / r;
-      const upy = this.ship.y / r;
-      if (nx * upx + ny * upy < 0){
-        nx = -nx;
-        ny = -ny;
-      }
-
-      // Find minimum outward translation that clears planet collision.
-      const maxPush = Math.max(0.35, this._shipRadius() * 1.6);
-      let lo = 0;
-      let hi = 0.01;
-      while (hi < maxPush && collidesPlanetAt(this.ship.x + nx * hi, this.ship.y + ny * hi)){
-        lo = hi;
-        hi *= 2;
-      }
-      if (hi > maxPush) hi = maxPush;
-      if (collidesPlanetAt(this.ship.x + nx * hi, this.ship.y + ny * hi)){
-        this.ship.x += nx * hi;
-        this.ship.y += ny * hi;
-      } else {
-        for (let b = 0; b < 14; b++){
-          const mid = (lo + hi) * 0.5;
-          if (collidesPlanetAt(this.ship.x + nx * mid, this.ship.y + ny * mid)){
-            lo = mid;
-          } else {
-            hi = mid;
-          }
-        }
-        this.ship.x += nx * hi;
-        this.ship.y += ny * hi;
-      }
-
-      const vn = this.ship.vx * nx + this.ship.vy * ny;
-      if (vn < 0){
-        this.ship.vx -= nx * vn;
-        this.ship.vy -= ny * vn;
-      }
-      const vInward = -(this.ship.vx * upx + this.ship.vy * upy);
-      if (vInward > 0){
-        this.ship.vx += upx * vInward;
-        this.ship.vy += upy * vInward;
-      }
-    }
-
-    const refreshed = this.collision.sampleCollisionPoints(samplePointsAt(this.ship.x, this.ship.y));
-    this.ship._samples = refreshed.samples;
-    if (refreshed.hit){
-      this.ship._collision = {
-        x: refreshed.hit.x,
-        y: refreshed.hit.y,
-        source: refreshed.hitSource,
-        tri: this.planet.radial.findTriAtWorld(refreshed.hit.x, refreshed.hit.y),
-        node: this.planet.radial.nearestNodeOnRing(refreshed.hit.x, refreshed.hit.y),
-      };
-    } else {
-      this.ship._collision = null;
-    }
+    stabilizeShipAgainstPlanetPenetration({
+      ship: this.ship,
+      collision: this.collision,
+      planet: this.planet,
+      collisionEps: this.COLLISION_EPS,
+      shipCollisionPointsAt: (x, y) => this._shipCollisionPoints(x, y),
+      shipRadius: () => this._shipRadius(),
+    }, maxIters);
   }
 
   /**
