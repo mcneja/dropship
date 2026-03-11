@@ -2399,6 +2399,7 @@ export class GameLoop {
         this.ship._collision = {
           x: hit.x,
           y: hit.y,
+          source: hitSource,
           tri: this.planet.radial.findTriAtWorld(hit.x, hit.y),
           node: this.planet.radial.nearestNodeOnRing(hit.x, hit.y),
         };
@@ -2609,11 +2610,24 @@ export class GameLoop {
         return gp;
       };
 
-      let guidePath = tryGuidePath(this.ship.x, this.ship.y);
+      /**
+       * @param {{path:Array<{x:number,y:number}>,indexClosest:number}|null} gp
+       * @returns {boolean}
+       */
+      const guidePathUsable = (gp) => !!(gp && gp.path && gp.path.length > 1 && Number.isFinite(gp.indexClosest));
+
+      let guideAnchorX = this.ship.x;
+      let guideAnchorY = this.ship.y;
+      const shipContact = this.ship._collision;
+      if (this.ship.state === "landed" && shipContact && shipContact.source === "planet"){
+        guideAnchorX = shipContact.x;
+        guideAnchorY = shipContact.y;
+      }
+      let guidePath = tryGuidePath(guideAnchorX, guideAnchorY);
       // Restored landed positions can occasionally sit on a degenerate sample point.
       // Probe nearby points and keep the first usable multi-segment path.
-      if (!guidePath && this.ship.state === "landed"){
-        const info = this.planet.surfaceInfoAtWorld(this.ship.x, this.ship.y, 0.24);
+      if (!guidePathUsable(guidePath) && this.ship.state === "landed"){
+        const info = this.planet.surfaceInfoAtWorld(guideAnchorX, guideAnchorY, 0.24);
         if (info){
           const tx = -info.ny;
           const ty = info.nx;
@@ -2627,23 +2641,23 @@ export class GameLoop {
             [ nx * 0.18, ny * 0.18],
             [-nx * 0.18,-ny * 0.18],
           ];
-          for (let i = 0; i < probes.length && !guidePath; i++){
+          for (let i = 0; i < probes.length && !guidePathUsable(guidePath); i++){
             const p = probes[i];
-            guidePath = tryGuidePath(this.ship.x + p[0], this.ship.y + p[1]);
+            guidePath = tryGuidePath(guideAnchorX + p[0], guideAnchorY + p[1]);
           }
         }
-        if (!guidePath){
+        if (!guidePathUsable(guidePath)){
           const ringOffsets = [0.35, 0.65];
-          for (let i = 0; i < ringOffsets.length && !guidePath; i++){
+          for (let i = 0; i < ringOffsets.length && !guidePathUsable(guidePath); i++){
             const r = ringOffsets[i];
-            for (let a = 0; a < 8 && !guidePath; a++){
+            for (let a = 0; a < 8 && !guidePathUsable(guidePath); a++){
               const ang = (Math.PI * 2 * a) / 8;
-              guidePath = tryGuidePath(this.ship.x + Math.cos(ang) * r, this.ship.y + Math.sin(ang) * r);
+              guidePath = tryGuidePath(guideAnchorX + Math.cos(ang) * r, guideAnchorY + Math.sin(ang) * r);
             }
           }
         }
-        if (!guidePath){
-          const posClosest = this.planet.posClosest(this.ship.x, this.ship.y);
+        if (!guidePathUsable(guidePath)){
+          const posClosest = this.planet.posClosest(guideAnchorX, guideAnchorY);
           if (posClosest && Number.isFinite(posClosest.x) && Number.isFinite(posClosest.y)){
             guidePath = { path: [{ x: posClosest.x, y: posClosest.y }], indexClosest: 0 };
           }
@@ -2975,18 +2989,13 @@ export class GameLoop {
       const hullDistBody = this._shipHullDistance(miner.x, miner.y, this.ship.x, this.ship.y);
       const hullDistFeet = this._shipHullDistance(footX, footY, this.ship.x, this.ship.y);
       const hullDist = Math.min(hullDistHead, hullDistBody, hullDistFeet);
-      const localHead = this._shipLocalPoint(headX, headY, this.ship.x, this.ship.y);
-      const localBody = this._shipLocalPoint(miner.x, miner.y, this.ship.x, this.ship.y);
-      const localFeet = this._shipLocalPoint(footX, footY, this.ship.x, this.ship.y);
-      const centerlineDist = Math.min(Math.abs(localHead.x), Math.abs(localBody.x), Math.abs(localFeet.x));
       const centerDist = Math.min(
         Math.hypot(headX - this.ship.x, headY - this.ship.y),
         Math.hypot(miner.x - this.ship.x, miner.y - this.ship.y),
         Math.hypot(footX - this.ship.x, footY - this.ship.y),
       );
-      const boardCenterline = centerlineDist <= GAME.MINER_BOARD_RADIUS;
       const boardNearShip = centerDist <= (this._shipRadius() + GAME.MINER_BOARD_RADIUS);
-      if (landed && hullDist <= GAME.MINER_BOARD_RADIUS && boardCenterline && boardNearShip){
+      if (landed && hullDist <= GAME.MINER_BOARD_RADIUS && boardNearShip){
         if (miner.type === "miner"){
           ++this.ship.dropshipMiners;
         } else if (miner.type === "pilot"){

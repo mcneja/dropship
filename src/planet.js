@@ -2093,26 +2093,6 @@ export class Planet {
   }
 
   /**
-   * Closest point variant for guide-path construction near the outer ring.
-   * @param {number} x
-   * @param {number} y
-   * @returns {{x:number, y:number}|null}
-   */
-  _posClosestForPath(x, y) {
-    const eps = 0.1;
-    const air = (px, py) => this.radial.airValueAtWorldForPath(px, py);
-    const dist = air(x, y) - 0.5;
-    const gdx = air(x + eps, y) - air(x - eps, y);
-    const gdy = air(x, y + eps) - air(x, y - eps);
-    const g = Math.hypot(gdx, gdy);
-    if (g < 1e-4) {
-      return null;
-    }
-    const step = -dist / g;
-    return {x: x + gdx * step, y: y + gdy * step};
-  }
-
-  /**
    * Build a guide path to the closest point on the terrain to the query position
    * @param {number} x
    * @param {number} y
@@ -2120,116 +2100,10 @@ export class Planet {
    * @returns {{path:Array<{x:number, y:number}>, indexClosest: number}|null}
    */
   surfaceGuidePathTo(x, y, maxDistance) {
-    const maxSlope = Math.max(0.08, Math.min(0.6, Number.isFinite(GAME.MINER_WALK_MAX_SLOPE) ? GAME.MINER_WALK_MAX_SLOPE : 0.28));
-    const stepSize = Math.max(0.12, Math.min(0.35, Number.isFinite(GAME.MINER_GUIDE_STEP) ? GAME.MINER_GUIDE_STEP : 0.22));
-    const maxSegmentLen = Math.max(0.2, Number.isFinite(GAME.MINER_GUIDE_MAX_SEGMENT) ? GAME.MINER_GUIDE_MAX_SEGMENT : 0.45);
-    const minDotUp = Math.max(0.2, 1 - maxSlope);
-
-    /**
-     * Snap candidate path point to the gameplay radial surface and reject
-     * points that do not straddle a real air/rock boundary.
-     * @param {number} sx
-     * @param {number} sy
-     * @returns {{x:number,y:number}|null}
-     */
-    const projectToRadialSurface = (sx, sy) => {
-      const posRaw = this._posClosestForPath(sx, sy);
-      if (!posRaw) return null;
-      const pos = { x: posRaw.x, y: posRaw.y };
-      const info = this.surfaceInfoAtWorld(pos.x, pos.y, 0.18);
-      if (!info) return null;
-      const airProbe = 0.08;
-      const ax = pos.x + info.nx * airProbe;
-      const ay = pos.y + info.ny * airProbe;
-      const bx = pos.x - info.nx * airProbe;
-      const by = pos.y - info.ny * airProbe;
-      if (this.airValueAtWorld(ax, ay) <= 0.5) return null;
-      if (this.airValueAtWorld(bx, by) > 0.5) return null;
-      if (!this.isWalkableAtWorld(pos.x, pos.y, maxSlope, 0.18)) return null;
-      return pos;
-    };
-
-    const posRaw = this._posClosestForPath(x, y);
-    if (!posRaw) return null;
-    const pos = projectToRadialSurface(posRaw.x, posRaw.y);
-    if (!pos) return null;
-    if (Math.hypot(pos.x, pos.y) > this.planetRadius + 0.02) return null;
-
-    /** @type {Array<{x:number, y:number}>} */
-    const path = [{x: pos.x, y: pos.y}];
-    let indexClosest = 0;
-
-    /**
-     * @param {number} x 
-     * @param {number} y 
-     * @returns {{nx:number, ny:number}}
-     */
-    const tryGetNormalAt = (x, y) => {
-      const eps = 0.18;
-      const gdx = this.radial.airValueAtWorldForPath(x + eps, y) - this.radial.airValueAtWorldForPath(x - eps, y);
-      const gdy = this.radial.airValueAtWorldForPath(x, y + eps) - this.radial.airValueAtWorldForPath(x, y - eps);
-      const len = Math.hypot(gdx, gdy);
-      if (len < 1e-6) return null;
-      return { nx: gdx / len, ny: gdy / len };
-    };
-
-    /**
-     * 
-     * @param {number} px 
-     * @param {number} py 
-     * @param {number} stepSizeLocal 
-     * @returns {{x:number, y:number}|null}
-     */
-    const tryGetStep = (px, py, stepSizeLocal) => {
-      let n = tryGetNormalAt(px, py);
-      if (!n) return null;
-      const r = Math.hypot(px, py) || 1;
-      let dotUp = (px * n.nx + py * n.ny) / r;
-      if (dotUp < 0){
-        n = { nx: -n.nx, ny: -n.ny };
-        dotUp = -dotUp;
-      }
-      if (dotUp < minDotUp) return null;
-      const stepSign = Math.sign(stepSizeLocal) || 1;
-      const tangentX = -n.ny * stepSign;
-      const tangentY = n.nx * stepSign;
-      const qx = px + tangentX * Math.abs(stepSizeLocal);
-      const qy = py + tangentY * Math.abs(stepSizeLocal);
-      const posNextRaw = this._posClosestForPath(qx, qy);
-      if (!posNextRaw) return null;
-      const posNext = projectToRadialSurface(posNextRaw.x, posNextRaw.y);
-      if (!posNext) return null;
-      if (Math.hypot(posNext.x, posNext.y) > this.planetRadius + 0.02) return null;
-      const segDx = posNext.x - px;
-      const segDy = posNext.y - py;
-      const segLen = Math.hypot(segDx, segDy);
-      if (!Number.isFinite(segLen) || segLen < 1e-4 || segLen > maxSegmentLen) return null;
-      const dirDot = (segDx / segLen) * tangentX + (segDy / segLen) * tangentY;
-      if (dirDot < 0.25) return null;
-      if (Math.hypot(posNext.x - x, posNext.y - y) > maxDistance) return null;
-      return {x: posNext.x, y: posNext.y};
-    };
-
-    const maxPointsPos = Math.max(8, Math.ceil(maxDistance / Math.max(1e-3, stepSize)) + 2);
-    while (path.length < maxPointsPos) {
-      const posExtend = tryGetStep(path[0].x, path[0].y, stepSize);
-      if (!posExtend) break;
-      const head = path[0];
-      if (Math.hypot(posExtend.x - head.x, posExtend.y - head.y) < 1e-4) break;
-      path.unshift(posExtend);
-      ++indexClosest;
+    if (!this.radial || typeof this.radial.surfaceGuidePathTo !== "function"){
+      return null;
     }
-
-    const maxPointsNeg = path.length + Math.max(8, Math.ceil(maxDistance / Math.max(1e-3, stepSize)) + 2);
-    while (path.length < maxPointsNeg) {
-      const posExtend = tryGetStep(path[path.length-1].x, path[path.length-1].y, -stepSize);
-      if (!posExtend) break;
-      const tail = path[path.length - 1];
-      if (Math.hypot(posExtend.x - tail.x, posExtend.y - tail.y) < 1e-4) break;
-      path.push(posExtend);
-    }
-
-    return {path: path, indexClosest: indexClosest};
+    return this.radial.surfaceGuidePathTo(x, y, maxDistance);
   }
 
   /**
