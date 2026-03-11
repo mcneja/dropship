@@ -523,7 +523,8 @@ export class RingMesh {
     const dist = Math.hypot(dx, dy);
     if (dist <= 1e-6) return true;
     const steps = Math.max(1, Math.ceil(dist / step));
-    for (let i = 1; i <= steps; i++){
+    // Check only interior samples; the endpoint can lie on/inside terrain by design.
+    for (let i = 1; i < steps; i++){
       const t = i / steps;
       const x = ax + dx * t;
       const y = ay + dy * t;

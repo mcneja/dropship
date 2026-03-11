@@ -434,13 +434,34 @@ export class MapGen {
    */
   _carveNoCavesTopography(air, depth, freq, octaves, amp){
     if (depth <= 0) return;
-    const { G, idx, inside, toWorld } = this.grid;
+    const { G, idx, inside, toWorld, cell } = this.grid;
     const rMax = this.params.RMAX;
     const maxDepth = Math.max(0.05, depth);
     const ampClamped = Math.max(0, Math.min(maxDepth * 0.95, amp || 0));
-    const meanDepth = Math.max(0, Math.min(maxDepth, maxDepth * 0.42));
+    const ampFloor = Math.min(maxDepth * 0.65, Math.max(cell * 1.1, maxDepth * 0.25));
+    const ampEffective = Math.max(ampClamped, ampFloor);
+    // Keep baseline modest relative to amplitude so some sectors remain uncut.
+    const meanDepth = Math.max(0, Math.min(maxDepth * 0.30, ampEffective * 0.72));
     const waveFreq = Math.max(0.2, freq || 1.2);
     const waveOctaves = Math.max(1, Math.round(octaves || 3));
+    // Normalize profile per world so seed phase does not bias the full rim to air.
+    let shapeMean = 0;
+    let shapeMin = Infinity;
+    let shapeMax = -Infinity;
+    const shapeSamples = 512;
+    for (let s = 0; s < shapeSamples; s++){
+      const th = (s / shapeSamples) * (Math.PI * 2);
+      const ux = Math.cos(th);
+      const uy = Math.sin(th);
+      const profile = this.noise.fbm(ux * waveFreq, uy * waveFreq, waveOctaves, 0.55, 2.0);
+      const detail = this.noise.fbm((ux + 13.7) * waveFreq * 2.1, (uy - 7.1) * waveFreq * 2.1, 2, 0.55, 2.0);
+      const shape = Math.max(-1, Math.min(1, profile * 0.8 + detail * 0.2));
+      shapeMean += shape;
+      if (shape < shapeMin) shapeMin = shape;
+      if (shape > shapeMax) shapeMax = shape;
+    }
+    shapeMean /= shapeSamples;
+    const shapeHalfRange = Math.max(0.22, (shapeMax - shapeMin) * 0.5);
     for (let j = 0; j < G; j++) for (let i = 0; i < G; i++){
       const k = idx(i, j);
       if (!inside[k]) continue;
@@ -453,9 +474,10 @@ export class MapGen {
       // Periodic angular profile on the unit circle gives coherent hills/valleys.
       const profile = this.noise.fbm(ux * waveFreq, uy * waveFreq, waveOctaves, 0.55, 2.0);
       const detail = this.noise.fbm((ux + 13.7) * waveFreq * 2.1, (uy - 7.1) * waveFreq * 2.1, 2, 0.55, 2.0);
-      const shape = Math.max(-1, Math.min(1, profile * 0.8 + detail * 0.2));
+      const shapeRaw = Math.max(-1, Math.min(1, profile * 0.8 + detail * 0.2));
+      const shape = Math.max(-1, Math.min(1, (shapeRaw - shapeMean) / shapeHalfRange));
       // Allow cut depth to reach 0 at some angles so terrain uses the full rim extent.
-      const cutDepth = Math.max(0, Math.min(maxDepth, meanDepth + shape * ampClamped));
+      const cutDepth = Math.max(0, Math.min(maxDepth, meanDepth + shape * ampEffective));
       const surfaceR = rMax - cutDepth;
       if (r >= surfaceR){
         air[k] = 1;
