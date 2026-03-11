@@ -2685,9 +2685,6 @@ export class Renderer {
       if (r > uMaxR){
         discard;
       }
-      if (r > (uMeshRmax - 0.5)){
-        discard;
-      }
       float t = clamp(vShade, 0.0, 1.0);
       float band = uSurfaceBand * uRmax;
       bool useSurface = (uSurfaceBand > 0.0) && (length(vWorld) > (uRmax - band));

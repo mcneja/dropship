@@ -12,6 +12,9 @@ export class RingMesh {
     this._params = params;
     this._map = map;
     this._OUTER_PAD = 0.0;
+    // Keep the outer shell purely space so mapgen raster noise cannot create
+    // phantom rock/collision slivers at the mesh boundary.
+    this._OUTER_FORCED_AIR_RINGS = 0;
     this._R_MESH = Math.max(0, Math.floor(params.RMAX)) + 1;
 
     /**
@@ -97,12 +100,12 @@ export class RingMesh {
 
       for (let r = 0; r < rings.length; r++){
         const ring = rings[r];
-        const isOuterRing = (r === rings.length - 1);
         for (const v of ring){
-          v.air = isOuterRing ? 1 : this._sampleAirAtWorldExtended(v.x, v.y);
+          v.air = this._sampleAirAtWorldExtended(v.x, v.y);
         }
       }
       this._applyMoltenOverrides();
+      this._forceOuterShellAir();
       this._cleanupOuterRimSpikeArtifacts();
 
       for (let r=0;r<this._R_MESH;r++){
@@ -223,6 +226,11 @@ export class RingMesh {
       ? this._params.CORE_RADIUS
       : (this._params.CORE_RADIUS * this._params.RMAX);
     if (coreR > 0 && r <= coreR) return 0;
+    const forcedRings = Math.max(0, this._OUTER_FORCED_AIR_RINGS | 0);
+    if (forcedRings > 0){
+      const outerShellMinR = Math.max(0, this._R_MESH - forcedRings);
+      if (r >= outerShellMinR) return 1;
+    }
     if (r > this._params.RMAX) return 1;
     return this._map.airBinaryAtWorld(x, y);
   }
@@ -277,9 +285,9 @@ export class RingMesh {
    */
   airValueAtWorld(x, y){
     const r = Math.hypot(x, y);
-    if (r > this._params.RMAX + this._OUTER_PAD) return 1;
     const rOuter = this.rings ? (this.rings.length - 1) : this._params.RMAX;
-    if (r > (rOuter - 0.5)) return 1;
+    if (r > rOuter + this._OUTER_PAD) return 1;
+    if (r > this._params.RMAX + this._OUTER_PAD) return 1;
     return this._airValueAtWorldNoOuterClamp(x, y);
   }
 
@@ -292,6 +300,8 @@ export class RingMesh {
    */
   airValueAtWorldForPath(x, y){
     const r = Math.hypot(x, y);
+    const rOuter = this.rings ? (this.rings.length - 1) : this._params.RMAX;
+    if (r > rOuter + this._OUTER_PAD) return 1;
     if (r > this._params.RMAX + this._OUTER_PAD) return 1;
     return this._airValueAtWorldNoOuterClamp(x, y);
   }
@@ -332,8 +342,8 @@ export class RingMesh {
    * @returns {number}
    */
   _airValueAtWorldNoOuterClamp(x, y){
-    const r0 = Math.floor(Math.min(this._R_MESH - 1, Math.max(0, Math.hypot(x, y))));
-    if (r0 <= 0){
+    const r = Math.hypot(x, y);
+    if (r <= 1e-6){
       return this.rings[0][0].air;
     }
     const tri = this.findTriAtWorld(x, y);
@@ -357,11 +367,31 @@ export class RingMesh {
       }
     }
     this._applyMoltenOverrides();
+    this._forceOuterShellAir();
     this._cleanupOuterRimSpikeArtifacts();
     for (let i = 0; i < this.vertCount; i++){
       this.airFlag[i] = this._vertRefs[i].air;
     }
     return new Float32Array(this.airFlag);
+  }
+
+  /**
+   * Force outer shell rings to air.
+   * @returns {void}
+   */
+  _forceOuterShellAir(){
+    if (!this.rings || !this.rings.length) return;
+    const ringCount = this.rings.length;
+    const forceCount = Math.max(0, Math.min(ringCount, this._OUTER_FORCED_AIR_RINGS | 0));
+    if (forceCount <= 0) return;
+    const start = Math.max(0, ringCount - forceCount);
+    for (let r = start; r < ringCount; r++){
+      const ring = this.rings[r];
+      if (!ring) continue;
+      for (const v of ring){
+        v.air = 1;
+      }
+    }
   }
 
   /**

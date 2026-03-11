@@ -665,7 +665,7 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
   const outerRingR = (planet && planet.radial && planet.radial.rings && planet.radial.rings.length)
     ? (planet.radial.rings.length - 1)
     : ((waterParams && typeof waterParams.RMAX === "number") ? Math.floor(waterParams.RMAX) : 0);
-  const waterRadius = isWater ? Math.max(0, outerRingR - 0.5) : 0;
+  const waterRadius = isWater ? Math.max(0, outerRingR) : 0;
   const bubbleSources = isWater ? collectWaterBubbleSources(planet, 36) : [];
   if (isWater && bubbleSources.length && props){
     const rand = mulberry32((planet.getSeed() + 14591) | 0);
@@ -1480,7 +1480,7 @@ export function buildPlanetMaterials(mapgen, planetConfig, params){
         break;
       case "water":
         if (isAir){
-          const waterSurfaceR = Math.max(0, Math.floor(params.RMAX) - 0.5);
+          const waterSurfaceR = Math.max(0, Math.floor(params.RMAX));
           if (r <= waterSurfaceR) mat = 5;
         }
         break;
