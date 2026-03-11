@@ -2016,6 +2016,38 @@ function drawFrameImpl(renderer, state, planet){
           drawOffscreenIndicator(closestRescuee.x, closestRescuee.y, r, g, b);
         }
       }
+
+      if (state.ship.state === "flying"){
+        // Braking line
+
+        const s = state.view.radius * 0.008;
+        const thickness = Math.max(0.03, s);
+        const thrustMax = planet.planetParams.THRUST * (1 + state.ship.thrust * 0.1);
+        const vscale1 = vScaleStopping(planet, state.ship.x, state.ship.y, state.ship.vx, state.ship.vy, thrustMax);
+        const dxMothership = state.mothership.x - state.ship.x;
+        const dyMothership = state.mothership.y - state.ship.y;
+        const sqrDistMothership = dxMothership*dxMothership + dyMothership*dyMothership;
+        const vscale2 = vScaleStopping(planet, state.ship.x, state.ship.y, state.ship.vx - state.mothership.vx, state.ship.vy - state.mothership.vy, thrustMax);
+
+        let vx = state.ship.vx * vscale1;
+        let vy = state.ship.vy * vscale1;
+
+        if (sqrDistMothership < 25){
+          vx = (state.ship.vx - state.mothership.vx) * vscale2;
+          vy = (state.ship.vy - state.mothership.vy) * vscale2;
+        }
+
+        const r1 = Math.hypot(vx, vy);
+        const r0 = 0.35;
+        if (r1 > r0){
+          const x1 = state.ship.x + vx;
+          const y1 = state.ship.y + vy;
+          const x0 = state.ship.x + vx * r0 / r1;
+          const y0 = state.ship.y + vy * r0 / r1;
+          pushThickLine(pos, col, x0, y0, x1, y1, thickness, 0.5, 0.84, 1.0, 0.5);
+          triVerts += 6;
+        }
+      }
     }
 
     const tc = [1.0, 0.55, 0.15];
@@ -2040,11 +2072,6 @@ function drawFrameImpl(renderer, state, planet){
   }
 
   if (showGameplayIndicators && state.ship.state === "flying"){
-    // Braking line
-    const vscale = vScaleStopping(planet, state.ship.x, state.ship.y, state.ship.vx, state.ship.vy, game.THRUST);
-    pushLine(pos, col, state.ship.x, state.ship.y, state.ship.x + state.ship.vx * vscale, state.ship.y + state.ship.vy * vscale, 0.5, 0.84, 1.0, 0.5);
-    lineVerts += 2;
-
     // Orbit apogee and perigee
     const {rPerigee: rPerigee, rApogee: rApogee} = planet.perigeeAndApogee(state.ship.x, state.ship.y, state.ship.vx, state.ship.vy);
     const rMin = rMax + 0.5;
