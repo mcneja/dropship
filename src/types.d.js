@@ -206,6 +206,7 @@
  * @property {boolean} copyScreenshotCleanTitle
  * @property {boolean} nextLevel
  * @property {boolean} prevLevel
+ * @property {boolean} [zoomReset]
  * @property {boolean} shootHeld
  * @property {boolean} shootPressed
  * @property {boolean} [shoot]
@@ -222,6 +223,7 @@
  * @property {Point|null} [aimBombTo]
  * @property {{leftTouch:Point|null,laserTouch:Point|null,bombTouch:Point|null}|null} [touchUi]
  * @property {boolean} [touchUiVisible]
+ * @property {number} [zoomDelta]
  * @property {"keyboard"|"mouse"|"touch"|"gamepad"|null} [inputType]
  */
 

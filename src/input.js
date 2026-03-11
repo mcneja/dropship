@@ -54,6 +54,7 @@ export class Input {
       abandonRun: false,
       nextLevel: false,
       prevLevel: false,
+      zoomReset: false,
       shoot: false,
       bomb: false,
       rescueAll: false,
@@ -88,6 +89,8 @@ export class Input {
     this.lastInputType = null;
     /** @type {boolean} */
     this.mouseShootHeld = false;
+    /** @type {number} */
+    this.zoomDelta = 0;
     this.HOLD_ABANDON_MS = 3000;
     this.pointerLocked = false;
     /** @type {boolean} */
@@ -108,6 +111,7 @@ export class Input {
     canvas.addEventListener("pointermove", (e) => this._onPointerMove(e), { passive: true });
     canvas.addEventListener("pointerup", (e) => this._onPointerUp(e), { passive: true });
     canvas.addEventListener("pointercancel", (e) => this._onPointerUp(e), { passive: true });
+    canvas.addEventListener("wheel", (e) => this._onWheel(e), { passive: false });
     canvas.addEventListener("contextmenu", (e) => e.preventDefault());
     canvas.addEventListener("dblclick", (e) => {
       e.preventDefault();
@@ -171,6 +175,7 @@ export class Input {
       this.oneshot.shoot = false;
       this.oneshot.bomb = false;
       this.oneshot.abandonRun = false;
+      this.oneshot.zoomReset = false;
       this.oneshot.rescueAll = false;
       this.oneshot.killAllEnemies = false;
       this.oneshot.musicVolumeUp = false;
@@ -178,6 +183,7 @@ export class Input {
       this.oneshot.copyScreenshot = false;
       this.oneshot.copyScreenshotClean = false;
       this.oneshot.copyScreenshotCleanTitle = false;
+      this.zoomDelta = 0;
       this.abandonHoldSource = null;
       this.abandonHoldStartMs = 0;
       this.abandonHoldTriggered = false;
@@ -219,6 +225,7 @@ export class Input {
     this.prevPadShoot = false;
     this.prevPadBomb = false;
     this.prevPadReset = false;
+    this.zoomDelta = 0;
     this.abandonHoldSource = null;
     this.abandonHoldStartMs = 0;
     this.abandonHoldTriggered = false;
@@ -368,6 +375,9 @@ export class Input {
     if (this.debugCommandsEnabled && debugChord && code === "KeyN"){
       if (e.shiftKey) this.oneshot.prevLevel = true;
       else this.oneshot.nextLevel = true;
+    }
+    if (code === "Digit0" && !e.ctrlKey && !e.metaKey && !e.altKey){
+      this.oneshot.zoomReset = true;
     }
     if (key === "r" || key === "R"){
       if (!e.shiftKey) this.oneshot.reset = true;
@@ -603,6 +613,22 @@ export class Input {
   }
 
   /**
+   * @param {WheelEvent} e
+   * @returns {void}
+   */
+  _onWheel(e){
+    if (this.modalOpen) return;
+    e.preventDefault();
+    let modeScale = 1;
+    if (e.deltaMode === 1) modeScale = 3; // DOM_DELTA_LINE
+    else if (e.deltaMode === 2) modeScale = 24; // DOM_DELTA_PAGE
+    const delta = (e.deltaY / 100) * modeScale;
+    if (!Number.isFinite(delta) || Math.abs(delta) < 1e-4) return;
+    this.zoomDelta = Math.max(-8, Math.min(8, this.zoomDelta + delta));
+    this.lastInputType = "mouse";
+  }
+
+  /**
    * @returns {boolean}
    */
   _hasConnectedGamepad(){
@@ -817,6 +843,7 @@ export class Input {
         copyScreenshotCleanTitle: false,
         nextLevel: false,
         prevLevel: false,
+        zoomReset: false,
         shootHeld: false,
         shootPressed: false,
         shoot: false,
@@ -833,6 +860,7 @@ export class Input {
         aimBombTo: null,
         touchUi: null,
         touchUiVisible: false,
+        zoomDelta: 0,
         inputType: this.lastInputType,
       };
       this._resetOneShotFlags();
@@ -975,6 +1003,7 @@ export class Input {
       copyScreenshotCleanTitle: this.oneshot.copyScreenshotCleanTitle,
       nextLevel: this.oneshot.nextLevel,
       prevLevel: this.oneshot.prevLevel,
+      zoomReset: this.oneshot.zoomReset,
       shootHeld,
       shootPressed,
       shoot: shootPressed,
@@ -991,6 +1020,7 @@ export class Input {
       aimBombTo,
       touchUi,
       touchUiVisible,
+      zoomDelta: this.zoomDelta,
       inputType: this.lastInputType,
     };
 
@@ -1023,11 +1053,13 @@ export class Input {
     this.oneshot.copyScreenshotCleanTitle = false;
     this.oneshot.nextLevel = false;
     this.oneshot.prevLevel = false;
+    this.oneshot.zoomReset = false;
     this.oneshot.shoot = false;
     this.oneshot.bomb = false;
     this.oneshot.rescueAll = false;
     this.oneshot.killAllEnemies = false;
     this.oneshot.spawnEnemyType = null;
+    this.zoomDelta = 0;
     this.bombReleaseFrom = null;
     this.bombReleaseTo = null;
   }

@@ -262,6 +262,10 @@ export class GameLoop {
     };
     this.planetView = false;
     this.fogEnabled = true;
+    /** @type {boolean} */
+    this.manualZoomActive = false;
+    /** @type {number} */
+    this.manualZoomMultiplier = 1;
     this.hasLaunchedPlayerShip = false;
     /** @type {Array<{perk:string,text:string}>|null} */
     this.pendingPerkChoice = null;
@@ -836,9 +840,73 @@ export class GameLoop {
   }
 
   /**
+   * @returns {number}
+   */
+  _manualZoomMinMultiplier(){
+    return 0.35;
+  }
+
+  /**
+   * @returns {number}
+   */
+  _manualZoomMaxMultiplier(){
+    return 4.0;
+  }
+
+  /**
+   * @returns {number}
+   */
+  _currentZoomMultiplier(){
+    if (!this.manualZoomActive) return 1;
+    const minMul = this._manualZoomMinMultiplier();
+    const maxMul = this._manualZoomMaxMultiplier();
+    const raw = Number.isFinite(this.manualZoomMultiplier) ? this.manualZoomMultiplier : 1;
+    return Math.max(minMul, Math.min(maxMul, raw));
+  }
+
+  /**
+   * @returns {void}
+   */
+  _resetManualZoom(){
+    this.manualZoomActive = false;
+    this.manualZoomMultiplier = 1;
+  }
+
+  /**
+   * @returns {void}
+   */
+  _showZoomCue(){
+    this._showStatusCue(`Zoom ${this._currentZoomMultiplier().toFixed(2)}x`, 1.0);
+  }
+
+  /**
+   * @param {number} delta
+   * @returns {void}
+   */
+  _applyManualZoomDelta(delta){
+    if (!Number.isFinite(delta) || Math.abs(delta) < 1e-4) return;
+    if (this.planetView) return;
+    if (!this.manualZoomActive){
+      this.manualZoomActive = true;
+    }
+    const step = Math.max(-6, Math.min(6, delta));
+    const factor = Math.pow(1.1, step);
+    const minMul = this._manualZoomMinMultiplier();
+    const maxMul = this._manualZoomMaxMultiplier();
+    const nextMul = Math.max(minMul, Math.min(maxMul, this.manualZoomMultiplier / factor));
+    if (Math.abs(nextMul - 1) <= 0.02){
+      this._resetManualZoom();
+      this._showZoomCue();
+      return;
+    }
+    this.manualZoomMultiplier = nextMul;
+    this._showZoomCue();
+  }
+
+  /**
    * @returns {ViewState}
    */
-  _viewState() {
+  _autoViewState() {
     if (this.planetView){
       return {
         xCenter: 0,
@@ -887,6 +955,23 @@ export class GameLoop {
       view.xCenter += Math.sin(t * 24.7) * amp + Math.sin(t * 41.3) * amp * 0.45;
       view.yCenter += Math.cos(t * 19.9) * amp + Math.cos(t * 37.1) * amp * 0.45;
     }
+    return view;
+  }
+
+  /**
+   * @returns {ViewState}
+   */
+  _viewState() {
+    const view = this._autoViewState();
+    if (!this.manualZoomActive || this.planetView) return view;
+    const zoomMul = this._currentZoomMultiplier();
+    const baseRadius = Math.max(1e-6, view.radius);
+    const radiusScaled = baseRadius / zoomMul;
+    const ratio = radiusScaled / baseRadius;
+    // Apply wheel zoom around the ship so auto-framing offsets do not shift unpredictably.
+    view.xCenter = this.ship.x + (view.xCenter - this.ship.x) * ratio;
+    view.yCenter = this.ship.y + (view.yCenter - this.ship.y) * ratio;
+    view.radius = radiusScaled;
     return view;
   }
 
@@ -1720,6 +1805,8 @@ export class GameLoop {
       this.newGameHelpPromptT = 0;
       this.newGameHelpPromptArmed = true;
       this._resetStartTitle();
+      this.manualZoomActive = false;
+      this.manualZoomMultiplier = 1;
       this.ship.mothershipMiners = 0;
       this.ship.mothershipPilots = 0;
       this.ship.mothershipEngineers = 0;
@@ -2238,7 +2325,7 @@ export class GameLoop {
       const outerRingR = (this.planet && this.planet.radial && this.planet.radial.rings && this.planet.radial.rings.length)
         ? (this.planet.radial.rings.length - 1)
         : Math.floor(this.planetParams.RMAX || 0);
-      const waterR = isWaterWorld ? Math.max(0, outerRingR - 0.5) : 0;
+      const waterR = isWaterWorld ? Math.max(0, outerRingR) : 0;
       const shipInWaterBefore = !!(isWaterWorld && waterR > 0 && r <= waterR + 0.02 && this.planet.airValueAtWorld(this.ship.x, this.ship.y) > 0.5);
 
       const thrustMax = this.planetParams.THRUST * (1 + this.ship.thrust * 0.1);
@@ -3064,6 +3151,13 @@ export class GameLoop {
       this.input.setDebugCommandsEnabled(this.devHudVisible);
     }
     const inputState = this.input.update();
+    if (inputState.zoomReset){
+      this._resetManualZoom();
+      this._showZoomCue();
+    }
+    if (typeof inputState.zoomDelta === "number" && Math.abs(inputState.zoomDelta) > 1e-4){
+      this._applyManualZoomDelta(inputState.zoomDelta);
+    }
     if (this.helpPopup && typeof this.helpPopup.setTouchMode === "function"){
       this.helpPopup.setTouchMode(inputState.inputType === "touch");
     }
@@ -3452,6 +3546,8 @@ export class GameLoop {
     if (inputState.regen || inputState.nextLevel || inputState.prevLevel) return true;
     if (inputState.toggleDebug || inputState.toggleDevHud || inputState.togglePlanetView || inputState.toggleCollisionContours || inputState.toggleMinerGuidePath || inputState.toggleFog) return true;
     if (inputState.copyScreenshot || inputState.copyScreenshotClean || inputState.copyScreenshotCleanTitle) return true;
+    if (inputState.zoomReset) return true;
+    if (typeof inputState.zoomDelta === "number" && Math.abs(inputState.zoomDelta) > 1e-4) return true;
     if (inputState.rescueAll || inputState.spawnEnemyType !== null) return true;
     if (inputState.inputType === "touch" && (inputState.aim || inputState.aimShoot || inputState.aimBomb)) return true;
     if (inputState.inputType === "gamepad" && (inputState.aim || inputState.aimShoot || inputState.aimBomb)) return true;

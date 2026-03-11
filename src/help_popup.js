@@ -26,6 +26,8 @@ const HELP_CONTENT = `
       <div class="help-k">Reverse Thrust</div><div class="help-v"><span class="help-chip">S</span> or <span class="help-chip">Down</span></div>
       <div class="help-k">Fire Laser</div><div class="help-v"><span class="help-chip">LMB</span> (hold for autofire)</div>
       <div class="help-k">Drop Bomb</div><div class="help-v"><span class="help-chip">RMB</span></div>
+      <div class="help-k">Adjust Zoom</div><div class="help-v"><span class="help-chip">Mouse Wheel</span> adjusts zoom multiplier on top of auto framing.</div>
+      <div class="help-k">Reset Zoom</div><div class="help-v"><span class="help-chip">0</span> returns zoom to <span class="help-chip">1.00x</span> auto.</div>
       <div class="help-k">Restart / Upgrade / Level up</div><div class="help-v"><span class="help-chip">R</span>, hold <span class="help-chip">Shift+R</span> 3s abandon run</div>
       <div class="help-k">Open / Close Help</div><div class="help-v"><span class="help-chip">/</span> <span class="help-chip">?</span> (close also with <span class="help-chip">Esc</span>)</div>
       <div class="help-k">Music</div><div class="help-v"><span class="help-chip">M</span>/<span class="help-chip">B</span> mute toggle, <span class="help-chip">J</span> combat tracks toggle, <span class="help-chip">-</span>/<span class="help-chip">=</span> volume</div>
