@@ -501,8 +501,7 @@ export const PLANET_CONFIGS = [
     minerCountPerLevel: 2,
     minerCountCap: 30,
     platformCount: 10,
-    // enemyAllow: ["hunter", "ranger", "crawler", "orbitingTurret"],
-    enemyAllow: ["hunter", "ranger", "crawler"],
+    enemyAllow: ["hunter", "ranger", "crawler", "orbitingTurret"],
     notes: "Lush surface; slightly denser interior.",
     defaults: {
       ROCK_DARK: [0.30, 0.20, 0.12],
@@ -520,9 +519,9 @@ export const PLANET_CONFIGS = [
       },
     },
     ranges: {
-      RMAX: r(20, 21),
+      RMAX: r(20, 25),
       PAD: r(1.0, 1.5),
-      MOTHERSHIP_ORBIT_HEIGHT: r(2, 2),
+      MOTHERSHIP_ORBIT_HEIGHT: r(12, 18),
       SURFACE_G: r(1.8, 2.4),
       DRAG_MULT: r(0.95, 1.25),
       THRUST_MULT: r(0.95, 1.10),
