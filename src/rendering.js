@@ -1469,6 +1469,7 @@ function drawFrameImpl(renderer, state, planet){
   if (state.playerShots && state.playerShots.length){
     const size = 0.11;
     for (const s of state.playerShots){
+      if (state.fogEnabled && !planet.fogSeenAt(s.x, s.y)) continue;
       pushDiamond(pos, col, s.x, s.y, size, 0.95, 0.95, 0.95, 0.95);
       triVerts += 6;
     }
@@ -1477,6 +1478,7 @@ function drawFrameImpl(renderer, state, planet){
   if (state.playerBombs && state.playerBombs.length){
     const size = 0.13;
     for (const b of state.playerBombs){
+      if (state.fogEnabled && !planet.fogSeenAt(b.x, b.y)) continue;
       pushSquare(pos, col, b.x, b.y, size, 1.0, 0.7, 0.2, 0.95);
       triVerts += 6;
     }
