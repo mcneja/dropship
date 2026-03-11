@@ -1990,7 +1990,13 @@ function drawFrameImpl(renderer, state, planet){
 
     if (showGameplayIndicators){
       if (state.mothership) {
-        drawOffscreenIndicator(state.mothership.x, state.mothership.y, 0.5, 0.84, 1.0);
+        const rotCos = Math.cos(state.mothership.angle);
+        const rotSin = Math.sin(state.mothership.angle);
+        const localX = -2.75;
+        const localY = 1.0;
+        const x = state.mothership.x + localX * rotCos - localY * rotSin;
+        const y = state.mothership.y + localX * rotSin + localY * rotCos;
+        drawOffscreenIndicator(x, y, 0.5, 0.84, 1.0);
       }
 
       if (state.ship.rescueeDetector){
