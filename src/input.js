@@ -39,6 +39,7 @@ export class Input {
       toggleDebug: false,
       toggleDevHud: false,
       togglePlanetView: false,
+      toggleRingVertices: false,
       togglePlanetTriangles: false,
       toggleCollisionContours: false,
       toggleMinerGuidePath: false,
@@ -352,6 +353,8 @@ export class Input {
         code === "KeyI" ||
         code === "KeyN" ||
         code === "KeyV" ||
+        code === "KeyG" ||
+        code === "KeyH" ||
         code === "KeyT" ||
         code === "KeyY" ||
         code === "KeyU" ||
@@ -383,6 +386,8 @@ export class Input {
       if (!e.shiftKey) this.oneshot.reset = true;
     }
     if (this.debugCommandsEnabled && debugChord && code === "KeyV") this.oneshot.togglePlanetView = true;
+    if (this.debugCommandsEnabled && debugChord && code === "KeyG") this.oneshot.toggleRingVertices = true;
+    if (this.debugCommandsEnabled && debugChord && code === "KeyH") this.oneshot.toggleRingVertices = true;
     if (this.debugCommandsEnabled && debugChord && code === "KeyT") this.oneshot.togglePlanetTriangles = true;
     if (this.debugCommandsEnabled && debugChord && code === "KeyY") this.oneshot.toggleCollisionContours = true;
     if (this.debugCommandsEnabled && debugChord && code === "KeyU") this.oneshot.toggleMinerGuidePath = true;
@@ -830,6 +835,7 @@ export class Input {
         toggleDebug: false,
         toggleDevHud: false,
         togglePlanetView: false,
+        toggleRingVertices: false,
         togglePlanetTriangles: false,
         toggleCollisionContours: false,
         toggleMinerGuidePath: false,
@@ -990,6 +996,7 @@ export class Input {
       toggleDebug: this.oneshot.toggleDebug,
       toggleDevHud: this.oneshot.toggleDevHud,
       togglePlanetView: this.oneshot.togglePlanetView,
+      toggleRingVertices: this.oneshot.toggleRingVertices,
       togglePlanetTriangles: this.oneshot.togglePlanetTriangles,
       toggleCollisionContours: this.oneshot.toggleCollisionContours,
       toggleMinerGuidePath: this.oneshot.toggleMinerGuidePath,
@@ -1040,6 +1047,7 @@ export class Input {
     this.oneshot.toggleDebug = false;
     this.oneshot.toggleDevHud = false;
     this.oneshot.togglePlanetView = false;
+    this.oneshot.toggleRingVertices = false;
     this.oneshot.togglePlanetTriangles = false;
     this.oneshot.toggleCollisionContours = false;
     this.oneshot.toggleMinerGuidePath = false;

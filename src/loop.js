@@ -209,6 +209,7 @@ export class GameLoop {
     this.debugPlanetTriangles = false;
     this.debugCollisionContours = false;
     this.debugMinerGuidePath = false;
+    this.debugRingVertices = false;
     this.debugMinerPathToMiner = null;
     this.devHudVisible = false;
     if (this.input && typeof this.input.setDebugCommandsEnabled === "function"){
@@ -3331,6 +3332,10 @@ export class GameLoop {
     if (inputState.togglePlanetView){
       this.planetView = !this.planetView;
     }
+    if (inputState.toggleRingVertices){
+      this.debugRingVertices = !this.debugRingVertices;
+      this._showStatusCue(this.debugRingVertices ? "Ring vertex debug on" : "Ring vertex debug off");
+    }
     if (inputState.togglePlanetTriangles){
       this.debugPlanetTriangles = !this.debugPlanetTriangles;
       this._showStatusCue(this.debugPlanetTriangles ? "Planet triangle outlines on" : "Planet triangle outlines off");
@@ -3431,10 +3436,11 @@ export class GameLoop {
       debugNodes: GAME.DEBUG_NODES,
       debugPlanetTriangles: this.debugPlanetTriangles,
       debugCollisionContours: this.debugCollisionContours,
+      debugRingVertices: this.debugRingVertices,
       debugMinerGuidePath: this.debugMinerGuidePath,
       debugMinerPathToMiner: this.debugMinerPathToMiner,
       debugCollisionSamples: (this.debugCollisions || this.debugCollisionContours) ? (this.ship._samples || []) : null,
-      debugPoints: (this.debugCollisions && GAME.DEBUG_NODES) ? this.planet.debugPoints() : null,
+      debugPoints: ((this.debugCollisions && GAME.DEBUG_NODES) || this.debugRingVertices) ? this.planet.debugPoints() : null,
       fogEnabled: this.fogEnabled,
       fps: this.fps,
       finalAir: this.planet.getFinalAir(),

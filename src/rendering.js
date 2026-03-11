@@ -2323,7 +2323,15 @@ function drawFrameImpl(renderer, state, planet){
     }
   }
   const dbg = state.debugPoints;
-  if (state.debugCollisions && state.debugNodes && dbg){
+  if (state.debugRingVertices && dbg){
+    for (const [sxw, syw, air, av] of dbg){
+      pos.push(sxw, syw);
+      if (air) col.push(0.83, 0.83, 0.83, 0.95);
+      else col.push(0.58, 0.42, 0.24, 0.95);
+      pointVerts += 1;
+    }
+  }
+  if (state.debugCollisions && state.debugNodes && dbg && !state.debugRingVertices){
     for (const [sxw, syw, air, av] of dbg){
       pos.push(sxw, syw);
       if (air) col.push(airPoint[0], airPoint[1], airPoint[2], 0.45);

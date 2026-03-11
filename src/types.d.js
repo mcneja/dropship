@@ -61,7 +61,7 @@
  * @property {boolean} planetScanner
  * 
  * @property {Array<[number,number,boolean,number]>|null} [_samples]
- * @property {{x:number,y:number,tri?:Array<{x:number,y:number}>|null,node?:{x:number,y:number}|null}|null} [_collision]
+ * @property {{x:number,y:number,source?:"planet"|"mothership",tri?:Array<{x:number,y:number}>|null,node?:{x:number,y:number}|null}|null} [_collision]
  * @property {number} [_shipRadius]
  */
 
@@ -149,6 +149,7 @@
  * @property {boolean} debugNodes
  * @property {boolean} debugPlanetTriangles
  * @property {boolean} debugCollisionContours
+ * @property {boolean} [debugRingVertices]
  * @property {boolean} debugMinerGuidePath
  * @property {Array<{x:number,y:number}>|null} [debugMinerPathToMiner]
  * @property {boolean} fogEnabled
@@ -193,6 +194,7 @@
  * @property {boolean} toggleDebug
  * @property {boolean} toggleDevHud
  * @property {boolean} togglePlanetView
+ * @property {boolean} toggleRingVertices
  * @property {boolean} togglePlanetTriangles
  * @property {boolean} toggleCollisionContours
  * @property {boolean} toggleMinerGuidePath
