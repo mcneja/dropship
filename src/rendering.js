@@ -2253,8 +2253,24 @@ function drawFrameImpl(renderer, state, planet){
         lineVerts += 2;
       }
     }
-    const iShip = Math.max(0, Math.min(path.length - 1, Math.round(state.ship.guidePath.indexClosest)));
-    const pShip = path[iShip];
+    const idxRaw = Math.max(0, Math.min(path.length - 1, Number(state.ship.guidePath.indexClosest) || 0));
+    let pShip = null;
+    if (path.length === 1){
+      pShip = path[0];
+    } else {
+      let i0 = Math.floor(idxRaw);
+      let u = idxRaw - i0;
+      if (i0 >= path.length - 1){
+        i0 = path.length - 2;
+        u = 1;
+      }
+      const p0 = path[Math.max(0, i0)];
+      const p1 = path[Math.min(path.length - 1, i0 + 1)];
+      pShip = {
+        x: p0.x + (p1.x - p0.x) * u,
+        y: p0.y + (p1.y - p0.y) * u,
+      };
+    }
     if (pShip){
       pushLine(pos, col, state.ship.x, state.ship.y, pShip.x, pShip.y, 0.2, 0.95, 1.0, 0.95);
       lineVerts += 2;

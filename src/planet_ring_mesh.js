@@ -476,9 +476,22 @@ export class RingMesh {
       const n0y = tx;
       const n1x = ty;
       const n1y = -tx;
-      const dot0 = n0x * ux + n0y * uy;
-      const dot1 = n1x * ux + n1y * uy;
-      const dotUp = Math.max(dot0, dot1);
+      // Pick the normal direction that goes from rock to air so walkability
+      // rejects upside-down/ceiling contours naturally.
+      const probe = 0.08;
+      const a0 = this.airValueAtWorld(mx + n0x * probe, my + n0y * probe);
+      const b0 = this.airValueAtWorld(mx - n0x * probe, my - n0y * probe);
+      const a1 = this.airValueAtWorld(mx + n1x * probe, my + n1y * probe);
+      const b1 = this.airValueAtWorld(mx - n1x * probe, my - n1y * probe);
+      const o0 = (a0 - b0);
+      const o1 = (a1 - b1);
+      let nx = n0x;
+      let ny = n0y;
+      if (o1 > o0){
+        nx = n1x;
+        ny = n1y;
+      }
+      const dotUp = nx * ux + ny * uy;
       const slope = 1 - dotUp;
       segmentKeys.add(segKey);
       const iSeg = segments.length;
@@ -582,8 +595,8 @@ export class RingMesh {
     const minDotUp = Math.max(0.2, 1 - maxSlope);
     const rAnchor = Math.hypot(x, y);
     const radialBias = 2.5;
-    const preferOuter = rAnchor >= (this._R_MESH - 0.75);
-    const outerBandInner = rAnchor - 0.95;
+    const preferOuter = rAnchor >= (this._R_MESH - 1.8);
+    const outerBandInner = rAnchor - 0.55;
     /** @type {Uint8Array} */
     const segAllowed = new Uint8Array(segments.length);
     for (let i = 0; i < segments.length; i++){
