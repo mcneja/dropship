@@ -219,23 +219,76 @@ export class Planet {
    * @returns {number}
    */
   nearestRadialNodeInAir(x, y){
-    const iNode = nearestRadialNode(this.radialGraph, this.radial, x, y);
-    if (this.airNodesBitmap[iNode]) return iNode;
-    let iNodeBest = iNode;
-    let distSqrBest = Infinity;
-    for (const n of this.radialGraph.neighbors[iNode]) {
-      const iNodeNeighbor = n.to;
-      if (!this.airNodesBitmap[iNodeNeighbor]) continue;
-      const nodeNeighbor = this.radialGraph.nodes[iNodeNeighbor];
-      const dx = x - nodeNeighbor.x;
-      const dy = y - nodeNeighbor.y;
-      const distSqr = dx*dx + dy*dy;
-      if (distSqr < distSqrBest) {
-        distSqrBest = distSqr;
-        iNodeBest = iNodeNeighbor;
+    const graph = this.radialGraph;
+    const iNode = nearestRadialNode(graph, this.radial, x, y);
+    if (iNode < 0 || iNode >= graph.nodes.length) return -1;
+    const air = this.airNodesBitmap;
+    if (air[iNode]) return iNode;
+    const hasAirNeighbor = (idx) => {
+      for (const edge of graph.neighbors[idx]){
+        if (air[edge.to]) return true;
+      }
+      return false;
+    };
+
+    // First, expand locally in graph space to find nearby passable nodes.
+    const visited = new Uint8Array(graph.nodes.length);
+    /** @type {number[]} */
+    let frontier = [iNode];
+    visited[iNode] = 1;
+    let bestMovable = -1;
+    let bestMovableDistSqr = Infinity;
+    let best = -1;
+    let bestDistSqr = Infinity;
+    const maxHops = 6;
+    for (let hop = 0; hop < maxHops && frontier.length; hop++){
+      /** @type {number[]} */
+      const next = [];
+      for (const idx of frontier){
+        if (air[idx]){
+          const node = graph.nodes[idx];
+          const dx = x - node.x;
+          const dy = y - node.y;
+          const d2 = dx * dx + dy * dy;
+          if (d2 < bestDistSqr){
+            bestDistSqr = d2;
+            best = idx;
+          }
+          if (hasAirNeighbor(idx) && d2 < bestMovableDistSqr){
+            bestMovableDistSqr = d2;
+            bestMovable = idx;
+          }
+        }
+        for (const edge of graph.neighbors[idx]){
+          const j = edge.to;
+          if (visited[j]) continue;
+          visited[j] = 1;
+          next.push(j);
+        }
+      }
+      if (bestMovable >= 0) return bestMovable;
+      if (best >= 0) return best;
+      frontier = next;
+    }
+
+    // Fallback: nearest passable node globally.
+    for (let i = 0; i < graph.nodes.length; i++){
+      if (!air[i]) continue;
+      const node = graph.nodes[i];
+      const dx = x - node.x;
+      const dy = y - node.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < bestDistSqr){
+        bestDistSqr = d2;
+        best = i;
+      }
+      if (hasAirNeighbor(i) && d2 < bestMovableDistSqr){
+        bestMovableDistSqr = d2;
+        bestMovable = i;
       }
     }
-    return iNodeBest;
+    if (bestMovable >= 0) return bestMovable;
+    return best >= 0 ? best : iNode;
   }
 
   /**
@@ -247,7 +300,7 @@ export class Planet {
    */
   computeDistanceMapTo(x, y){
     const radialGraph = this.radialGraph;
-    const nodeTarget = nearestRadialNode(radialGraph, this.radial, x, y);
+    const nodeTarget = this.nearestRadialNodeInAir(x, y);
     this.distanceToTarget = dijkstraMap(radialGraph, [nodeTarget], this.airNodesBitmap);    
   }
 
