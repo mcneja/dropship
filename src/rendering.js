@@ -2058,7 +2058,7 @@ function drawFrameImpl(renderer, state, planet){
 
         if (!insideMothership){
           const {rPerigee: rPerigee, rApogee: rApogee} = planet.perigeeAndApogee(state.ship.x, state.ship.y, state.ship.vx, state.ship.vy);
-          const rMin = rMax + 0.5;
+          const rMin = rMax - 0.5;
           if (rPerigee >= rMin) {
             const r = Math.hypot(state.ship.x, state.ship.y);
             const dirX = state.ship.x / r;
