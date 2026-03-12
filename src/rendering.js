@@ -2081,8 +2081,12 @@ function drawFrameImpl(renderer, state, planet){
             const periX = dirX * rPerigee;
             const periY = dirY * rPerigee;
 
-            const offsetX = -dirY * (crossTickSize + 0.35);
-            const offsetY = dirX * (crossTickSize + 0.35);
+            let offsetX = -dirY * (crossTickSize + 0.35);
+            let offsetY = dirX * (crossTickSize + 0.35);
+            if (state.ship.x * state.ship.vy - state.ship.y * state.ship.vx < 0){
+              offsetX = -offsetX;
+              offsetY = -offsetY;
+            }
 
             pushThickLine(pos, col, apoX + offsetX - crossX, apoY + offsetY - crossY, apoX + offsetX + crossX, apoY + offsetY + crossY, thickness, 0.5, 0.84, 1.0, 0.5);
             pushThickLine(pos, col, periX + offsetX - crossX, periY + offsetY - crossY, periX + offsetX + crossX, periY + offsetY + crossY, thickness, 0.5, 0.84, 1.0, 0.5);
