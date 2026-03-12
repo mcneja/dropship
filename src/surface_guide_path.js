@@ -583,6 +583,12 @@ export function moveAlongPathNegative(path, indexPath, distRemaining, indexPathM
   const uSegMin = indexPathMin - iSegMin;
   let iSeg = Math.floor(indexPath);
   let uSeg = indexPath - iSeg;
+  if (iSeg >= path.length - 1){
+    // If starting exactly at the last path point, step from the final segment.
+    iSeg = path.length - 2;
+    uSeg = 1;
+    indexPath = path.length - 1;
+  }
 
   while (iSeg >= 0 && iSeg + 1 < path.length){
     const dSegX = path[iSeg + 1].x - path[iSeg].x;
