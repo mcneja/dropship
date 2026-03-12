@@ -240,6 +240,8 @@ export function resolveShipCollisionResponse(args){
     const shipR = Math.hypot(ship.x, ship.y) || 1;
     const shipUpX = ship.x / shipR;
     const shipUpY = ship.y / shipR;
+    const shipTx = -shipUpY;
+    const shipTy = shipUpX;
 
     /**
      * @param {Array<{x:number,y:number,air:number}>|null|undefined} tri
@@ -558,13 +560,181 @@ export function resolveShipCollisionResponse(args){
       return (-(rcx * shipUpX + rcy * shipUpY) / rLen);
     };
 
+    /**
+     * Fit a local boundary normal at the ship underside probe using nearby
+     * boundary samples along the ship tangent.
+     * @param {number} probeX
+     * @param {number} probeY
+     * @returns {{x:number,y:number,nx:number,ny:number,tri:Array<{x:number,y:number,air:number}>|null,t:number,pointIndex:number,entryVn:number,dotUp:number,airFront:number,airBack:number,leftSpan:number,rightSpan:number,maxDev:number}|null}
+     */
+    const localProbeSupportContact = (probeX, probeY) => {
+      const span = Math.max(0.16, shipRadius * 0.48);
+      const offsets = [-span, -span * 0.5, 0, span * 0.5, span];
+      /** @type {Array<{o:number,x:number,y:number}>} */
+      const samples = [];
+      for (const o of offsets){
+        const sx = probeX + shipTx * o;
+        const sy = probeY + shipTy * o;
+        const b = boundaryAlongShipUp(sx, sy);
+        if (b){
+          samples.push({ o, x: b.x, y: b.y });
+        }
+      }
+      if (samples.length < 2) return null;
+
+      let left = null;
+      let right = null;
+      let center = null;
+      let centerAbs = Infinity;
+      for (const s of samples){
+        const ao = Math.abs(s.o);
+        if (ao < centerAbs){
+          centerAbs = ao;
+          center = s;
+        }
+        if (s.o < 0 && (!left || s.o > left.o)) left = s;
+        if (s.o > 0 && (!right || s.o < right.o)) right = s;
+      }
+      if (!left || !right) return null;
+
+      /** @type {{o:number,x:number,y:number}} */
+      let pivot = center || {
+        o: 0,
+        x: (left.x + right.x) * 0.5,
+        y: (left.y + right.y) * 0.5,
+      };
+      if (!center){
+        const bPivot = boundaryAlongShipUp(pivot.x, pivot.y);
+        if (bPivot){
+          pivot = { o: 0, x: bPivot.x, y: bPivot.y };
+        }
+      }
+
+      const tdx = right.x - left.x;
+      const tdy = right.y - left.y;
+      const tLen = Math.hypot(tdx, tdy);
+      if (tLen < 1e-6) return null;
+      const txFit = tdx / tLen;
+      const tyFit = tdy / tLen;
+      const normals = [
+        { nx: -tyFit, ny: txFit },
+        { nx: tyFit, ny: -txFit },
+      ];
+
+      let best = null;
+      let bestScore = -Infinity;
+      const probeOut = 0.08;
+      const probeIn = 0.06;
+      for (const n of normals){
+        const af = collision.planetAirValueAtWorld(pivot.x + n.nx * probeOut, pivot.y + n.ny * probeOut);
+        const ab = collision.planetAirValueAtWorld(pivot.x - n.nx * probeIn, pivot.y - n.ny * probeIn);
+        const dotUp = n.nx * shipUpX + n.ny * shipUpY;
+        const boundaryOk = (af > 0.5 && ab <= 0.52) ? 1 : 0;
+        const score = boundaryOk * 4.0 + (af - ab) * 2.2 + dotUp * 0.35;
+        if (score > bestScore){
+          bestScore = score;
+          best = { nx: n.nx, ny: n.ny, dotUp, af, ab };
+        }
+      }
+      if (!best) return null;
+
+      let maxDev = 0;
+      for (const s of samples){
+        const dev = Math.abs((s.x - pivot.x) * best.nx + (s.y - pivot.y) * best.ny);
+        if (dev > maxDev) maxDev = dev;
+      }
+
+      const minSideSpan = Math.max(0.06, shipRadius * 0.14);
+      const flatTol = Math.max(0.03, shipRadius * 0.10);
+      const leftSpan = Math.abs(left.o);
+      const rightSpan = Math.abs(right.o);
+      const enoughSpan = leftSpan >= minSideSpan && rightSpan >= minSideSpan;
+      const flatEnough = maxDev <= flatTol;
+      const boundaryEnough = (best.af > 0.5 && best.ab <= 0.52);
+      if (!enoughSpan || !flatEnough || !boundaryEnough){
+        return null;
+      }
+
+      const nPivot = normalAtContact(pivot.x, pivot.y);
+      return {
+        x: pivot.x,
+        y: pivot.y,
+        nx: best.nx,
+        ny: best.ny,
+        tri: nPivot.tri,
+        t: 1,
+        pointIndex: -3,
+        entryVn: ship.vx * best.nx + ship.vy * best.ny,
+        dotUp: best.dotUp,
+        airFront: best.af,
+        airBack: best.ab,
+        leftSpan,
+        rightSpan,
+        maxDev,
+      };
+    };
+
     const pickSupportContact = (contacts, probeX, probeY) => {
-      if (!contacts.length) return null;
+      const localSupport = localProbeSupportContact(probeX, probeY);
+      if (localSupport){
+        return {
+          x: localSupport.x,
+          y: localSupport.y,
+          nx: localSupport.nx,
+          ny: localSupport.ny,
+          tri: localSupport.tri,
+          t: localSupport.t,
+          pointIndex: localSupport.pointIndex,
+          entryVn: localSupport.entryVn,
+        };
+      }
+
+      const candidates = contacts.slice();
+      const probeBoundary = boundaryAlongShipUp(probeX, probeY);
+      if (probeBoundary){
+        const nProbe = normalAtContact(probeBoundary.x, probeBoundary.y);
+        const normCandidates = [
+          [nProbe.nx, nProbe.ny],
+          [-nProbe.nx, -nProbe.ny],
+          [shipUpX, shipUpY],
+          [-shipUpX, -shipUpY],
+        ];
+        let bestN = normCandidates[0];
+        let bestScore = -Infinity;
+        const probeOut = 0.08;
+        const probeIn = 0.06;
+        for (const nn of normCandidates){
+          const nx = nn[0];
+          const ny = nn[1];
+          const front = collision.planetAirValueAtWorld(probeBoundary.x + nx * probeOut, probeBoundary.y + ny * probeOut);
+          const back = collision.planetAirValueAtWorld(probeBoundary.x - nx * probeIn, probeBoundary.y - ny * probeIn);
+          const dotUp = nx * shipUpX + ny * shipUpY;
+          const validBoundary = (front > 0.5 && back <= 0.52) ? 1 : 0;
+          const score = validBoundary * 3.0 + (front - back) * 2.0 + dotUp * 0.2;
+          if (score > bestScore){
+            bestScore = score;
+            bestN = nn;
+          }
+        }
+        const pnx = bestN[0];
+        const pny = bestN[1];
+        candidates.push({
+          x: nProbe.x,
+          y: nProbe.y,
+          nx: pnx,
+          ny: pny,
+          tri: nProbe.tri,
+          t: 1,
+          pointIndex: -2,
+          entryVn: ship.vx * pnx + ship.vy * pny,
+        });
+      }
+      if (!candidates.length) return null;
       /** @type {Array<{x:number,y:number,nx:number,ny:number,tri:Array<{x:number,y:number,air:number}>|null,t:number,pointIndex:number,entryVn:number,dotUp:number,downness:number,dProbe:number}>} */
       const underside = [];
       const maxSlopeLocal = 1 - Math.cos(Math.PI / 8); // 22.5 deg
       const landSlopeLocal = Math.min((1 - game.SURFACE_DOT) + 0.03, maxSlopeLocal);
-      for (const c of contacts){
+      for (const c of candidates){
         const dotUpC = c.nx * shipUpX + c.ny * shipUpY;
         const downness = contactDownness(c);
         // Landing support must come from the lower hull hemisphere.
@@ -630,7 +800,7 @@ export function resolveShipCollisionResponse(args){
       let bestDot = -Infinity;
       let bestProbe = Infinity;
       let bestFlat = null;
-      for (const c of contacts){
+      for (const c of candidates){
         const dotUpC = c.nx * shipUpX + c.ny * shipUpY;
         const dProbe = Math.hypot(c.x - probeX, c.y - probeY);
         if (dotUpC > bestDot + 1e-6){
@@ -644,7 +814,7 @@ export function resolveShipCollisionResponse(args){
           bestFlat = c;
         }
       }
-      return bestFlat || pickImpactContact(contacts);
+      return bestFlat || pickImpactContact(candidates);
     };
 
     const probeX = ship.x - shipUpX * shipRadius;
@@ -773,8 +943,6 @@ export function resolveShipCollisionResponse(args){
     let airFront = collision.planetAirValueAtWorld(lx + lnx * clearOutside, ly + lny * clearOutside);
     let airBack = collision.planetAirValueAtWorld(lx - lnx * clearInside, ly - lny * clearInside);
     let landable = support && (dotUp > 0) && (slope <= landSlope) && (airFront > 0.5) && (airBack <= 0.52);
-    const shipTx = -shipUpY;
-    const shipTy = shipUpX;
     /**
      * Landing assist is only valid for ledge/shelf-like bottoms.
      * If both tangent-side boundary probes exist and show clear slope grade,

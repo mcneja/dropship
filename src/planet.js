@@ -5,7 +5,7 @@ import { RadialGraph, buildPassableMask, dijkstraMap, nearestRadialNode } from "
 import { MapGen } from "./mapgen.js";
 import { CFG, GAME } from "./config.js";
 import { mulberry32 } from "./rng.js";
-import { buildPlanetMaterials, createIceShardHazard, createRidgeSpikeHazard, createMushroomHazard, createPlanetFeatures } from "./planet_materials.js";
+import { buildPlanetMaterials, createIceShardHazard, createRidgeSpikeHazard, createMushroomHazard, createPlanetFeatures } from "./planet_features.js";
 
 /**
  * Planet terrain abstraction backed by mapgen grid truth.
