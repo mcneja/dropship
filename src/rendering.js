@@ -2012,26 +2012,38 @@ function drawFrameImpl(renderer, state, planet){
       if (state.ship.state === "flying"){
         // Braking line
 
-        const s = state.view.radius * 0.008;
-        const thickness = Math.max(0.03, s);
+        /** @type (x: number, y: number) => boolean */
+        const isInsideMothership = (x, y) => {
+          x -= state.mothership.x;
+          y -= state.mothership.y;
+          const rotCos = Math.cos(state.mothership.angle);
+          const rotSin = Math.sin(state.mothership.angle);
+          const xLocal = x * rotCos + y *  rotSin;
+          const yLocal = x * rotSin + y * -rotCos;
+          // Hard-coding the dimensions of the mothership in its local coordinate
+          // system; might be better to ask the mothership.
+          return yLocal < 1.2 && yLocal > -1.2 && xLocal > -4 && xLocal < 2.75;
+        };
+
         const thrustMax = planet.planetParams.THRUST * (1 + state.ship.thrust * 0.1);
-        const vscale1 = vScaleStopping(planet, state.ship.x, state.ship.y, state.ship.vx, state.ship.vy, thrustMax);
-        const dxMothership = state.mothership.x - state.ship.x;
-        const dyMothership = state.mothership.y - state.ship.y;
-        const sqrDistMothership = dxMothership*dxMothership + dyMothership*dyMothership;
-        const vscale2 = vScaleStopping(planet, state.ship.x, state.ship.y, state.ship.vx - state.mothership.vx, state.ship.vy - state.mothership.vy, thrustMax);
 
-        let vx = state.ship.vx * vscale1;
-        let vy = state.ship.vy * vscale1;
+        let vx = state.ship.vx;
+        let vy = state.ship.vy;
 
-        if (sqrDistMothership < 25){
-          vx = (state.ship.vx - state.mothership.vx) * vscale2;
-          vy = (state.ship.vy - state.mothership.vy) * vscale2;
+        if (isInsideMothership(state.ship.x, state.ship.y)){
+          vx -= state.mothership.vx;
+          vy -= state.mothership.vy;
         }
 
+        const vscale = vScaleStopping(planet, state.ship.x, state.ship.y, vx, vy, thrustMax);
+        vx *= vscale;
+        vy *= vscale;
+        
         const r1 = Math.hypot(vx, vy);
         const r0 = 0.35;
         if (r1 > r0){
+          const s = state.view.radius * 0.008;
+          const thickness = Math.max(0.03, s);
           const x1 = state.ship.x + vx;
           const y1 = state.ship.y + vy;
           const x0 = state.ship.x + vx * r0 / r1;
