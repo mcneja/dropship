@@ -92,7 +92,7 @@ export class Input {
     this.mouseShootHeld = false;
     /** @type {number} */
     this.zoomDelta = 0;
-    this.HOLD_ABANDON_MS = 3000;
+    this.HOLD_ABANDON_MS = 1000;
     this.pointerLocked = false;
     /** @type {boolean} */
     this.gameOver = false;
@@ -262,7 +262,7 @@ export class Input {
     const button = document.createElement("button");
     button.id = "touch-restart-toggle";
     button.type = "button";
-    button.setAttribute("aria-label", "Hold 3 seconds to abandon run");
+    button.setAttribute("aria-label", "Hold 1 second to abandon run");
     button.textContent = "↻";
     button.style.setProperty("--restart-hold-progress", "0%");
     button.addEventListener("pointerdown", (e) => {

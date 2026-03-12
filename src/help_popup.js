@@ -28,7 +28,7 @@ const HELP_CONTENT = `
       <div class="help-k">Drop Bomb</div><div class="help-v"><span class="help-chip">RMB</span></div>
       <div class="help-k">Adjust Zoom</div><div class="help-v"><span class="help-chip">Mouse Wheel</span> adjusts zoom multiplier on top of auto framing.</div>
       <div class="help-k">Reset Zoom</div><div class="help-v"><span class="help-chip">0</span> returns zoom to <span class="help-chip">1.00x</span> auto.</div>
-      <div class="help-k">Restart / Upgrade / Level up</div><div class="help-v"><span class="help-chip">R</span>, hold <span class="help-chip">Shift+R</span> 3s abandon run</div>
+      <div class="help-k">Restart / Upgrade / Level up</div><div class="help-v"><span class="help-chip">R</span>, hold <span class="help-chip">Shift+R</span> 1s abandon run</div>
       <div class="help-k">Open / Close Help</div><div class="help-v"><span class="help-chip">/</span> <span class="help-chip">?</span> (close also with <span class="help-chip">Esc</span>)</div>
       <div class="help-k">Music</div><div class="help-v"><span class="help-chip">M</span>/<span class="help-chip">B</span> mute toggle, <span class="help-chip">J</span> combat tracks toggle, <span class="help-chip">-</span>/<span class="help-chip">=</span> volume</div>
       <div class="help-k">Other audio</div><div class="help-v">Use system volume</div>
@@ -41,11 +41,11 @@ const HELP_CONTENT = `
       <div class="help-k">Touch Aim / Fire</div><div class="help-v">Right diamond (lower-right): drag to aim, hold to fire.</div>
       <div class="help-k">Touch Bomb</div><div class="help-v">Right square (upper-right): drag + release to throw bomb.</div>
       <div class="help-k">Touch Play</div><div class="help-v">Large play circle (upper-left area): appears for context actions (new dropship, upgrades, scanner, next level).</div>
-      <div class="help-k">Touch Restart</div><div class="help-v">Small <span class="help-chip">↻</span> button next to <span class="help-chip">?</span>: hold 3s to restart run during active play.</div>
+      <div class="help-k">Touch Restart</div><div class="help-v">Small <span class="help-chip">↻</span> button next to <span class="help-chip">?</span>: hold 1s to restart run during active play.</div>
       <div class="help-k">Touch Help</div><div class="help-v">Small circled <span class="help-chip">?</span> button in upper-left.</div>
       <div class="help-k">Gamepad Move</div><div class="help-v">Left stick (analog thrust vector).</div>
       <div class="help-k">Gamepad Aim</div><div class="help-v">Right stick.</div>
-      <div class="help-k">Gamepad Inputs</div><div class="help-v"><span class="help-chip">Left Stick</span> analog thrust vector, <span class="help-chip">D-pad</span> left/right/up/down digital thrust, <span class="help-chip">B</span> down, <span class="help-chip">LB</span>/<span class="help-chip">LT</span> bomb, <span class="help-chip">RB</span>/<span class="help-chip">RT</span> laser (hold for autofire), <span class="help-chip">A/Button0</span> restart/upgrade/level, <span class="help-chip">Start</span> hold 3s abandon run, <span class="help-chip">Y/Button3</span> help, <span class="help-chip">RT/LT</span>, both sticks, or <span class="help-chip">D-pad Up/Down</span> scroll help.</div>
+      <div class="help-k">Gamepad Inputs</div><div class="help-v"><span class="help-chip">Left Stick</span> analog thrust vector, <span class="help-chip">D-pad</span> left/right/up/down digital thrust, <span class="help-chip">B</span> down, <span class="help-chip">LB</span>/<span class="help-chip">LT</span> bomb, <span class="help-chip">RB</span>/<span class="help-chip">RT</span> laser (hold for autofire), <span class="help-chip">A/Button0</span> restart/upgrade/level, <span class="help-chip">Start</span> hold 1s abandon run, <span class="help-chip">Y/Button3</span> help, <span class="help-chip">RT/LT</span>, both sticks, or <span class="help-chip">D-pad Up/Down</span> scroll help.</div>
     </div>
   </section>
   <section class="help-section">
