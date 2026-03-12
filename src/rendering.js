@@ -2010,25 +2010,39 @@ function drawFrameImpl(renderer, state, planet){
       }
 
       if (state.ship.state === "flying"){
+        const thickness = state.view.radius * 0.008;
+
         // Braking line
 
-        const s = state.view.radius * 0.008;
-        const thickness = Math.max(0.03, s);
+        /** @type (x: number, y: number) => boolean */
+        const isInsideMothership = (x, y) => {
+          x -= state.mothership.x;
+          y -= state.mothership.y;
+          const rotCos = Math.cos(state.mothership.angle);
+          const rotSin = Math.sin(state.mothership.angle);
+          const xLocal = x * rotCos + y *  rotSin;
+          const yLocal = x * rotSin + y * -rotCos;
+          // Hard-coding the dimensions of the mothership in its local coordinate
+          // system; might be better to ask the mothership.
+          return yLocal < 1.2 && yLocal > -1.2 && xLocal > -4 && xLocal < 2.75;
+        };
+
+        const insideMothership = isInsideMothership(state.ship.x, state.ship.y);
+
         const thrustMax = planet.planetParams.THRUST * (1 + state.ship.thrust * 0.1);
-        const vscale1 = vScaleStopping(planet, state.ship.x, state.ship.y, state.ship.vx, state.ship.vy, thrustMax);
-        const dxMothership = state.mothership.x - state.ship.x;
-        const dyMothership = state.mothership.y - state.ship.y;
-        const sqrDistMothership = dxMothership*dxMothership + dyMothership*dyMothership;
-        const vscale2 = vScaleStopping(planet, state.ship.x, state.ship.y, state.ship.vx - state.mothership.vx, state.ship.vy - state.mothership.vy, thrustMax);
 
-        let vx = state.ship.vx * vscale1;
-        let vy = state.ship.vy * vscale1;
+        let vx = state.ship.vx;
+        let vy = state.ship.vy;
 
-        if (sqrDistMothership < 25){
-          vx = (state.ship.vx - state.mothership.vx) * vscale2;
-          vy = (state.ship.vy - state.mothership.vy) * vscale2;
+        if (insideMothership){
+          vx -= state.mothership.vx;
+          vy -= state.mothership.vy;
         }
 
+        const vscale = vScaleStopping(planet, state.ship.x, state.ship.y, vx, vy, thrustMax);
+        vx *= vscale;
+        vy *= vscale;
+        
         const r1 = Math.hypot(vx, vy);
         const r0 = 0.35;
         if (r1 > r0){
@@ -2038,6 +2052,44 @@ function drawFrameImpl(renderer, state, planet){
           const y0 = state.ship.y + vy * r0 / r1;
           pushThickLine(pos, col, x0, y0, x1, y1, thickness, 0.5, 0.84, 1.0, 0.5);
           triVerts += 6;
+        }
+
+        // Orbit apogee and perigee
+
+        if (!insideMothership){
+          const {rPerigee: rPerigee, rApogee: rApogee} = planet.perigeeAndApogee(state.ship.x, state.ship.y, state.ship.vx, state.ship.vy);
+          const rMin = rMax + 0.5;
+          if (rPerigee >= rMin) {
+            const r = Math.hypot(state.ship.x, state.ship.y);
+            const dirX = state.ship.x / r;
+            const dirY = state.ship.y / r;
+
+            const crossTickSize = 0.01 * state.view.radius;
+            const crossX = -dirY * crossTickSize;
+            const crossY = dirX * crossTickSize;
+
+            const upX0 = dirX * thickness / 2;
+            const upY0 = dirY * thickness / 2;
+
+            const upLen = Math.min(2 * crossTickSize, (rApogee - rPerigee) / 2);
+            const upX1 = dirX * upLen;
+            const upY1 = dirY * upLen;
+
+            const apoX = dirX * rApogee;
+            const apoY = dirY * rApogee;
+
+            const periX = dirX * rPerigee;
+            const periY = dirY * rPerigee;
+
+            const offsetX = -dirY * (crossTickSize + 0.35);
+            const offsetY = dirX * (crossTickSize + 0.35);
+
+            pushThickLine(pos, col, apoX + offsetX - crossX, apoY + offsetY - crossY, apoX + offsetX + crossX, apoY + offsetY + crossY, thickness, 0.5, 0.84, 1.0, 0.5);
+            pushThickLine(pos, col, periX + offsetX - crossX, periY + offsetY - crossY, periX + offsetX + crossX, periY + offsetY + crossY, thickness, 0.5, 0.84, 1.0, 0.5);
+            pushThickLine(pos, col, apoX + offsetX - upX0, apoY + offsetY - upY0, apoX + offsetX - upX1, apoY + offsetY - upY1, thickness, 0.5, 0.84, 1.0, 0.5);
+            pushThickLine(pos, col, periX + offsetX + upX0, periY + offsetY + upY0, periX + offsetX + upX1, periY + offsetY + upY1, thickness, 0.5, 0.84, 1.0, 0.5);
+            triVerts += 24;
+          }
         }
       }
     }
@@ -2055,32 +2107,6 @@ function drawFrameImpl(renderer, state, planet){
     }
     if (thrusterPower.right > 0){
       thrustV(1, 0, tc[0], tc[1], tc[2], shipWWorld * 0.5, thrustLiftAll, thrusterPower.right);
-    }
-  }
-
-  if (showGameplayIndicators && state.ship.state === "flying"){
-    // Orbit apogee and perigee
-    const {rPerigee: rPerigee, rApogee: rApogee} = planet.perigeeAndApogee(state.ship.x, state.ship.y, state.ship.vx, state.ship.vy);
-    const rMin = rMax + 0.5;
-    if (rPerigee >= rMin) {
-      const r = Math.hypot(state.ship.x, state.ship.y);
-      const dirX = state.ship.x / r;
-      const dirY = state.ship.y / r;
-
-      const crossTickSize = 0.01 * state.view.radius;
-      const crossX = -dirY * crossTickSize;
-      const crossY = dirX * crossTickSize;
-
-      const apoX = dirX * rApogee;
-      const apoY = dirY * rApogee;
-
-      const periX = dirX * rPerigee;
-      const periY = dirY * rPerigee;
-
-      pushLine(pos, col, apoX - crossX, apoY - crossY, apoX + crossX, apoY + crossY, 0.5, 0.84, 1.0, 0.5);
-      pushLine(pos, col, periX - crossX, periY - crossY, periX + crossX, periY + crossY, 0.5, 0.84, 1.0, 0.5);
-      pushLine(pos, col, apoX, apoY, periX, periY, 0.5, 0.84, 1.0, 0.5);
-      lineVerts += 6;
     }
   }
 
