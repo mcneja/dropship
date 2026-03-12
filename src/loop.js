@@ -1952,6 +1952,41 @@ export class GameLoop {
   }
 
   /**
+   * Conservative line-of-sight check against planet terrain for short miner
+   * approach steps to a guide path attach point.
+   * @param {number} x0
+   * @param {number} y0
+   * @param {number} x1
+   * @param {number} y1
+   * @param {number} [sidePad]
+   * @returns {boolean}
+   */
+  _segmentPlanetAirClear(x0, y0, x1, y1, sidePad = 0.02){
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    const len = Math.hypot(dx, dy);
+    if (len < 1e-6){
+      return this.collision.planetAirValueAtWorld(x0, y0) > 0.5;
+    }
+    const tx = dx / len;
+    const ty = dy / len;
+    const nx = -ty;
+    const ny = tx;
+    const steps = Math.max(2, Math.min(24, Math.ceil(len / 0.06) + 1));
+    for (let i = 0; i < steps; i++){
+      const t = (steps <= 1) ? 1 : (i / (steps - 1));
+      const sx = x0 + dx * t;
+      const sy = y0 + dy * t;
+      if (this.collision.planetAirValueAtWorld(sx, sy) <= 0.5) return false;
+      if (sidePad > 1e-6){
+        if (this.collision.planetAirValueAtWorld(sx + nx * sidePad, sy + ny * sidePad) <= 0.5) return false;
+        if (this.collision.planetAirValueAtWorld(sx - nx * sidePad, sy - ny * sidePad) <= 0.5) return false;
+      }
+    }
+    return true;
+  }
+
+  /**
    * Convert world point to ship-local coordinates where local X is ship-right
    * and local Y is ship-up (with ship orientation locked to planet tangent).
    * @param {number} px
@@ -2928,6 +2963,7 @@ export class GameLoop {
       let distMax = 0;
       let dAttach = null;
       let attachSnap = Math.max(0.03, guidepathAttachTolerance);
+      let attachBlocked = false;
 
       // Update jump cycle
       const r = Math.hypot(miner.x, miner.y) || 1;
@@ -2941,6 +2977,14 @@ export class GameLoop {
         const dxAttach = posAttach.x - miner.x;
         const dyAttach = posAttach.y - miner.y;
         dAttach = Math.hypot(dxAttach, dyAttach);
+        if (dAttach > attachSnap){
+          attachBlocked = !this._segmentPlanetAirClear(miner.x, miner.y, posAttach.x, posAttach.y, 0.02);
+        }
+        if (attachBlocked){
+          // Prevent cliff-climb style snapping through rock.
+          miner.state = "idle";
+          indexPathMiner = null;
+        } else
         if (dAttach > attachSnap){
           // Never teleport onto the path: move at most one miner step.
           const step = Math.min(distMax, dAttach);
@@ -3002,7 +3046,28 @@ export class GameLoop {
           const pathDelta = (indexPathTarget !== null) ? Math.abs(indexPathMinerInitial - indexPathTarget) : 0;
           const shouldStepToAttach = Number.isFinite(dAttach) && dAttach > (attachSnap + 1e-4);
           const shouldStepAlongPath = Number.isFinite(pathDelta) && pathDelta > 0.06;
-          if ((shouldStepToAttach || shouldStepAlongPath) && distMax > 1e-4 && minerMoved < 1e-5){
+          if (attachBlocked){
+            minerPathDebugRecord = {
+              reason: "attach_blocked_by_terrain",
+              minerIndex: i,
+              minerType: miner.type,
+              ship: { x: this.ship.x, y: this.ship.y },
+              miner: { x: prevMinerX, y: prevMinerY, moved: minerMoved, r: rMiner },
+              path: {
+                indexInitial: indexPathMinerInitial,
+                indexFinal: indexPathMiner,
+                indexTarget: indexPathTarget,
+                deltaToTarget: pathDelta,
+              },
+              step: {
+                distMax,
+                dAttach,
+                attachSnap,
+              },
+              attachDist,
+              attach: attachDebug,
+            };
+          } else if ((shouldStepToAttach || shouldStepAlongPath) && distMax > 1e-4 && minerMoved < 1e-5){
             minerPathDebugRecord = {
               reason: "running_no_step",
               minerIndex: i,
