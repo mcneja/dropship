@@ -2,7 +2,7 @@
 
 /**
  * @param {HTMLElement} hud
- * @param {{fps:number,state:string,speed:number,verts:number,air:number,miners:number,minersDead:number,level:number,debug:boolean,minerCandidates:number,shipHp:number,bombs:number,inputType:("keyboard"|"mouse"|"touch"|"gamepad"|null|undefined)}} stats
+ * @param {{fps:number,state:string,speed:number,verts:number,air:number,miners:number,minersDead:number,level:number,debug:boolean,minerCandidates:number,shipHp:number,bombs:number,landingDebug?:{source?:string,reason?:string,dotUp?:number,slope?:number,landSlope?:number,vn?:number,vt?:number,speed?:number,airFront?:number,airBack?:number,landable?:boolean,landed?:boolean,support?:boolean,supportDist?:number,contactsCount?:number,bestDotUpAny?:number,bestDotUpUnder?:number,impactPoint?:number,supportPoint?:number,impactT?:number,supportT?:number,impactX?:number,impactY?:number,supportX?:number,supportY?:number,supportTriOuterCount?:number,supportTriAirMin?:number,supportTriAirMax?:number,supportTriRMin?:number,supportTriRMax?:number}|null,inputType:("keyboard"|"mouse"|"touch"|"gamepad"|null|undefined)}} stats
  * @returns {void}
  */
 export function updateHud(hud, stats){
@@ -10,9 +10,21 @@ export function updateHud(hud, stats){
     hud.textContent = "Game over";
     return;
   }
-  const debugSuffix = stats.debug ? ` | miner candidates: ${stats.minerCandidates}` : "";
+  const landingDbg = stats.landingDebug;
+  const landingSuffix = landingDbg
+    ? ` | landDbg src:${landingDbg.source || "-"} r:${landingDbg.reason || "-"} lu:${fmtN(landingDbg.dotUp)} sl:${fmtN(landingDbg.slope)}<=${fmtN(landingDbg.landSlope)} vn:${fmtN(landingDbg.vn)} vt:${fmtN(landingDbg.vt)} sp:${fmtN(landingDbg.speed)} af:${fmtN(landingDbg.airFront)} ab:${fmtN(landingDbg.airBack)} sup:${landingDbg.support ? 1 : 0}@${fmtN(landingDbg.supportDist)} ok:${landingDbg.landable ? 1 : 0}`
+    : "";
+  const debugSuffix = stats.debug ? ` | miner candidates: ${stats.minerCandidates}${landingSuffix}` : "";
   hud.textContent =
-    `fps: ${stats.fps} | hull: ${stats.shipHp} | bombs: ${stats.bombs} | level: ${stats.level} | state: ${stats.state} | speed: ${stats.speed.toFixed(1)} | miners: ${stats.miners} | dead: ${stats.minersDead} | verts: ${stats.verts.toLocaleString()} | air: ${stats.air.toFixed(3)}${debugSuffix} | LMB: shoot | RMB: bomb | Wheel: zoom | 0: zoom reset | -/=: music vol | Alt+M: new map | Alt+N: next level | Alt+Shift+N: prev level | Alt+C: debug collisions | Alt+G/H: ring vertices | Alt+T: planet tri outline | Alt+Y: collision contours | Alt+U: miner path debug | Alt+V: view map | Alt+X: clear enemies | Alt+S: copy screenshot | Alt+Shift+S: clean screenshot | Alt+Shift+G: title screenshot | Alt+\\: toggle dev HUD | M/B: music | J: combat tracks | R: restart`;
+    `fps: ${stats.fps} | hull: ${stats.shipHp} | bombs: ${stats.bombs} | level: ${stats.level} | state: ${stats.state} | speed: ${stats.speed.toFixed(1)} | miners: ${stats.miners} | dead: ${stats.minersDead} | verts: ${stats.verts.toLocaleString()} | air: ${stats.air.toFixed(3)}${debugSuffix} | LMB: shoot | RMB: bomb | Wheel: zoom | 0: zoom reset | -/=: music vol | Alt+M: new map | Alt+N: next level | Alt+Shift+N: prev level | Alt+G/H: ring vertices | Alt+T: planet tri outline | Alt+Y: collision contours | Alt+U: miner path debug | Alt+I: debug collisions | Alt+V: view map | Alt+F: toggle fog | Alt+X: clear enemies | Alt+C: copy screenshot | Alt+Shift+C: copy clean screenshot | Alt+Shift+G: copy title screenshot | Alt+\\: toggle dev HUD | M/B: music | J: combat tracks | R: restart`;
+}
+
+/**
+ * @param {number|undefined|null} n
+ * @returns {string}
+ */
+function fmtN(n){
+  return Number.isFinite(n) ? Number(n).toFixed(2) : "-";
 }
 
 /**

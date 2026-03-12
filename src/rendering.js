@@ -2281,25 +2281,69 @@ function drawFrameImpl(renderer, state, planet){
   lineVerts = pos.length / 2 - triVerts;
 
   const dbgSamples = state.debugCollisionSamples || state.ship._samples;
-  if (state.debugCollisions && dbgSamples){
+  const landingDbg = state.ship._landingDebug || null;
+  /** @type {Array<{x:number,y:number,air:boolean,av:number}>} */
+  const debugCollisionSeeds = [];
+  const addDebugSeed = (x, y) => {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    for (const s of debugCollisionSeeds){
+      if (Math.hypot(s.x - x, s.y - y) <= 1e-4) return;
+    }
+    const av = planet.airValueAtWorld(x, y);
+    debugCollisionSeeds.push({ x, y, av, air: av > 0.5 });
+  };
+  if (dbgSamples){
     for (const [sxw, syw, air, av] of dbgSamples){
-      pos.push(sxw, syw);
-      if (air) col.push(0.45, 1.0, 0.55, 0.9);
+      debugCollisionSeeds.push({ x: sxw, y: syw, air: !!air, av });
+    }
+  }
+  if (landingDbg){
+    addDebugSeed(landingDbg.impactX, landingDbg.impactY);
+    addDebugSeed(landingDbg.supportX, landingDbg.supportY);
+  }
+
+  if (state.debugCollisions){
+    for (const s of debugCollisionSeeds){
+      pos.push(s.x, s.y);
+      if (s.air) col.push(0.45, 1.0, 0.55, 0.9);
       else col.push(1.0, 0.3, 0.3, 0.9);
       pointVerts += 1;
     }
   }
-  if (state.debugCollisionContours && dbgSamples && planet.radial && typeof planet.radial.findTriAtWorld === "function"){
+
+  const findTriAtOrNear = (x, y) => {
+    if (!planet.radial || typeof planet.radial.findTriAtWorld !== "function") return null;
+    let tri = planet.radial.findTriAtWorld(x, y);
+    if (tri) return tri;
+    const r = Math.hypot(x, y) || 1;
+    const ux = x / r;
+    const uy = y / r;
+    const tx = -uy;
+    const ty = ux;
+    const dirs = [[ux, uy], [-ux, -uy], [tx, ty], [-tx, -ty]];
+    const probe = [0.02, 0.05, 0.1, 0.18];
+    for (const d of probe){
+      for (const dir of dirs){
+        tri = planet.radial.findTriAtWorld(x + dir[0] * d, y + dir[1] * d);
+        if (tri) return tri;
+      }
+    }
+    return null;
+  };
+
+  if (state.debugCollisionContours && debugCollisionSeeds.length && planet.radial && typeof planet.radial.findTriAtWorld === "function"){
     /** @type {Array<Array<{x:number,y:number,air:number}>>} */
     const testedTris = [];
-    for (const [sxw, syw, air, av] of dbgSamples){
-      const tri = planet.radial.findTriAtWorld(sxw, syw);
+    for (const s of debugCollisionSeeds){
+      const sxw = s.x;
+      const syw = s.y;
+      const tri = findTriAtOrNear(sxw, syw);
       if (!tri) continue;
       if (testedTris.indexOf(tri) < 0) testedTris.push(tri);
 
       if (!state.debugCollisions){
         pos.push(sxw, syw);
-        if (air) col.push(0.45, 1.0, 0.55, 0.9);
+        if (s.air) col.push(0.45, 1.0, 0.55, 0.9);
         else col.push(1.0, 0.3, 0.3, 0.9);
         pointVerts += 1;
       }
@@ -2362,6 +2406,22 @@ function drawFrameImpl(renderer, state, planet){
     if (c.node){
       pos.push(c.node.x, c.node.y);
       col.push(0.2, 0.9, 1.0, 0.9);
+      pointVerts += 1;
+    }
+  }
+  if (state.debugCollisions && landingDbg){
+    const ix = landingDbg.impactX;
+    const iy = landingDbg.impactY;
+    if (Number.isFinite(ix) && Number.isFinite(iy)){
+      pos.push(ix, iy);
+      col.push(1.0, 0.55, 0.1, 1.0);
+      pointVerts += 1;
+    }
+    const sx = landingDbg.supportX;
+    const sy = landingDbg.supportY;
+    if (Number.isFinite(sx) && Number.isFinite(sy)){
+      pos.push(sx, sy);
+      col.push(0.2, 1.0, 1.0, 1.0);
       pointVerts += 1;
     }
   }
