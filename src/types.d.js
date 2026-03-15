@@ -6,13 +6,17 @@
  */
 
 /**
+ * @typedef {{x:number,y:number,tri?:Array<{x:number,y:number,air:number}>|null,contacts?:Array<{x:number,y:number,nx:number,ny:number,av?:number}>|null}} CollisionHit
+ */
+
+/**
  * @typedef {Object} CollisionQuery
  * @property {(x:number,y:number)=>number} airValueAtWorld
  * @property {(x:number,y:number)=>number} planetAirValueAtWorld
  * @property {(x:number,y:number)=>{x:number,y:number}} gravityAt
  * @property {(x:number,y:number)=>{air:number, source:"mothership"|"planet"}} sampleAtWorld
  * @property {(points:Array<[number, number]>)=>boolean} collidesAtPoints
- * @property {(points:Array<[number, number]>)=>{samples:Array<[number, number, boolean, number]>, hit:{x:number,y:number}|null, hitSource:"mothership"|"planet"|null}} sampleCollisionPoints
+ * @property {(points:Array<[number, number]>)=>{samples:Array<[number, number, boolean, number]>, hit:CollisionHit|null, hitSource:"mothership"|"planet"|null}} sampleCollisionPoints
  */
 
 /**
@@ -24,7 +28,7 @@
  */
 
 /**
- * @typedef {{updateHud:(hud:HTMLElement, stats:{fps:number,state:string,speed:number,verts:number,air:number,miners:number,minersDead:number,level:number,debug:boolean,minerCandidates:number,shipHp:number,bombs:number,landingDebug?:{source?:string,reason?:string,dotUp?:number,slope?:number,landSlope?:number,vn?:number,vt?:number,speed?:number,airFront?:number,airBack?:number,landable?:boolean,landed?:boolean,contactsCount?:number,bestDotUpAny?:number,bestDotUpUnder?:number,impactPoint?:number,supportPoint?:number,impactT?:number,supportT?:number,impactX?:number,impactY?:number,supportX?:number,supportY?:number,supportTriOuterCount?:number,supportTriAirMin?:number,supportTriAirMax?:number,supportTriRMin?:number,supportTriRMax?:number}|null,inputType:("keyboard"|"mouse"|"touch"|"gamepad"|null|undefined)})=>void, updatePlanetLabel?:(el:HTMLElement, label:string)=>void, updateObjectiveLabel?:(el:HTMLElement, text:string)=>void, updateShipStatusLabel?:(el:HTMLElement, stats:{shipHp:number,shipHpMax:number,bombs:number,bombsMax:number})=>void, updateHeatMeter?:(el:HTMLElement, heat:number, show:boolean, flashing:boolean)=>void}} Ui
+ * @typedef {{updateHud:(hud:HTMLElement, stats:{fps:number,state:string,speed:number,verts:number,air:number,miners:number,minersDead:number,level:number,debug:boolean,minerCandidates:number,shipHp:number,bombs:number,landingDebug?:{source?:string,reason?:string,dotUp?:number,slope?:number,landSlope?:number,vn?:number,vt?:number,speed?:number,airFront?:number,airBack?:number,landable?:boolean,landed?:boolean,contactsCount?:number,bestDotUpAny?:number,bestDotUpUnder?:number,impactPoint?:number,supportPoint?:number,impactT?:number,supportT?:number,impactX?:number,impactY?:number,supportX?:number,supportY?:number,supportTriOuterCount?:number,supportTriAirMin?:number,supportTriAirMax?:number,supportTriRMin?:number,supportTriRMax?:number,overlapBeforeCount?:number,overlapAfterCount?:number,overlapBeforeMin?:number,overlapAfterMin?:number,depenIter?:number,depenPush?:number,depenCushion?:number,depenDir?:number,depenCleared?:boolean,collisionDiag?:any}|null,inputType:("keyboard"|"mouse"|"touch"|"gamepad"|null|undefined)})=>void, updatePlanetLabel?:(el:HTMLElement, label:string)=>void, updateObjectiveLabel?:(el:HTMLElement, text:string)=>void, updateShipStatusLabel?:(el:HTMLElement, stats:{shipHp:number,shipHpMax:number,bombs:number,bombsMax:number})=>void, updateHeatMeter?:(el:HTMLElement, heat:number, show:boolean, flashing:boolean)=>void}} Ui
  */
 
 /**
@@ -61,9 +65,11 @@
  * @property {boolean} planetScanner
  * 
  * @property {Array<[number,number,boolean,number]>|null} [_samples]
- * @property {{x:number,y:number,source?:"planet"|"mothership",tri?:Array<{x:number,y:number}>|null,node?:{x:number,y:number}|null}|null} [_collision]
+ * @property {{x:number,y:number,source?:"planet"|"mothership",tri?:Array<{x:number,y:number,air?:number}>|null,node?:{x:number,y:number}|null,contacts?:Array<{x:number,y:number,nx:number,ny:number,av?:number}>|null}|null} [_collision]
  * @property {number} [_shipRadius]
- * @property {{source?:string,reason?:string,dotUp?:number,slope?:number,landSlope?:number,vn?:number,vt?:number,speed?:number,airFront?:number,airBack?:number,landable?:boolean,landed?:boolean,support?:boolean,supportDist?:number,contactsCount?:number,bestDotUpAny?:number,bestDotUpUnder?:number,impactPoint?:number,supportPoint?:number,impactT?:number,supportT?:number,impactX?:number,impactY?:number,supportX?:number,supportY?:number,supportTriOuterCount?:number,supportTriAirMin?:number,supportTriAirMax?:number,supportTriRMin?:number,supportTriRMax?:number}|null} [_landingDebug]
+ * @property {number} [_mothershipTrapFrames]
+ * @property {{abs?:any,rel?:any}|null} [_lastMothershipCollisionDiag]
+ * @property {{source?:string,reason?:string,dotUp?:number,slope?:number,landSlope?:number,vn?:number,vt?:number,speed?:number,airFront?:number,airBack?:number,landable?:boolean,landed?:boolean,support?:boolean,supportDist?:number,contactsCount?:number,bestDotUpAny?:number,bestDotUpUnder?:number,impactPoint?:number,supportPoint?:number,impactT?:number,supportT?:number,impactX?:number,impactY?:number,supportX?:number,supportY?:number,supportTriOuterCount?:number,supportTriAirMin?:number,supportTriAirMax?:number,supportTriRMin?:number,supportTriRMax?:number,overlapBeforeCount?:number,overlapAfterCount?:number,overlapBeforeMin?:number,overlapAfterMin?:number,depenIter?:number,depenPush?:number,depenCushion?:number,depenDir?:number,depenCleared?:boolean,collisionDiag?:any}|null} [_landingDebug]
  */
 
 /**
@@ -194,6 +200,7 @@
  * @property {boolean} regen
  * @property {boolean} toggleDebug
  * @property {boolean} toggleDevHud
+ * @property {boolean} [toggleFrameStep]
  * @property {boolean} togglePlanetView
  * @property {boolean} toggleRingVertices
  * @property {boolean} togglePlanetTriangles
@@ -227,6 +234,7 @@
  * @property {{leftTouch:Point|null,laserTouch:Point|null,bombTouch:Point|null}|null} [touchUi]
  * @property {boolean} [touchUiVisible]
  * @property {number} [zoomDelta]
+ * @property {boolean} [stepFrame]
  * @property {"keyboard"|"mouse"|"touch"|"gamepad"|null} [inputType]
  */
 

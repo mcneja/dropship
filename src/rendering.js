@@ -6,9 +6,17 @@ import {
   getDropshipCargoBoundsN,
   getDropshipRenderSize,
   getDropshipThrusterPowers,
+  getDropshipWorldRotation,
 } from "./dropship.js";
 import { buildStarfieldMesh } from "./starfield.js";
 import { dijkstraMap, findPathAStar, nearestRadialNode } from "./navigation.js";
+import {
+  closestPointOnSegment,
+  getMothershipBoundaryEdges,
+  mothershipLocalDirToWorld,
+  mothershipLocalToWorld,
+  worldToMothershipLocal,
+} from "./collision_mothership.js";
 
 /** @typedef {import("./types.d.js").RenderState} RenderState */
 /** @typedef {import("./planet.js").Planet} Planet */
@@ -1027,7 +1035,7 @@ function drawFrameImpl(renderer, state, planet){
     }
   }
 
-  const shipRot = -Math.atan2(state.ship.x, state.ship.y || 1e-6);
+  const shipRot = getDropshipWorldRotation(state.ship.x, state.ship.y);
   const lighten = (c) => Math.min(1, c + 0.3);
   const rockPoint = [1.0, 0.55, 0.12];
   const airPoint = [lighten(airLight[0]), lighten(airLight[1]), lighten(airLight[2])];
@@ -2328,6 +2336,59 @@ function drawFrameImpl(renderer, state, planet){
     addDebugSeed(landingDbg.supportX, landingDbg.supportY);
   }
 
+  if ((state.debugCollisions || state.debugCollisionContours) && state.ship){
+    // Draw active ship collider outline from sampled hull points.
+    if (dbgSamples && dbgSamples.length >= 4){
+      let nHull = dbgSamples.length;
+      const last = dbgSamples[dbgSamples.length - 1];
+      if (Math.hypot(last[0] - state.ship.x, last[1] - state.ship.y) < 1e-5){
+        nHull = Math.max(0, nHull - 1);
+      }
+      if (nHull >= 3){
+        for (let i = 0; i < nHull; i++){
+          const a = dbgSamples[i];
+          const b = dbgSamples[(i + 1) % nHull];
+          pushLine(pos, col, a[0], a[1], b[0], b[1], 0.2, 0.95, 1.0, 0.7);
+          lineVerts += 2;
+        }
+      } else {
+        const cx = state.ship.x;
+        const cy = state.ship.y;
+        const r = Number.isFinite(state.ship._shipRadius) ? state.ship._shipRadius : 0;
+        if (Number.isFinite(cx) && Number.isFinite(cy) && r > 0){
+          const segs = 28;
+          for (let i = 0; i < segs; i++){
+            const a0 = (i / segs) * Math.PI * 2;
+            const a1 = ((i + 1) / segs) * Math.PI * 2;
+            const x0 = cx + Math.cos(a0) * r;
+            const y0 = cy + Math.sin(a0) * r;
+            const x1 = cx + Math.cos(a1) * r;
+            const y1 = cy + Math.sin(a1) * r;
+            pushLine(pos, col, x0, y0, x1, y1, 0.2, 0.95, 1.0, 0.7);
+            lineVerts += 2;
+          }
+        }
+      }
+    } else {
+      const cx = state.ship.x;
+      const cy = state.ship.y;
+      const r = Number.isFinite(state.ship._shipRadius) ? state.ship._shipRadius : 0;
+      if (Number.isFinite(cx) && Number.isFinite(cy) && r > 0){
+        const segs = 28;
+        for (let i = 0; i < segs; i++){
+          const a0 = (i / segs) * Math.PI * 2;
+          const a1 = ((i + 1) / segs) * Math.PI * 2;
+          const x0 = cx + Math.cos(a0) * r;
+          const y0 = cy + Math.sin(a0) * r;
+          const x1 = cx + Math.cos(a1) * r;
+          const y1 = cy + Math.sin(a1) * r;
+          pushLine(pos, col, x0, y0, x1, y1, 0.2, 0.95, 1.0, 0.7);
+          lineVerts += 2;
+        }
+      }
+    }
+  }
+
   if (state.debugCollisions){
     for (const s of debugCollisionSeeds){
       pos.push(s.x, s.y);
@@ -2390,6 +2451,119 @@ function drawFrameImpl(renderer, state, planet){
       if (!seg) continue;
       pushLine(pos, col, seg[0][0], seg[0][1], seg[1][0], seg[1][1], 1.0, 0.95, 0.2, 0.95);
       lineVerts += 2;
+    }
+  }
+  if (state.debugCollisionContours && debugCollisionSeeds.length && state.mothership){
+    const mothership = state.mothership;
+    const boundaryEdges = getMothershipBoundaryEdges(mothership);
+    const edgeHintDist = Math.max(0.12, (mothership.spacing || 0.4) * 0.7);
+    const edgeHintDist2 = edgeHintDist * edgeHintDist;
+    /** @type {Map<number,{cp:{x:number,y:number,d2:number,u:number},seed:{x:number,y:number}}>} */
+    const hintedEdges = new Map();
+    for (const s of debugCollisionSeeds){
+      const lp = worldToMothershipLocal(mothership, s.x, s.y);
+      let nearestIdx = -1;
+      let nearest = null;
+      let nearestD2 = Infinity;
+      for (let i = 0; i < boundaryEdges.length; i++){
+        const edge = boundaryEdges[i];
+        const cp = closestPointOnSegment(edge.ax, edge.ay, edge.bx, edge.by, lp.x, lp.y);
+        if (cp.d2 < nearestD2){
+          nearestD2 = cp.d2;
+          nearestIdx = i;
+          nearest = cp;
+        }
+        if (cp.d2 <= edgeHintDist2){
+          const prev = hintedEdges.get(i);
+          if (!prev || cp.d2 < prev.cp.d2){
+            hintedEdges.set(i, { cp, seed: { x: s.x, y: s.y } });
+          }
+        }
+      }
+      if (nearestIdx >= 0 && nearest){
+        const prev = hintedEdges.get(nearestIdx);
+        if (!prev || nearest.d2 < prev.cp.d2){
+          hintedEdges.set(nearestIdx, { cp: nearest, seed: { x: s.x, y: s.y } });
+        }
+      }
+    }
+    let drawn = 0;
+    for (const [edgeIdx, hint] of hintedEdges){
+      if (drawn >= 16) break;
+      const edge = boundaryEdges[edgeIdx];
+      if (!edge) continue;
+      const aw = mothershipLocalToWorld(mothership, edge.ax, edge.ay);
+      const bw = mothershipLocalToWorld(mothership, edge.bx, edge.by);
+      pushLine(pos, col, aw.x, aw.y, bw.x, bw.y, 1.0, 0.55, 0.15, 0.95);
+      lineVerts += 2;
+
+      const cpw = mothershipLocalToWorld(mothership, hint.cp.x, hint.cp.y);
+      pushLine(pos, col, hint.seed.x, hint.seed.y, cpw.x, cpw.y, 1.0, 0.9, 0.2, 0.65);
+      lineVerts += 2;
+      pushSquareOutline(pos, col, cpw.x, cpw.y, 0.035, 1.0, 0.9, 0.2, 0.95);
+      lineVerts += 8;
+
+      const nw = mothershipLocalDirToWorld(mothership, edge.nx, edge.ny);
+      const nScale = Math.max(0.06, (mothership.spacing || 0.4) * 0.18);
+      pushLine(pos, col, cpw.x, cpw.y, cpw.x + nw.x * nScale, cpw.y + nw.y * nScale, 0.2, 1.0, 0.95, 0.9);
+      lineVerts += 2;
+      drawn += 1;
+    }
+
+    const diagEvidence = landingDbg && landingDbg.collisionDiag && landingDbg.collisionDiag.evidence
+      ? landingDbg.collisionDiag.evidence
+      : null;
+    if (diagEvidence && Array.isArray(diagEvidence.hits) && diagEvidence.hits.length){
+      /** @type {Set<number>} */
+      const exactEdgeSet = new Set();
+      /** @type {Set<number>} */
+      const exactTriSet = new Set();
+      for (const hit of diagEvidence.hits){
+        if (!hit || !Number.isFinite(hit.edgeIdx)) continue;
+        const edgeIdx = /** @type {number} */ (hit.edgeIdx);
+        exactEdgeSet.add(edgeIdx);
+        const edge = boundaryEdges[edgeIdx];
+        if (!edge) continue;
+        if (Number.isFinite(edge.solidTriIdx) && edge.solidTriIdx >= 0) exactTriSet.add(edge.solidTriIdx);
+        if (Number.isFinite(edge.airTriIdx) && edge.airTriIdx >= 0) exactTriSet.add(edge.airTriIdx);
+      }
+      for (const triIdx of exactTriSet){
+        const tri = mothership.tris && mothership.tris[triIdx];
+        if (!tri || tri.length < 3) continue;
+        const a0 = mothership.points[tri[0]];
+        const b0 = mothership.points[tri[1]];
+        const c0 = mothership.points[tri[2]];
+        if (!a0 || !b0 || !c0) continue;
+        const a = {
+          x: mothership.x + Math.cos(mothership.angle) * a0.x - Math.sin(mothership.angle) * a0.y,
+          y: mothership.y + Math.sin(mothership.angle) * a0.x + Math.cos(mothership.angle) * a0.y,
+        };
+        const b = {
+          x: mothership.x + Math.cos(mothership.angle) * b0.x - Math.sin(mothership.angle) * b0.y,
+          y: mothership.y + Math.sin(mothership.angle) * b0.x + Math.cos(mothership.angle) * b0.y,
+        };
+        const c = {
+          x: mothership.x + Math.cos(mothership.angle) * c0.x - Math.sin(mothership.angle) * c0.y,
+          y: mothership.y + Math.sin(mothership.angle) * c0.x + Math.cos(mothership.angle) * c0.y,
+        };
+        pushTriangleOutline(pos, col, a.x, a.y, b.x, b.y, c.x, c.y, 1.0, 0.15, 0.75, 0.95);
+        lineVerts += 6;
+      }
+      for (const edgeIdx of exactEdgeSet){
+        const edge = boundaryEdges[edgeIdx];
+        if (!edge) continue;
+        const aw = mothershipLocalToWorld(mothership, edge.ax, edge.ay);
+        const bw = mothershipLocalToWorld(mothership, edge.bx, edge.by);
+        pushLine(pos, col, aw.x, aw.y, bw.x, bw.y, 1.0, 1.0, 0.0, 1.0);
+        lineVerts += 2;
+        const mx = (edge.ax + edge.bx) * 0.5;
+        const my = (edge.ay + edge.by) * 0.5;
+        const mw = mothershipLocalToWorld(mothership, mx, my);
+        const nw = mothershipLocalDirToWorld(mothership, edge.nx, edge.ny);
+        const nScale = Math.max(0.08, (mothership.spacing || 0.4) * 0.22);
+        pushLine(pos, col, mw.x, mw.y, mw.x + nw.x * nScale, mw.y + nw.y * nScale, 1.0, 1.0, 0.0, 1.0);
+        lineVerts += 2;
+      }
     }
   }
   const dbg = state.debugPoints;

@@ -37,6 +37,8 @@
  * @property {Range} THRUST_MULT
  * @property {Range} TURN_RATE_MULT
  * @property {Range} LAND_FRICTION_MULT
+ * @property {Range} [WALL_FRICTION_MULT]
+ * @property {Range} [BOUNCE_RESTITUTION]
  * @property {Range} CRASH_SPEED_MULT
  * @property {Range} LAND_SPEED_MULT
  * @property {Range} TARGET_FINAL_AIR
@@ -143,6 +145,8 @@
  * @property {number} THRUST
  * @property {number} TURN_RATE
  * @property {number} LAND_FRICTION
+ * @property {number} WALL_FRICTION
+ * @property {number} BOUNCE_RESTITUTION
  * @property {number} CRASH_SPEED
  * @property {number} LAND_SPEED
  * @property {boolean} NO_CAVES
@@ -193,6 +197,8 @@ export const PLANET_CONFIGS = [
       THRUST_MULT: r(0.95, 1.1),
       TURN_RATE_MULT: r(0.95, 1.1),
       LAND_FRICTION_MULT: r(0.7, 1.0),
+      WALL_FRICTION_MULT: r(0.8, 1.1),
+      BOUNCE_RESTITUTION: r(0.12, 0.22),
       CRASH_SPEED_MULT: r(0.9, 1.1),
       LAND_SPEED_MULT: r(0.9, 1.1),
       TARGET_FINAL_AIR: r(0.0, 0.0),
@@ -259,6 +265,8 @@ export const PLANET_CONFIGS = [
       THRUST_MULT: r(0.95, 1.1),
       TURN_RATE_MULT: r(0.95, 1.1),
       LAND_FRICTION_MULT: r(0.7, 1.0),
+      WALL_FRICTION_MULT: r(0.8, 1.1),
+      BOUNCE_RESTITUTION: r(0.12, 0.22),
       CRASH_SPEED_MULT: r(0.9, 1.1),
       LAND_SPEED_MULT: r(0.9, 1.1),
       TARGET_FINAL_AIR: r(0.0, 0.0),
@@ -325,6 +333,8 @@ export const PLANET_CONFIGS = [
       THRUST_MULT: r(0.9, 1.15),
       TURN_RATE_MULT: r(0.9, 1.15),
       LAND_FRICTION_MULT: r(0.8, 1.2),
+      WALL_FRICTION_MULT: r(0.7, 1.0),
+      BOUNCE_RESTITUTION: r(0.24, 0.36),
       CRASH_SPEED_MULT: r(0.9, 1.1),
       LAND_SPEED_MULT: r(0.9, 1.1),
       TARGET_FINAL_AIR: r(0.12, 0.22),
@@ -391,6 +401,8 @@ export const PLANET_CONFIGS = [
       THRUST_MULT: r(0.9, 1.1),
       TURN_RATE_MULT: r(0.9, 1.1),
       LAND_FRICTION_MULT: r(0.9, 1.1),
+      WALL_FRICTION_MULT: r(0.45, 0.7),
+      BOUNCE_RESTITUTION: r(0.32, 0.48),
       CRASH_SPEED_MULT: r(0.9, 1.1),
       LAND_SPEED_MULT: r(0.9, 1.1),
       TARGET_FINAL_AIR: r(0.42, 0.56),
@@ -456,6 +468,8 @@ export const PLANET_CONFIGS = [
       THRUST_MULT: r(0.95, 1.15),
       TURN_RATE_MULT: r(0.95, 1.15),
       LAND_FRICTION_MULT: r(0.1, 0.1),
+      WALL_FRICTION_MULT: r(0.05, 0.12),
+      BOUNCE_RESTITUTION: r(0.08, 0.14),
       CRASH_SPEED_MULT: r(0.9, 1.1),
       LAND_SPEED_MULT: r(0.85, 1.05),
       TARGET_FINAL_AIR: r(0.45, 0.62),
@@ -527,6 +541,8 @@ export const PLANET_CONFIGS = [
       THRUST_MULT: r(0.95, 1.10),
       TURN_RATE_MULT: r(0.95, 1.10),
       LAND_FRICTION_MULT: r(0.8, 1.2),
+      WALL_FRICTION_MULT: r(0.9, 1.15),
+      BOUNCE_RESTITUTION: r(0.14, 0.24),
       CRASH_SPEED_MULT: r(0.9, 1.1),
       LAND_SPEED_MULT: r(0.9, 1.1),
       TARGET_FINAL_AIR: r(0.40, 0.55),
@@ -592,6 +608,8 @@ export const PLANET_CONFIGS = [
       THRUST_MULT: r(0.85, 1.00),
       TURN_RATE_MULT: r(0.80, 0.95),
       LAND_FRICTION_MULT: r(0.8, 1.1),
+      WALL_FRICTION_MULT: r(0.35, 0.55),
+      BOUNCE_RESTITUTION: r(0.04, 0.10),
       CRASH_SPEED_MULT: r(0.9, 1.1),
       LAND_SPEED_MULT: r(0.9, 1.1),
       TARGET_FINAL_AIR: r(0.48, 0.65),
@@ -657,6 +675,8 @@ export const PLANET_CONFIGS = [
       THRUST_MULT: r(0.95, 1.10),
       TURN_RATE_MULT: r(0.95, 1.10),
       LAND_FRICTION_MULT: r(0.8, 1.2),
+      WALL_FRICTION_MULT: r(1.1, 1.35),
+      BOUNCE_RESTITUTION: r(0.18, 0.28),
       CRASH_SPEED_MULT: r(0.9, 1.1),
       LAND_SPEED_MULT: r(0.9, 1.1),
       TARGET_FINAL_AIR: r(0.45, 0.55),
@@ -723,6 +743,8 @@ export const PLANET_CONFIGS = [
       THRUST_MULT: r(0.95, 1.05),
       TURN_RATE_MULT: r(0.9, 1.05),
       LAND_FRICTION_MULT: r(0.8, 1.1),
+      WALL_FRICTION_MULT: r(0.55, 0.8),
+      BOUNCE_RESTITUTION: r(0.28, 0.42),
       CRASH_SPEED_MULT: r(0.9, 1.1),
       LAND_SPEED_MULT: r(0.9, 1.1),
       TARGET_FINAL_AIR: r(0.40, 0.52),
@@ -1121,6 +1143,8 @@ export function clampPlanetConfig(sample){
     THRUST_MULT: [0.7, 1.4],
     TURN_RATE_MULT: [0.7, 1.4],
     LAND_FRICTION_MULT: [0.2, 1.6],
+    WALL_FRICTION_MULT: [0.0, 1.6],
+    BOUNCE_RESTITUTION: [0.0, 1.0],
     CRASH_SPEED_MULT: [0.6, 1.5],
     LAND_SPEED_MULT: [0.6, 1.5],
     TARGET_FINAL_AIR: [0.08, 0.75],
@@ -1196,7 +1220,7 @@ export function resolvePlanetParams(seed, level, cfg, baseGame){
   // Mapgen: TARGET_FINAL_AIR, CA_STEPS, AIR_KEEP_N8, ROCK_TO_AIR_N8, ENTRANCES, ENTRANCE_OUTER, ENTRANCE_INNER,
   //         WARP_F, WARP_A, BASE_F, VEIN_F, VEIN_THRESH, VEIN_DILATE
   // Visibility: VIS_RANGE, FOG_SEEN_ALPHA, FOG_UNSEEN_ALPHA, FOG_BUDGET_TRIS
-  // Gameplay: DRAG, THRUST, TURN_RATE, LAND_FRICTION, CRASH_SPEED, LAND_SPEED
+  // Gameplay: DRAG, THRUST, TURN_RATE, LAND_FRICTION, WALL_FRICTION, BOUNCE_RESTITUTION, CRASH_SPEED, LAND_SPEED
   return {
     RMAX: roll.RMAX,
     PAD: roll.PAD,
@@ -1236,6 +1260,10 @@ export function resolvePlanetParams(seed, level, cfg, baseGame){
     THRUST: baseGame.THRUST * roll.THRUST_MULT,
     TURN_RATE: baseGame.TURN_RATE * roll.TURN_RATE_MULT,
     LAND_FRICTION: baseGame.LAND_FRICTION * roll.LAND_FRICTION_MULT,
+    WALL_FRICTION: baseGame.LAND_FRICTION * (roll.WALL_FRICTION_MULT ?? roll.LAND_FRICTION_MULT ?? 1),
+    BOUNCE_RESTITUTION: Number.isFinite(roll.BOUNCE_RESTITUTION)
+      ? Math.max(0, Math.min(1, roll.BOUNCE_RESTITUTION))
+      : Math.max(0, Math.min(1, baseGame.BOUNCE_RESTITUTION)),
     CRASH_SPEED: baseGame.CRASH_SPEED * roll.CRASH_SPEED_MULT,
     LAND_SPEED: baseGame.LAND_SPEED * roll.LAND_SPEED_MULT,
     NO_CAVES: !!(cfg.flags && cfg.flags.noCaves),

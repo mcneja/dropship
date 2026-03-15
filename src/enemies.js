@@ -2,7 +2,7 @@
 
 import { mulberry32 } from "./rng.js";
 import { findPathAStar, lineOfSightAir, nearestRadialNode } from "./navigation.js";
-import { collidesAtOffsets, isAir } from "./collision_helpers.js";
+import { collidesAtOffsets, isAir } from "./collision_world.js";
 import { CFG, GAME } from "./config.js";
 
 /** @typedef {import("./types.d.js").Vec2} Vec2 */

@@ -219,15 +219,22 @@ function pointInTri(px, py, ax, ay, bx, by, cx, cy){
 function mothershipAirAtLocal(mothership, lx, ly){
   const points = mothership.points;
   const tris = mothership.tris;
+  const triAir = mothership.triAir || [];
+  let hit = false;
+  let maxAir = -Infinity;
   for (let i = 0; i < tris.length; i++){
     const tri = tris[i];
     const a = points[tri[0]];
     const b = points[tri[1]];
     const c = points[tri[2]];
     if (!pointInTri(lx, ly, a.x, a.y, b.x, b.y, c.x, c.y)) continue;
-    return mothership.triAir ? mothership.triAir[i] : 1;
+    const air = Number.isFinite(triAir[i]) ? triAir[i] : 1;
+    if (!hit || air > maxAir){
+      maxAir = air;
+      hit = true;
+    }
   }
-  return null;
+  return hit ? maxAir : null;
 }
 
 /**
@@ -244,7 +251,9 @@ export function mothershipAirAtWorld(mothership, x, y){
   const s = Math.sin(-mothership.angle);
   const lx = c * dx - s * dy;
   const ly = s * dx + c * dy;
-  return mothershipAirAtLocalGrid(mothership, lx, ly);
+  // Collision sampling must use the exact triangle occupancy used by gameplay
+  // contact logic, not the smoothed grid approximation.
+  return mothershipAirAtLocal(mothership, lx, ly);
 }
 
 /**
@@ -274,17 +283,43 @@ export function mothershipCollisionInfo(mothership, x, y){
   const s = Math.sin(-mothership.angle);
   const lx = c * dx - s * dy;
   const ly = s * dx + c * dy;
-  const eps = mothership.gridCell || (mothership.spacing * 0.4);
-  let nx = mothershipAirAtLocalGrid(mothership, lx + eps, ly)
-    - mothershipAirAtLocalGrid(mothership, lx - eps, ly);
-  let ny = mothershipAirAtLocalGrid(mothership, lx, ly + eps)
-    - mothershipAirAtLocalGrid(mothership, lx, ly - eps);
-  let nlen = Math.hypot(nx, ny);
+  const baseEps = Math.max(0.02, mothership.gridCell || (mothership.spacing * 0.4));
+  let nx = 0;
+  let ny = 0;
+  let nlen = 0;
+  const gradScales = [1, 1.6, 2.4];
+  for (const sEps of gradScales){
+    const eps = baseEps * sEps;
+    nx = mothershipAirAtLocalGrid(mothership, lx + eps, ly)
+      - mothershipAirAtLocalGrid(mothership, lx - eps, ly);
+    ny = mothershipAirAtLocalGrid(mothership, lx, ly + eps)
+      - mothershipAirAtLocalGrid(mothership, lx, ly - eps);
+    nlen = Math.hypot(nx, ny);
+    if (nlen >= 1e-4) break;
+  }
   if (nlen < 1e-4){
     return null;
   }
   nx /= nlen;
   ny /= nlen;
+
+  // Enforce air-facing orientation by scoring both directions against local
+  // boundary contrast near this contact sample.
+  const probeOut = Math.max(0.03, baseEps * 0.9);
+  const probeIn = Math.max(0.02, baseEps * 0.7);
+  const scoreDir = (sx, sy) => {
+    const front = mothershipAirAtLocalGrid(mothership, lx + sx * probeOut, ly + sy * probeOut);
+    const back = mothershipAirAtLocalGrid(mothership, lx - sx * probeIn, ly - sy * probeIn);
+    const boundaryOk = (front > 0.5 && back <= 0.52) ? 1 : 0;
+    return boundaryOk * 4 + (front - back) * 2;
+  };
+  const scorePos = scoreDir(nx, ny);
+  const scoreNeg = scoreDir(-nx, -ny);
+  if (scoreNeg > scorePos){
+    nx = -nx;
+    ny = -ny;
+  }
+
   const c2 = Math.cos(mothership.angle);
   const s2 = Math.sin(mothership.angle);
   const nxw = c2 * nx - s2 * ny;

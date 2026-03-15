@@ -38,6 +38,7 @@ export class Input {
       regen: false,
       toggleDebug: false,
       toggleDevHud: false,
+      toggleFrameStep: false,
       togglePlanetView: false,
       toggleRingVertices: false,
       togglePlanetTriangles: false,
@@ -352,6 +353,7 @@ export class Input {
         code === "KeyM" ||
         code === "KeyI" ||
         code === "KeyN" ||
+        code === "KeyL" ||
         code === "KeyV" ||
         code === "KeyG" ||
         code === "KeyH" ||
@@ -375,6 +377,7 @@ export class Input {
     if (debugToggleHud) this.oneshot.toggleDevHud = true;
     if (this.debugCommandsEnabled && debugChord && code === "KeyM") this.oneshot.regen = true;
     if (this.debugCommandsEnabled && debugChord && code === "KeyI") this.oneshot.toggleDebug = true;
+    if (this.debugCommandsEnabled && debugChord && code === "KeyL") this.oneshot.toggleFrameStep = true;
     if (this.debugCommandsEnabled && debugChord && code === "KeyN"){
       if (e.shiftKey) this.oneshot.prevLevel = true;
       else this.oneshot.nextLevel = true;
@@ -995,6 +998,7 @@ export class Input {
       regen: this.oneshot.regen,
       toggleDebug: this.oneshot.toggleDebug,
       toggleDevHud: this.oneshot.toggleDevHud,
+      toggleFrameStep: this.oneshot.toggleFrameStep,
       togglePlanetView: this.oneshot.togglePlanetView,
       toggleRingVertices: this.oneshot.toggleRingVertices,
       togglePlanetTriangles: this.oneshot.togglePlanetTriangles,
@@ -1028,6 +1032,7 @@ export class Input {
       touchUi,
       touchUiVisible,
       zoomDelta: this.zoomDelta,
+      stepFrame: this.justPressed.has(" ") || this.justPressed.has("Space"),
       inputType: this.lastInputType,
     };
 
@@ -1046,6 +1051,7 @@ export class Input {
     this.oneshot.regen = false;
     this.oneshot.toggleDebug = false;
     this.oneshot.toggleDevHud = false;
+    this.oneshot.toggleFrameStep = false;
     this.oneshot.togglePlanetView = false;
     this.oneshot.toggleRingVertices = false;
     this.oneshot.togglePlanetTriangles = false;

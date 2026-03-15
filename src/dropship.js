@@ -50,6 +50,42 @@ export function getDropshipCargoBoundsN(){
 }
 
 /**
+ * @param {Array<[number,number]>} points
+ * @returns {Array<[number,number]>}
+ */
+function convexHull(points){
+  if (!Array.isArray(points) || points.length <= 3) return Array.isArray(points) ? points.slice() : [];
+  /** @type {Array<[number,number]>} */
+  const sorted = points
+    .map((p) => /** @type {[number,number]} */ ([Number(p[0]), Number(p[1])]))
+    .filter((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]))
+    .sort((a, b) => (a[0] - b[0]) || (a[1] - b[1]));
+  if (sorted.length <= 3) return sorted;
+  /**@type {(o:[number, number], a:[number, number], b:[number, number])=>number} */
+  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  /** @type {Array<[number,number]>} */
+  const lower = [];
+  for (const p of sorted){
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0){
+      lower.pop();
+    }
+    lower.push(p);
+  }
+  /** @type {Array<[number,number]>} */
+  const upper = [];
+  for (let i = sorted.length - 1; i >= 0; i--){
+    const p = sorted[i];
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0){
+      upper.pop();
+    }
+    upper.push(p);
+  }
+  lower.pop();
+  upper.pop();
+  return lower.concat(upper);
+}
+
+/**
  * @param {{SHIP_SCALE:number}} game
  * @returns {Array<[number,number]>}
  */
@@ -62,16 +98,23 @@ export function buildDropshipLocalHullPoints(game){
   const cargoTop = shipHWorld * cargoTopN - bodyLift;
   const bottomHalfW = shipWWorld * 0.87 * cargoWidthScale;
   const topHalfW = shipWWorld * 0.65 * cargoWidthScale * 0.8;
-  const topRight = topHalfW;
-  const topLeft = -topHalfW;
-  return [
-    [topRight, cargoTop + bodyLift],
-    [bottomHalfW, cargoBottom + bodyLift],
-    [0, cargoBottom + bodyLift],
-    [-bottomHalfW, cargoBottom + bodyLift],
-    [topLeft, cargoTop + bodyLift],
-    [0, cargoTop + bodyLift],
-  ];
+  const skiOut = shipWWorld * 0.18;
+  const skiDrop = shipHWorld * 0.08;
+  const xBody = bottomHalfW;
+  const xTop = topHalfW;
+  const xSki = xBody + skiOut;
+  const yTop = cargoTop + bodyLift;
+  const yBody = cargoBottom + bodyLift;
+  const ySki = yBody - skiDrop;
+  // Build the true convex hull of the body + ski candidate points.
+  return convexHull([
+    [xTop, yTop],
+    [xBody, yBody],
+    [xSki, ySki],
+    [-xSki, ySki],
+    [-xBody, yBody],
+    [-xTop, yTop],
+  ]);
 }
 
 /**
@@ -86,6 +129,16 @@ export function getDropshipGunPivotLocal(game){
     x: 0,
     y: (cargoTopN + gunStrutHeightN + gunLiftN + bodyLiftN) * shipHWorld,
   };
+}
+
+/**
+ * Ship art stays aligned to local "up" from the planet center.
+ * @param {number} x
+ * @param {number} y
+ * @returns {number}
+ */
+export function getDropshipWorldRotation(x, y){
+  return -Math.atan2(x, y || 1e-6);
 }
 
 /**

@@ -1,7 +1,16 @@
 ﻿// @ts-check
 
 import { Enemies } from "./enemies.js";
-import { createCollisionRouter, firstBodyCollisionOnSegment, resolveShipCollisionResponse, sampleBodyCollisionAt, stabilizeShipAgainstPlanetPenetration } from "./collision_helpers.js";
+import {
+  createCollisionRouter,
+  findCollisionExactAt,
+  findFirstCollisionOnSegmentExact,
+  findMothershipCollisionExactAtPose,
+  findPlanetCollisionExactAt,
+  resolveCollisionResponse,
+  sampleBodyCollisionAt,
+  stabilizePlanetPenetration,
+} from "./collision_world.js";
 import { GAME, CFG } from "./config.js";
 import {
   buildDropshipLocalHullPoints,
@@ -25,6 +34,7 @@ import {
   moveAlongPathPositive,
   posFromPathIndex,
 } from "./surface_guide_path.js";
+import { lerpAngleShortest, sweptShipVsMovingMothership } from "./collision_mothership.js";
 
 /** @typedef {import("./types.d.js").ViewState} ViewState */
 /** @typedef {import("./types.d.js").Ship} Ship */
@@ -78,7 +88,11 @@ export class GameLoop {
     this.TERRAIN_PAD = 0.5;
     this.TERRAIN_MAX = this.planetParams.RMAX + this.TERRAIN_PAD;
     this.TERRAIN_IMPACT_RADIUS = 0.75;
-    this.SHIP_RADIUS_BASE = 0.7 * 0.28 * GAME.SHIP_SCALE * 1.5;
+    /** @type {Array<[number, number]>} */
+    this.shipCollisionLocalHull = buildDropshipLocalHullPoints(GAME);
+    this.shipCollisionEdgeSamplesPerEdge = 2;
+    this.shipCollisionMaxSampleSpacing = 0.03;
+    this.shipCollisionBoundRadius = this._computeShipHullBoundRadius(this.shipCollisionLocalHull);
     this.MINER_HEIGHT = 0.36 * GAME.MINER_SCALE;
     this.MINER_SURFACE_EPS = 0.01 * GAME.MINER_SCALE;
     this.SURFACE_EPS = Math.max(0.12, this.planetParams.RMAX / 280);
@@ -217,6 +231,7 @@ export class GameLoop {
     this.debugCollisions = GAME.DEBUG_COLLISION;
     this.debugPlanetTriangles = false;
     this.debugCollisionContours = false;
+    this.debugFrameStepMode = false;
     this.debugMinerGuidePath = false;
     this.debugRingVertices = false;
     this.debugMinerPathToMiner = null;
@@ -230,6 +245,11 @@ export class GameLoop {
     this.statusCueUntil = 0;
     this.screenshotCopyInFlight = false;
     this._lastLandingDebugConsoleLine = "";
+    this._landingDebugSessionIdNext = 1;
+    this._landingDebugSessionId = 0;
+    this._landingDebugSessionFrame = 0;
+    this._landingDebugSessionActive = false;
+    this._landingDebugSessionSource = "";
     this._minerPathDebugCooldown = 0;
     this._resetStartTitle();
     this.NEW_GAME_HELP_PROMPT_SECS = 10;
@@ -555,9 +575,12 @@ export class GameLoop {
     this.ship.dropshipMiners = 0;
     this.ship.dropshipPilots = 0;
     this.ship.dropshipEngineers = 0;
-    if (this.ship._dock === null){
-      this.ship._dock = {lx: GAME.MOTHERSHIP_START_DOCK_X, ly: GAME.MOTHERSHIP_START_DOCK_Y};
-    }
+    // Always reset dock anchor so stale wall-contact dock offsets cannot
+    // survive respawn/restart and pin the ship in a bad location.
+    this.ship._dock = {lx: GAME.MOTHERSHIP_START_DOCK_X, ly: GAME.MOTHERSHIP_START_DOCK_Y};
+    this.ship._collision = null;
+    this.ship._samples = null;
+    this.ship._landingDebug = null;
     this.debris.length = 0;
     this.playerShots.length = 0;
     this.playerBombs.length = 0;
@@ -1856,23 +1879,190 @@ export class GameLoop {
   }
 
   /**
+   * @param {Array<[number, number]>} points
+   * @returns {number}
+   */
+  _computeShipHullBoundRadius(points){
+    let r2 = 0;
+    for (const p of points){
+      const x = p[0] || 0;
+      const y = p[1] || 0;
+      const d2 = x * x + y * y;
+      if (d2 > r2) r2 = d2;
+    }
+    return Math.sqrt(r2);
+  }
+
+  /**
+   * Set an arbitrary convex local hull for ship collisions.
+   * @param {Array<[number, number]>} localHull
+   * @param {number} [edgeSamplesPerEdge]
+   * @returns {void}
+   */
+  setShipCollisionHull(localHull, edgeSamplesPerEdge = 1){
+    if (!Array.isArray(localHull) || localHull.length < 3) return;
+    /** @type {Array<[number, number]>} */
+    const clean = [];
+    for (const p of localHull){
+      if (!p || p.length < 2) continue;
+      const x = Number(p[0]);
+      const y = Number(p[1]);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+      clean.push([x, y]);
+    }
+    if (clean.length < 3) return;
+    this.shipCollisionLocalHull = clean;
+    this.shipCollisionEdgeSamplesPerEdge = Math.max(0, edgeSamplesPerEdge | 0);
+    this.shipCollisionBoundRadius = this._computeShipHullBoundRadius(clean);
+  }
+
+  /**
+   * @returns {Array<[number, number]>}
+   */
+  _shipCollisionLocalHull(){
+    if (Array.isArray(this.shipCollisionLocalHull) && this.shipCollisionLocalHull.length >= 3){
+      return this.shipCollisionLocalHull;
+    }
+    return buildDropshipLocalHullPoints(GAME);
+  }
+
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @returns {Array<[number, number]>}
+   */
+  _shipHullWorldVertices(x, y){
+    const local = this._shipCollisionLocalHull();
+    const camRot = Math.atan2(x, y || 1e-6);
+    const shipRot = -camRot;
+    const c = Math.cos(shipRot);
+    const s = Math.sin(shipRot);
+    /** @type {Array<[number, number]>} */
+    const out = [];
+    for (const p of local){
+      const lx = p[0];
+      const ly = p[1];
+      const wx = c * lx - s * ly;
+      const wy = s * lx + c * ly;
+      out.push([x + wx, y + wy]);
+    }
+    return out;
+  }
+
+  /**
+   * Collision sample points from convex hull vertices, with originating hull edge metadata.
+   * Optional per-edge subdivisions increase persistent tracked collision points.
+   * @param {number} x
+   * @param {number} y
+   * @returns {{points:Array<[number, number]>, edgeIdxByPoint:number[], pointMetaByPoint:Array<{kind:"vertex"|"edge",edgeIdx:number,vertexIdx:number,t:number}>}}
+   */
+  _shipCollisionSampleSet(x, y){
+    const verts = this._shipHullWorldVertices(x, y);
+    if (verts.length < 2){
+      return {
+        points: verts,
+        edgeIdxByPoint: verts.map(() => 0),
+        pointMetaByPoint: verts.map((_, i) => ({ kind: "vertex", edgeIdx: i, vertexIdx: i, t: 0 })),
+      };
+    }
+    const edgeSamples = Math.max(0, this.shipCollisionEdgeSamplesPerEdge | 0);
+    const maxSpacing = Number.isFinite(this.shipCollisionMaxSampleSpacing)
+      ? Math.max(1e-3, Number(this.shipCollisionMaxSampleSpacing))
+      : 0;
+    if (edgeSamples <= 0 && !(maxSpacing > 0)){
+      return {
+        points: verts,
+        edgeIdxByPoint: verts.map((_, i) => i),
+        pointMetaByPoint: verts.map((_, i) => ({ kind: "vertex", edgeIdx: i, vertexIdx: i, t: 0 })),
+      };
+    }
+    /** @type {Array<[number, number]>} */
+    const points = [];
+    /** @type {number[]} */
+    const edgeIdxByPoint = [];
+    /** @type {Array<{kind:"vertex"|"edge",edgeIdx:number,vertexIdx:number,t:number}>} */
+    const pointMetaByPoint = [];
+    const n = verts.length;
+    for (let i = 0; i < n; i++){
+      const a = verts[i];
+      const b = verts[(i + 1) % n];
+      const dx = b[0] - a[0];
+      const dy = b[1] - a[1];
+      const edgeLen = Math.hypot(dx, dy);
+      const spacingSamples = (maxSpacing > 0)
+        ? Math.max(0, Math.ceil(edgeLen / maxSpacing) - 1)
+        : 0;
+      const samplesPerEdge = Math.max(edgeSamples, spacingSamples);
+      const segCount = samplesPerEdge + 1;
+      for (let s = 0; s < segCount; s++){
+        const t = s / segCount;
+        points.push([a[0] + dx * t, a[1] + dy * t]);
+        edgeIdxByPoint.push(i);
+        pointMetaByPoint.push({
+          kind: s === 0 ? "vertex" : "edge",
+          edgeIdx: i,
+          vertexIdx: i,
+          t,
+        });
+      }
+    }
+    return { points, edgeIdxByPoint, pointMetaByPoint };
+  }
+
+  /**
    * @param {number} x
    * @param {number} y
    * @returns {Array<[number, number]>}
    */
   _shipCollisionPoints(x, y){
-    const camRot = Math.atan2(x, y || 1e-6);
-    const shipRot = -camRot;
-    const local = this._shipLocalHullPoints();
-    /** @type {Array<[number, number]>} */
-    const verts = [];
-    const c = Math.cos(shipRot), s = Math.sin(shipRot);
-    for (const [lx, ly] of local){
-      const wx = c * lx - s * ly;
-      const wy = s * lx + c * ly;
-      verts.push([x + wx, y + wy]);
-    }
-    return verts;
+    return this._shipCollisionSampleSet(x, y).points;
+  }
+
+  _shipCollisionExactCtx(){
+    return {
+      planet: this.planet,
+      mothership: this.mothership,
+      collision: this.collision,
+      collisionEps: this.COLLISION_EPS,
+      shipRadius: () => this._shipRadius(),
+      shipLocalHull: () => this._shipCollisionLocalHull(),
+      shipHullWorldVertices: (x, y) => this._shipHullWorldVertices(x, y),
+    };
+  }
+
+  /**
+   * Interpolate angle along the shortest arc.
+   * @param {number} a
+   * @param {number} b
+   * @param {number} t
+   * @returns {number}
+   */
+  _lerpAngleShortest(a, b, t){
+    return lerpAngleShortest(a, b, t);
+  }
+
+  /**
+   * Swept collision against moving mothership using exact hull-vs-solid-tri overlap.
+   * @param {number} shipX0
+   * @param {number} shipY0
+   * @param {number} shipX1
+   * @param {number} shipY1
+   * @param {number} shipRadius
+   * @param {{x:number,y:number,angle:number}} mothershipPrev
+   * @param {{x:number,y:number,angle:number}} mothershipCurr
+   * @returns {{x:number,y:number,hit:import("./types.d.js").CollisionHit,hitSource:"mothership"}|null}
+   */
+  _sweptShipVsMovingMothership(shipX0, shipY0, shipX1, shipY1, shipRadius, mothershipPrev, mothershipCurr){
+    return sweptShipVsMovingMothership(
+      this._shipCollisionExactCtx(),
+      shipX0,
+      shipY0,
+      shipX1,
+      shipY1,
+      shipRadius,
+      mothershipPrev,
+      mothershipCurr
+    );
   }
 
   /**
@@ -1921,16 +2111,13 @@ export class GameLoop {
    * @returns {number}
    */
   _shipHullDistance(px, py, shipX, shipY){
-    const camRot = Math.atan2(shipX, shipY || 1e-6);
-    const shipRot = -camRot;
-    const local = this._shipLocalHullPoints();
-    const c = Math.cos(shipRot);
-    const s = Math.sin(shipRot);
-    const verts = local.map(([lx, ly]) => {
-      const wx = c * lx - s * ly;
-      const wy = s * lx + c * ly;
-      return [shipX + wx, shipY + wy];
-    });
+    const verts = this._shipHullWorldVertices(shipX, shipY);
+    if (verts.length < 2){
+      const dx = px - shipX;
+      const dy = py - shipY;
+      return Math.max(0, Math.hypot(dx, dy) - this._shipRadius());
+    }
+
     let best = Infinity;
     for (let i = 0; i < verts.length; i++){
       const a = verts[i];
@@ -1938,7 +2125,8 @@ export class GameLoop {
       const d = this._distPointToSegment(px, py, a[0], a[1], b[0], b[1]);
       if (d < best) best = d;
     }
-    // Treat interior points as direct contact so landed-overlap pickup is reliable.
+
+    // Treat interior points as direct contact.
     let inside = false;
     for (let i = 0, j = verts.length - 1; i < verts.length; j = i++){
       const xi = verts[i][0], yi = verts[i][1];
@@ -1947,8 +2135,7 @@ export class GameLoop {
         && (px < ((xj - xi) * (py - yi)) / ((yj - yi) || 1e-6) + xi);
       if (intersects) inside = !inside;
     }
-    if (inside) return 0;
-    return best;
+    return inside ? 0 : best;
   }
 
   /**
@@ -2009,29 +2196,10 @@ export class GameLoop {
   }
 
   _shipRadius(){
-    return this.SHIP_RADIUS_BASE * 1.2;
-  }
-
-  /**
-   * Approximate ship body using several circles (includes a center collider).
-   * @param {number} [shipX]
-   * @param {number} [shipY]
-   * @returns {Array<{x:number,y:number,r:number}>}
-   */
-  _shipShotColliders(shipX = this.ship.x, shipY = this.ship.y){
-    const shipR = this._shipRadius();
-    const rLen = Math.hypot(shipX, shipY) || 1;
-    const upx = shipX / rLen;
-    const upy = shipY / rLen;
-    const rightx = -upy;
-    const righty = upx;
-    return [
-      { x: shipX, y: shipY, r: shipR * 0.50 }, // center guard
-      { x: shipX + upx * shipR * 0.55, y: shipY + upy * shipR * 0.55, r: shipR * 0.42 },
-      { x: shipX - upx * shipR * 0.38, y: shipY - upy * shipR * 0.38, r: shipR * 0.38 },
-      { x: shipX + rightx * shipR * 0.48, y: shipY + righty * shipR * 0.48, r: shipR * 0.30 },
-      { x: shipX - rightx * shipR * 0.48, y: shipY - righty * shipR * 0.48, r: shipR * 0.30 },
-    ];
+    if (!(this.shipCollisionBoundRadius > 0)){
+      this.shipCollisionBoundRadius = this._computeShipHullBoundRadius(this._shipCollisionLocalHull());
+    }
+    return this.shipCollisionBoundRadius;
   }
 
   /**
@@ -2050,7 +2218,9 @@ export class GameLoop {
     // Approximate previous ship center from current velocity for relative swept test.
     const shipX0 = shipX1 - this.ship.vx * dt;
     const shipY0 = shipY1 - this.ship.vy * dt;
-    const broadR = this._shipRadius()
+    const hitPad = 0.02;
+    const shipR = this._shipRadius() + hitPad;
+    const broadR = shipR
       + Math.hypot(shot.vx, shot.vy) * dt
       + Math.hypot(this.ship.vx, this.ship.vy) * dt
       + 0.35;
@@ -2060,25 +2230,10 @@ export class GameLoop {
       return false;
     }
 
-    const colliders0 = this._shipShotColliders(shipX0, shipY0);
-    const colliders1 = this._shipShotColliders(shipX1, shipY1);
-    const hitPad = 0.02;
-    for (let i = 0; i < colliders1.length; i++){
-      const c0 = colliders0[i];
-      const c1 = colliders1[i];
-      if (!c0 || !c1) continue;
-      const r = Math.max(c0.r, c1.r) + hitPad;
-      // Relative-space sweep: moving shot vs moving collider center.
-      const rx0 = shotX0 - c0.x;
-      const ry0 = shotY0 - c0.y;
-      const rx1 = shotX1 - c1.x;
-      const ry1 = shotY1 - c1.y;
-      if (this._distPointToSegment(0, 0, rx0, ry0, rx1, ry1) <= r) return true;
-    }
-
-    // Fallback against actual ship hull to close rare gaps between circle colliders.
-    const travel = Math.hypot(shotX1 - shotX0, shotY1 - shotY0);
-    const steps = Math.max(2, Math.min(10, Math.ceil(travel / 0.08) + 1));
+    // Swept shot vs moving convex hull via segment sampling against hull distance.
+    const shotTravel = Math.hypot(shotX1 - shotX0, shotY1 - shotY0);
+    const shipTravel = Math.hypot(shipX1 - shipX0, shipY1 - shipY0);
+    const steps = Math.max(2, Math.min(20, Math.ceil((shotTravel + shipTravel) / 0.06) + 1));
     for (let i = 0; i < steps; i++){
       const t = (steps <= 1) ? 1 : (i / (steps - 1));
       const px = shotX0 + (shotX1 - shotX0) * t;
@@ -2102,24 +2257,68 @@ export class GameLoop {
     return { x: this.ship.x + wx, y: this.ship.y + wy };
   }
 
-  _shipLocalHullPoints(){
-    return buildDropshipLocalHullPoints(GAME);
-  }
-
   /**
    * @param {number} x
    * @param {number} y
-   * @param {number} shipRadius
    * @returns {boolean}
    */
-  _shipCollidesAt(x, y, shipRadius){
-    return !!sampleBodyCollisionAt(
-      this.collision,
-      (px, py) => this._shipCollisionPoints(px, py),
-      x,
-      y,
-      true
-    ).hit;
+  _shipCollidesAt(x, y){
+    return !!this._shipCollisionExactAt(x, y);
+  }
+
+  /**
+   * Mothership-only overlap check at ship pose.
+   * @param {number} x
+   * @param {number} y
+   * @returns {boolean}
+   */
+  _shipCollidesWithMothershipAt(x, y){
+    return !!this._shipMothershipCollisionExactWithPose(x, y, this.mothership);
+  }
+
+  /**
+   * Exact hull-vs-planet-rock overlap at pose.
+   * @param {number} x
+   * @param {number} y
+   * @returns {import("./types.d.js").CollisionHit|null}
+   */
+  _shipPlanetCollisionExact(x, y){
+    return findPlanetCollisionExactAt(this._shipCollisionExactCtx(), x, y);
+  }
+
+  /**
+   * Exact hull-vs-mothership-solid overlap at pose.
+   * @param {number} x
+   * @param {number} y
+   * @param {Pick<import("./mothership.js").Mothership, "x"|"y"|"angle"|"bounds"|"points"|"tris"|"triAir">|null|undefined} mothershipPose
+   * @returns {import("./types.d.js").CollisionHit|null}
+   */
+  _shipMothershipCollisionExactWithPose(x, y, mothershipPose){
+    return findMothershipCollisionExactAtPose(this._shipCollisionExactCtx(), x, y, mothershipPose);
+  }
+
+  /**
+   * Exact ship overlap at pose.
+   * @param {number} x
+   * @param {number} y
+   * @returns {{hit:import("./types.d.js").CollisionHit, hitSource:"planet"|"mothership"}|null}
+   */
+  _shipCollisionExactAt(x, y){
+    return findCollisionExactAt(this._shipCollisionExactCtx(), x, y);
+  }
+
+  /**
+   * Continuous sweep using exact hull overlap checks.
+   * @param {number} x0
+   * @param {number} y0
+   * @param {number} x1
+   * @param {number} y1
+   * @param {number} stepLen
+   * @param {number} maxSteps
+   * @returns {{x:number,y:number,hit:import("./types.d.js").CollisionHit,hitSource:"planet"|"mothership"}|null}
+   */
+  _firstShipCollisionOnSegmentExact(x0, y0, x1, y1, stepLen, maxSteps){
+    return findFirstCollisionOnSegmentExact(this._shipCollisionExactCtx(), x0, y0, x1, y1, stepLen, maxSteps);
   }
 
   /**
@@ -2129,7 +2328,7 @@ export class GameLoop {
    * @returns {void}
    */
   _stabilizeShipAgainstPlanetPenetration(maxIters = 12){
-    stabilizeShipAgainstPlanetPenetration({
+    stabilizePlanetPenetration({
       ship: this.ship,
       collision: this.collision,
       planet: this.planet,
@@ -2227,6 +2426,11 @@ export class GameLoop {
         } else if (this.ship.planetScanner){
           this.planetView = !this.planetView;
         }
+      } else {
+        // Always allow a hard ship reset when away from dock/crash states.
+        // This avoids soft-locks from pathological collision states.
+        this._resetShip();
+        return;
       }
     }
 
@@ -2264,8 +2468,20 @@ export class GameLoop {
       stickThrust.y = -stickThrust.y;
     }
 
+    /** @type {{x:number,y:number,angle:number}|null} */
+    let mothershipPrevPose = null;
+    let mothershipAngularVel = 0;
     if (this.mothership){
+      mothershipPrevPose = {
+        x: this.mothership.x,
+        y: this.mothership.y,
+        angle: this.mothership.angle,
+      };
       updateMothership(this.mothership, this.planet, dt);
+      let da = this.mothership.angle - mothershipPrevPose.angle;
+      while (da > Math.PI) da -= Math.PI * 2;
+      while (da < -Math.PI) da += Math.PI * 2;
+      mothershipAngularVel = da / Math.max(1e-6, dt);
     }
     if (spawnEnemyType){
       const map = {
@@ -2290,7 +2506,7 @@ export class GameLoop {
       if (thrust || stickThrust.y > 0.5){
         const shipRadius = this._shipRadius();
         const pushStep = shipRadius * 0.35;
-        for (let i = 0; i < 8 && this._shipCollidesAt(this.ship.x, this.ship.y, shipRadius); i++){
+        for (let i = 0; i < 8 && this._shipCollidesAt(this.ship.x, this.ship.y); i++){
           const info = mothershipCollisionInfo(this.mothership, this.ship.x, this.ship.y);
           if (!info) break;
           this.ship.x += info.nx * pushStep;
@@ -2328,6 +2544,14 @@ export class GameLoop {
         this.ship.y = this.mothership.y + s * lx + c * ly;
         this.ship.vx = this.mothership.vx;
         this.ship.vy = this.mothership.vy;
+        this.ship._shipRadius = this._shipRadius();
+        this.ship._samples = sampleBodyCollisionAt(
+          this.collision,
+          (px, py) => this._shipCollisionPoints(px, py),
+          this.ship.x,
+          this.ship.y,
+          false
+        ).samples;
         this.lastAimWorld = null;
         this.lastAimScreen = null;
         // Stay locked to the mothership; skip gravity/collision integration.
@@ -2461,25 +2685,47 @@ export class GameLoop {
       const shipRadius = this._shipRadius();
       const attemptedShipX = this.ship.x;
       const attemptedShipY = this.ship.y;
+      const travelDist = Math.hypot(attemptedShipX - prevShipX, attemptedShipY - prevShipY);
+      const sweepStep = Math.max(0.03, Math.min(0.05, shipRadius * 0.2));
+      const sweepMaxSteps = Math.max(18, Math.min(96, Math.ceil(travelDist / sweepStep) + 2));
       this.ship._landingDebug = null;
-      const sweptHit = firstBodyCollisionOnSegment(
-        this.collision,
-        (px, py) => this._shipCollisionPoints(px, py),
+      let sweptHit = this._firstShipCollisionOnSegmentExact(
         prevShipX,
         prevShipY,
         this.ship.x,
         this.ship.y,
-        Math.max(0.06, shipRadius * 0.35),
-        14,
-        true
+        sweepStep,
+        sweepMaxSteps
       );
+      if (!sweptHit && this.mothership && mothershipPrevPose){
+        const mothershipCurrPose = {
+          x: this.mothership.x,
+          y: this.mothership.y,
+          angle: this.mothership.angle,
+        };
+        sweptHit = this._sweptShipVsMovingMothership(
+          prevShipX,
+          prevShipY,
+          this.ship.x,
+          this.ship.y,
+          shipRadius,
+          mothershipPrevPose,
+          mothershipCurrPose
+        );
+      }
       let samples;
       let hit;
       let hitSource;
       if (sweptHit){
         this.ship.x = sweptHit.x;
         this.ship.y = sweptHit.y;
-        samples = sweptHit.samples;
+        samples = sampleBodyCollisionAt(
+          this.collision,
+          (px, py) => this._shipCollisionPoints(px, py),
+          this.ship.x,
+          this.ship.y,
+          false
+        ).samples;
         hit = sweptHit.hit;
         hitSource = sweptHit.hitSource;
       } else {
@@ -2488,30 +2734,34 @@ export class GameLoop {
           (px, py) => this._shipCollisionPoints(px, py),
           this.ship.x,
           this.ship.y,
-          true
+          false
         ));
       }
       const collides = !!hit;
       this.ship._samples = samples;
       this.ship._shipRadius = shipRadius;
       if (hit){
+        const hitTri = (hitSource === "planet")
+          ? (hit.tri || this.planet.radial.findTriAtWorld(hit.x, hit.y))
+          : null;
         this.ship._collision = {
           x: hit.x,
           y: hit.y,
           source: hitSource,
-          tri: this.planet.radial.findTriAtWorld(hit.x, hit.y),
-          node: this.planet.radial.nearestNodeOnRing(hit.x, hit.y),
+          tri: hitTri,
+          node: (hitSource === "planet") ? this.planet.radial.nearestNodeOnRing(hit.x, hit.y) : null,
+          contacts: Array.isArray(hit.contacts) ? hit.contacts : null,
         };
       } else {
         this.ship._collision = null;
       }
 
       if (collides){
-        const prevColliderPoints = this._shipCollisionPoints(prevShipX, prevShipY);
+        const prevCollider = this._shipCollisionSampleSet(prevShipX, prevShipY);
         // Use attempted (pre-resolution) pose so swept contact reconstruction
         // sees actual crossings, not the post-clamp safe pose.
-        const currColliderPoints = this._shipCollisionPoints(attemptedShipX, attemptedShipY);
-        resolveShipCollisionResponse({
+        const currCollider = this._shipCollisionSampleSet(attemptedShipX, attemptedShipY);
+        resolveCollisionResponse({
           ship: this.ship,
           collision: this.collision,
           planet: this.planet,
@@ -2521,9 +2771,18 @@ export class GameLoop {
           dt,
           eps,
           shipRadius,
-          shipCollidesAt: (x, y) => this._shipCollidesAt(x, y, shipRadius),
-          prevPoints: prevColliderPoints,
-          currPoints: currColliderPoints,
+          shipCollidesAt: (x, y) => this._shipCollidesAt(x, y),
+          shipCollidesMothershipAt: (x, y) => this._shipCollidesWithMothershipAt(x, y),
+          shipLocalHull: this._shipCollisionLocalHull(),
+          shipCollisionPointsAt: (x, y) => this._shipCollisionPoints(x, y),
+          shipStartX: prevShipX,
+          shipStartY: prevShipY,
+          shipEndX: attemptedShipX,
+          shipEndY: attemptedShipY,
+          mothershipAngularVel,
+          mothershipPrevPose,
+          prevPoints: prevCollider.points,
+          currPoints: currCollider.points,
           onCrash: () => this._triggerCrash(),
           isDockedWithMothership: () => this._isDockedWithMothership(),
           onSuccessfullyDocked: () => this._onSuccessfullyDocked(),
@@ -2727,7 +2986,7 @@ export class GameLoop {
     }
 
     if (this.ship.state !== "crashed"){
-      const shipRadius = this._shipRadius() * 0.8;
+      const shipRadius = this._shipRadius();
       this.planet.handleFeatureContact(this.ship.x, this.ship.y, shipRadius, this.featureCallbacks);
     }
 
@@ -3193,8 +3452,9 @@ export class GameLoop {
     }
 
     if (this.ship.state !== "crashed" && this.enemies.explosions.length){
+      const shipR = this._shipRadius();
       for (const ex of this.enemies.explosions){
-        const r = ex.radius ?? 1.0;
+        const r = (ex.radius ?? 1.0) + shipR;
         const dx = this.ship.x - ex.x;
         const dy = this.ship.y - ex.y;
         if (dx * dx + dy * dy <= r * r){
@@ -3220,9 +3480,6 @@ export class GameLoop {
     const now = performance.now();
     const rawDt = Math.min(0.05, (now - this.lastTime) / 1000);
     this.lastTime = now;
-    if (this.newGameHelpPromptT > 0){
-      this.newGameHelpPromptT = Math.max(0, this.newGameHelpPromptT - rawDt);
-    }
     const touchStartActionMode = this._touchStartActionMode();
     const touchStartPromptActive = touchStartActionMode !== null;
     this.input.setTouchStartPromptActive(touchStartPromptActive);
@@ -3231,6 +3488,14 @@ export class GameLoop {
       this.input.setDebugCommandsEnabled(this.devHudVisible);
     }
     const inputState = this.input.update();
+    if (inputState.toggleFrameStep){
+      this.debugFrameStepMode = !this.debugFrameStepMode;
+      this.accumulator = 0;
+      this._showStatusCue(this.debugFrameStepMode ? "Frame step on (Alt+L, Space steps)" : "Frame step off");
+    }
+    if (this.debugFrameStepMode){
+      inputState.thrust = false;
+    }
     if (inputState.zoomReset){
       this._resetManualZoom();
       this._showZoomCue();
@@ -3242,10 +3507,20 @@ export class GameLoop {
       this.helpPopup.setTouchMode(inputState.inputType === "touch");
     }
     const helpOpen = !!(this.helpPopup && this.helpPopup.isOpen && this.helpPopup.isOpen());
-    const dt = helpOpen ? 0 : rawDt;
+    const fixed = 1 / 60;
+    const stepFrame = !!(this.debugFrameStepMode && inputState.stepFrame && !helpOpen);
+    const dt = helpOpen ? 0 : (this.debugFrameStepMode ? (stepFrame ? fixed : 0) : rawDt);
+    if (this.newGameHelpPromptT > 0){
+      this.newGameHelpPromptT = Math.max(0, this.newGameHelpPromptT - dt);
+    }
     if (helpOpen){
       this.accumulator = 0;
       this._setThrustLoopActive(false);
+    } else if (this.debugFrameStepMode){
+      this.accumulator = stepFrame ? fixed : 0;
+      if (!stepFrame){
+        this._setThrustLoopActive(false);
+      }
     } else {
       this.accumulator += dt;
     }
@@ -3330,7 +3605,6 @@ export class GameLoop {
     const captureScreenshotClean = !!inputState.copyScreenshotClean;
     const captureScreenshotCleanTitle = !!inputState.copyScreenshotCleanTitle;
 
-    const fixed = 1 / 60;
     const maxSteps = 4;
     let steps = 0;
     while (this.accumulator >= fixed && steps < maxSteps){
@@ -3371,8 +3645,87 @@ export class GameLoop {
     const landingDbg = this.ship._landingDebug;
     if (landingDbg){
       const fmt = (n) => Number.isFinite(n) ? Number(n).toFixed(2) : "-";
+      const fmtI = (n) => Number.isFinite(n) ? String(Math.round(Number(n))) : "-";
+      const fmtVec = (v) => {
+        if (!v) return "-";
+        return `${fmt(v.vx)},${fmt(v.vy)}@${fmt(v.speed)}/${fmt(v.dirDeg)}deg`;
+      };
+      const fmtNormal = (n) => {
+        if (!n) return "-";
+        return `${fmt(n.nx)},${fmt(n.ny)}`;
+      };
+      const fmtHits = (e) => {
+        if (!e || !Array.isArray(e.hits)) return "-";
+        return e.hits.map((h) => {
+          const kind = h && h.kind ? h.kind : "?";
+          const edge = Number.isFinite(h && h.edgeIdx) ? h.edgeIdx : "-";
+          const hull = Number.isFinite(h && h.hullIdx) ? h.hullIdx : "-";
+          return `${kind}[e${edge}/h${hull}]`;
+        }).join(",");
+      };
+      const reason = String(landingDbg.reason || "-");
+      let mothershipRelatedNoContact = false;
+      if (reason === "mothership_no_contact" && landingDbg.source === "mothership" && this.mothership){
+        const shipRadius = this._shipRadius();
+        const dx = this.ship.x - this.mothership.x;
+        const dy = this.ship.y - this.mothership.y;
+        const nearMothership = (dx * dx + dy * dy) <= Math.pow((this.mothership.bounds || 0) + shipRadius + 0.8, 2);
+        const overlap = nearMothership && this._shipCollidesWithMothershipAt(this.ship.x, this.ship.y);
+        const activeHit = !!(this.ship._collision && this.ship._collision.source === "mothership");
+        mothershipRelatedNoContact = overlap || activeHit;
+      }
+      const hasCollisionEvidence =
+        (Number(landingDbg.contactsCount) > 0)
+        || (Number(landingDbg.overlapBeforeCount) > 0)
+        || (Number(landingDbg.overlapAfterCount) > 0)
+        || (Number(landingDbg.depenPush) > 0);
+      const landedState = reason.includes("landed");
+      const quietState = (reason.includes("no_contact") || reason.includes("graze")) && !hasCollisionEvidence;
+      const mothershipSessionCandidate =
+        landingDbg.source === "mothership" && reason.startsWith("mothership_") && hasCollisionEvidence;
+      // Session ownership follows actual collision/depenetration evidence, not the
+      // human-readable reason label. For mothership debugging, keep all emitted
+      // mothership lines grouped under a real session id so misclassified
+      // `mothership_no_contact` frames do not fall back to sid:-.
+      const sessionActive = !!(!landedState && (
+        hasCollisionEvidence
+        || mothershipRelatedNoContact
+        || mothershipSessionCandidate
+      ));
+      let sessionId = this._landingDebugSessionActive ? this._landingDebugSessionId : 0;
+      let sessionFrame = this._landingDebugSessionActive ? this._landingDebugSessionFrame : 0;
+      if (sessionActive){
+        if (!this._landingDebugSessionActive){
+          this._landingDebugSessionActive = true;
+          this._landingDebugSessionId = this._landingDebugSessionIdNext++;
+          this._landingDebugSessionFrame = 1;
+          this._landingDebugSessionSource = String(landingDbg.source || "");
+          console.log(`[landDbgStart] sid:${this._landingDebugSessionId} src:${landingDbg.source || "-"} r:${reason}`);
+        } else {
+          this._landingDebugSessionFrame += 1;
+        }
+        sessionId = this._landingDebugSessionId;
+        sessionFrame = this._landingDebugSessionFrame;
+      } else if (this._landingDebugSessionActive){
+        console.log(
+          `[landDbgEnd] sid:${this._landingDebugSessionId} frames:${this._landingDebugSessionFrame} end:${reason}`
+        );
+        this._landingDebugSessionActive = false;
+        this._landingDebugSessionFrame = 0;
+        this._landingDebugSessionSource = "";
+        sessionId = 0;
+        sessionFrame = 0;
+      }
+      if (landingDbg.collisionDiag){
+        landingDbg.collisionDiag.session = {
+          id: sessionId,
+          frame: sessionFrame,
+          active: this._landingDebugSessionActive,
+          reason,
+        };
+      }
       const line =
-        `[landDbg] src:${landingDbg.source || "-"} r:${landingDbg.reason || "-"} `
+        `[landDbg] sid:${sessionId || "-"} sf:${sessionFrame || "-"} src:${landingDbg.source || "-"} r:${reason} `
         + `lu:${fmt(landingDbg.dotUp)} sl:${fmt(landingDbg.slope)}<=${fmt(landingDbg.landSlope)} `
         + `vn:${fmt(landingDbg.vn)} vt:${fmt(landingDbg.vt)} sp:${fmt(landingDbg.speed)} `
         + `af:${fmt(landingDbg.airFront)} ab:${fmt(landingDbg.airBack)} `
@@ -3381,10 +3734,97 @@ export class GameLoop {
         + `c:${landingDbg.contactsCount ?? -1} bd:${fmt(landingDbg.bestDotUpAny)}/${fmt(landingDbg.bestDotUpUnder)} `
         + `ip:${landingDbg.impactPoint ?? -1}@${fmt(landingDbg.impactT)} sp:${landingDbg.supportPoint ?? -1}@${fmt(landingDbg.supportT)} `
         + `tri:o${landingDbg.supportTriOuterCount ?? -1} a:${fmt(landingDbg.supportTriAirMin)}-${fmt(landingDbg.supportTriAirMax)} `
-        + `r:${fmt(landingDbg.supportTriRMin)}-${fmt(landingDbg.supportTriRMax)}`;
-      if (line !== this._lastLandingDebugConsoleLine){
-        console.log(line);
+        + `r:${fmt(landingDbg.supportTriRMin)}-${fmt(landingDbg.supportTriRMax)} `
+        + `ov:${fmtI(landingDbg.overlapBeforeCount)}>${fmtI(landingDbg.overlapAfterCount)} `
+        + `ovm:${fmt(landingDbg.overlapBeforeMin)}>${fmt(landingDbg.overlapAfterMin)} `
+        + `dep:${fmt(landingDbg.depenPush)} csh:${fmt(landingDbg.depenCushion)} d:${fmtI(landingDbg.depenDir)} i:${fmtI(landingDbg.depenIter)} clr:${landingDbg.depenCleared ? 1 : 0}`;
+      const diag = landingDbg.collisionDiag || null;
+      const detailLine = diag
+        ? ` phase:${diag.phase || "-"}`
+          + ` hits:${diag.hitCount ?? "-"}`
+          + ` avgNormal:${fmtNormal(diag.averageNormal)}`
+          + ` baseW:${fmtVec(diag.baseAtContact)}`
+          + ` relInW:${fmtVec(diag.relIn)}`
+          + ` relOutW:${fmtVec(diag.relOut)}`
+          + ` baseL:${fmtVec(diag.baseAtContactLocal)}`
+          + ` relInL:${fmtVec(diag.relInLocal)}`
+          + ` relOutL:${fmtVec(diag.relOutLocal)}`
+          + ` vnIn:${fmt(diag.vnIn)}`
+          + ` vtIn:${fmt(diag.vtIn)}`
+          + ` vnOut:${fmt(diag.vnOut)}`
+          + ` vtOut:${fmt(diag.vtOut)}`
+          + ` evidence:${diag.evidence && diag.evidence.reason ? diag.evidence.reason : "-"}`
+          + ` hitList:${fmtHits(diag.evidence)}`
+          + ` sweepDbg:${diag.evidence && diag.evidence.debug ? [
+            `s${diag.evidence.debug.sampleCount ?? 0}`,
+            `e${diag.evidence.debug.edgeCount ?? 0}`,
+            `cand${diag.evidence.debug.candidateCount ?? 0}`,
+            `air${diag.evidence.debug.rejectStartNotAir ?? 0}`,
+            `solid${diag.evidence.debug.rejectEndNotSolid ?? 0}`,
+            `seg${diag.evidence.debug.rejectSegment ?? 0}`,
+            `t${diag.evidence.debug.rejectT ?? 0}`,
+            `feat${diag.evidence.debug.featureKeptCount ?? 0}/${diag.evidence.debug.featureGroupCount ?? 0}`,
+            `early${diag.evidence.debug.earliestCandidateCount ?? 0}`,
+            `keep${diag.evidence.debug.clusterKeptCount ?? 0}/${diag.evidence.debug.clusterInputCount ?? 0}`,
+            `inside${diag.evidence.debug.insideCount ?? 0}`,
+          ].join("|") : "-"}`
+          + ` dock:${diag.dock ? `${fmt(diag.dock.lx)},${fmt(diag.dock.ly)} n:${fmt(diag.dock.localNx)},${fmt(diag.dock.localNy)} floor:${diag.dock.dockFloorNormal ? 1 : 0}` : "-"}`
+          + ` backoff:${diag.backoff ? `${fmt(diag.backoff.dist)} dir:${fmt(diag.backoff.dirX)},${fmt(diag.backoff.dirY)} clear:${diag.backoff.cleared ? 1 : 0}` : "-"}`
+          + ` overlapNow:${diag.overlap ? `${diag.overlap.before ? 1 : 0}->${diag.overlap.after ? 1 : 0}` : "-"}`
+        : "";
+      const combinedLine = line + detailLine;
+      const idleNoContact = (!sessionActive && reason === "mothership_no_contact" && !mothershipRelatedNoContact);
+      const shouldLog = !idleNoContact && (sessionActive || line !== this._lastLandingDebugConsoleLine);
+      if (shouldLog){
+        console.log(combinedLine);
         this._lastLandingDebugConsoleLine = line;
+      }
+    } else if (this.mothership){
+      const shipRadius = this._shipRadius();
+      const dx = this.ship.x - this.mothership.x;
+      const dy = this.ship.y - this.mothership.y;
+      const nearMothership = (dx * dx + dy * dy) <= Math.pow((this.mothership.bounds || 0) + shipRadius + 0.8, 2);
+      const overlap = nearMothership && this._shipCollidesWithMothershipAt(this.ship.x, this.ship.y);
+      if (!this._landingDebugSessionActive && overlap){
+        this._landingDebugSessionActive = true;
+        this._landingDebugSessionId = this._landingDebugSessionIdNext++;
+        this._landingDebugSessionFrame = 0;
+        this._landingDebugSessionSource = "mothership";
+        console.log(`[landDbgStart] sid:${this._landingDebugSessionId} src:mothership r:mothership_trace_overlap`);
+      }
+      if (this._landingDebugSessionActive && this._landingDebugSessionSource === "mothership"){
+        if (nearMothership){
+          this._landingDebugSessionFrame += 1;
+          const sid = this._landingDebugSessionId;
+          const sf = this._landingDebugSessionFrame;
+          const c = Math.cos(-this.mothership.angle);
+          const s = Math.sin(-this.mothership.angle);
+          const lx = c * dx - s * dy;
+          const ly = s * dx + c * dy;
+          const relVx = this.ship.vx - this.mothership.vx;
+          const relVy = this.ship.vy - this.mothership.vy;
+          const relLx = c * relVx - s * relVy;
+          const relLy = s * relVx + c * relVy;
+          const traceLine =
+            `[landDbgGap] sid:${sid} sf:${sf} src:mothership `
+            + `r:${overlap ? "mothership_trace_overlap" : "mothership_trace_near"} `
+            + `ship:${this.ship.x.toFixed(2)},${this.ship.y.toFixed(2)} `
+            + `dock:${lx.toFixed(2)},${ly.toFixed(2)} `
+            + `relW:${relVx.toFixed(2)},${relVy.toFixed(2)}@${Math.hypot(relVx, relVy).toFixed(2)} `
+            + `relL:${relLx.toFixed(2)},${relLy.toFixed(2)}@${Math.hypot(relLx, relLy).toFixed(2)} `
+            + `overlap:${overlap ? 1 : 0}`;
+          if (traceLine !== this._lastLandingDebugConsoleLine){
+            console.log(traceLine);
+            this._lastLandingDebugConsoleLine = traceLine;
+          }
+        } else {
+          console.log(
+            `[landDbgEnd] sid:${this._landingDebugSessionId} frames:${this._landingDebugSessionFrame} end:trace_far`
+          );
+          this._landingDebugSessionActive = false;
+          this._landingDebugSessionFrame = 0;
+          this._landingDebugSessionSource = "";
+        }
       }
     }
 
