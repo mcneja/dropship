@@ -1260,8 +1260,9 @@ function buildLandingData(mothership, nx, ny, shipX, shipY, shipRadius, game){
   const dotUpRaw = nx * upx + ny * upy;
   const slope = 1 - Math.abs(dotUpRaw);
   const landable = (dotUpRaw < 0 && slope <= landSlope);
-  const landedTestX = shipX + nx * shipRadius * 0.28;
-  const landedTestY = shipY + ny * shipRadius * 0.28;
+  const landingClearance = Math.max(0.01, Math.min(shipRadius * 0.16, (mothership.spacing || 0.4) * 0.08));
+  const landedTestX = shipX + nx * landingClearance;
+  const landedTestY = shipY + ny * landingClearance;
   const dx = landedTestX - mothership.x;
   const dy = landedTestY - mothership.y;
   const c = Math.cos(-mothership.angle);
