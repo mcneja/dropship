@@ -11,7 +11,7 @@ const HELP_CONTENT = `
     <h3>Mission Brief</h3>
     <div class="help-grid">
       <div class="help-k">Your Job</div><div class="help-v">Fly a dropship down to hostile planets, locate survivors, and return them safely to the mothership in orbit.</div>
-      <div class="help-k">Mothership</div><div class="help-v">The mothership is your mobile base in orbit. It stores rescued crew and is where runs are reset, missions completed, and dropships upgraded.</div>
+      <div class="help-k">Mothership</div><div class="help-v">The mothership is your mobile base in orbit. Landing there repairs and resupplies your dropship, stores rescued crew, and is where runs are reset, missions completed, and dropships upgraded.</div>
       <div class="help-k">Dropship</div><div class="help-v">The dropship is your active craft for terrain flight, combat, extraction, and docking back at the mothership.</div>
       <div class="help-k">Rescue Flow</div><div class="help-v">Find stranded crew on the surface, pick them up by landing next to them, survive enemies and terrain, then drop them off at the mothership.</div>
       <div class="help-k">Survivor Types</div><div class="help-v"><span class="help-chip">Miners</span> are the primary rescue objective. <span class="help-chip">Pilots</span> let you launch replacement dropships after a crash. <span class="help-chip">Engineers</span> unlock dropship upgrades while docked.</div>
