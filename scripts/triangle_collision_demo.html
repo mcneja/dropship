@@ -1,0 +1,242 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Triangle Mesh Collision Demo</title>
+  <style>
+    html, body { margin: 0; padding: 0; background: #111; color: #ddd; font-family: system-ui, sans-serif; }
+    #wrap { display: grid; grid-template-columns: 320px 1fr; height: 100vh; }
+    #ui { padding: 12px; border-right: 1px solid #333; overflow: auto; }
+    canvas { display: block; width: 100%; height: 100%; background: #0b0f16; }
+    button, input { margin: 4px 0; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; font-size: 12px; }
+  </style>
+</head>
+<body>
+<div id="wrap">
+  <div id="ui">
+    <h3>Triangle Mesh Collision Demo</h3>
+    <p>Controls: <b>WASD</b> move, <b>Q/E</b> rotate, <b>Space</b> brake, <b>R</b> reset.</p>
+    <label><input type="checkbox" id="pause"> Pause</label><br>
+    <label><input type="checkbox" id="showNormals" checked> Show wall normals</label><br>
+    <label>Time scale <input id="timeScale" type="range" min="0.05" max="1" step="0.05" value="0.25"></label><br>
+    <label>Restitution <input id="rest" type="range" min="0" max="1" step="0.01" value="0.9"></label><br>
+    <label>Mesh drift X <input id="meshVX" type="range" min="-100" max="100" step="1" value="15"></label><br>
+    <label>Mesh drift Y <input id="meshVY" type="range" min="-100" max="100" step="1" value="0"></label><br>
+    <label>Mesh ang vel <input id="meshW" type="range" min="-1.5" max="1.5" step="0.01" value="0"></label>
+    <div class="mono" id="stats"></div>
+  </div>
+  <canvas id="c"></canvas>
+</div>
+
+<script type="module">
+import {
+  vec, add, mul,
+  buildTriangleMeshFromRows,
+  transformHull,
+  simulatePlayerVsTriangleMesh,
+} from './triangle_collision_algo.js';
+
+const SHIPMAP = [
+  "#######XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX#",
+  "##XXXXXXXX0000000000000000000000000000000XX",
+  "#XX0XXXXX00000000000000000000000000000000XX",
+  "XXXXXXXXX00000000000000000000000000000000XX",
+  "XXXXXXXXXX0000000000000000000000000000000XX",
+  "###XXXXXXXX000000000000000000000000000000XX",
+  "##########XXXXXXXXXXXXXXXXXXXX00000000000XX",
+];
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const stats = document.getElementById('stats');
+const pauseEl = document.getElementById('pause');
+const showNormalsEl = document.getElementById('showNormals');
+const timeScaleEl = document.getElementById('timeScale');
+const restEl = document.getElementById('rest');
+const meshVXEl = document.getElementById('meshVX');
+const meshVYEl = document.getElementById('meshVY');
+const meshWEl = document.getElementById('meshW');
+
+function resize() {
+  canvas.width = canvas.clientWidth * devicePixelRatio;
+  canvas.height = canvas.clientHeight * devicePixelRatio;
+}
+window.addEventListener('resize', resize);
+resize();
+
+const mesh = buildTriangleMeshFromRows(SHIPMAP, 28, { x: 80, y: 120 });
+
+const player = {
+  pos: vec(500, 180),
+  angle: Math.PI,
+  vel: vec(0, 0),
+  angVel: 0,
+  localHull: [
+    vec(18, 0),
+    vec(-10, -10),
+    vec(-18, 0),
+    vec(-10, 10),
+  ],
+};
+
+const initialPlayer = JSON.parse(JSON.stringify(player));
+const keys = new Set();
+window.addEventListener('keydown', e => { keys.add(e.key.toLowerCase()); if (e.key.toLowerCase() === 'r') resetPlayer(); });
+window.addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
+
+let lastT = performance.now();
+let impactsLast = [];
+
+function applyBrake(vel, brakeAccel, dt) {
+  const speed = Math.hypot(vel.x, vel.y);
+  if (speed < 1e-6) return vec(0, 0);
+  const nextSpeed = Math.max(0, speed - brakeAccel * dt);
+  return mul(vel, nextSpeed / speed);
+}
+
+function resetPlayer() {
+  player.pos = { ...initialPlayer.pos };
+  player.vel = { ...initialPlayer.vel };
+  player.angle = initialPlayer.angle;
+  player.angVel = 0;
+  impactsLast = [];
+}
+
+function update(dt) {
+  if (pauseEl.checked) return;
+
+  const thrustMag = 140;
+  const brakeAccel = 280;
+  const torque = 2.1;
+  const braking = keys.has(' ');
+
+  if (keys.has('q')) player.angVel -= torque * dt;
+  if (keys.has('e')) player.angVel += torque * dt;
+  player.angVel *= braking ? Math.max(0, 1 - 9 * dt) : 0.992;
+
+  if (keys.has('w')) player.vel = add(player.vel, vec(0, -thrustMag * dt));
+  if (keys.has('s')) player.vel = add(player.vel, vec(0, thrustMag * dt));
+  if (keys.has('a')) player.vel = add(player.vel, vec(-thrustMag * dt, 0));
+  if (keys.has('d')) player.vel = add(player.vel, vec(thrustMag * dt, 0));
+  if (braking) player.vel = applyBrake(player.vel, brakeAccel, dt);
+
+  const meshMotion = {
+    vel: vec(Number(meshVXEl.value), Number(meshVYEl.value)),
+    angVel: Number(meshWEl.value),
+    center: vec(500, 250),
+  };
+
+  // For demo purposes, integrate mesh geometry by moving draw-space only through velocities.
+  // The collision algorithm already supports relative wall velocity at contact.
+  const result = simulatePlayerVsTriangleMesh({
+    mesh,
+    player,
+    dt,
+    meshMotion,
+    restitution: Number(restEl.value),
+  });
+
+  player.pos = result.state.pos;
+  player.vel = result.state.vel;
+  player.angle = result.state.angle;
+  player.angVel = result.state.angVel;
+  impactsLast = result.impacts;
+}
+
+function drawTriangle(a, b, c, fill, stroke = null) {
+  ctx.beginPath();
+  ctx.moveTo(a.x, a.y);
+  ctx.lineTo(b.x, b.y);
+  ctx.lineTo(c.x, c.y);
+  ctx.closePath();
+  if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+  if (stroke) { ctx.strokeStyle = stroke; ctx.stroke(); }
+}
+
+function draw() {
+  ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // triangles
+  for (const tri of mesh.tris) {
+    const fill = tri.isWall ? '#354b63' : 'rgba(40,140,90,0.18)';
+    drawTriangle(tri.verts[0], tri.verts[1], tri.verts[2], fill, 'rgba(255,255,255,0.08)');
+  }
+
+  // boundary edges
+  ctx.lineWidth = 2;
+  for (const e of mesh.edges) {
+    ctx.beginPath();
+    ctx.moveTo(e.a.x, e.a.y);
+    ctx.lineTo(e.b.x, e.b.y);
+    ctx.strokeStyle = '#ffd166';
+    ctx.stroke();
+
+    if (showNormalsEl.checked) {
+      const m = mul(add(e.a, e.b), 0.5);
+      const tip = add(m, mul(e.normal, 10));
+      ctx.beginPath();
+      ctx.moveTo(m.x, m.y);
+      ctx.lineTo(tip.x, tip.y);
+      ctx.strokeStyle = '#ff5d73';
+      ctx.stroke();
+    }
+  }
+
+  // player
+  const hull = transformHull(player.localHull, player.pos, player.angle);
+  ctx.beginPath();
+  ctx.moveTo(hull.verts[0].x, hull.verts[0].y);
+  for (let i = 1; i < hull.verts.length; i++) ctx.lineTo(hull.verts[i].x, hull.verts[i].y);
+  ctx.closePath();
+  ctx.fillStyle = '#56cfe1';
+  ctx.fill();
+  ctx.strokeStyle = '#dff6ff';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // velocity vector
+  ctx.beginPath();
+  ctx.moveTo(player.pos.x, player.pos.y);
+  ctx.lineTo(player.pos.x + player.vel.x * 0.2, player.pos.y + player.vel.y * 0.2);
+  ctx.strokeStyle = '#8ecae6';
+  ctx.stroke();
+
+  // impacts
+  for (const hit of impactsLast) {
+    ctx.beginPath();
+    ctx.arc(hit.point.x, hit.point.y, 4, 0, Math.PI * 2);
+    ctx.fillStyle = '#ff006e';
+    ctx.fill();
+    const tip = add(hit.point, mul(hit.normal, 16));
+    ctx.beginPath();
+    ctx.moveTo(hit.point.x, hit.point.y);
+    ctx.lineTo(tip.x, tip.y);
+    ctx.strokeStyle = '#ff006e';
+    ctx.stroke();
+  }
+
+  stats.textContent = [
+    `time scale = ${Number(timeScaleEl.value).toFixed(2)}`,
+    `player.pos = (${player.pos.x.toFixed(2)}, ${player.pos.y.toFixed(2)})`,
+    `player.vel = (${player.vel.x.toFixed(2)}, ${player.vel.y.toFixed(2)})`,
+    `player.speed = ${Math.hypot(player.vel.x, player.vel.y).toFixed(2)}`,
+    `player.angle = ${player.angle.toFixed(3)}`,
+    `player.angVel = ${player.angVel.toFixed(3)}`,
+    `wall edges = ${mesh.edges.length}`,
+    `impacts last step = ${impactsLast.length}`,
+  ].join('\n');
+}
+
+function loop(now) {
+  const dt = Math.min(1 / 60, (now - lastT) / 1000) * Number(timeScaleEl.value);
+  lastT = now;
+  update(dt);
+  draw();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
