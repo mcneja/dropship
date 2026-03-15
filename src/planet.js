@@ -997,6 +997,264 @@ export class Planet {
     return points;
   }
 
+  _angleDistance(a, b){
+    let d = Math.abs(a - b);
+    if (d > Math.PI) d = Math.abs(d - Math.PI * 2);
+    return d;
+  }
+
+  /**
+   * @param {number} a
+   * @returns {number}
+   */
+  _normalizeAngle(a){
+    const tau = Math.PI * 2;
+    let out = a % tau;
+    if (out < 0) out += tau;
+    return out;
+  }
+
+  /**
+   * Check whether a turret pad has rock support under both shoulders.
+   * @param {number} x
+   * @param {number} y
+   * @param {number} [scale]
+   * @param {number} [eps]
+   * @returns {{ok:boolean, plusOk:boolean, minusOk:boolean, info:{nx:number,ny:number,slope:number}|null, tx:number, ty:number}}
+   */
+  _turretPadSupportAtWorld(x, y, scale = 0.55, eps = 0.18){
+    const info = this.surfaceInfoAtWorld(x, y, eps);
+    if (!info){
+      return { ok: false, plusOk: false, minusOk: false, info: null, tx: 0, ty: 0 };
+    }
+    const tx = -info.ny;
+    const ty = info.nx;
+    const shoulder = 0.55 * scale + 0.08;
+    const airClearance = 0.12;
+    const rockDepth = 0.09;
+    const shoulderSupported = (dir) => {
+      const sx = x + tx * shoulder * dir;
+      const sy = y + ty * shoulder * dir;
+      return (this.airValueAtWorld(sx + info.nx * airClearance, sy + info.ny * airClearance) > 0.5)
+        && (this.airValueAtWorld(sx - info.nx * rockDepth, sy - info.ny * rockDepth) <= 0.5);
+    };
+    const plusOk = shoulderSupported(1);
+    const minusOk = shoulderSupported(-1);
+    const ok = this.isLandableAtWorld(x, y, 0.45, 0.16, eps) && plusOk && minusOk;
+    return { ok, plusOk, minusOk, info, tx, ty };
+  }
+
+  /**
+   * Read the two ordered ring vertices on either side of an angle.
+   * @param {number} ringIndex
+   * @param {number} angle
+   * @returns {{ring:Array<{x:number,y:number,air:number}>,minusIdx:number,plusIdx:number,minusVertex:{x:number,y:number,air:number},plusVertex:{x:number,y:number,air:number}}|null}
+   */
+  _ringVerticesAroundAngle(ringIndex, angle){
+    const rings = this.radial && this.radial.rings ? this.radial.rings : null;
+    if (!rings || ringIndex < 0 || ringIndex >= rings.length) return null;
+    const ring = rings[ringIndex];
+    if (!ring || !ring.length) return null;
+    const target = this._normalizeAngle(angle);
+    let plusIdx = 0;
+    let plusDiff = Infinity;
+    for (let i = 0; i < ring.length; i++){
+      const ang = this._normalizeAngle(Math.atan2(ring[i].y, ring[i].x));
+      let diff = ang - target;
+      if (diff < 0) diff += Math.PI * 2;
+      if (diff < plusDiff){
+        plusDiff = diff;
+        plusIdx = i;
+      }
+    }
+    const minusIdx = (plusIdx - 1 + ring.length) % ring.length;
+    return {
+      ring,
+      minusIdx,
+      plusIdx,
+      minusVertex: ring[minusIdx],
+      plusVertex: ring[plusIdx],
+    };
+  }
+
+  /**
+   * @param {number} ringIndex
+   * @param {number} angle
+   * @param {number} [span]
+   * @returns {Array<{index:number,vertex:{x:number,y:number,air:number},angle:number,angleDiff:number}>}
+   */
+  _ringVertexCandidatesByAngle(ringIndex, angle, span = 2){
+    const around = this._ringVerticesAroundAngle(ringIndex, angle);
+    if (!around) return [];
+    const out = [];
+    const seen = new Set();
+    const n = around.ring.length;
+    for (let off = 0; off <= span; off++){
+      for (const baseIdx of [around.minusIdx - off, around.plusIdx + off]){
+        const idx = ((baseIdx % n) + n) % n;
+        if (seen.has(idx)) continue;
+        seen.add(idx);
+        const vertex = around.ring[idx];
+        const va = Math.atan2(vertex.y, vertex.x);
+        out.push({
+          index: idx,
+          vertex,
+          angle: va,
+          angleDiff: this._angleDistance(va, angle),
+        });
+      }
+    }
+    out.sort((a, b) => a.angleDiff - b.angleDiff);
+    return out;
+  }
+
+  /**
+   * @param {{x:number,y:number,air:number}} vertex
+   * @param {number} ringIndex
+   * @returns {Array<{x:number,y:number,air:number}>}
+   */
+  _rockNeighborsBelowRingVertex(vertex, ringIndex){
+    const graph = this.radialGraph;
+    const rings = this.radial && this.radial.rings ? this.radial.rings : null;
+    if (!graph || !graph.nodeOfRef || !graph.neighbors || !graph.nodes || !rings) return [];
+    const nodeIdx = graph.nodeOfRef.get(vertex);
+    if (nodeIdx === undefined) return [];
+    /** @type {Array<{x:number,y:number,air:number}>} */
+    const out = [];
+    const seen = new Set();
+    for (const edge of (graph.neighbors[nodeIdx] || [])){
+      const n = graph.nodes[edge.to];
+      if (!n || n.r !== ringIndex - 1) continue;
+      const ring = rings[n.r];
+      const v = ring && ring[n.i];
+      if (!v || v.air > 0.5) continue;
+      if (seen.has(v)) continue;
+      seen.add(v);
+      out.push(v);
+    }
+    return out;
+  }
+
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @param {number} scale
+   * @param {{maxSlope?:number, requireSupport?:boolean}} [opts]
+   * @returns {[number,number]|null}
+   */
+  _finalizeTurretPadAnchor(x, y, scale, opts = {}){
+    const maxSlope = (typeof opts.maxSlope === "number") ? opts.maxSlope : 0.24;
+    const requireSupport = opts.requireSupport !== false;
+    let ax = x;
+    let ay = y;
+    if (this.airValueAtWorld(ax, ay) <= 0.5){
+      const nudged = this.nudgeOutOfTerrain(ax, ay, 0.45, 0.04, 0.18);
+      if (nudged.ok){
+        ax = nudged.x;
+        ay = nudged.y;
+      }
+    }
+    const info = this.surfaceInfoAtWorld(ax, ay, 0.18);
+    if (!info) return null;
+    if (info.slope > maxSlope) return null;
+    if (!this.isLandableAtWorld(ax, ay, Math.max(0.24, maxSlope), 0.18, 0.18)) return null;
+    if (requireSupport){
+      const support = this._turretPadSupportAtWorld(ax, ay, scale, 0.18);
+      if (!support.ok) return null;
+    }
+    return [ax, ay];
+  }
+
+  /**
+   * Snap a pad onto a nearby ring rock vertex instead of leaving it between
+   * vertices. Outer-rim pads prefer the outermost ring; inner-gap pads require
+   * air above on the next ring out.
+   * @param {[number,number]} point
+   * @param {number} [scale]
+   * @returns {[number,number]|null}
+   */
+  _snapTurretPadToRingVertex(point, scale = 0.55){
+    const rings = this.radial && this.radial.rings ? this.radial.rings : null;
+    if (!rings || !rings.length) return null;
+    const outerRingIndex = rings.length - 1;
+    const baseAngle = Math.atan2(point[1], point[0]);
+    const baseR = Math.hypot(point[0], point[1]);
+    const outerCandidates = this._ringVertexCandidatesByAngle(outerRingIndex, baseAngle, 3);
+    if (!outerCandidates.length) return null;
+
+    let nearestOuter = outerCandidates[0];
+    for (const cand of outerCandidates){
+      if (cand.angleDiff < nearestOuter.angleDiff) nearestOuter = cand;
+    }
+
+    // Rule 1: pads on the outer ring center on an actual outer-ring rock vertex.
+    if (nearestOuter && nearestOuter.vertex.air <= 0.5){
+      for (const cand of outerCandidates){
+        if (cand.vertex.air > 0.5) continue;
+        if (cand.angleDiff > 0.4) continue;
+        const info = this.surfaceInfoAtWorld(cand.vertex.x, cand.vertex.y, 0.18);
+        if (!info) continue;
+        if (info.slope > 0.3) continue;
+        return [cand.vertex.x, cand.vertex.y];
+      }
+    }
+
+    // Rule 2: when the pad sits below the outer ring, center it directly under
+    // an outer-ring air vertex, but only if that air vertex connects to rock in
+    // the ring below.
+    for (const cand of outerCandidates){
+      if (cand.vertex.air <= 0.5) continue;
+      if (cand.angleDiff > 0.4) continue;
+      const rockBelow = this._rockNeighborsBelowRingVertex(cand.vertex, outerRingIndex);
+      if (rockBelow.length < 2) continue;
+      const surf = this._findSurfaceAtAngle(
+        cand.angle,
+        Math.max(0, outerRingIndex - 2.2),
+        outerRingIndex + 0.25
+      );
+      if (!surf) continue;
+      const anchor = this._finalizeTurretPadAnchor(surf.x, surf.y, scale, {
+        maxSlope: 0.26,
+        requireSupport: false,
+      });
+      if (!anchor) continue;
+      const anchorAngle = Math.atan2(anchor[1], anchor[0]);
+      if (this._angleDistance(anchorAngle, cand.angle) > 0.08) continue;
+      return anchor;
+    }
+
+    // Fallback for non-outer special cases: stay on a nearby landable rock
+    // vertex rather than a between-vertex interpolated point.
+    const startRing = Math.max(0, Math.min(outerRingIndex, Math.round(baseR)));
+    for (const ri of [startRing, startRing + 1, startRing - 1]){
+      if (ri < 0 || ri > outerRingIndex) continue;
+      const candidates = this._ringVertexCandidatesByAngle(ri, baseAngle, 2);
+      for (const cand of candidates){
+        if (cand.vertex.air > 0.5) continue;
+        if (cand.angleDiff > 0.32) continue;
+        const anchor = this._finalizeTurretPadAnchor(cand.vertex.x, cand.vertex.y, scale, {
+          maxSlope: 0.18,
+          requireSupport: true,
+        });
+        if (anchor) return anchor;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Nudge a pad away from ledges by selecting a nearby supported point
+   * along the same local surface band.
+   * @param {[number,number]} point
+   * @param {Array<[number,number,number,number]>} pool
+   * @param {number} [scale]
+   * @returns {[number,number]}
+   */
+  _refineTurretPadPoint(point, pool, scale = 0.55){
+    const initialSnap = this._snapTurretPadToRingVertex(point, scale);
+    return initialSnap || point;
+  }
+
   /**
    * Align turret pads to landable surface points.
    * @returns {void}
@@ -1064,6 +1322,11 @@ export class Planet {
         this._standablePoints = outerBoundaryPool;
         placed = this.sampleStandablePoints(pads.length, seed, "uniform", minDist, false);
         this._standablePoints = saved;
+        placed = placed.map((pt, i) => this._refineTurretPadPoint(
+          pt,
+          outerBoundaryPool,
+          (pads[i] && typeof pads[i].scale === "number") ? pads[i].scale : 0.55
+        ));
       }
     } else {
       const standable = this._standablePoints || [];
@@ -1095,6 +1358,11 @@ export class Planet {
       } else {
         placed = this.sampleStandablePoints(pads.length, seed, "uniform", minDist, false);
       }
+      placed = placed.map((pt, i) => this._refineTurretPadPoint(
+        pt,
+        pool,
+        (pads[i] && typeof pads[i].scale === "number") ? pads[i].scale : 0.55
+      ));
     }
     for (let i = 0; i < pads.length; i++){
       const p = pads[i];
