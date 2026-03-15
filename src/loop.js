@@ -55,7 +55,7 @@ export class GameLoop {
    * @param {import("./rendering.js").Renderer} deps.renderer
    * @param {import("./input.js").Input} deps.input
    * @param {Ui} deps.ui
-   * @param {{toggleMuted?:()=>boolean,toggleCombatMusicEnabled?:()=>boolean,stepMusicVolume?:(direction:number)=>number,setCombatActive?:(active:boolean)=>boolean,triggerCombatImmediate?:()=>boolean,triggerVictoryMusic?:()=>boolean,returnToAmbient?:(withFade?:boolean)=>void,playSfx?:(id:string,opts?:{volume?:number,rate?:number})=>boolean,setThrustLoopActive?:(active:boolean)=>boolean}|null|undefined} [deps.audio]
+   * @param {{toggleMuted?:()=>boolean,toggleCombatMusicEnabled?:()=>boolean,stepMusicVolume?:(direction:number)=>number,stepSfxVolume?:(direction:number)=>number,setCombatActive?:(active:boolean)=>boolean,triggerCombatImmediate?:()=>boolean,triggerVictoryMusic?:()=>boolean,returnToAmbient?:(withFade?:boolean)=>void,playSfx?:(id:string,opts?:{volume?:number,rate?:number})=>boolean,setThrustLoopActive?:(active:boolean)=>boolean}|null|undefined} [deps.audio]
    * @param {HTMLCanvasElement} deps.canvas
    * @param {HTMLCanvasElement|null|undefined} deps.overlay
    * @param {HTMLElement} deps.hud
@@ -3523,6 +3523,12 @@ export class GameLoop {
     } else if (inputState.musicVolumeUp && this.audio && typeof this.audio.stepMusicVolume === "function"){
       const nextPct = this.audio.stepMusicVolume(1);
       this._showStatusCue(`Music volume ${nextPct}%`);
+    } else if (inputState.sfxVolumeDown && this.audio && typeof this.audio.stepSfxVolume === "function"){
+      const nextPct = this.audio.stepSfxVolume(-1);
+      this._showStatusCue(`FX volume ${nextPct}%`);
+    } else if (inputState.sfxVolumeUp && this.audio && typeof this.audio.stepSfxVolume === "function"){
+      const nextPct = this.audio.stepSfxVolume(1);
+      this._showStatusCue(`FX volume ${nextPct}%`);
     }
     if (inputState.rescueAll) {
       this._rescueAll();

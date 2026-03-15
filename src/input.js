@@ -49,6 +49,8 @@ export class Input {
       toggleCombatMusic: false,
       musicVolumeUp: false,
       musicVolumeDown: false,
+      sfxVolumeUp: false,
+      sfxVolumeDown: false,
       copyScreenshot: false,
       copyScreenshotClean: false,
       copyScreenshotCleanTitle: false,
@@ -182,6 +184,8 @@ export class Input {
       this.oneshot.killAllEnemies = false;
       this.oneshot.musicVolumeUp = false;
       this.oneshot.musicVolumeDown = false;
+      this.oneshot.sfxVolumeUp = false;
+      this.oneshot.sfxVolumeDown = false;
       this.oneshot.copyScreenshot = false;
       this.oneshot.copyScreenshotClean = false;
       this.oneshot.copyScreenshotCleanTitle = false;
@@ -401,10 +405,12 @@ export class Input {
     }
     if (screenshotTitleShortcut) this.oneshot.copyScreenshotCleanTitle = true;
     if ((key === "-" || key === "_") && !e.ctrlKey && !e.metaKey && !e.altKey){
-      this.oneshot.musicVolumeDown = true;
+      if (e.shiftKey) this.oneshot.sfxVolumeDown = true;
+      else this.oneshot.musicVolumeDown = true;
     }
     if ((key === "=" || key === "+") && !e.ctrlKey && !e.metaKey && !e.altKey){
-      this.oneshot.musicVolumeUp = true;
+      if (e.shiftKey) this.oneshot.sfxVolumeUp = true;
+      else this.oneshot.musicVolumeUp = true;
     }
     if ((key === "m" || key === "M" || key === "b" || key === "B") && !e.ctrlKey && !e.metaKey && !e.altKey){
       this.oneshot.toggleMusic = true;
@@ -847,6 +853,8 @@ export class Input {
         toggleCombatMusic: false,
         musicVolumeUp: false,
         musicVolumeDown: false,
+        sfxVolumeUp: false,
+        sfxVolumeDown: false,
         copyScreenshot: false,
         copyScreenshotClean: false,
         copyScreenshotCleanTitle: false,
@@ -1009,6 +1017,8 @@ export class Input {
       toggleCombatMusic: this.oneshot.toggleCombatMusic,
       musicVolumeUp: this.oneshot.musicVolumeUp,
       musicVolumeDown: this.oneshot.musicVolumeDown,
+      sfxVolumeUp: this.oneshot.sfxVolumeUp,
+      sfxVolumeDown: this.oneshot.sfxVolumeDown,
       copyScreenshot: this.oneshot.copyScreenshot,
       copyScreenshotClean: this.oneshot.copyScreenshotClean,
       copyScreenshotCleanTitle: this.oneshot.copyScreenshotCleanTitle,
@@ -1062,6 +1072,8 @@ export class Input {
     this.oneshot.toggleCombatMusic = false;
     this.oneshot.musicVolumeUp = false;
     this.oneshot.musicVolumeDown = false;
+    this.oneshot.sfxVolumeUp = false;
+    this.oneshot.sfxVolumeDown = false;
     this.oneshot.copyScreenshot = false;
     this.oneshot.copyScreenshotClean = false;
     this.oneshot.copyScreenshotCleanTitle = false;

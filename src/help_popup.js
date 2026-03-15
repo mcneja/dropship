@@ -31,7 +31,7 @@ const HELP_CONTENT = `
       <div class="help-k">Restart / Upgrade / Level up</div><div class="help-v"><span class="help-chip">R</span>, hold <span class="help-chip">Shift+R</span> 1s abandon run</div>
       <div class="help-k">Open / Close Help</div><div class="help-v"><span class="help-chip">/</span> <span class="help-chip">?</span> (close also with <span class="help-chip">Esc</span>)</div>
       <div class="help-k">Music</div><div class="help-v"><span class="help-chip">M</span>/<span class="help-chip">B</span> mute toggle, <span class="help-chip">J</span> combat tracks toggle, <span class="help-chip">-</span>/<span class="help-chip">=</span> volume</div>
-      <div class="help-k">Other audio</div><div class="help-v">Use system volume</div>
+      <div class="help-k">FX audio</div><div class="help-v"><span class="help-chip">Shift+-</span>/<span class="help-chip">Shift+=</span> volume</div>
     </div>
   </section>
   <section class="help-section">

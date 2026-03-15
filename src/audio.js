@@ -945,6 +945,23 @@ export class BackgroundMusic {
   }
 
   /**
+   * Step SFX master volume in 10% increments and apply immediately.
+   * @param {number} direction Positive to increase, negative to decrease.
+   * @returns {number} New volume in percent [0..100].
+   */
+  stepSfxVolume(direction){
+    const dir = (direction || 0) >= 0 ? 1 : -1;
+    const stepPercent = 10;
+    const currentPercent = Math.round(this.sfxMasterVolume * 100);
+    const nextPercent = (dir > 0)
+      ? Math.min(100, (Math.floor(currentPercent / stepPercent) + 1) * stepPercent)
+      : Math.max(0, (Math.ceil(currentPercent / stepPercent) - 1) * stepPercent);
+    this.sfxMasterVolume = nextPercent / 100;
+    this._syncThrustLoopPlayback();
+    return nextPercent;
+  }
+
+  /**
    * @returns {boolean}
    */
   toggleMuted(){

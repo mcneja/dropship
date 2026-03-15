@@ -211,6 +211,8 @@
  * @property {boolean} toggleCombatMusic
  * @property {boolean} musicVolumeUp
  * @property {boolean} musicVolumeDown
+ * @property {boolean} sfxVolumeUp
+ * @property {boolean} sfxVolumeDown
  * @property {boolean} copyScreenshot
  * @property {boolean} copyScreenshotClean
  * @property {boolean} copyScreenshotCleanTitle
