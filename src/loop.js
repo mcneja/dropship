@@ -13,10 +13,14 @@ import {
 } from "./collision_world.js";
 import { GAME, CFG } from "./config.js";
 import {
-  buildDropshipLocalHullPoints,
+  buildDropshipLocalConvexHullPoints,
+  buildDropshipWorldConvexHullSampleSet,
+  buildDropshipWorldConvexHullVertices,
+  computeDropshipConvexHullBoundRadius,
   computeDropshipAcceleration,
   getDropshipGunPivotLocal,
   hasDropshipThrustInput,
+  pointDistanceToDropshipWorldConvexHull,
   resolveDropshipFacing,
   wantsDropshipLiftoff,
 } from "./dropship.js";
@@ -89,10 +93,10 @@ export class GameLoop {
     this.TERRAIN_MAX = this.planetParams.RMAX + this.TERRAIN_PAD;
     this.TERRAIN_IMPACT_RADIUS = 0.75;
     /** @type {Array<[number, number]>} */
-    this.shipCollisionLocalHull = buildDropshipLocalHullPoints(GAME);
+    this.shipCollisionLocalConvexHull = buildDropshipLocalConvexHullPoints(GAME);
     this.shipCollisionEdgeSamplesPerEdge = 2;
     this.shipCollisionMaxSampleSpacing = 0.03;
-    this.shipCollisionBoundRadius = this._computeShipHullBoundRadius(this.shipCollisionLocalHull);
+    this.shipCollisionConvexHullBoundRadius = computeDropshipConvexHullBoundRadius(this.shipCollisionLocalConvexHull);
     this.MINER_HEIGHT = 0.36 * GAME.MINER_SCALE;
     this.MINER_SURFACE_EPS = 0.01 * GAME.MINER_SCALE;
     this.SURFACE_EPS = Math.max(0.12, this.planetParams.RMAX / 280);
@@ -1882,28 +1886,17 @@ export class GameLoop {
    * @param {Array<[number, number]>} points
    * @returns {number}
    */
-  _computeShipHullBoundRadius(points){
-    let r2 = 0;
-    for (const p of points){
-      const x = p[0] || 0;
-      const y = p[1] || 0;
-      const d2 = x * x + y * y;
-      if (d2 > r2) r2 = d2;
-    }
-    return Math.sqrt(r2);
-  }
-
   /**
-   * Set an arbitrary convex local hull for ship collisions.
-   * @param {Array<[number, number]>} localHull
+   * Set an arbitrary local convex hull for ship collisions.
+   * @param {Array<[number, number]>} localConvexHull
    * @param {number} [edgeSamplesPerEdge]
    * @returns {void}
    */
-  setShipCollisionHull(localHull, edgeSamplesPerEdge = 1){
-    if (!Array.isArray(localHull) || localHull.length < 3) return;
+  setShipCollisionConvexHull(localConvexHull, edgeSamplesPerEdge = 1){
+    if (!Array.isArray(localConvexHull) || localConvexHull.length < 3) return;
     /** @type {Array<[number, number]>} */
     const clean = [];
-    for (const p of localHull){
+    for (const p of localConvexHull){
       if (!p || p.length < 2) continue;
       const x = Number(p[0]);
       const y = Number(p[1]);
@@ -1911,19 +1904,29 @@ export class GameLoop {
       clean.push([x, y]);
     }
     if (clean.length < 3) return;
-    this.shipCollisionLocalHull = clean;
+    this.shipCollisionLocalConvexHull = clean;
     this.shipCollisionEdgeSamplesPerEdge = Math.max(0, edgeSamplesPerEdge | 0);
-    this.shipCollisionBoundRadius = this._computeShipHullBoundRadius(clean);
+    this.shipCollisionConvexHullBoundRadius = computeDropshipConvexHullBoundRadius(clean);
+  }
+
+  /**
+   * Back-compat wrapper.
+   * @param {Array<[number, number]>} localConvexHull
+   * @param {number} [edgeSamplesPerEdge]
+   * @returns {void}
+   */
+  setShipCollisionHull(localConvexHull, edgeSamplesPerEdge = 1){
+    this.setShipCollisionConvexHull(localConvexHull, edgeSamplesPerEdge);
   }
 
   /**
    * @returns {Array<[number, number]>}
    */
-  _shipCollisionLocalHull(){
-    if (Array.isArray(this.shipCollisionLocalHull) && this.shipCollisionLocalHull.length >= 3){
-      return this.shipCollisionLocalHull;
+  _shipCollisionLocalConvexHull(){
+    if (Array.isArray(this.shipCollisionLocalConvexHull) && this.shipCollisionLocalConvexHull.length >= 3){
+      return this.shipCollisionLocalConvexHull;
     }
-    return buildDropshipLocalHullPoints(GAME);
+    return buildDropshipLocalConvexHullPoints(GAME);
   }
 
   /**
@@ -1931,82 +1934,25 @@ export class GameLoop {
    * @param {number} y
    * @returns {Array<[number, number]>}
    */
-  _shipHullWorldVertices(x, y){
-    const local = this._shipCollisionLocalHull();
-    const camRot = Math.atan2(x, y || 1e-6);
-    const shipRot = -camRot;
-    const c = Math.cos(shipRot);
-    const s = Math.sin(shipRot);
-    /** @type {Array<[number, number]>} */
-    const out = [];
-    for (const p of local){
-      const lx = p[0];
-      const ly = p[1];
-      const wx = c * lx - s * ly;
-      const wy = s * lx + c * ly;
-      out.push([x + wx, y + wy]);
-    }
-    return out;
+  _shipConvexHullWorldVertices(x, y){
+    return buildDropshipWorldConvexHullVertices(this._shipCollisionLocalConvexHull(), x, y);
   }
 
   /**
-   * Collision sample points from convex hull vertices, with originating hull edge metadata.
+   * Collision sample points from convex hull vertices, with originating convex-hull edge metadata.
    * Optional per-edge subdivisions increase persistent tracked collision points.
    * @param {number} x
    * @param {number} y
    * @returns {{points:Array<[number, number]>, edgeIdxByPoint:number[], pointMetaByPoint:Array<{kind:"vertex"|"edge",edgeIdx:number,vertexIdx:number,t:number}>}}
    */
-  _shipCollisionSampleSet(x, y){
-    const verts = this._shipHullWorldVertices(x, y);
-    if (verts.length < 2){
-      return {
-        points: verts,
-        edgeIdxByPoint: verts.map(() => 0),
-        pointMetaByPoint: verts.map((_, i) => ({ kind: "vertex", edgeIdx: i, vertexIdx: i, t: 0 })),
-      };
-    }
-    const edgeSamples = Math.max(0, this.shipCollisionEdgeSamplesPerEdge | 0);
-    const maxSpacing = Number.isFinite(this.shipCollisionMaxSampleSpacing)
-      ? Math.max(1e-3, Number(this.shipCollisionMaxSampleSpacing))
-      : 0;
-    if (edgeSamples <= 0 && !(maxSpacing > 0)){
-      return {
-        points: verts,
-        edgeIdxByPoint: verts.map((_, i) => i),
-        pointMetaByPoint: verts.map((_, i) => ({ kind: "vertex", edgeIdx: i, vertexIdx: i, t: 0 })),
-      };
-    }
-    /** @type {Array<[number, number]>} */
-    const points = [];
-    /** @type {number[]} */
-    const edgeIdxByPoint = [];
-    /** @type {Array<{kind:"vertex"|"edge",edgeIdx:number,vertexIdx:number,t:number}>} */
-    const pointMetaByPoint = [];
-    const n = verts.length;
-    for (let i = 0; i < n; i++){
-      const a = verts[i];
-      const b = verts[(i + 1) % n];
-      const dx = b[0] - a[0];
-      const dy = b[1] - a[1];
-      const edgeLen = Math.hypot(dx, dy);
-      const spacingSamples = (maxSpacing > 0)
-        ? Math.max(0, Math.ceil(edgeLen / maxSpacing) - 1)
-        : 0;
-      const samplesPerEdge = Math.max(edgeSamples, spacingSamples);
-      const segCount = samplesPerEdge + 1;
-      for (let s = 0; s < segCount; s++){
-        const t = s / segCount;
-        points.push([a[0] + dx * t, a[1] + dy * t]);
-        edgeIdxByPoint.push(i);
-        pointMetaByPoint.push({
-          kind: s === 0 ? "vertex" : "edge",
-          edgeIdx: i,
-          vertexIdx: i,
-          t,
-        });
-      }
-    }
-    return { points, edgeIdxByPoint, pointMetaByPoint };
+  _shipConvexHullSampleSet(x, y){
+    return buildDropshipWorldConvexHullSampleSet(
+      this._shipCollisionLocalConvexHull(),
+      x,
+      y,
+      this.shipCollisionEdgeSamplesPerEdge,
+      this.shipCollisionMaxSampleSpacing
+    );
   }
 
   /**
@@ -2015,7 +1961,7 @@ export class GameLoop {
    * @returns {Array<[number, number]>}
    */
   _shipCollisionPoints(x, y){
-    return this._shipCollisionSampleSet(x, y).points;
+    return this._shipConvexHullSampleSet(x, y).points;
   }
 
   _shipCollisionExactCtx(){
@@ -2025,8 +1971,8 @@ export class GameLoop {
       collision: this.collision,
       collisionEps: this.COLLISION_EPS,
       shipRadius: () => this._shipRadius(),
-      shipLocalHull: () => this._shipCollisionLocalHull(),
-      shipHullWorldVertices: (x, y) => this._shipHullWorldVertices(x, y),
+      shipLocalConvexHull: () => this._shipCollisionLocalConvexHull(),
+      shipConvexHullWorldVertices: (x, y) => this._shipConvexHullWorldVertices(x, y),
     };
   }
 
@@ -2110,32 +2056,15 @@ export class GameLoop {
    * @param {number} shipY
    * @returns {number}
    */
-  _shipHullDistance(px, py, shipX, shipY){
-    const verts = this._shipHullWorldVertices(shipX, shipY);
-    if (verts.length < 2){
-      const dx = px - shipX;
-      const dy = py - shipY;
-      return Math.max(0, Math.hypot(dx, dy) - this._shipRadius());
-    }
-
-    let best = Infinity;
-    for (let i = 0; i < verts.length; i++){
-      const a = verts[i];
-      const b = verts[(i + 1) % verts.length];
-      const d = this._distPointToSegment(px, py, a[0], a[1], b[0], b[1]);
-      if (d < best) best = d;
-    }
-
-    // Treat interior points as direct contact.
-    let inside = false;
-    for (let i = 0, j = verts.length - 1; i < verts.length; j = i++){
-      const xi = verts[i][0], yi = verts[i][1];
-      const xj = verts[j][0], yj = verts[j][1];
-      const intersects = ((yi > py) !== (yj > py))
-        && (px < ((xj - xi) * (py - yi)) / ((yj - yi) || 1e-6) + xi);
-      if (intersects) inside = !inside;
-    }
-    return inside ? 0 : best;
+  _shipConvexHullDistance(px, py, shipX, shipY){
+    return pointDistanceToDropshipWorldConvexHull(
+      this._shipCollisionLocalConvexHull(),
+      px,
+      py,
+      shipX,
+      shipY,
+      this._shipRadius()
+    );
   }
 
   /**
@@ -2196,10 +2125,10 @@ export class GameLoop {
   }
 
   _shipRadius(){
-    if (!(this.shipCollisionBoundRadius > 0)){
-      this.shipCollisionBoundRadius = this._computeShipHullBoundRadius(this._shipCollisionLocalHull());
+    if (!(this.shipCollisionConvexHullBoundRadius > 0)){
+      this.shipCollisionConvexHullBoundRadius = computeDropshipConvexHullBoundRadius(this._shipCollisionLocalConvexHull());
     }
-    return this.shipCollisionBoundRadius;
+    return this.shipCollisionConvexHullBoundRadius;
   }
 
   /**
@@ -2240,7 +2169,7 @@ export class GameLoop {
       const py = shotY0 + (shotY1 - shotY0) * t;
       const sx = shipX0 + (shipX1 - shipX0) * t;
       const sy = shipY0 + (shipY1 - shipY0) * t;
-      if (this._shipHullDistance(px, py, sx, sy) <= hitPad){
+      if (this._shipConvexHullDistance(px, py, sx, sy) <= hitPad){
         return true;
       }
     }
@@ -2757,10 +2686,10 @@ export class GameLoop {
       }
 
       if (collides){
-        const prevCollider = this._shipCollisionSampleSet(prevShipX, prevShipY);
+        const prevCollider = this._shipConvexHullSampleSet(prevShipX, prevShipY);
         // Use attempted (pre-resolution) pose so swept contact reconstruction
         // sees actual crossings, not the post-clamp safe pose.
-        const currCollider = this._shipCollisionSampleSet(attemptedShipX, attemptedShipY);
+        const currCollider = this._shipConvexHullSampleSet(attemptedShipX, attemptedShipY);
         resolveCollisionResponse({
           ship: this.ship,
           collision: this.collision,
@@ -2773,7 +2702,7 @@ export class GameLoop {
           shipRadius,
           shipCollidesAt: (x, y) => this._shipCollidesAt(x, y),
           shipCollidesMothershipAt: (x, y) => this._shipCollidesWithMothershipAt(x, y),
-          shipLocalHull: this._shipCollisionLocalHull(),
+          shipLocalConvexHull: this._shipCollisionLocalConvexHull(),
           shipCollisionPointsAt: (x, y) => this._shipCollisionPoints(x, y),
           shipStartX: prevShipX,
           shipStartY: prevShipY,
@@ -3357,9 +3286,9 @@ export class GameLoop {
       const headY = miner.y + upy * this.MINER_HEAD_OFFSET;
       const footX = miner.x - upx * this.MINER_HEAD_OFFSET * 0.32;
       const footY = miner.y - upy * this.MINER_HEAD_OFFSET * 0.32;
-      const hullDistHead = this._shipHullDistance(headX, headY, this.ship.x, this.ship.y);
-      const hullDistBody = this._shipHullDistance(miner.x, miner.y, this.ship.x, this.ship.y);
-      const hullDistFeet = this._shipHullDistance(footX, footY, this.ship.x, this.ship.y);
+      const hullDistHead = this._shipConvexHullDistance(headX, headY, this.ship.x, this.ship.y);
+      const hullDistBody = this._shipConvexHullDistance(miner.x, miner.y, this.ship.x, this.ship.y);
+      const hullDistFeet = this._shipConvexHullDistance(footX, footY, this.ship.x, this.ship.y);
       const hullDist = Math.min(hullDistHead, hullDistBody, hullDistFeet);
       const centerDist = Math.min(
         Math.hypot(headX - this.ship.x, headY - this.ship.y),
@@ -3785,6 +3714,14 @@ export class GameLoop {
       const dy = this.ship.y - this.mothership.y;
       const nearMothership = (dx * dx + dy * dy) <= Math.pow((this.mothership.bounds || 0) + shipRadius + 0.8, 2);
       const overlap = nearMothership && this._shipCollidesWithMothershipAt(this.ship.x, this.ship.y);
+      if (this._landingDebugSessionActive && this._landingDebugSessionSource !== "mothership"){
+        console.log(
+          `[landDbgEnd] sid:${this._landingDebugSessionId} frames:${this._landingDebugSessionFrame} end:no_debug`
+        );
+        this._landingDebugSessionActive = false;
+        this._landingDebugSessionFrame = 0;
+        this._landingDebugSessionSource = "";
+      }
       if (!this._landingDebugSessionActive && overlap){
         this._landingDebugSessionActive = true;
         this._landingDebugSessionId = this._landingDebugSessionIdNext++;
@@ -3826,6 +3763,13 @@ export class GameLoop {
           this._landingDebugSessionSource = "";
         }
       }
+    } else if (this._landingDebugSessionActive){
+      console.log(
+        `[landDbgEnd] sid:${this._landingDebugSessionId} frames:${this._landingDebugSessionFrame} end:no_debug`
+      );
+      this._landingDebugSessionActive = false;
+      this._landingDebugSessionFrame = 0;
+      this._landingDebugSessionSource = "";
     }
 
     this.levelAdvanceReady =

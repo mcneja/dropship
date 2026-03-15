@@ -3,6 +3,7 @@
 import { CFG, TOUCH_UI } from "./config.js";
 import {
   DROPSHIP_MODEL,
+  getDropshipGeometryProfileN,
   getDropshipCargoBoundsN,
   getDropshipRenderSize,
   getDropshipThrusterPowers,
@@ -971,6 +972,7 @@ function drawFrameImpl(renderer, state, planet){
   const { bodyLiftN, skiLiftN, cargoWidthScale, cargoBottomN, cargoTopBaseN } = DROPSHIP_MODEL;
   const cabinSide = state.ship.cabinSide || 1;
   const { cargoTopN } = getDropshipCargoBoundsN();
+  const dropshipGeomN = getDropshipGeometryProfileN();
   const cargoMidN = (cargoBottomN + cargoTopN) * 0.5;
   const oldCargoMidN = (cargoTopBaseN + cargoBottomN) * 0.5;
   const thrustLiftAll = (cargoMidN - oldCargoMidN) * shipHWorld * 1.0;
@@ -1166,8 +1168,8 @@ function drawFrameImpl(renderer, state, planet){
   const appendShipGeometry = () => {
     if (state.ship.state === "crashed") return;
     {
-      const bottomHalfW = 0.85 * cargoWidthScale;
-      const topHalfW = 0.6 * cargoWidthScale * 0.8;
+      const bottomHalfW = dropshipGeomN.bodyBottomHalfWRenderN;
+      const topHalfW = dropshipGeomN.bodyTopHalfWRenderN;
       const lb = L(-bottomHalfW, cargoBottomN, bodyLiftN);
       const rb = L(bottomHalfW, cargoBottomN, bodyLiftN);
       const rt = L(topHalfW, cargoTopN, bodyLiftN);
@@ -1175,8 +1177,8 @@ function drawFrameImpl(renderer, state, planet){
       addShipTri(shipTris, lb[0], lb[1], rb[0], rb[1], rt[0], rt[1]);
       addShipTri(shipTris, lb[0], lb[1], rt[0], rt[1], lt[0], lt[1]);
 
-      const cabOffset = 0.75 * cargoWidthScale * cabinSide;
-      const cabHalfW = 0.28 * cargoWidthScale * 1.3;
+      const cabOffset = dropshipGeomN.cabinOffsetN * cabinSide;
+      const cabHalfW = dropshipGeomN.cabinHalfWBaseN * dropshipGeomN.cabinHalfWScale;
       const cabBaseY = cargoBottomN;
       const cabTipY = cargoTopN;
       const cabTip = L(cabOffset, cabTipY, bodyLiftN);
@@ -1184,18 +1186,18 @@ function drawFrameImpl(renderer, state, planet){
       const cabBR = L(cabOffset + cabHalfW, cabBaseY, bodyLiftN);
       addShipTri(shipTris, cabBL[0], cabBL[1], cabBR[0], cabBR[1], cabTip[0], cabTip[1]);
 
-      const winHalfW = cabHalfW * 0.5;
-      const winBaseY = cabBaseY + (cabTipY - cabBaseY) * 0.25;
-      const winTipY = cabBaseY + (cabTipY - cabBaseY) * 0.8;
+      const winHalfW = cabHalfW * dropshipGeomN.windowHalfWScale;
+      const winBaseY = cabBaseY + (cabTipY - cabBaseY) * dropshipGeomN.windowBaseT;
+      const winTipY = cabBaseY + (cabTipY - cabBaseY) * dropshipGeomN.windowTipT;
       const winTip = L(cabOffset, winTipY, bodyLiftN);
       const winBL = L(cabOffset - winHalfW, winBaseY, bodyLiftN);
       const winBR = L(cabOffset + winHalfW, winBaseY, bodyLiftN);
       addTri(windowTris, winBL[0], winBL[1], winBR[0], winBR[1], winTip[0], winTip[1], 0.05, 0.05, 0.05, 1, false);
 
-      const gunLen = shipHWorld * 1.05;
-      const gunHalfW = shipWWorld * 0.09;
-      const mountOffset = gunLen * 0.25;
-      const [mountCx, mountCy] = L(0, cargoTopN + 0.12 + 0.04, bodyLiftN);
+      const gunLen = shipHWorld * dropshipGeomN.gunLenH;
+      const gunHalfW = shipWWorld * dropshipGeomN.gunHalfWW;
+      const mountOffset = gunLen * dropshipGeomN.gunMountBackOffsetLen;
+      const [mountCx, mountCy] = L(0, cargoTopN + dropshipGeomN.gunPivotYInsetN, bodyLiftN);
       let dirx = 0;
       let diry = 0;
       if (state.aimWorld){
@@ -1235,19 +1237,19 @@ function drawFrameImpl(renderer, state, planet){
       addShipTri(gunTris, backL[0], backL[1], backR[0], backR[1], frontR[0], frontR[1], undefined, true);
       addShipTri(gunTris, backL[0], backL[1], frontR[0], frontR[1], frontL[0], frontL[1], undefined, true);
       // Gun strut (vertical post from cargo top to pivot)
-      const gstrutW = 0.05;
+      const gstrutW = dropshipGeomN.gunStrutHalfW;
       const gsb0 = L(-gstrutW, cargoTopN, bodyLiftN);
       const gsb1 = L(gstrutW, cargoTopN, bodyLiftN);
-      const gst0 = L(-gstrutW, cargoTopN + 0.12, bodyLiftN);
-      const gst1 = L(gstrutW, cargoTopN + 0.12, bodyLiftN);
+      const gst0 = L(-gstrutW, cargoTopN + DROPSHIP_MODEL.gunStrutHeightN, bodyLiftN);
+      const gst1 = L(gstrutW, cargoTopN + DROPSHIP_MODEL.gunStrutHeightN, bodyLiftN);
       addShipTri(shipTris, gsb0[0], gsb0[1], gsb1[0], gsb1[1], gst1[0], gst1[1], undefined, false);
       addShipTri(shipTris, gsb0[0], gsb0[1], gst1[0], gst1[1], gst0[0], gst0[1], undefined, false);
 
       // Landing skis under cargo
       const skiY0 = cargoBottomN;
-      const skiY1 = skiY0 + 0.05;
-      const skiHalfW = 0.2;
-      const skiOffset = 0.32;
+      const skiY1 = dropshipGeomN.skiTopYRenderN;
+      const skiHalfW = dropshipGeomN.skiHalfWRenderN;
+      const skiOffset = dropshipGeomN.skiOffsetRenderN;
       const skiL0 = L(-skiOffset - skiHalfW, skiY0, skiLiftN);
       const skiL1 = L(-skiOffset + skiHalfW, skiY0, skiLiftN);
       const skiL2 = L(-skiOffset + skiHalfW, skiY1, skiLiftN);

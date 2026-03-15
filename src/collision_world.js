@@ -17,7 +17,7 @@ import { findPlanetCollisionExactAt, resolvePlanetCollisionResponse, stabilizePl
  * @property {number} shipRadius
  * @property {(x:number,y:number)=>boolean} shipCollidesAt
  * @property {(x:number,y:number)=>boolean} [shipCollidesMothershipAt]
- * @property {Array<[number,number]>} [shipLocalHull]
+ * @property {Array<[number,number]>} [shipLocalConvexHull]
  * @property {(x:number,y:number)=>Array<[number,number]>} [shipCollisionPointsAt]
  * @property {number} [mothershipAngularVel]
  * @property {{x:number,y:number,angle:number}|null} [mothershipPrevPose]
@@ -109,7 +109,7 @@ export { stabilizePlanetPenetration };
  * @property {import("./types.d.js").CollisionQuery} collision
  * @property {number} collisionEps
  * @property {()=>number} shipRadius
- * @property {(x:number,y:number)=>Array<[number,number]>} shipHullWorldVertices
+ * @property {(x:number,y:number)=>Array<[number,number]>} shipConvexHullWorldVertices
  */
 
 /**

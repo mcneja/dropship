@@ -50,6 +50,66 @@ export function getDropshipCargoBoundsN(){
 }
 
 /**
+ * Shared normalized geometry for rendered body/skis and the collision convex hull.
+ * Render and collision are intentionally related, but not required to match 1:1.
+ * @returns {{
+ *   cargoBottomN:number,
+ *   cargoTopN:number,
+ *   bodyBottomHalfWRenderN:number,
+ *   bodyTopHalfWRenderN:number,
+ *   bodyBottomHalfWConvexN:number,
+ *   bodyTopHalfWConvexN:number,
+ *   cabinOffsetN:number,
+ *   cabinHalfWBaseN:number,
+ *   cabinHalfWScale:number,
+ *   windowHalfWScale:number,
+ *   windowBaseT:number,
+ *   windowTipT:number,
+ *   skiOffsetRenderN:number,
+ *   skiHalfWRenderN:number,
+ *   skiTopYRenderN:number,
+ *   gunLenH:number,
+ *   gunHalfWW:number,
+ *   gunMountBackOffsetLen:number,
+ *   gunStrutHalfW:number,
+ *   gunPivotYInsetN:number,
+ *   convexSkiOuterXN:number,
+ *   convexSkiYDropN:number,
+ * }}
+ */
+export function getDropshipGeometryProfileN(){
+  const { cargoBottomN, cargoTopN } = getDropshipCargoBoundsN();
+  const bodyBottomHalfWRenderN = 0.85 * DROPSHIP_MODEL.cargoWidthScale;
+  const bodyTopHalfWRenderN = 0.6 * DROPSHIP_MODEL.cargoWidthScale * 0.8;
+  const bodyBottomHalfWConvexN = 0.87 * DROPSHIP_MODEL.cargoWidthScale;
+  const bodyTopHalfWConvexN = 0.65 * DROPSHIP_MODEL.cargoWidthScale * 0.8;
+  return {
+    cargoBottomN,
+    cargoTopN,
+    bodyBottomHalfWRenderN,
+    bodyTopHalfWRenderN,
+    bodyBottomHalfWConvexN,
+    bodyTopHalfWConvexN,
+    cabinOffsetN: 0.75 * DROPSHIP_MODEL.cargoWidthScale,
+    cabinHalfWBaseN: 0.28 * DROPSHIP_MODEL.cargoWidthScale,
+    cabinHalfWScale: 1.3,
+    windowHalfWScale: 0.5,
+    windowBaseT: 0.25,
+    windowTipT: 0.8,
+    skiOffsetRenderN: 0.32,
+    skiHalfWRenderN: 0.2,
+    skiTopYRenderN: cargoBottomN + 0.05,
+    gunLenH: 1.05,
+    gunHalfWW: 0.09,
+    gunMountBackOffsetLen: 0.25,
+    gunStrutHalfW: 0.05,
+    gunPivotYInsetN: DROPSHIP_MODEL.gunStrutHeightN + DROPSHIP_MODEL.gunLiftN,
+    convexSkiOuterXN: bodyBottomHalfWConvexN + 0.18,
+    convexSkiYDropN: cargoBottomN - 0.08,
+  };
+}
+
+/**
  * @param {Array<[number,number]>} points
  * @returns {Array<[number,number]>}
  */
@@ -89,23 +149,21 @@ function convexHull(points){
  * @param {{SHIP_SCALE:number}} game
  * @returns {Array<[number,number]>}
  */
-export function buildDropshipLocalHullPoints(game){
+export function buildDropshipLocalConvexHullPoints(game){
   const { shipHWorld, shipWWorld } = getDropshipHullSize(game);
-  const { bodyLiftN, cargoWidthScale } = DROPSHIP_MODEL;
-  const { cargoBottomN, cargoTopN } = getDropshipCargoBoundsN();
+  const { bodyLiftN } = DROPSHIP_MODEL;
+  const profile = getDropshipGeometryProfileN();
   const bodyLift = shipHWorld * bodyLiftN;
-  const cargoBottom = shipHWorld * cargoBottomN - bodyLift;
-  const cargoTop = shipHWorld * cargoTopN - bodyLift;
-  const bottomHalfW = shipWWorld * 0.87 * cargoWidthScale;
-  const topHalfW = shipWWorld * 0.65 * cargoWidthScale * 0.8;
-  const skiOut = shipWWorld * 0.18;
-  const skiDrop = shipHWorld * 0.08;
+  const cargoBottom = shipHWorld * profile.cargoBottomN - bodyLift;
+  const cargoTop = shipHWorld * profile.cargoTopN - bodyLift;
+  const bottomHalfW = shipWWorld * profile.bodyBottomHalfWConvexN;
+  const topHalfW = shipWWorld * profile.bodyTopHalfWConvexN;
   const xBody = bottomHalfW;
   const xTop = topHalfW;
-  const xSki = xBody + skiOut;
+  const xSki = shipWWorld * profile.convexSkiOuterXN;
   const yTop = cargoTop + bodyLift;
   const yBody = cargoBottom + bodyLift;
-  const ySki = yBody - skiDrop;
+  const ySki = shipHWorld * profile.convexSkiYDropN + bodyLift;
   // Build the true convex hull of the body + ski candidate points.
   return convexHull([
     [xTop, yTop],
@@ -118,16 +176,164 @@ export function buildDropshipLocalHullPoints(game){
 }
 
 /**
+ * @param {Array<[number, number]>} convexHullPoints
+ * @returns {number}
+ */
+export function computeDropshipConvexHullBoundRadius(convexHullPoints){
+  let r2 = 0;
+  for (const p of convexHullPoints){
+    const x = p[0] || 0;
+    const y = p[1] || 0;
+    const d2 = x * x + y * y;
+    if (d2 > r2) r2 = d2;
+  }
+  return Math.sqrt(r2);
+}
+
+/**
+ * @param {Array<[number, number]>} localConvexHull
+ * @param {number} x
+ * @param {number} y
+ * @returns {Array<[number, number]>}
+ */
+export function buildDropshipWorldConvexHullVertices(localConvexHull, x, y){
+  const camRot = Math.atan2(x, y || 1e-6);
+  const shipRot = -camRot;
+  const c = Math.cos(shipRot);
+  const s = Math.sin(shipRot);
+  /** @type {Array<[number, number]>} */
+  const out = [];
+  for (const p of localConvexHull){
+    const lx = p[0];
+    const ly = p[1];
+    const wx = c * lx - s * ly;
+    const wy = s * lx + c * ly;
+    out.push([x + wx, y + wy]);
+  }
+  return out;
+}
+
+/**
+ * @param {Array<[number, number]>} localConvexHull
+ * @param {number} x
+ * @param {number} y
+ * @param {number} edgeSamplesPerEdge
+ * @param {number} maxSampleSpacing
+ * @returns {{points:Array<[number, number]>, edgeIdxByPoint:number[], pointMetaByPoint:Array<{kind:"vertex"|"edge",edgeIdx:number,vertexIdx:number,t:number}>}}
+ */
+export function buildDropshipWorldConvexHullSampleSet(localConvexHull, x, y, edgeSamplesPerEdge = 0, maxSampleSpacing = 0){
+  const verts = buildDropshipWorldConvexHullVertices(localConvexHull, x, y);
+  if (verts.length < 2){
+    return {
+      points: verts,
+      edgeIdxByPoint: verts.map(() => 0),
+      pointMetaByPoint: verts.map((_, i) => ({ kind: "vertex", edgeIdx: i, vertexIdx: i, t: 0 })),
+    };
+  }
+  const edgeSamples = Math.max(0, edgeSamplesPerEdge | 0);
+  const spacingLimit = Number.isFinite(maxSampleSpacing)
+    ? Math.max(0, Number(maxSampleSpacing))
+    : 0;
+  if (edgeSamples <= 0 && !(spacingLimit > 0)){
+    return {
+      points: verts,
+      edgeIdxByPoint: verts.map((_, i) => i),
+      pointMetaByPoint: verts.map((_, i) => ({ kind: "vertex", edgeIdx: i, vertexIdx: i, t: 0 })),
+    };
+  }
+  /** @type {Array<[number, number]>} */
+  const points = [];
+  /** @type {number[]} */
+  const edgeIdxByPoint = [];
+  /** @type {Array<{kind:"vertex"|"edge",edgeIdx:number,vertexIdx:number,t:number}>} */
+  const pointMetaByPoint = [];
+  const n = verts.length;
+  for (let i = 0; i < n; i++){
+    const a = verts[i];
+    const b = verts[(i + 1) % n];
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
+    const edgeLen = Math.hypot(dx, dy);
+    const spacingSamples = (spacingLimit > 0)
+      ? Math.max(0, Math.ceil(edgeLen / spacingLimit) - 1)
+      : 0;
+    const samplesPerEdge = Math.max(edgeSamples, spacingSamples);
+    const segCount = samplesPerEdge + 1;
+    for (let s = 0; s < segCount; s++){
+      const t = s / segCount;
+      points.push([a[0] + dx * t, a[1] + dy * t]);
+      edgeIdxByPoint.push(i);
+      pointMetaByPoint.push({
+        kind: s === 0 ? "vertex" : "edge",
+        edgeIdx: i,
+        vertexIdx: i,
+        t,
+      });
+    }
+  }
+  return { points, edgeIdxByPoint, pointMetaByPoint };
+}
+
+/**
+ * @param {Array<[number, number]>} localConvexHull
+ * @param {number} px
+ * @param {number} py
+ * @param {number} shipX
+ * @param {number} shipY
+ * @param {number} fallbackRadius
+ * @returns {number}
+ */
+export function pointDistanceToDropshipWorldConvexHull(localConvexHull, px, py, shipX, shipY, fallbackRadius){
+  const verts = buildDropshipWorldConvexHullVertices(localConvexHull, shipX, shipY);
+  if (verts.length < 2){
+    const dx = px - shipX;
+    const dy = py - shipY;
+    return Math.max(0, Math.hypot(dx, dy) - fallbackRadius);
+  }
+
+  const distPointToSegment = (qx, qy, ax, ay, bx, by) => {
+    const dx = bx - ax;
+    const dy = by - ay;
+    const denom = dx * dx + dy * dy || 1;
+    const t = Math.max(0, Math.min(1, ((qx - ax) * dx + (qy - ay) * dy) / denom));
+    const cx = ax + dx * t;
+    const cy = ay + dy * t;
+    return Math.hypot(qx - cx, qy - cy);
+  };
+
+  let best = Infinity;
+  for (let i = 0; i < verts.length; i++){
+    const a = verts[i];
+    const b = verts[(i + 1) % verts.length];
+    const d = distPointToSegment(px, py, a[0], a[1], b[0], b[1]);
+    if (d < best) best = d;
+  }
+
+  let inside = false;
+  for (let i = 0, j = verts.length - 1; i < verts.length; j = i++){
+    const xi = verts[i][0], yi = verts[i][1];
+    const xj = verts[j][0], yj = verts[j][1];
+    const intersects = ((yi > py) !== (yj > py))
+      && (px < ((xj - xi) * (py - yi)) / ((yj - yi) || 1e-6) + xi);
+    if (intersects) inside = !inside;
+  }
+  return inside ? 0 : best;
+}
+
+export { buildDropshipLocalConvexHullPoints as buildDropshipLocalHullPoints };
+
+/**
  * @param {{SHIP_SCALE:number}} game
  * @returns {{x:number,y:number}}
  */
 export function getDropshipGunPivotLocal(game){
   const { shipHWorld } = getDropshipRenderSize(game);
-  const { bodyLiftN, gunStrutHeightN, gunLiftN } = DROPSHIP_MODEL;
+  const { bodyLiftN } = DROPSHIP_MODEL;
   const { cargoTopN } = getDropshipCargoBoundsN();
+  const profile = getDropshipGeometryProfileN();
   return {
     x: 0,
-    y: (cargoTopN + gunStrutHeightN + gunLiftN + bodyLiftN) * shipHWorld,
+    y: (cargoTopN + profile.gunPivotYInsetN + bodyLiftN) * shipHWorld,
   };
 }
 

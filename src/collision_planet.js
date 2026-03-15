@@ -626,15 +626,15 @@ function rockPolygonFromTri(tri){
 }
 
 /**
- * @param {(x:number,y:number)=>Array<[number, number]>} shipHullWorldVertices
+ * @param {(x:number,y:number)=>Array<[number, number]>} shipConvexHullWorldVertices
  * @param {number} x
  * @param {number} y
  * @param {(x:number,y:number)=>number} airAt
  * @param {number} [eps]
  * @returns {Array<{x:number,y:number,nx:number,ny:number,av:number}>}
  */
-function extractHullBoundaryContacts(shipHullWorldVertices, x, y, airAt, eps = 0.03){
-  const hull = shipHullWorldVertices(x, y);
+function extractHullBoundaryContacts(shipConvexHullWorldVertices, x, y, airAt, eps = 0.03){
+  const hull = shipConvexHullWorldVertices(x, y);
   if (hull.length < 2) return [];
   const e = Math.max(1e-3, eps);
   /** @type {Array<{x:number,y:number,nx:number,ny:number,av:number}>} */
@@ -707,7 +707,7 @@ function extractHullBoundaryContacts(shipHullWorldVertices, x, y, airAt, eps = 0
 }
 
 /**
- * @param {{planet:import("./planet.js").Planet,collision:import("./types.d.js").CollisionQuery,collisionEps:number,shipHullWorldVertices:(x:number,y:number)=>Array<[number,number]>}} ctx
+ * @param {{planet:import("./planet.js").Planet,collision:import("./types.d.js").CollisionQuery,collisionEps:number,shipConvexHullWorldVertices:(x:number,y:number)=>Array<[number,number]>}} ctx
  * @param {number} x
  * @param {number} y
  * @returns {import("./types.d.js").CollisionHit|null}
@@ -715,7 +715,7 @@ function extractHullBoundaryContacts(shipHullWorldVertices, x, y, airAt, eps = 0
 export function findPlanetCollisionExactAt(ctx, x, y){
   const radial = ctx.planet && ctx.planet.radial;
   if (!radial || !Array.isArray(radial.bandTris)) return null;
-  const hull = ctx.shipHullWorldVertices(x, y);
+  const hull = ctx.shipConvexHullWorldVertices(x, y);
   if (hull.length < 3) return null;
   let hxMin = Infinity;
   let hyMin = Infinity;
@@ -763,7 +763,7 @@ export function findPlanetCollisionExactAt(ctx, x, y){
   }
   if (!bestHit) return null;
   const contacts = extractHullBoundaryContacts(
-    ctx.shipHullWorldVertices,
+    ctx.shipConvexHullWorldVertices,
     x,
     y,
     (sx, sy) => ctx.collision.planetAirValueAtWorld(sx, sy),
@@ -1199,6 +1199,9 @@ export function resolvePlanetCollisionResponse(args){
       if (!contacts.length) return null;
       const clearOutside = Math.max(0.12, shipRadius * 0.45);
       const clearInside = Math.max(0.10, shipRadius * 0.38);
+      const rOuter = (typeof planet.planetRadius === "number")
+        ? planet.planetRadius
+        : (planet.radial && planet.radial.rings ? (planet.radial.rings.length - 1) : Infinity);
       let best = null;
       let bestScore = -Infinity;
       for (const c of contacts){
@@ -1206,17 +1209,57 @@ export function resolvePlanetCollisionResponse(args){
         const rcy = c.y - ship.y;
         const rLen = Math.hypot(rcx, rcy);
         if (rLen < 1e-6) continue;
-        const dotUp = c.nx * shipUpX + c.ny * shipUpY;
-        const downness = (-(rcx * shipUpX + rcy * shipUpY) / rLen);
-        if (dotUp <= 0 || downness < 0.1) continue;
-        const airFront = collision.planetAirValueAtWorld(c.x + c.nx * clearOutside, c.y + c.ny * clearOutside);
-        const airBack = collision.planetAirValueAtWorld(c.x - c.nx * clearInside, c.y - c.ny * clearInside);
-        if (!(airFront > 0.5 && airBack <= 0.52)) continue;
-        const dProbe = Math.hypot(c.x - probeX, c.y - probeY);
-        const score = dotUp * 4 + downness * 2 - dProbe * 1.5 - c.t * 0.25;
-        if (score > bestScore){
-          bestScore = score;
-          best = { ...c, dotUp, downness, dProbe, airFront, airBack };
+
+        /**
+         * @param {number} nx
+         * @param {number} ny
+         * @returns {{score:number,dotUp:number,downness:number,dProbe:number,airFront:number,airBack:number,nx:number,ny:number}|null}
+         */
+        const evalSupportNormal = (nx, ny) => {
+          const dotUp = nx * shipUpX + ny * shipUpY;
+          const downness = (-(rcx * shipUpX + rcy * shipUpY) / rLen);
+          if (dotUp <= 0 || downness < 0.1) return null;
+          const airFront = collision.planetAirValueAtWorld(c.x + nx * clearOutside, c.y + ny * clearOutside);
+          const airBack = collision.planetAirValueAtWorld(c.x - nx * clearInside, c.y - ny * clearInside);
+          if (!(airFront > 0.5 && airBack <= 0.52)) return null;
+          const dProbe = Math.hypot(c.x - probeX, c.y - probeY);
+          const score = dotUp * 4 + downness * 2 - dProbe * 1.5 - c.t * 0.25;
+          return { score, dotUp, downness, dProbe, airFront, airBack, nx, ny };
+        };
+
+        let candidate = evalSupportNormal(c.nx, c.ny);
+        const tri = c.tri;
+        if (tri && tri.length >= 3){
+          let outerCount = 0;
+          let airMin = Infinity;
+          let airMax = -Infinity;
+          for (const v of tri){
+            const rv = Math.hypot(v.x, v.y);
+            airMin = Math.min(airMin, v.air);
+            airMax = Math.max(airMax, v.air);
+            if (rv >= rOuter - 0.22) outerCount++;
+          }
+          const rr = Math.hypot(c.x, c.y) || 1;
+          if (outerCount >= 2 && airMin <= 0.5 && airMax > 0.5 && rr >= rOuter - 0.35){
+            const radial = evalSupportNormal(c.x / rr, c.y / rr);
+            if (radial && (!candidate || radial.score > candidate.score)){
+              candidate = radial;
+            }
+          }
+        }
+
+        if (candidate && candidate.score > bestScore){
+          bestScore = candidate.score;
+          best = {
+            ...c,
+            nx: candidate.nx,
+            ny: candidate.ny,
+            dotUp: candidate.dotUp,
+            downness: candidate.downness,
+            dProbe: candidate.dProbe,
+            airFront: candidate.airFront,
+            airBack: candidate.airBack,
+          };
         }
       }
       return best;

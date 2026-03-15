@@ -5,7 +5,7 @@ import { mothershipAirAtWorld } from "./mothership.js";
 /**
  * @typedef {Pick<import("./mothership.js").Mothership, "x"|"y"|"angle">} MothershipPose
  * @typedef {MothershipPose & Pick<import("./mothership.js").Mothership, "points"|"tris"|"triAir"> & Partial<Pick<import("./mothership.js").Mothership, "spacing">>} MothershipCollisionMesh
- * @typedef {{mothership:import("./mothership.js").Mothership|null,shipLocalHull:()=>Array<[number,number]>}} SweptMothershipCollisionCtx
+ * @typedef {{mothership:import("./mothership.js").Mothership|null,shipLocalConvexHull:()=>Array<[number,number]>}} SweptMothershipCollisionCtx
  */
 
 /**
@@ -196,15 +196,15 @@ function convexPolysOverlap(a, b){
 }
 
 /**
- * @param {(x:number,y:number)=>Array<[number, number]>} shipHullWorldVertices
+ * @param {(x:number,y:number)=>Array<[number, number]>} shipConvexHullWorldVertices
  * @param {number} x
  * @param {number} y
  * @param {(x:number,y:number)=>number} airAt
  * @param {number} [eps]
  * @returns {Array<{x:number,y:number,nx:number,ny:number,av:number}>}
  */
-function extractHullBoundaryContacts(shipHullWorldVertices, x, y, airAt, eps = 0.03){
-  const hull = shipHullWorldVertices(x, y);
+function extractHullBoundaryContacts(shipConvexHullWorldVertices, x, y, airAt, eps = 0.03){
+  const hull = shipConvexHullWorldVertices(x, y);
   if (hull.length < 2) return [];
   const e = Math.max(1e-3, eps);
   /** @type {Array<{x:number,y:number,nx:number,ny:number,av:number}>} */
@@ -277,7 +277,7 @@ function extractHullBoundaryContacts(shipHullWorldVertices, x, y, airAt, eps = 0
 }
 
 /**
- * @param {{collisionEps:number,shipRadius:()=>number,shipHullWorldVertices:(x:number,y:number)=>Array<[number,number]>}} ctx
+ * @param {{collisionEps:number,shipRadius:()=>number,shipConvexHullWorldVertices:(x:number,y:number)=>Array<[number,number]>}} ctx
  * @param {number} x
  * @param {number} y
  * @param {(Pick<import("./mothership.js").Mothership, "x"|"y"|"angle"|"bounds"|"points"|"tris"|"triAir">)|null|undefined} mothershipPose
@@ -286,7 +286,7 @@ function extractHullBoundaryContacts(shipHullWorldVertices, x, y, airAt, eps = 0
 export function findMothershipCollisionExactAtPose(ctx, x, y, mothershipPose){
   const m = mothershipPose;
   if (!m) return null;
-  const hull = ctx.shipHullWorldVertices(x, y);
+  const hull = ctx.shipConvexHullWorldVertices(x, y);
   if (hull.length < 3) return null;
   const shipR = ctx.shipRadius();
   const broadR = (Number.isFinite(m.bounds) ? m.bounds : 0) + shipR + 0.25;
@@ -347,7 +347,7 @@ export function findMothershipCollisionExactAtPose(ctx, x, y, mothershipPose){
   }
   if (!best) return null;
   const contacts = extractHullBoundaryContacts(
-    ctx.shipHullWorldVertices,
+    ctx.shipConvexHullWorldVertices,
     x,
     y,
     (sx, sy) => {
@@ -815,7 +815,7 @@ function interpolateMothershipPose(prevPose, currPose, t){
  * @param {Object} args
  * @param {import("./mothership.js").Mothership} args.mothership
  * @param {MothershipPose|null|undefined} args.mothershipPrevPose
- * @param {Array<[number,number]>} args.shipLocalHull
+ * @param {Array<[number,number]>} args.shipLocalConvexHull
  * @param {number} args.shipStartX
  * @param {number} args.shipStartY
  * @param {number} args.shipEndX
@@ -827,14 +827,14 @@ export function findSweptMothershipCollision(args){
   const {
     mothership,
     mothershipPrevPose,
-    shipLocalHull,
+    shipLocalConvexHull,
     shipStartX,
     shipStartY,
     shipEndX,
     shipEndY,
     dt,
   } = args;
-  if (!mothership || !Array.isArray(shipLocalHull) || shipLocalHull.length < 3) return null;
+  if (!mothership || !Array.isArray(shipLocalConvexHull) || shipLocalConvexHull.length < 3) return null;
   const span = Math.max(1e-6, Number.isFinite(dt) ? Number(dt) : 1);
   const prevPose = mothershipPrevPose || mothership;
   const currPose = mothership;
@@ -852,15 +852,15 @@ export function findSweptMothershipCollision(args){
     },
     angVel,
   };
-  const candidates = gatherCandidateFeatures(shipLocalHull, startPos, endPos, startAngle, endAngle, mothership);
+  const candidates = gatherCandidateFeatures(shipLocalConvexHull, startPos, endPos, startAngle, endAngle, mothership);
   if (!candidates.edges.length) return null;
-  const worldHull = transformHull(shipLocalHull, state.pos, state.angle);
+  const worldHull = transformHull(shipLocalConvexHull, state.pos, state.angle);
   /** @type {Array<{time:number,point:{x:number,y:number},normal:{x:number,y:number},type:"vertex-edge"|"edge-corner",edgeId:number|null,cornerId:number|null,playerVertex:number|null,playerEdgeIndex:number|null}>} */
   const hits = [];
 
-  for (let vertexIdx = 0; vertexIdx < shipLocalHull.length; vertexIdx++){
+  for (let vertexIdx = 0; vertexIdx < shipLocalConvexHull.length; vertexIdx++){
     const p0 = worldHull.verts[vertexIdx];
-    const v = localPointVelocity(state, shipLocalHull[vertexIdx]);
+    const v = localPointVelocity(state, shipLocalConvexHull[vertexIdx]);
     for (const edge of candidates.edges){
       const hit = pointEdgeToi(p0, v, edge, span);
       if (!hit) continue;
@@ -880,7 +880,7 @@ export function findSweptMothershipCollision(args){
   for (const corner of candidates.corners){
     for (let edgeIdx = 0; edgeIdx < worldHull.edges.length; edgeIdx++){
       const edge = worldHull.edges[edgeIdx];
-      const edgeVel = localPointVelocity(state, shipLocalHull[edgeIdx]);
+      const edgeVel = localPointVelocity(state, shipLocalConvexHull[edgeIdx]);
       const hit = wallCornerPlayerEdgeToi(corner, edge, edgeVel, span);
       if (!hit) continue;
       let bestNormal = hit.normal;
@@ -954,7 +954,7 @@ export function sweptShipVsMovingMothership(ctx, shipX0, shipY0, shipX1, shipY1,
   const impact = findSweptMothershipCollision({
     mothership: ctx.mothership,
     mothershipPrevPose: mothershipPrev,
-    shipLocalHull: ctx.shipLocalHull(),
+    shipLocalConvexHull: ctx.shipLocalConvexHull(),
     shipStartX: shipX0,
     shipStartY: shipY0,
     shipEndX: shipX1,
@@ -1023,7 +1023,7 @@ export function hasStrictMothershipOverlapAtPose(mothership, shipCollisionPoints
  * @property {(x:number,y:number)=>Array<[number,number]>} shipCollisionPointsAt
  * @property {number} [mothershipAngularVel]
  * @property {{x:number,y:number,angle:number}|null} [mothershipPrevPose]
- * @property {Array<[number,number]>} shipLocalHull
+ * @property {Array<[number,number]>} shipLocalConvexHull
  * @property {number} shipStartX
  * @property {number} shipStartY
  * @property {number} shipEndX
@@ -1306,7 +1306,7 @@ export function resolveMothershipCollisionResponse(args){
     shipCollisionPointsAt,
     mothershipAngularVel,
     mothershipPrevPose,
-    shipLocalHull,
+    shipLocalConvexHull,
     shipStartX,
     shipStartY,
     shipEndX,
@@ -1349,7 +1349,7 @@ export function resolveMothershipCollisionResponse(args){
     const impact = findSweptMothershipCollision({
       mothership,
       mothershipPrevPose: segStartPose,
-      shipLocalHull,
+      shipLocalConvexHull,
       shipStartX: curX,
       shipStartY: curY,
       shipEndX: targetX,
