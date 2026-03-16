@@ -158,8 +158,8 @@ export class GameLoop {
     this.playerBombs = [];
     /** @type {Array<{x:number,y:number,life:number,radius?:number}>} */
     this.entityExplosions = [];
-    /** @type {Array<{x:number,y:number,vx:number,vy:number,life:number}>} */
-    this.minerPopups = [];
+    /** @type {Array<{x:number,y:number,vx:number,vy:number,text:string,life:number}>} */
+    this.popups = [];
     /** @type {Array<{x:number,y:number,vx:number,vy:number,life:number}>} */
     this.shipHitPopups = [];
     /** @type {{x:number,y:number}|null} */
@@ -596,7 +596,7 @@ export class GameLoop {
     this.playerShots.length = 0;
     this.playerBombs.length = 0;
     this.entityExplosions.length = 0;
-    this.minerPopups.length = 0;
+    this.popups.length = 0;
     this.shipHitPopups.length = 0;
     this.playerShotCooldown = 0;
     this.planet.clearFeatureParticles();
@@ -1975,7 +1975,7 @@ export class GameLoop {
       enemies: this.enemies.enemies,
       miners: this.miners,
     });
-    this.minerPopups.length = 0;
+    this.popups.length = 0;
     this.planet.clearFeatureParticles();
 
     if (this.level === 1){
@@ -3544,11 +3544,12 @@ export class GameLoop {
         const tx = -upy;
         const ty = upx;
         const jitter = (Math.random() * 2 - 1) * GAME.MINER_POPUP_TANGENTIAL;
-        this.minerPopups.push({
+        this.popups.push({
           x: miner.x + upx * 0.1,
           y: miner.y + upy * 0.1,
           vx: upx * GAME.MINER_POPUP_SPEED + tx * jitter,
           vy: upy * GAME.MINER_POPUP_SPEED + ty * jitter,
+          text: "+1",
           life: GAME.MINER_POPUP_LIFE,
         });
         this._playSfx("miner_rescued", {
@@ -3564,13 +3565,13 @@ export class GameLoop {
       this._minerPathDebugCooldown = 0.35;
     }
 
-    if (this.minerPopups.length){
-      for (let i = this.minerPopups.length - 1; i >= 0; i--){
-        const p = this.minerPopups[i];
+    if (this.popups.length){
+      for (let i = this.popups.length - 1; i >= 0; i--){
+        const p = this.popups[i];
         p.x += p.vx * dt;
         p.y += p.vy * dt;
         p.life -= dt;
-        if (p.life <= 0) this.minerPopups.splice(i, 1);
+        if (p.life <= 0) this.popups.splice(i, 1);
       }
     }
 
@@ -4609,7 +4610,7 @@ export class GameLoop {
       return;
     }
     const showStartTitle = !this.startTitleSeen && this.startTitleAlpha > 0;
-    if (!showStartTitle && !this.minerPopups.length && !this.shipHitPopups.length && !this.lastAimScreen && !this.pendingPerkChoice){
+    if (!showStartTitle && !this.popups.length && !this.shipHitPopups.length && !this.lastAimScreen && !this.pendingPerkChoice){
       return;
     }
 
@@ -4618,7 +4619,7 @@ export class GameLoop {
     ctx.font = `700 ${Math.max(12, Math.round(16 * dpr))}px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace`;
     const screenT = this._screenTransform(w / h);
 
-    for (const p of this.minerPopups){
+    for (const p of this.popups){
       const t = Math.max(0, Math.min(1, p.life / GAME.MINER_POPUP_LIFE));
       const alpha = 0.9 * t;
       const screen = this._worldToScreenNorm(p.x, p.y, screenT);
@@ -4626,7 +4627,7 @@ export class GameLoop {
       const py = screen.y * h;
       ctx.globalAlpha = alpha;
       ctx.fillStyle = "rgba(255, 236, 170, 1)";
-      ctx.fillText("+1", px, py);
+      ctx.fillText(p.text, px, py);
     }
     for (const p of this.shipHitPopups){
       const t = Math.max(0, Math.min(1, p.life / GAME.SHIP_HIT_POPUP_LIFE));
