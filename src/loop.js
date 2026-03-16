@@ -2611,6 +2611,16 @@ export class GameLoop {
       this._startCoreMeltdown();
     }
 
+    // Cancel left/right input while docked
+    if (this._isDockedWithMothership()){
+      left = false;
+      right = false;
+      stickThrust.x = 0;
+      if (stickThrust.y < 0.25){
+        stickThrust.y = 0;
+      }
+    }
+
     // Cancel flight input while viewing planet
     if (this.planetView){
       left = false;
