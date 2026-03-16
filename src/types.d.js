@@ -131,6 +131,7 @@
  * @property {number} x
  * @property {number} y
  * @property {number} life
+ * @property {number} [maxLife]
  * @property {EnemyType} owner
  * @property {number} radius
  */
@@ -172,7 +173,7 @@
  * @property {number} [minerTarget]
  * @property {Array<{x:number,y:number,type:EnemyType,vx?:number,vy?:number,cooldown?:number,hp?:number,hitT?:number,dir?:number,fuse?:number}>} enemies
  * @property {Array<{x:number,y:number,vx?:number,vy?:number,life?:number,owner:string}>} shots
- * @property {Array<{x:number,y:number,life:number,owner:string,radius?:number}>} explosions
+ * @property {Array<{x:number,y:number,life:number,maxLife?:number,owner:string,radius?:number}>} explosions
  * @property {Array<{x:number,y:number,vx?:number,vy?:number,a:number,w?:number,life:number}>} enemyDebris
  * @property {Array<{x:number,y:number,vx?:number,vy?:number,life?:number}>} playerShots
  * @property {Array<{x:number,y:number,vx?:number,vy?:number,life?:number}>} playerBombs

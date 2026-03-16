@@ -1892,8 +1892,73 @@ function drawFrameImpl(renderer, state, planet){
     }
   }
 
-  // Triangles end here. Lock the triangle vertex count to buffer length.
+  // Base world triangles end here.
   triVerts = pos.length / 2;
+
+  const pushCrawlerExplosionShards = (ex) => {
+    if (!visibleHostileNow(ex.x, ex.y)) return;
+    const maxLife = Math.max(0.001, ex.maxLife ?? 0.5);
+    const t = Math.max(0, Math.min(1, ex.life / maxLife));
+    const baseRadius = ex.radius ?? 0.8;
+    const alpha = 0.85 * t;
+    const burstN = 6;
+    const burstPhase = Math.max(0, Math.min(1, (1 - t) * 2));
+    const burstCenterR = baseRadius * (0.18 + 0.48 * burstPhase);
+    const burstLen = baseRadius * 0.42;
+    const burstHalfW = baseRadius * 0.095;
+    for (let i = 0; i < burstN; i++){
+      const travelA = (i / burstN) * Math.PI * 2 + burstPhase * 0.18;
+      const cx = ex.x + Math.cos(travelA) * burstCenterR;
+      const cy = ex.y + Math.sin(travelA) * burstCenterR;
+      const spinDir = (i & 1) ? -1 : 1;
+      const a = travelA + spinDir * burstPhase * 1.3;
+      const ux = Math.cos(a);
+      const uy = Math.sin(a);
+      const tx = -uy;
+      const ty = ux;
+      const tipX = cx + ux * (burstLen * 0.58);
+      const tipY = cy + uy * (burstLen * 0.58);
+      const baseCx = cx - ux * (burstLen * 0.42);
+      const baseCy = cy - uy * (burstLen * 0.42);
+      pushTri(
+        pos,
+        col,
+        baseCx + tx * burstHalfW,
+        baseCy + ty * burstHalfW,
+        baseCx - tx * burstHalfW,
+        baseCy - ty * burstHalfW,
+        tipX,
+        tipY,
+        1.0,
+        0.68,
+        0.18,
+        0.92 * alpha
+      );
+      triVerts += 3;
+      pushTri(
+        pos,
+        col,
+        cx + ux * (burstLen * 0.08),
+        cy + uy * (burstLen * 0.08),
+        baseCx + tx * (burstHalfW * 0.45),
+        baseCy + ty * (burstHalfW * 0.45),
+        baseCx - tx * (burstHalfW * 0.45),
+        baseCy - ty * (burstHalfW * 0.45),
+        1.0,
+        0.95,
+        0.48,
+        0.55 * alpha
+      );
+      triVerts += 3;
+    }
+  };
+
+  if (state.explosions && state.explosions.length){
+    for (const ex of state.explosions){
+      if (ex.owner !== "crawler") continue;
+      pushCrawlerExplosionShards(ex);
+    }
+  }
 
   /**
    * @param {number} dx
@@ -2178,12 +2243,42 @@ function drawFrameImpl(renderer, state, planet){
   if (state.explosions && state.explosions.length){
     for (const ex of state.explosions){
       if (!visibleHostileNow(ex.x, ex.y)) continue;
-      const t = Math.max(0, Math.min(1, ex.life / 0.5));
-      const r = 0.35 + (1 - t) * 0.6;
-      const colr = ex.owner === "crawler" ? [1.0, 0.7, 0.2] : [1.0, 0.5, 0.3];
-      pushLine(pos, col, ex.x - r, ex.y, ex.x + r, ex.y, colr[0], colr[1], colr[2], 0.8 * t);
-      pushLine(pos, col, ex.x, ex.y - r, ex.x, ex.y + r, colr[0], colr[1], colr[2], 0.8 * t);
-      lineVerts += 4;
+      const maxLife = Math.max(0.001, ex.maxLife ?? 0.5);
+      const t = Math.max(0, Math.min(1, ex.life / maxLife));
+      const baseRadius = ex.radius ?? 0.8;
+      if (ex.owner === "crawler"){
+        const ringR = baseRadius * (0.4 + (1 - t) * 0.9);
+        const alpha = 0.85 * t;
+        const seg = 14;
+        for (let i = 0; i < seg; i++){
+          const a0 = (i / seg) * Math.PI * 2;
+          const a1 = ((i + 1) / seg) * Math.PI * 2;
+          const wobble0 = 0.88 + 0.16 * Math.sin((1 - t) * 12 + i * 0.9);
+          const wobble1 = 0.88 + 0.16 * Math.sin((1 - t) * 12 + (i + 1) * 0.9);
+          const x0 = ex.x + Math.cos(a0) * ringR * wobble0;
+          const y0 = ex.y + Math.sin(a0) * ringR * wobble0;
+          const x1 = ex.x + Math.cos(a1) * ringR * wobble1;
+          const y1 = ex.y + Math.sin(a1) * ringR * wobble1;
+          pushLine(pos, col, x0, y0, x1, y1, 1.0, 0.7, 0.2, alpha);
+          lineVerts += 2;
+        }
+        const spokeR = ringR * (0.35 + 0.25 * (1 - t));
+        const spokeOuter = ringR * 1.08;
+        for (let i = 0; i < 4; i++){
+          const a = i * Math.PI * 0.5 + (1 - t) * 0.35;
+          const ix = ex.x + Math.cos(a) * spokeR;
+          const iy = ex.y + Math.sin(a) * spokeR;
+          const ox = ex.x + Math.cos(a) * spokeOuter;
+          const oy = ex.y + Math.sin(a) * spokeOuter;
+          pushLine(pos, col, ix, iy, ox, oy, 1.0, 0.95, 0.5, 0.95 * alpha);
+          lineVerts += 2;
+        }
+      } else {
+        const r = baseRadius * (0.4 + (1 - t) * 0.75);
+        pushLine(pos, col, ex.x - r, ex.y, ex.x + r, ex.y, 1.0, 0.5, 0.3, 0.8 * t);
+        pushLine(pos, col, ex.x, ex.y - r, ex.x, ex.y + r, 1.0, 0.5, 0.3, 0.8 * t);
+        lineVerts += 4;
+      }
     }
   }
 

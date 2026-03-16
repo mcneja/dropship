@@ -67,7 +67,7 @@ export class Enemies {
    * @param {number} deps.level Current level index.
    * @param {number} deps.levelSeed Base seed for this level.
    * @param {(enemy:Enemy)=>void} [deps.onEnemyShot]
-   * @param {(enemy:Enemy)=>void} [deps.onEnemyDestroyed]
+   * @param {(enemy:Enemy, info?:{cause:"hp"|"detonate"})=>void} [deps.onEnemyDestroyed]
    */
   constructor({ planet, collision, total, level, levelSeed, placement, orbitingTurretCount, onEnemyShot, onEnemyDestroyed }){
     this.planet = planet;
@@ -97,6 +97,8 @@ export class Enemies {
     this._DETONATE_RANGE = 0.5;
     this._DETONATE_FUSE = 0.6;
     this._LOS_STEP = 0.2;
+    this._CRAWLER_BLAST_LIFE = 0.75;
+    this._CRAWLER_BLAST_RADIUS = 1.15;
 
     this._HUNTER_COLLIDER = circleOffsets(0.22, 6);
     this._RANGER_COLLIDER = circleOffsets(0.22, 6);
@@ -297,24 +299,13 @@ export class Enemies {
         e.hitT = Math.max(0, e.hitT - dt);
       }
       if (e.hp <= 0){
-        if (this.onEnemyDestroyed){
-          this.onEnemyDestroyed(e);
+        this._notifyEnemyDestroyed(e, "hp");
+        this._spawnEnemyDebrisBurst(e, e.type === "crawler" ? 10 : 6);
+        if (e.type === "crawler"){
+          this._spawnCrawlerBlastVisual(e);
+        } else {
+          this.explosions.push({ x: e.x, y: e.y, life: 0.5, maxLife: 0.5, owner: e.type, radius: 0.8 });
         }
-        const pieces = 6;
-        for (let k = 0; k < pieces; k++){
-          const ang = Math.random() * Math.PI * 2;
-          const sp = 1.0 + Math.random() * 2.0;
-          this.debris.push({
-            x: e.x + Math.cos(ang) * 0.08,
-            y: e.y + Math.sin(ang) * 0.08,
-            vx: e.vx + Math.cos(ang) * sp,
-            vy: e.vy + Math.sin(ang) * sp,
-            a: Math.random() * Math.PI * 2,
-            w: (Math.random() - 0.5) * 6,
-            life: 1.1 + Math.random() * 0.8,
-          });
-        }
-        this.explosions.push({ x: e.x, y: e.y, life: 0.5, owner: e.type, radius: 0.8 });
         this.enemies.splice(i, 1);
         continue;
       }
@@ -325,9 +316,8 @@ export class Enemies {
         this._updateRanger(e, shipTarget, dt);
       } else if (e.type === "crawler"){
         if (!this._updateCrawler(e, shipTarget, dt)) {
-          if (this.onEnemyDestroyed){
-            this.onEnemyDestroyed(e);
-          }
+          this._notifyEnemyDestroyed(e, "detonate");
+          this._spawnEnemyDebrisBurst(e, 10);
           this.enemies.splice(i, 1);
         }
       } else if (e.type === "turret"){
@@ -523,10 +513,57 @@ export class Enemies {
     const dist = Math.hypot(dx, dy);
 
     if (dist <= this._DETONATE_RANGE){
-      this.explosions.push({ x: e.x, y: e.y, life: 0.5, owner: "crawler", radius: 1.1 });
+      this._spawnCrawlerBlastVisual(e);
       return false;
     }
     return true;
+  }
+
+  /**
+   * @param {Enemy} e
+   * @param {"hp"|"detonate"} cause
+   * @returns {void}
+   */
+  _notifyEnemyDestroyed(e, cause){
+    if (this.onEnemyDestroyed){
+      this.onEnemyDestroyed(e, { cause });
+    }
+  }
+
+  /**
+   * @param {Enemy} e
+   * @param {number} pieces
+   * @returns {void}
+   */
+  _spawnEnemyDebrisBurst(e, pieces){
+    for (let k = 0; k < pieces; k++){
+      const ang = Math.random() * Math.PI * 2;
+      const sp = 1.0 + Math.random() * 2.0;
+      this.debris.push({
+        x: e.x + Math.cos(ang) * 0.08,
+        y: e.y + Math.sin(ang) * 0.08,
+        vx: e.vx + Math.cos(ang) * sp,
+        vy: e.vy + Math.sin(ang) * sp,
+        a: Math.random() * Math.PI * 2,
+        w: (Math.random() - 0.5) * 6,
+        life: 1.1 + Math.random() * 0.8,
+      });
+    }
+  }
+
+  /**
+   * @param {Enemy} e
+   * @returns {void}
+   */
+  _spawnCrawlerBlastVisual(e){
+    this.explosions.push({
+      x: e.x,
+      y: e.y,
+      life: this._CRAWLER_BLAST_LIFE,
+      maxLife: this._CRAWLER_BLAST_LIFE,
+      owner: "crawler",
+      radius: this._CRAWLER_BLAST_RADIUS,
+    });
   }
 
   /**

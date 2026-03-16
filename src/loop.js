@@ -178,6 +178,10 @@ export class GameLoop {
     this.PLAYER_BOMB_RADIUS = 0.35;
     this.PLAYER_BOMB_BLAST = 0.9;
     this.PLAYER_BOMB_DAMAGE = 1.2;
+    this.CRAWLER_DEATH_BLAST = 1.15;
+    this.CRAWLER_DEATH_DAMAGE = 1.0;
+    this.CRAWLER_TERRAIN_BLAST = 0.55;
+    this.CRAWLER_DEATH_FLASH_LIFE = 0.8;
     this.SHIP_HIT_BLAST = 0.55;
     this.ENEMY_HIT_BLAST = 0.35;
     this.NONLETHAL_HIT_FLASH_LIFE = 0.25;
@@ -220,8 +224,8 @@ export class GameLoop {
         this._markCombatThreat();
         this._triggerCombatImmediate();
       },
-      onEnemyDestroyed: () => {
-        this._playSfx("enemy_destroyed", { volume: 0.8 });
+      onEnemyDestroyed: (enemy) => {
+        this._handleEnemyDestroyed(enemy);
       },
     });
     this._initializeClearObjectiveTracking();
@@ -691,6 +695,80 @@ export class GameLoop {
       life: this.NONLETHAL_HIT_FLASH_LIFE,
       radius: this.ENEMY_HIT_BLAST,
     });
+  }
+
+  /**
+   * @param {{type?:string,x:number,y:number,vx?:number,vy?:number}} enemy
+   * @returns {void}
+   */
+  _handleEnemyDestroyed(enemy){
+    this._playSfx("enemy_destroyed", { volume: 0.8 });
+    if (!enemy || enemy.type !== "crawler"){
+      return;
+    }
+    this._applyCrawlerDeathBlast(enemy);
+  }
+
+  /**
+   * @param {{x:number,y:number,vx?:number,vy?:number}} enemy
+   * @returns {void}
+   */
+  _applyCrawlerDeathBlast(enemy){
+    const x = enemy.x;
+    const y = enemy.y;
+    this.entityExplosions.push({
+      x,
+      y,
+      life: this.CRAWLER_DEATH_FLASH_LIFE,
+      radius: this.CRAWLER_DEATH_BLAST,
+    });
+    this._spawnDebrisBurst(x, y, {
+      pieces: 10,
+      speedMin: 1.2,
+      speedMax: 2.2,
+      lifeMin: 0.75,
+      lifeMax: 0.65,
+      offset: 0.1,
+      spin: 7,
+      baseVx: enemy.vx || 0,
+      baseVy: enemy.vy || 0,
+    });
+    this._applyCrawlerBlastDamage(x, y, this.CRAWLER_DEATH_BLAST, enemy);
+    this._applyCrawlerTerrainImpact(x, y);
+  }
+
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @param {number} radius
+   * @param {{x:number,y:number}|null|undefined} sourceEnemy
+   * @returns {void}
+   */
+  _applyCrawlerBlastDamage(x, y, radius, sourceEnemy){
+    const r2 = radius * radius;
+    for (let j = this.enemies.enemies.length - 1; j >= 0; j--){
+      const e = this.enemies.enemies[j];
+      if (!e || e === sourceEnemy || e.hp <= 0) continue;
+      const dx = e.x - x;
+      const dy = e.y - y;
+      if (dx * dx + dy * dy > r2) continue;
+      e.hp = Math.max(0, e.hp - this.CRAWLER_DEATH_DAMAGE);
+      if (e.hp > 0){
+        this._applyEnemyHitFeedback(e);
+      }
+    }
+  }
+
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @returns {void}
+   */
+  _applyCrawlerTerrainImpact(x, y){
+    const cfg = this.planet ? this.planet.getPlanetConfig() : null;
+    if (cfg && cfg.flags && cfg.flags.disableTerrainDestruction) return;
+    const newAir = this.planet.applyAirEdit(x, y, this.CRAWLER_TERRAIN_BLAST, 1);
+    if (newAir) this.renderer.updateAir(newAir);
   }
 
   /**
@@ -1810,8 +1888,8 @@ export class GameLoop {
         this._markCombatThreat();
         this._triggerCombatImmediate();
       },
-      onEnemyDestroyed: () => {
-        this._playSfx("enemy_destroyed", { volume: 0.8 });
+      onEnemyDestroyed: (enemy) => {
+        this._handleEnemyDestroyed(enemy);
       },
     });
     return {
