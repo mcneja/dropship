@@ -4377,6 +4377,32 @@ export class GameLoop {
    * @returns {void}
    */
   _onSuccessfullyDocked(){
+    let y = 0.5;
+    const r = Math.hypot(this.ship.x, this.ship.y);
+    const upx = this.ship.x / r;
+    const upy = this.ship.y / r;
+    const addPopup = (msg) => {
+      this.popups.push({
+        x: this.ship.x + upx * y,
+        y: this.ship.y + upy * y,
+        vx: this.mothership.vx + upx * GAME.MINER_POPUP_SPEED,
+        vy: this.mothership.vy + upy * GAME.MINER_POPUP_SPEED,
+        text: msg,
+        life: 2.0,
+      });
+      y += 0.25;
+    };
+    const addGroupPopup = (name, count) => {
+      if (count <= 0) return;
+      addPopup(name + " +" + count);
+    };
+
+    addGroupPopup("pilot", this.ship.dropshipPilots);
+    addGroupPopup("engineer", this.ship.dropshipEngineers);
+    addGroupPopup("miner", this.ship.dropshipMiners);
+    addGroupPopup("hull", this.ship.hpMax - this.ship.hpCur);
+    addGroupPopup("bomb", this.ship.bombsMax - this.ship.bombsCur);
+
     this.ship.mothershipMiners += this.ship.dropshipMiners;
     this.ship.mothershipPilots += this.ship.dropshipPilots;
     this.ship.mothershipEngineers += this.ship.dropshipEngineers;
