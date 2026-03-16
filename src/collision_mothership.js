@@ -1019,6 +1019,7 @@ export function hasStrictMothershipOverlapAtPose(mothership, shipCollisionPoints
  * @property {{SURFACE_DOT:number,BOUNCE_RESTITUTION:number,MOTHERSHIP_FRICTION:number}} game
  * @property {number} dt
  * @property {number} eps
+ * @property {boolean} [debugEnabled]
  * @property {number} shipRadius
  * @property {(x:number,y:number)=>Array<[number,number]>} shipCollisionPointsAt
  * @property {number} [mothershipAngularVel]
@@ -1302,6 +1303,7 @@ export function resolveMothershipCollisionResponse(args){
     game,
     dt,
     eps,
+    debugEnabled = false,
     shipRadius,
     shipCollisionPointsAt,
     mothershipAngularVel,
@@ -1317,6 +1319,10 @@ export function resolveMothershipCollisionResponse(args){
   } = args;
   const hit = ship._collision;
   if (!hit || hit.source !== "mothership") return;
+  if (!debugEnabled){
+    ship._landingDebug = null;
+    ship._lastMothershipCollisionDiag = null;
+  }
 
   const omega = Number.isFinite(mothershipAngularVel) ? Number(mothershipAngularVel) : 0;
   const restitution = 0.8;
@@ -1384,29 +1390,33 @@ export function resolveMothershipCollisionResponse(args){
       kind: impact.type,
       edgeIdx: Number.isFinite(impact.edgeId) ? impact.edgeId : null,
     };
-    lastDiagDebug = {
-      type: impact.type,
-      time: impact.time,
-      fraction: impact.fraction,
-      safeFraction: impact.safeFraction,
-      edgeId: impact.edgeId,
-      cornerId: impact.cornerId,
-      playerVertex: impact.playerVertex,
-      playerEdgeIndex: impact.playerEdgeIndex,
-    };
+    if (debugEnabled){
+      lastDiagDebug = {
+        type: impact.type,
+        time: impact.time,
+        fraction: impact.fraction,
+        safeFraction: impact.safeFraction,
+        edgeId: impact.edgeId,
+        cornerId: impact.cornerId,
+        playerVertex: impact.playerVertex,
+        playerEdgeIndex: impact.playerEdgeIndex,
+      };
+    }
 
     if (vnIn < -planetParams.CRASH_SPEED){
-      ship._landingDebug = {
-        source: "mothership",
-        reason: "mothership_crash",
-        vn: vnIn,
-        vt: vtIn,
-        speed: Math.hypot(relIn.x, relIn.y),
-        impactX: impact.worldPoint.x,
-        impactY: impact.worldPoint.y,
-        supportX: impact.worldPoint.x,
-        supportY: impact.worldPoint.y,
-      };
+      if (debugEnabled){
+        ship._landingDebug = {
+          source: "mothership",
+          reason: "mothership_crash",
+          vn: vnIn,
+          vt: vtIn,
+          speed: Math.hypot(relIn.x, relIn.y),
+          impactX: impact.worldPoint.x,
+          impactY: impact.worldPoint.y,
+          supportX: impact.worldPoint.x,
+          supportY: impact.worldPoint.y,
+        };
+      }
       onCrash();
       return;
     }
@@ -1425,7 +1435,7 @@ export function resolveMothershipCollisionResponse(args){
       ship.vx = mothership.vx;
       ship.vy = mothership.vy;
       ship._dock = landing.dockTest;
-      ship._landingDebug = {
+      ship._landingDebug = debugEnabled ? {
         source: "mothership",
         reason: "mothership_landed",
         dotUp: landing.dotUpRaw,
@@ -1450,8 +1460,8 @@ export function resolveMothershipCollisionResponse(args){
         depenCleared: true,
         landable: true,
         landed: true,
-      };
-      setDiag(ship._landingDebug, ship, {
+      } : null;
+      if (debugEnabled) setDiag(ship._landingDebug, ship, {
         phase: "landed",
         hitCount: 1,
         distinctHullCount: 1,
@@ -1563,7 +1573,7 @@ export function resolveMothershipCollisionResponse(args){
 
   if (!handledImpact && !lastContact){
     ship._collision = null;
-    ship._landingDebug = {
+    ship._landingDebug = debugEnabled ? {
       source: "mothership",
       reason: "mothership_no_contact",
       vn: 0,
@@ -1583,8 +1593,8 @@ export function resolveMothershipCollisionResponse(args){
       depenCushion: 0,
       depenDir: 0,
       depenCleared: true,
-    };
-    setDiag(ship._landingDebug, ship, {
+    } : null;
+    if (debugEnabled) setDiag(ship._landingDebug, ship, {
       phase: "no_contact",
       hitCount: 0,
       distinctHullCount: 0,
@@ -1624,7 +1634,7 @@ export function resolveMothershipCollisionResponse(args){
     : null;
 
   ship._collision = null;
-  ship._landingDebug = {
+  ship._landingDebug = debugEnabled ? {
     source: "mothership",
     reason: overlapAfter ? "mothership_overlap_only" : "mothership_reflect",
     dotUp: landing ? landing.dotUpRaw : undefined,
@@ -1647,9 +1657,9 @@ export function resolveMothershipCollisionResponse(args){
     depenCushion: 0,
     depenDir: depenPush > 0 ? 1 : 0,
     depenCleared,
-  };
+  } : null;
 
-  setDiag(ship._landingDebug, ship, {
+  if (debugEnabled) setDiag(ship._landingDebug, ship, {
     phase: "reflect",
     hitCount: lastContact ? 1 : 0,
     distinctHullCount: lastContact ? 1 : 0,

@@ -785,6 +785,7 @@ export function findPlanetCollisionExactAt(ctx, x, y){
  * @param {{SURFACE_DOT:number,BOUNCE_RESTITUTION:number,MOTHERSHIP_FRICTION:number}} args.game
  * @param {number} args.dt
  * @param {number} args.eps
+ * @param {boolean} [args.debugEnabled]
  * @param {number} args.shipRadius
  * @param {(x:number,y:number)=>boolean} args.shipCollidesAt
  * @param {(x:number,y:number)=>boolean} [args.shipCollidesMothershipAt]
@@ -807,10 +808,15 @@ export function resolvePlanetCollisionResponse(args){
     game,
     dt,
     eps,
+    debugEnabled = false,
     shipRadius,
     shipCollidesAt,
     shipCollidesMothershipAt,
     shipCollisionPointsAt,
+    shipStartX,
+    shipStartY,
+    shipEndX,
+    shipEndY,
     mothershipAngularVel,
     prevPoints,
     currPoints,
@@ -821,6 +827,10 @@ export function resolvePlanetCollisionResponse(args){
   const hit = ship._collision;
   if (!hit) return;
   if (hit.source === "mothership") return;
+  if (!debugEnabled){
+    ship._landingDebug = null;
+    ship._lastMothershipCollisionDiag = null;
+  }
   const hx = Number.isFinite(hit.x) ? hit.x : ship.x;
   const hy = Number.isFinite(hit.y) ? hit.y : ship.y;
 
@@ -904,7 +914,7 @@ export function resolvePlanetCollisionResponse(args){
    * @param {any} payload
    */
   const setMothershipDiag = (landingDbg, payload) => {
-    if (!landingDbg) return;
+    if (!debugEnabled || !landingDbg) return;
     const prev = ship._lastMothershipCollisionDiag || null;
     const outAbs = payload && payload.absOut ? payload.absOut : null;
     const outRel = payload && payload.relOut ? payload.relOut : null;
@@ -1279,17 +1289,19 @@ export function resolvePlanetCollisionResponse(args){
 
     const vnImpact = ship.vx * impactNormal.nx + ship.vy * impactNormal.ny;
     if (vnImpact < -planetParams.CRASH_SPEED) {
-      ship._landingDebug = {
-        source: "planet",
-        reason: "planet_crash",
-        vn: vnImpact,
-        vt: ship.vx * (-impactNormal.ny) + ship.vy * impactNormal.nx,
-        speed: Math.hypot(ship.vx, ship.vy),
-        impactX,
-        impactY,
-        supportX,
-        supportY,
-      };
+      if (debugEnabled){
+        ship._landingDebug = {
+          source: "planet",
+          reason: "planet_crash",
+          vn: vnImpact,
+          vt: ship.vx * (-impactNormal.ny) + ship.vy * impactNormal.nx,
+          speed: Math.hypot(ship.vx, ship.vy),
+          impactX,
+          impactY,
+          supportX,
+          supportY,
+        };
+      }
       onCrash();
       return;
     }
@@ -1317,8 +1329,52 @@ export function resolvePlanetCollisionResponse(args){
       landable: impactDotUp > 0 && Math.max(0, 1 - impactDotUp) <= landSlope,
     };
     const landVt = Math.max(0.8, planetParams.LAND_SPEED * 0.6);
-    /** @type {{source:string,reason:string,dotUp:number,slope:number,landSlope:number,vn:number,vt:number,speed:number,airFront:number,airBack:number,landable:boolean,landed:boolean,support:boolean,supportDist:number,contactsCount:number,bestDotUpAny:number,bestDotUpUnder:number,impactPoint:number,supportPoint:number,impactT:number,supportT:number,impactX:number,impactY:number,supportX:number,supportY:number,supportTriOuterCount:number,supportTriAirMin:number,supportTriAirMax:number,supportTriRMin:number,supportTriRMax:number,overlapBeforeCount?:number,overlapAfterCount?:number,overlapBeforeMin?:number,overlapAfterMin?:number,depenPush?:number,depenIter?:number,depenCleared?:boolean}} */
-    const landingDbg = {
+    let landingSupportRatio = 1;
+    if (shipCollisionPointsAt){
+      const supportPts = shipCollisionPointsAt(ship.x, ship.y);
+      const supportBand = [];
+      let bestDownness = -Infinity;
+      const planetOuterRadius = (typeof planet.planetRadius === "number")
+        ? planet.planetRadius
+        : (planet.radial && planet.radial.rings ? (planet.radial.rings.length - 1) : Infinity);
+      const supportCheckNormal = contactImpact ? impactNormal : { nx: shipUpX, ny: shipUpY };
+      for (const p of supportPts){
+        const dx = p[0] - ship.x;
+        const dy = p[1] - ship.y;
+        const plen = Math.hypot(dx, dy);
+        if (plen < 1e-6) continue;
+        const downness = (-(dx * shipUpX + dy * shipUpY) / plen);
+        if (downness > bestDownness) bestDownness = downness;
+        supportBand.push({ x: p[0], y: p[1], downness });
+      }
+      let supportCount = 0;
+      let supportTotal = 0;
+      const bandThreshold = bestDownness - 0.12;
+      const clearOutside = Math.max(0.12, shipRadius * 0.45);
+      const clearInside = Math.max(0.10, shipRadius * 0.38);
+      for (const p of supportBand){
+        if (p.downness < bandThreshold) continue;
+        supportTotal++;
+        const pr = Math.hypot(p.x, p.y) || 1;
+        const outerShellSample = pr >= planetOuterRadius - Math.max(0.30, shipRadius * 0.6);
+        const sampleNx = outerShellSample ? (p.x / pr) : supportCheckNormal.nx;
+        const sampleNy = outerShellSample ? (p.y / pr) : supportCheckNormal.ny;
+        const airFront = collision.planetAirValueAtWorld(
+          p.x + sampleNx * clearOutside,
+          p.y + sampleNy * clearOutside
+        );
+        const airBack = collision.planetAirValueAtWorld(
+          p.x - sampleNx * clearInside,
+          p.y - sampleNy * clearInside
+        );
+        if (airFront > 0.5 && airBack <= 0.52){
+          supportCount++;
+        }
+      }
+      landingSupportRatio = supportTotal > 0 ? (supportCount / supportTotal) : 0;
+    }
+    /** @type {{source:string,reason:string,dotUp:number,slope:number,landSlope:number,vn:number,vt:number,speed:number,airFront:number,airBack:number,landable:boolean,landed:boolean,support:boolean,supportDist:number,contactsCount:number,bestDotUpAny:number,bestDotUpUnder:number,impactPoint:number,supportPoint:number,impactT:number,supportT:number,impactX:number,impactY:number,supportX:number,supportY:number,supportTriOuterCount:number,supportTriAirMin:number,supportTriAirMax:number,supportTriRMin:number,supportTriRMax:number,supportRatio?:number,overlapBeforeCount?:number,overlapAfterCount?:number,overlapBeforeMin?:number,overlapAfterMin?:number,depenPush?:number,depenIter?:number,depenCleared?:boolean}} */
+    const landingDbg = debugEnabled ? {
       source: "planet",
       reason: "planet_eval",
       dotUp: landingInfo ? landingInfo.dotUp : 0,
@@ -1349,17 +1405,34 @@ export function resolvePlanetCollisionResponse(args){
       supportTriAirMax: supportMeta ? supportMeta.airMax : Number.NaN,
       supportTriRMin: supportMeta ? supportMeta.rMin : Number.NaN,
       supportTriRMax: supportMeta ? supportMeta.rMax : Number.NaN,
-    };
+      supportRatio: landingSupportRatio,
+    } : null;
+    const settledLanding = !contactImpact
+      && contactsPose.length > 0
+      && speedAbs <= Math.max(0.08, planetParams.LAND_SPEED * 0.35)
+      && landingSupportRatio >= 0.5;
 
     if (
-      landingInfo.landable &&
-      landingInfo.vn >= -planetParams.LAND_SPEED &&
-      Math.abs(landingInfo.vt) <= landVt &&
-      speedAbs <= (planetParams.LAND_SPEED + 0.2)
+      (
+        (landingInfo.landable
+          && landingSupportRatio >= 0.5
+          && landingInfo.vn >= -planetParams.LAND_SPEED
+          && Math.abs(landingInfo.vt) <= landVt
+          && speedAbs <= (planetParams.LAND_SPEED + 0.2))
+        || settledLanding
+      )
     ){
-      landingDbg.reason = "planet_landed";
-      landingDbg.landed = true;
-      ship._landingDebug = landingDbg;
+      if (landingDbg){
+        landingDbg.reason = "planet_landed";
+        landingDbg.landed = true;
+        landingDbg.landable = true;
+        if (settledLanding){
+          landingDbg.vn = 0;
+          landingDbg.vt = 0;
+          landingDbg.speed = 0;
+        }
+        ship._landingDebug = landingDbg;
+      }
       ship.state = "landed";
       ship.vx = 0;
       ship.vy = 0;
@@ -1388,13 +1461,17 @@ export function resolvePlanetCollisionResponse(args){
       }
       ship.x += impactNormal.nx * Math.max(0.002, shipRadius * 0.02);
       ship.y += impactNormal.ny * Math.max(0.002, shipRadius * 0.02);
-      landingDbg.reason = "planet_reflect";
-      landingDbg.vn = ship.vx * impactNormal.nx + ship.vy * impactNormal.ny;
-      landingDbg.vt = ship.vx * (-impactNormal.ny) + ship.vy * impactNormal.nx;
+      if (landingDbg){
+        landingDbg.reason = "planet_reflect";
+        landingDbg.vn = ship.vx * impactNormal.nx + ship.vy * impactNormal.ny;
+        landingDbg.vt = ship.vx * (-impactNormal.ny) + ship.vy * impactNormal.nx;
+      }
     } else {
-      landingDbg.reason = "planet_graze";
-      landingDbg.vn = ship.vx * impactNormal.nx + ship.vy * impactNormal.ny;
-      landingDbg.vt = ship.vx * (-impactNormal.ny) + ship.vy * impactNormal.nx;
+      if (landingDbg){
+        landingDbg.reason = "planet_graze";
+        landingDbg.vn = ship.vx * impactNormal.nx + ship.vy * impactNormal.ny;
+        landingDbg.vt = ship.vx * (-impactNormal.ny) + ship.vy * impactNormal.nx;
+      }
     }
 
     const overlapBefore = shipCollidesAt(ship.x, ship.y);
@@ -1422,19 +1499,41 @@ export function resolvePlanetCollisionResponse(args){
         ship.vy -= impactNormal.ny * vnNow;
       }
     }
-    landingDbg.overlapBeforeCount = overlapBefore ? 1 : 0;
-    landingDbg.overlapAfterCount = overlapAfter ? 1 : 0;
-    landingDbg.overlapBeforeMin = overlapBefore ? 0 : 1;
-    landingDbg.overlapAfterMin = overlapAfter ? 0 : 1;
-    landingDbg.depenPush = depenPush;
-    landingDbg.depenIter = depenPush > 0 ? 1 : 0;
-    landingDbg.depenCleared = depenCleared && !overlapAfter;
+    if (
+      vnImpact >= 0
+      && !overlapAfter
+      && Number.isFinite(shipStartX)
+      && Number.isFinite(shipStartY)
+      && Number.isFinite(dt)
+      && dt > 1e-6
+    ){
+      ship.vx = (ship.x - Number(shipStartX)) / dt;
+      ship.vy = (ship.y - Number(shipStartY)) / dt;
+      if (landingDbg){
+        landingDbg.vn = ship.vx * impactNormal.nx + ship.vy * impactNormal.ny;
+        landingDbg.vt = ship.vx * (-impactNormal.ny) + ship.vy * impactNormal.nx;
+        landingDbg.speed = Math.hypot(ship.vx, ship.vy);
+      }
+    }
+    if (landingDbg){
+      landingDbg.overlapBeforeCount = overlapBefore ? 1 : 0;
+      landingDbg.overlapAfterCount = overlapAfter ? 1 : 0;
+      landingDbg.overlapBeforeMin = overlapBefore ? 0 : 1;
+      landingDbg.overlapAfterMin = overlapAfter ? 0 : 1;
+      landingDbg.depenPush = depenPush;
+      landingDbg.depenIter = depenPush > 0 ? 1 : 0;
+      landingDbg.depenCleared = depenCleared && !overlapAfter;
+    }
     if (!overlapAfter){
       ship._collision = null;
     } else {
-      landingDbg.reason = "planet_overlap_only";
+      if (landingDbg){
+        landingDbg.reason = "planet_overlap_only";
+      }
     }
-    ship._landingDebug = landingDbg;
+    if (landingDbg){
+      ship._landingDebug = landingDbg;
+    }
     return;
   }
 

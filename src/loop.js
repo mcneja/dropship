@@ -2932,6 +2932,7 @@ export class GameLoop {
           game: GAME,
           dt,
           eps,
+          debugEnabled: this.devHudVisible,
           shipRadius,
           shipCollidesAt: (x, y) => this._shipCollidesAt(x, y),
           shipCollidesMothershipAt: (x, y) => this._shipCollidesWithMothershipAt(x, y),
@@ -3817,8 +3818,15 @@ export class GameLoop {
       performance.now() < this.combatThreatUntilMs;
     this._setCombatActive(combatActive);
 
-    const landingDbg = this.ship._landingDebug;
-    if (landingDbg){
+    const landingDbg = this.devHudVisible ? this.ship._landingDebug : null;
+    if (!this.devHudVisible){
+      this.ship._landingDebug = null;
+      this.ship._lastMothershipCollisionDiag = null;
+      this._lastLandingDebugConsoleLine = "";
+      this._landingDebugSessionActive = false;
+      this._landingDebugSessionFrame = 0;
+      this._landingDebugSessionSource = "";
+    } else if (landingDbg){
       const fmt = (n) => Number.isFinite(n) ? Number(n).toFixed(2) : "-";
       const fmtI = (n) => Number.isFinite(n) ? String(Math.round(Number(n))) : "-";
       const fmtVec = (v) => {
@@ -3954,7 +3962,7 @@ export class GameLoop {
         console.log(combinedLine);
         this._lastLandingDebugConsoleLine = line;
       }
-    } else if (this.mothership){
+    } else if (this.devHudVisible && this.mothership){
       const shipRadius = this._shipRadius();
       const dx = this.ship.x - this.mothership.x;
       const dy = this.ship.y - this.mothership.y;
@@ -4009,7 +4017,7 @@ export class GameLoop {
           this._landingDebugSessionSource = "";
         }
       }
-    } else if (this._landingDebugSessionActive){
+    } else if (this.devHudVisible && this._landingDebugSessionActive){
       console.log(
         `[landDbgEnd] sid:${this._landingDebugSessionId} frames:${this._landingDebugSessionFrame} end:no_debug`
       );

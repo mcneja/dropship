@@ -14,6 +14,7 @@ import { findPlanetCollisionExactAt, resolvePlanetCollisionResponse, stabilizePl
  * @property {{SURFACE_DOT:number,BOUNCE_RESTITUTION:number,MOTHERSHIP_FRICTION:number}} game
  * @property {number} dt
  * @property {number} eps
+ * @property {boolean} [debugEnabled]
  * @property {number} shipRadius
  * @property {(x:number,y:number)=>boolean} shipCollidesAt
  * @property {(x:number,y:number)=>boolean} [shipCollidesMothershipAt]

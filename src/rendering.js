@@ -2206,6 +2206,12 @@ function drawFrameImpl(renderer, state, planet){
 
     const tc = [1.0, 0.55, 0.15];
     const thrusterPower = getDropshipThrusterPowers(state.input || {});
+    const manualThrustersActive = (
+      thrusterPower.up > 1e-3
+      || thrusterPower.down > 1e-3
+      || thrusterPower.left > 1e-3
+      || thrusterPower.right > 1e-3
+    );
     if (thrusterPower.up > 0){
       thrustV(0, 1, tc[0], tc[1], tc[2], shipHWorld * 0.2, thrustLiftAll + thrustUpExtraDown, thrusterPower.up);
     }
@@ -2217,6 +2223,13 @@ function drawFrameImpl(renderer, state, planet){
     }
     if (thrusterPower.right > 0){
       thrustV(1, 0, tc[0], tc[1], tc[2], shipWWorld * 0.5, thrustLiftAll, thrusterPower.right);
+    }
+    if (!manualThrustersActive && state.ship.state === "flying"){
+      const speed = Math.hypot(state.ship.vx, state.ship.vy);
+      if (speed <= 0.18){
+        const idlePulse = 0.12 + 0.05 * (0.5 + 0.5 * Math.sin(now * 11.0));
+        thrustV(0, 1, 0.95, 0.68, 0.22, shipHWorld * 0.14, thrustLiftAll + thrustUpExtraDown * 0.35, idlePulse);
+      }
     }
   }
 
