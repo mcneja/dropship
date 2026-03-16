@@ -1143,7 +1143,7 @@ export class Planet {
   }
 
   /**
-   * @returns {Array<{x:number,y:number,angle:number,r:number,ring:number,depth:number,anchorKind:"outer_rock"|"under_air"}>}
+   * @returns {Array<{x:number,y:number,angle:number,r:number,ring:number,depth:number,anchorKind:"outer_rock"|"under_air",sourceKind:"rock"|"air",sourceRing:number,sourceIndex:number}>}
    */
   _buildBarrenPadCandidates(){
     const graph = this.radialGraph;
@@ -1153,7 +1153,7 @@ export class Planet {
     }
     const outerRingIndex = rings.length - 1;
     const reachableAir = this._buildOuterAirReachableMask();
-    /** @type {Array<{x:number,y:number,angle:number,r:number,ring:number,depth:number,anchorKind:"outer_rock"|"under_air"}>} */
+    /** @type {Array<{x:number,y:number,angle:number,r:number,ring:number,depth:number,anchorKind:"outer_rock"|"under_air",sourceKind:"rock"|"air",sourceRing:number,sourceIndex:number}>} */
     const out = [];
     const seen = new Set();
     const outerRing = rings[outerRingIndex] || [];
@@ -1171,6 +1171,9 @@ export class Planet {
         ring: outerRingIndex,
         depth: 0,
         anchorKind: "outer_rock",
+        sourceKind: "rock",
+        sourceRing: outerRingIndex,
+        sourceIndex: i,
       });
     }
     for (let ringIndex = outerRingIndex - 1; ringIndex >= 0; ringIndex--){
@@ -1211,6 +1214,9 @@ export class Planet {
           ring: ringIndex,
           depth: outerRingIndex - ringIndex,
           anchorKind: "under_air",
+          sourceKind: "air",
+          sourceRing: ringIndex + 1,
+          sourceIndex: airIndex,
         });
       }
     }
@@ -1218,60 +1224,325 @@ export class Planet {
   }
 
   /**
-   * @param {Array<{x:number,y:number,angle:number,r:number,ring:number,depth:number,anchorKind:"outer_rock"|"under_air"}>} candidates
+   * @param {{x:number,y:number}} candidate
+   * @param {Array<{x:number,y:number}>} picked
+   * @param {number} minDist
+   * @returns {boolean}
+   */
+  _barrenCandidateHasSpacing(candidate, picked, minDist){
+    for (const cur of picked){
+      const dx = candidate.x - cur.x;
+      const dy = candidate.y - cur.y;
+      if (dx * dx + dy * dy < minDist * minDist){
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * @param {Array<any>} items
    * @param {number} seed
    * @param {boolean} innerFirst
-   * @returns {Array<{x:number,y:number,angle:number,r:number,ring:number,depth:number,anchorKind:"outer_rock"|"under_air"}>}
+   * @param {(item:any)=>number} getRing
+   * @returns {Array<any>}
    */
-  _orderedBarrenPadCandidates(candidates, seed, innerFirst = true){
+  _orderBarrenByRing(items, seed, innerFirst, getRing){
     const groups = new Map();
-    for (const candidate of candidates){
-      const group = groups.get(candidate.ring);
-      if (group) group.push(candidate);
-      else groups.set(candidate.ring, [candidate]);
+    for (const item of items){
+      const ring = getRing(item);
+      const group = groups.get(ring);
+      if (group) group.push(item);
+      else groups.set(ring, [item]);
     }
     const ringOrder = Array.from(groups.keys()).sort((a, b) => innerFirst ? (a - b) : (b - a));
-    /** @type {Array<{x:number,y:number,angle:number,r:number,ring:number,depth:number,anchorKind:"outer_rock"|"under_air"}>} */
+    /** @type {Array<any>} */
     const out = [];
     for (const ring of ringOrder){
-      const group = groups.get(ring) || [];
-      out.push(...this._shuffleDeterministic(group, this._ringShuffleSeed(ring, seed)));
+      out.push(...this._shuffleDeterministic(groups.get(ring) || [], this._ringShuffleSeed(ring, seed)));
     }
     return out;
   }
 
   /**
-   * @param {Array<{x:number,y:number,angle:number,r:number,ring:number,depth:number,anchorKind:"outer_rock"|"under_air"}>} ordered
+   * @param {Array<any>} ordered
    * @param {number} count
    * @param {number} minDist
-   * @returns {Array<{x:number,y:number,angle:number,r:number,ring:number,depth:number,anchorKind:"outer_rock"|"under_air"}>}
+   * @returns {Array<any>}
    */
-  _takeBarrenPadCandidates(ordered, count, minDist){
+  _pickBarrenCandidates(ordered, count, minDist){
     if (count <= 0 || !ordered.length) return [];
-    /** @type {Array<{x:number,y:number,angle:number,r:number,ring:number,depth:number,anchorKind:"outer_rock"|"under_air"}>} */
+    /** @type {Array<any>} */
     const picked = [];
-    const addWithSpacing = (spacing) => {
+    for (const spacing of [Math.max(0, minDist), Math.max(0.18, minDist * 0.55)]){
       for (const candidate of ordered){
         if (picked.length >= count) break;
         if (picked.includes(candidate)) continue;
-        let ok = true;
-        for (const cur of picked){
-          const dx = candidate.x - cur.x;
-          const dy = candidate.y - cur.y;
-          if (dx * dx + dy * dy < spacing * spacing){
-            ok = false;
-            break;
-          }
-        }
-        if (!ok) continue;
+        if (!this._barrenCandidateHasSpacing(candidate, picked, spacing)) continue;
         picked.push(candidate);
       }
-    };
-    addWithSpacing(Math.max(0, minDist));
-    if (picked.length < count){
-      addWithSpacing(Math.max(0.18, minDist * 0.55));
+      if (picked.length >= count) break;
     }
     return picked;
+  }
+
+  /**
+   * @param {number} seed
+   * @returns {{inner:Array<any>,outer:Array<any>,outerRockByIndex:Map<number, any>,underAirByNode:Map<number, Array<any>>,outerRingIndex:number}|null}
+   */
+  _buildBarrenPadLookup(seed){
+    const graph = this.radialGraph;
+    const rings = this.radial && this.radial.rings ? this.radial.rings : null;
+    if (!graph || !graph.nodeOfRef || !rings || !rings.length){
+      return null;
+    }
+    const candidates = this._buildBarrenPadCandidates();
+    const outerRingIndex = rings.length - 1;
+    const outerRockByIndex = new Map();
+    const underAirByNode = new Map();
+    for (const candidate of candidates){
+      if (candidate.anchorKind === "outer_rock" && candidate.sourceRing === outerRingIndex){
+        outerRockByIndex.set(candidate.sourceIndex, candidate);
+        continue;
+      }
+      if (candidate.anchorKind !== "under_air") continue;
+      const ring = rings[candidate.sourceRing];
+      const vertex = ring && ring[candidate.sourceIndex];
+      const nodeIdx = vertex ? graph.nodeOfRef.get(vertex) : undefined;
+      if (nodeIdx === undefined) continue;
+      const bucket = underAirByNode.get(nodeIdx);
+      if (bucket) bucket.push(candidate);
+      else underAirByNode.set(nodeIdx, [candidate]);
+    }
+    return {
+      inner: this._orderBarrenByRing(candidates, seed, true, (item) => item.ring),
+      outer: this._orderBarrenByRing(candidates, seed + 17, false, (item) => item.ring),
+      outerRockByIndex,
+      underAirByNode,
+      outerRingIndex,
+    };
+  }
+
+  /**
+   * @param {{x:number,y:number,angle:number,r:number,ring:number,depth:number,anchorKind:"outer_rock"|"under_air",sourceKind:"rock"|"air",sourceRing:number,sourceIndex:number}} candidate
+   * @param {{underAirByNode:Map<number, Array<any>>,outerRockByIndex:Map<number, any>,outerRingIndex:number}|null} lookup
+   * @param {Set<any>} used
+   * @param {Array<any>} chosenTurrets
+   * @param {number} minDist
+   * @returns {any|null}
+   */
+  _findBarrenOverwatchCandidate(candidate, lookup, used, chosenTurrets, minDist){
+    const graph = this.radialGraph;
+    const rings = this.radial && this.radial.rings ? this.radial.rings : null;
+    if (!lookup || !graph || !graph.nodes || !graph.neighbors || !graph.nodeOfRef || !rings || !rings.length){
+      return null;
+    }
+    const { underAirByNode, outerRockByIndex, outerRingIndex } = lookup;
+    const canUseCandidate = (cand) => (
+      cand
+      && cand !== candidate
+      && !used.has(cand)
+      && this._barrenCandidateHasSpacing(cand, chosenTurrets, minDist)
+    );
+    const searchOuterRing = (baseIndex) => {
+      const outerRing = rings[outerRingIndex] || [];
+      const n = outerRing.length;
+      if (!n || !Number.isFinite(baseIndex)) return null;
+      for (let off = 1; off < n; off++){
+        const left = ((baseIndex - off) % n + n) % n;
+        const right = (baseIndex + off) % n;
+        for (const idx of [left, right]){
+          const cand = outerRockByIndex.get(idx);
+          if (!canUseCandidate(cand)) continue;
+          return cand;
+        }
+      }
+      return null;
+    };
+    const isAirNode = (nodeIdx) => {
+      const node = graph.nodes[nodeIdx];
+      if (!node) return false;
+      const ring = rings[node.r];
+      const vertex = ring && ring[node.i];
+      return !!(vertex && vertex.air > 0.5);
+    };
+    if (candidate.anchorKind === "outer_rock"){
+      return searchOuterRing(candidate.sourceIndex);
+    }
+    if (candidate.sourceKind !== "air"){
+      return null;
+    }
+    const sourceRing = rings[candidate.sourceRing] || null;
+    const sourceVertex = sourceRing && sourceRing[candidate.sourceIndex];
+    const startNode = sourceVertex ? graph.nodeOfRef.get(sourceVertex) : undefined;
+    if (startNode === undefined) return null;
+    const visited = new Set([startNode]);
+    let frontier = [startNode];
+    for (let nextRing = graph.nodes[startNode].r + 1; nextRing <= outerRingIndex; nextRing++){
+      /** @type {number[]} */
+      const ringAir = [];
+      const queue = [];
+      for (const nodeIdx of frontier){
+        for (const edge of (graph.neighbors[nodeIdx] || [])){
+          const nextIdx = edge.to;
+          if (visited.has(nextIdx)) continue;
+          const nextNode = graph.nodes[nextIdx];
+          if (!nextNode || nextNode.r !== nextRing || !isAirNode(nextIdx)) continue;
+          visited.add(nextIdx);
+          queue.push(nextIdx);
+        }
+      }
+      for (let qi = 0; qi < queue.length; qi++){
+        const nodeIdx = queue[qi];
+        ringAir.push(nodeIdx);
+        for (const edge of (graph.neighbors[nodeIdx] || [])){
+          const nextIdx = edge.to;
+          if (visited.has(nextIdx)) continue;
+          const nextNode = graph.nodes[nextIdx];
+          if (!nextNode || nextNode.r !== nextRing || !isAirNode(nextIdx)) continue;
+          visited.add(nextIdx);
+          queue.push(nextIdx);
+        }
+      }
+      if (!ringAir.length) return null;
+      if (nextRing < outerRingIndex){
+        for (const nodeIdx of ringAir){
+          for (const cand of (underAirByNode.get(nodeIdx) || [])){
+            if (cand.ring <= candidate.ring) continue;
+            if (!canUseCandidate(cand)) continue;
+            return cand;
+          }
+        }
+        frontier = ringAir;
+        continue;
+      }
+      for (const nodeIdx of ringAir){
+        const node = graph.nodes[nodeIdx];
+        if (!node) continue;
+        const overwatch = searchOuterRing(node.i);
+        if (overwatch) return overwatch;
+      }
+      return null;
+    }
+    return null;
+  }
+
+  /**
+   * @param {{x:number,y:number,angle:number,r:number,ring:number,depth:number,anchorKind:"outer_rock"|"under_air",sourceKind:"rock"|"air",sourceRing:number,sourceIndex:number}} candidate
+   * @param {any} prop
+   * @param {"miner"|"turret"|null} reservedFor
+   * @returns {void}
+   */
+  _applyBarrenPadCandidateToProp(candidate, prop, reservedFor){
+    prop.dead = false;
+    prop.x = candidate.x;
+    prop.y = candidate.y;
+    prop.padRing = candidate.ring;
+    prop.padDepth = candidate.depth;
+    prop.padAnchorKind = candidate.anchorKind;
+    prop.padSourceKind = candidate.sourceKind;
+    prop.padSourceRing = candidate.sourceRing;
+    prop.padSourceIndex = candidate.sourceIndex;
+    prop.padReservedFor = reservedFor;
+    const up = this._upDirAt(prop.x, prop.y);
+    if (up){
+      prop.padNx = up.ux;
+      prop.padNy = up.uy;
+      return;
+    }
+    const info = this.surfaceInfoAtWorld(prop.x, prop.y, 0.18);
+    if (info){
+      prop.padNx = info.nx;
+      prop.padNy = info.ny;
+    }
+  }
+
+  /**
+   * Re-layout barren pads so miner pads sit deep and turret pads occupy
+   * graph-found overwatch ridges above those miners.
+   * @param {number} minerCount
+   * @param {number} turretCount
+   * @param {number} seed
+   * @param {number} [minDist]
+   * @returns {void}
+   */
+  layoutBarrenPadsForRoles(minerCount, turretCount, seed, minDist = GAME.MINER_MIN_SEP){
+    const cfg = this.getPlanetConfig ? this.getPlanetConfig() : null;
+    if (!(cfg && cfg.flags && cfg.flags.barrenPerimeter)) return;
+    const pads = (this.props || []).filter((p) => p.type === "turret_pad");
+    if (!pads.length) return;
+    const lookup = this._buildBarrenPadLookup(seed);
+    if (!lookup) return;
+    /** @type {Array<any>} */
+    const chosenMiners = [];
+    /** @type {Array<any>} */
+    const chosenTurrets = [];
+    /** @type {Set<any>} */
+    const used = new Set();
+    const pairedTarget = Math.min(Math.max(0, minerCount | 0), Math.max(0, turretCount | 0));
+    if (pairedTarget > 0){
+      for (const candidate of lookup.inner){
+        if (chosenMiners.length >= pairedTarget) break;
+        if (used.has(candidate)) continue;
+        if (!this._barrenCandidateHasSpacing(candidate, chosenMiners, minDist)) continue;
+        const overwatch = this._findBarrenOverwatchCandidate(candidate, lookup, used, chosenTurrets, minDist);
+        if (!overwatch) continue;
+        used.add(candidate);
+        used.add(overwatch);
+        chosenMiners.push(candidate);
+        chosenTurrets.push(overwatch);
+      }
+    }
+    for (const candidate of lookup.inner){
+      if (chosenMiners.length >= minerCount) break;
+      if (used.has(candidate)) continue;
+      if (!this._barrenCandidateHasSpacing(candidate, chosenMiners, minDist)) continue;
+      used.add(candidate);
+      chosenMiners.push(candidate);
+    }
+    if (chosenTurrets.length < turretCount){
+      for (const miner of chosenMiners){
+        if (chosenTurrets.length >= turretCount) break;
+        const overwatch = this._findBarrenOverwatchCandidate(miner, lookup, used, chosenTurrets, minDist);
+        if (!overwatch) continue;
+        used.add(overwatch);
+        chosenTurrets.push(overwatch);
+      }
+    }
+    if (chosenTurrets.length < turretCount){
+      for (const candidate of lookup.outer){
+        if (chosenTurrets.length >= turretCount) break;
+        if (used.has(candidate)) continue;
+        if (!this._barrenCandidateHasSpacing(candidate, chosenTurrets, minDist)) continue;
+        used.add(candidate);
+        chosenTurrets.push(candidate);
+      }
+    }
+    /** @type {Array<{candidate:any,reservedFor:"miner"|"turret"|null}>} */
+    const placements = [];
+    for (const cand of chosenMiners){
+      placements.push({ candidate: cand, reservedFor: "miner" });
+    }
+    for (const cand of chosenTurrets){
+      placements.push({ candidate: cand, reservedFor: null });
+    }
+    for (let i = 0; i < pads.length; i++){
+      const prop = pads[i];
+      const placement = placements[i] || null;
+      if (!placement){
+        prop.dead = true;
+        prop.hp = 0;
+        delete prop.padRing;
+        delete prop.padDepth;
+        delete prop.padAnchorKind;
+        delete prop.padSourceKind;
+        delete prop.padSourceRing;
+        delete prop.padSourceIndex;
+        prop.padReservedFor = null;
+        continue;
+      }
+      this._applyBarrenPadCandidateToProp(placement.candidate, prop, placement.reservedFor);
+    }
   }
 
   /**
@@ -1280,27 +1551,12 @@ export class Planet {
    * @returns {Array<any>}
    */
   _orderedBarrenPadProps(seed, innerFirst = true){
-    /** @type {Array<any>} */
-    const pads = [];
-    for (const prop of (this.props || [])){
-      if (prop.type !== "turret_pad" || prop.dead) continue;
-      if (typeof prop.padRing !== "number") continue;
-      pads.push(prop);
-    }
-    const groups = new Map();
-    for (const pad of pads){
-      const group = groups.get(pad.padRing);
-      if (group) group.push(pad);
-      else groups.set(pad.padRing, [pad]);
-    }
-    const ringOrder = Array.from(groups.keys()).sort((a, b) => innerFirst ? (a - b) : (b - a));
-    /** @type {Array<any>} */
-    const out = [];
-    for (const ring of ringOrder){
-      const group = groups.get(ring) || [];
-      out.push(...this._shuffleDeterministic(group, this._ringShuffleSeed(ring, seed)));
-    }
-    return out;
+    const pads = (this.props || []).filter((prop) => (
+      prop.type === "turret_pad"
+      && !prop.dead
+      && typeof prop.padRing === "number"
+    ));
+    return this._orderBarrenByRing(pads, seed, innerFirst, (pad) => pad.padRing);
   }
 
   /**
@@ -1314,8 +1570,12 @@ export class Planet {
     const cfg = this.getPlanetConfig ? this.getPlanetConfig() : null;
     if (!(cfg && cfg.flags && cfg.flags.barrenPerimeter) || count <= 0) return [];
     const ordered = this._orderedBarrenPadProps(seed, true);
+    const existing = ordered.filter((pad) => pad.padReservedFor === "miner");
+    if (existing.length >= count){
+      return existing.slice(0, count).map((pad) => [pad.x, pad.y]);
+    }
     /** @type {Array<any>} */
-    const chosen = [];
+    const chosen = existing.slice();
     for (const pad of ordered){
       if (chosen.length >= count) break;
       if (pad.padReservedFor) continue;
@@ -1333,8 +1593,8 @@ export class Planet {
       pad.padReservedFor = "miner";
       chosen.push(pad);
     }
-    if (chosen.length){
-      this.reserveSpawnPoints(chosen.map((pad) => ({ x: pad.x, y: pad.y })), minDist);
+    if (chosen.length > existing.length){
+      this.reserveSpawnPoints(chosen.slice(existing.length).map((pad) => ({ x: pad.x, y: pad.y })), minDist);
     }
     return chosen.map((pad) => [pad.x, pad.y]);
   }
@@ -1360,9 +1620,8 @@ export class Planet {
     /** @type {Array<any>} */
     let placed = [];
     if (forceHorizontalPads){
-      const candidates = this._buildBarrenPadCandidates();
-      const ordered = this._orderedBarrenPadCandidates(candidates, seed, true);
-      placed = this._takeBarrenPadCandidates(ordered, pads.length, minDist);
+      const lookup = this._buildBarrenPadLookup(seed);
+      placed = lookup ? this._pickBarrenCandidates(lookup.inner, pads.length, minDist) : [];
     } else {
       const standable = this._standablePoints || [];
       const flatPool = standable.filter((pt) => {
@@ -1405,6 +1664,9 @@ export class Planet {
         delete p.padRing;
         delete p.padDepth;
         delete p.padAnchorKind;
+        delete p.padSourceKind;
+        delete p.padSourceRing;
+        delete p.padSourceIndex;
         continue;
       }
       p.dead = false;
@@ -1414,6 +1676,9 @@ export class Planet {
         p.padRing = pt.ring;
         p.padDepth = pt.depth;
         p.padAnchorKind = pt.anchorKind;
+        p.padSourceKind = pt.sourceKind;
+        p.padSourceRing = pt.sourceRing;
+        p.padSourceIndex = pt.sourceIndex;
         const up = this._upDirAt(p.x, p.y);
         if (up){
           p.padNx = up.ux;
@@ -1424,6 +1689,9 @@ export class Planet {
         delete p.padRing;
         delete p.padDepth;
         delete p.padAnchorKind;
+        delete p.padSourceKind;
+        delete p.padSourceRing;
+        delete p.padSourceIndex;
       }
       const info = this.surfaceInfoAtWorld(p.x, p.y, 0.18);
       if (info){
@@ -1778,226 +2046,12 @@ export class Planet {
    * @param {"uniform"|"random"|"clusters"} [placement]
    * @param {number} [minDist]
    * @param {boolean} [reserve]
-   * @returns {Array<[number,number]>}
-   */
-  sampleStandablePoints(count, seed, placement = "random", minDist = 0, reserve = false){
-    if (count <= 0) return [];
-    const points = this._filterReachableStandable(this.getStandablePoints());
-    if (!points.length) return [];
-    const rand = mulberry32(seed);
-    const rMax = (this.planetParams.RMAX || CFG.RMAX) || 1;
-    const bias = 0.35;
-    const take = Math.min(count, points.length);
-    /** @type {Array<[number,number]>} */
-    const out = [];
-    /** @type {Array<number>} */
-    const indices = points.map((_, i) => i);
-    const used = new Set();
-    /** @type {Array<{x:number,y:number,r:number}>} */
-    const reservations = this._spawnReservations || [];
-    if (placement === "uniform"){
-      indices.sort((a, b) => points[a][2] - points[b][2]);
-      const offset = rand();
-      const step = (Math.PI * 2) / take;
-      const window = step * 0.65;
-      for (let i = 0; i < take; i++){
-        const target = (i + offset) * step;
-        let picked = -1;
-        let pickedScore = Infinity;
-        for (const idx of indices){
-          const p = points[idx];
-          const ang = p[2];
-          let d = Math.abs(ang - target);
-          d = Math.min(d, Math.abs(d - Math.PI * 2));
-          if (d > window) continue;
-          if (used.has(idx)) continue;
-          if (!this._isFarFromReservations(p[0], p[1], minDist, reservations)) continue;
-          let ok = true;
-          for (const q of out){
-            const dx = p[0] - q[0];
-            const dy = p[1] - q[1];
-            if (dx * dx + dy * dy < minDist * minDist){
-              ok = false;
-              break;
-            }
-          }
-          if (!ok) continue;
-          const r = p[3];
-          const biasScore = (r / rMax) * bias;
-          const score = d / window + biasScore;
-          if (score < pickedScore){
-            pickedScore = score;
-            picked = idx;
-          }
-        }
-        if (picked >= 0){
-          const p = points[picked];
-          used.add(picked);
-          out.push([p[0], p[1]]);
-          if (out.length >= take) break;
-        }
-      }
-      if (out.length < take){
-        for (const idx of indices){
-          if (out.length >= take) break;
-          if (used.has(idx)) continue;
-          const p = points[idx];
-          if (!this._isFarFromReservations(p[0], p[1], minDist, reservations)) continue;
-          let ok = true;
-          for (const q of out){
-            const dx = p[0] - q[0];
-            const dy = p[1] - q[1];
-            if (dx * dx + dy * dy < minDist * minDist){
-              ok = false;
-              break;
-            }
-          }
-          if (!ok) continue;
-          used.add(idx);
-          out.push([p[0], p[1]]);
-        }
-      }
-    } else {
-      if (placement === "clusters"){
-        const clusterCount = Math.max(1, Math.floor(Math.sqrt(take)));
-        /** @type {number[]} */
-        const centers = [];
-        for (let i = 0; i < indices.length && centers.length < clusterCount; i++){
-          const idx = indices[Math.floor(rand() * indices.length)];
-          centers.push(points[idx][2]);
-        }
-        let clusterIndex = 0;
-        const window = (Math.PI * 2) / Math.max(6, clusterCount * 2);
-        for (let i = 0; i < take; i++){
-          const target = centers[clusterIndex % centers.length];
-          clusterIndex++;
-          let picked = -1;
-          let pickedScore = Infinity;
-          for (const idx of indices){
-            if (used.has(idx)) continue;
-            const p = points[idx];
-            let d = Math.abs(p[2] - target);
-            d = Math.min(d, Math.abs(d - Math.PI * 2));
-            if (d > window) continue;
-            if (!this._isFarFromReservations(p[0], p[1], minDist, reservations)) continue;
-            let ok = true;
-            for (const q of out){
-              const dx = p[0] - q[0];
-              const dy = p[1] - q[1];
-              if (dx * dx + dy * dy < minDist * minDist){
-                ok = false;
-                break;
-              }
-            }
-            if (!ok) continue;
-            const r = p[3];
-            const biasScore = (r / rMax) * bias;
-            const score = d / window + biasScore;
-            if (score < pickedScore){
-              pickedScore = score;
-              picked = idx;
-            }
-          }
-          if (picked >= 0){
-            const p = points[picked];
-            used.add(picked);
-            out.push([p[0], p[1]]);
-            if (out.length >= take) break;
-          }
-        }
-        if (out.length < take){
-          for (const idx of indices){
-            if (out.length >= take) break;
-            if (used.has(idx)) continue;
-            const p = points[idx];
-            if (!this._isFarFromReservations(p[0], p[1], minDist, reservations)) continue;
-            let ok = true;
-            for (const q of out){
-              const dx = p[0] - q[0];
-              const dy = p[1] - q[1];
-              if (dx * dx + dy * dy < minDist * minDist){
-                ok = false;
-                break;
-              }
-            }
-            if (!ok) continue;
-            used.add(idx);
-            out.push([p[0], p[1]]);
-          }
-        }
-      } else {
-        for (let i = indices.length - 1; i > 0; i--){
-          const j = Math.floor(rand() * (i + 1));
-          const tmp = indices[i];
-          indices[i] = indices[j];
-          indices[j] = tmp;
-        }
-        for (const idx of indices){
-          const p = points[idx];
-          if (used.has(idx)) continue;
-          if (!this._isFarFromReservations(p[0], p[1], minDist, reservations)) continue;
-          let ok = true;
-          for (const q of out){
-            const dx = p[0] - q[0];
-            const dy = p[1] - q[1];
-            if (dx * dx + dy * dy < minDist * minDist){
-              ok = false;
-              break;
-            }
-          }
-          if (!ok) continue;
-          // Slight interior bias for random selection.
-          const r = p[3];
-          const w = 1 + bias * Math.max(0, 1 - r / rMax);
-          const maxW = 1 + bias;
-          if (rand() > (w / maxW)) continue;
-          used.add(idx);
-          out.push([p[0], p[1]]);
-          if (out.length >= take) break;
-        }
-        if (out.length < take){
-          for (const idx of indices){
-            if (out.length >= take) break;
-            if (used.has(idx)) continue;
-            const p = points[idx];
-            if (!this._isFarFromReservations(p[0], p[1], minDist, reservations)) continue;
-            let ok = true;
-            for (const q of out){
-              const dx = p[0] - q[0];
-              const dy = p[1] - q[1];
-              if (dx * dx + dy * dy < minDist * minDist){
-                ok = false;
-                break;
-              }
-            }
-            if (!ok) continue;
-            used.add(idx);
-            out.push([p[0], p[1]]);
-          }
-        }
-      }
-    }
-    if (reserve && out.length){
-      const reservePoints = out.map((p) => ({ x: p[0], y: p[1] }));
-      this.reserveSpawnPoints(reservePoints, minDist);
-    }
-    return out;
-  }
-
-  /**
-   * Sample standable points with a minimum radius constraint.
-   * @param {number} count
-   * @param {number} seed
-   * @param {"uniform"|"random"|"clusters"} [placement]
-   * @param {number} [minDist]
-   * @param {boolean} [reserve]
    * @param {number} [minR]
    * @returns {Array<[number,number]>}
    */
-  sampleStandablePointsMinRadius(count, seed, placement = "random", minDist = 0, reserve = false, minR = 0){
+  sampleStandablePoints(count, seed, placement = "random", minDist = 0, reserve = false, minR = 0){
     if (count <= 0) return [];
     const basePoints = this._filterReachableStandable(this.getStandablePoints());
-    if (!basePoints.length) return [];
     const points = (minR > 0) ? basePoints.filter((p) => p[3] >= minR) : basePoints;
     if (!points.length) return [];
     const rand = mulberry32(seed);
@@ -2210,7 +2264,7 @@ export class Planet {
   sampleTurretPoints(count, seed, placement = "random", minDist = 0, reserve = false){
     const cfg = this.getPlanetConfig ? this.getPlanetConfig() : null;
     if (cfg && cfg.flags && cfg.flags.barrenPerimeter){
-      const pads = this._orderedBarrenPadProps(seed, false).filter((pad) => pad.padReservedFor !== "miner");
+      const pads = this._orderedBarrenPadProps(seed, false).filter((pad) => !pad.padReservedFor);
       if (pads.length){
         /** @type {Array<any>} */
         const chosen = [];

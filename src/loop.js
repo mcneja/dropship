@@ -377,9 +377,14 @@ export class GameLoop {
    */
   _prepareBarrenMinerPadReservations(planet, cfg, level){
     if (!planet || !(cfg && cfg.flags && cfg.flags.barrenPerimeter)) return;
-    const target = this._minerTargetForConfig(cfg, level);
-    if (target <= 0 || typeof planet.reserveBarrenPadsForMiners !== "function") return;
-    planet.reserveBarrenPadsForMiners(target, planet.getSeed() + level * 97, GAME.MINER_MIN_SEP);
+    const minerTarget = this._minerTargetForConfig(cfg, level);
+    const turretTarget = this._enemyTotalForConfig(cfg, level);
+    const seed = planet.getSeed() + level * 97;
+    if (typeof planet.layoutBarrenPadsForRoles === "function" && (minerTarget > 0 || turretTarget > 0)){
+      planet.layoutBarrenPadsForRoles(minerTarget, turretTarget, seed, GAME.MINER_MIN_SEP);
+    }
+    if (minerTarget <= 0 || typeof planet.reserveBarrenPadsForMiners !== "function") return;
+    planet.reserveBarrenPadsForMiners(minerTarget, seed, GAME.MINER_MIN_SEP);
   }
 
   /**
@@ -1719,10 +1724,7 @@ export class GameLoop {
       if (cfg && cfg.id === "molten"){
         const moltenOuter = this.planetParams.MOLTEN_RING_OUTER || 0;
         const minR = moltenOuter + 0.6;
-        placed = this.planet.sampleStandablePointsMinRadius
-          ? this.planet.sampleStandablePointsMinRadius(count, seed, "uniform", GAME.MINER_MIN_SEP, true, minR)
-          : this.planet.sampleStandablePoints(count, seed, "uniform", GAME.MINER_MIN_SEP, true)
-            .filter((p) => (Math.hypot(p[0], p[1]) >= minR));
+        placed = this.planet.sampleStandablePoints(count, seed, "uniform", GAME.MINER_MIN_SEP, true, minR);
       } else {
         placed = this.planet.sampleStandablePoints(count, seed, "uniform", GAME.MINER_MIN_SEP, true);
       }
