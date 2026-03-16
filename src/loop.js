@@ -2720,10 +2720,6 @@ export class GameLoop {
         ).samples;
         this.lastAimWorld = null;
         this.lastAimScreen = null;
-        // Stay locked to the mothership; skip gravity/collision integration.
-        this._setThrustLoopActive(false);
-        this.enemies.update(this.ship, dt);
-        return;
       }
     }
 
@@ -2980,8 +2976,10 @@ export class GameLoop {
         aimWorld = { x: gunOrigin.x + dirx * aimLen, y: gunOrigin.y + diry * aimLen };
       }
     }
-    this.lastAimWorld = aimWorld;
-    if (aim) this.lastAimScreen = aim;
+    if (!this._isDockedWithMothership()){
+      this.lastAimWorld = aimWorld;
+      if (aim) this.lastAimScreen = aim;
+    }
 
     if (this.ship.state === "crashed"){
       this.ship.guidePath = null;
@@ -3080,7 +3078,7 @@ export class GameLoop {
     }
     this._resolveShipSolidPropCollisions();
 
-    if (this.ship.state !== "crashed"){
+    if (this.ship.state !== "crashed" && !this._isDockedWithMothership()){
       const wantsShoot = !!(shootPressed || shootHeld);
       if (wantsShoot && this.playerShotCooldown <= 0){
         let dirx = 0, diry = 0;
