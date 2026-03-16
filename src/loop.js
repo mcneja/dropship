@@ -212,6 +212,7 @@ export class GameLoop {
     if (this.planet.props && this.planet.props.length){
       console.log("[Level] props sample", this.planet.props.slice(0, 3).map((p) => ({ type: p.type, x: p.x, y: p.y, dead: !!p.dead })));
     }
+    this._prepareBarrenMinerPadReservations(this.planet, planetConfig, this.level);
     this.enemies = new Enemies({
       planet: this.planet,
       collision: this.collision,
@@ -365,6 +366,20 @@ export class GameLoop {
   _targetMinersForLevel(){
     const cfg = this.planet ? this.planet.getPlanetConfig() : null;
     return this._minerTargetForConfig(cfg, this.level);
+  }
+
+  /**
+   * Reserve barren pads for miners before turrets sample remaining platforms.
+   * @param {Planet} planet
+   * @param {PlanetConfig|null|undefined} cfg
+   * @param {number} level
+   * @returns {void}
+   */
+  _prepareBarrenMinerPadReservations(planet, cfg, level){
+    if (!planet || !(cfg && cfg.flags && cfg.flags.barrenPerimeter)) return;
+    const target = this._minerTargetForConfig(cfg, level);
+    if (target <= 0 || typeof planet.reserveBarrenPadsForMiners !== "function") return;
+    planet.reserveBarrenPadsForMiners(target, planet.getSeed() + level * 97, GAME.MINER_MIN_SEP);
   }
 
   /**
@@ -1671,95 +1686,33 @@ export class GameLoop {
     const barrenPerimeter = !!(cfg && cfg.flags && cfg.flags.barrenPerimeter);
     let placed;
     if (barrenPerimeter){
-      /** @type {Array<[number, number]>} */
-      const pads = [];
+      if (typeof this.planet.reserveBarrenPadsForMiners === "function"){
+        this.planet.reserveBarrenPadsForMiners(count, seed, GAME.MINER_MIN_SEP);
+      }
+      const reservedPads = [];
       for (const p of (this.planet.props || [])){
-        if (p.type === "turret_pad" && !p.dead) pads.push([p.x, p.y]);
+        if (p.type !== "turret_pad" || p.dead || p.padReservedFor !== "miner") continue;
+        reservedPads.push(p);
       }
-      const rand = mulberry32(seed + 17);
-      placed = [];
-      /** @type {number[]} */
-      const shuffledPadIndices = pads.map((_, i) => i);
-      for (let i = shuffledPadIndices.length - 1; i > 0; i--){
-        const j = Math.floor(rand() * (i + 1));
-        const tmp = shuffledPadIndices[i];
-        shuffledPadIndices[i] = shuffledPadIndices[j];
-        shuffledPadIndices[j] = tmp;
-      }
-      /** @type {Map<number, Array<{type:string,x:number,y:number}>>} */
-      const turretsByPad = new Map();
-      if (this.enemies && this.enemies.enemies && pads.length){
-        const padOccupancyRadius = 0.48;
-        const padOccupancyRadiusSq = padOccupancyRadius * padOccupancyRadius;
-        for (const e of this.enemies.enemies){
-          if (e.type !== "turret") continue;
-          let nearestPad = -1;
-          let nearestPadDistSq = Infinity;
-          for (let i = 0; i < pads.length; i++){
-            const pt = pads[i];
-            const dx = e.x - pt[0];
-            const dy = e.y - pt[1];
-            const d2 = dx * dx + dy * dy;
-            if (d2 < nearestPadDistSq){
-              nearestPadDistSq = d2;
-              nearestPad = i;
-            }
-          }
-          if (nearestPad < 0 || nearestPadDistSq > padOccupancyRadiusSq) continue;
-          if (!turretsByPad.has(nearestPad)) turretsByPad.set(nearestPad, []);
-          turretsByPad.get(nearestPad).push(e);
-        }
-      }
-      /** @type {Set<{type:string,x:number,y:number}>} */
-      const turretsToRemove = new Set();
-      for (const i of shuffledPadIndices){
-        if (placed.length >= count) break;
-        if (turretsByPad.has(i)) continue;
-        placed.push(pads[i]);
-      }
-      // Miner priority: reclaim occupied pads from turrets when pad supply is tight.
+      const normalizeAngle = (ang) => {
+        let out = ang % (Math.PI * 2);
+        if (out < 0) out += Math.PI * 2;
+        return out;
+      };
+      reservedPads.sort((a, b) => {
+        const ringA = (typeof a.padRing === "number") ? a.padRing : Number.MAX_SAFE_INTEGER;
+        const ringB = (typeof b.padRing === "number") ? b.padRing : Number.MAX_SAFE_INTEGER;
+        if (ringA !== ringB) return ringA - ringB;
+        return normalizeAngle(Math.atan2(a.y, a.x)) - normalizeAngle(Math.atan2(b.y, b.x));
+      });
+      placed = reservedPads.slice(0, count).map((p) => [p.x, p.y]);
       if (placed.length < count){
-        for (const i of shuffledPadIndices){
-          if (placed.length >= count) break;
-          const turrets = turretsByPad.get(i);
-          if (!turrets || !turrets.length) continue;
-          for (const t of turrets){
-            turretsToRemove.add(t);
-          }
-          placed.push(pads[i]);
-          turretsByPad.delete(i);
-        }
-      }
-      if (turretsToRemove.size && this.enemies && this.enemies.enemies){
-        this.enemies.enemies = this.enemies.enemies.filter((e) => !turretsToRemove.has(e));
-        if (this.objective && this.objective.type === "clear"){
-          const remaining = this._remainingClearTargets();
-          this.clearObjectiveTotal = remaining;
-          this.objective.target = remaining;
-        }
-      }
-      if (placed.length < count){
-        const extras = this.planet.sampleStandablePoints(
-          Math.max(count * 2, count),
-          seed + 71,
-          "uniform",
-          GAME.MINER_MIN_SEP,
-          false
-        );
-        for (const pt of extras){
-          if (placed.length >= count) break;
-          let exists = false;
-          for (const q of placed){
-            const dx = pt[0] - q[0];
-            const dy = pt[1] - q[1];
-            if (dx * dx + dy * dy < 1e-6){
-              exists = true;
-              break;
-            }
-          }
-          if (exists) continue;
-          placed.push(pt);
-        }
+        console.error("[Level] miners spawn insufficient barren pads", {
+          level: this.level,
+          target: count,
+          placed: placed.length,
+          pads: reservedPads.length,
+        });
       }
     } else {
       const standable = this.planet.getStandablePoints();
@@ -1900,6 +1853,7 @@ export class GameLoop {
     const planetConfig = this._planetConfigFromLevel(level, (level === 1) ? (seed | 0) : undefined);
     const planetParams = resolvePlanetParams(seed, level, planetConfig, GAME);
     const planet = new Planet({ seed, planetConfig, planetParams, mapWorld });
+    this._prepareBarrenMinerPadReservations(planet, planetConfig, level);
     const mothership = new Mothership({ RMAX: planetParams.RMAX, MOTHERSHIP_ORBIT_HEIGHT: planetParams.MOTHERSHIP_ORBIT_HEIGHT }, planet);
     const collision = createCollisionRouter(planet, () => mothership);
     const enemies = new Enemies({

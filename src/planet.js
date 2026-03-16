@@ -1080,181 +1080,263 @@ export class Planet {
   }
 
   /**
-   * @param {number} ringIndex
-   * @param {number} angle
-   * @param {number} [span]
-   * @returns {Array<{index:number,vertex:{x:number,y:number,air:number},angle:number,angleDiff:number}>}
+   * Flood-fill radial graph air connectivity from outer-ring air vertices.
+   * @returns {Uint8Array}
    */
-  _ringVertexCandidatesByAngle(ringIndex, angle, span = 2){
-    const around = this._ringVerticesAroundAngle(ringIndex, angle);
-    if (!around) return [];
-    const out = [];
-    const seen = new Set();
-    const n = around.ring.length;
-    for (let off = 0; off <= span; off++){
-      for (const baseIdx of [around.minusIdx - off, around.plusIdx + off]){
-        const idx = ((baseIdx % n) + n) % n;
-        if (seen.has(idx)) continue;
-        seen.add(idx);
-        const vertex = around.ring[idx];
-        const va = Math.atan2(vertex.y, vertex.x);
-        out.push({
-          index: idx,
-          vertex,
-          angle: va,
-          angleDiff: this._angleDistance(va, angle),
-        });
-      }
-    }
-    out.sort((a, b) => a.angleDiff - b.angleDiff);
-    return out;
-  }
-
-  /**
-   * @param {{x:number,y:number,air:number}} vertex
-   * @param {number} ringIndex
-   * @returns {Array<{x:number,y:number,air:number}>}
-   */
-  _rockNeighborsBelowRingVertex(vertex, ringIndex){
+  _buildOuterAirReachableMask(){
     const graph = this.radialGraph;
     const rings = this.radial && this.radial.rings ? this.radial.rings : null;
-    if (!graph || !graph.nodeOfRef || !graph.neighbors || !graph.nodes || !rings) return [];
-    const nodeIdx = graph.nodeOfRef.get(vertex);
-    if (nodeIdx === undefined) return [];
-    /** @type {Array<{x:number,y:number,air:number}>} */
-    const out = [];
-    const seen = new Set();
-    for (const edge of (graph.neighbors[nodeIdx] || [])){
-      const n = graph.nodes[edge.to];
-      if (!n || n.r !== ringIndex - 1) continue;
-      const ring = rings[n.r];
-      const v = ring && ring[n.i];
-      if (!v || v.air > 0.5) continue;
-      if (seen.has(v)) continue;
-      seen.add(v);
-      out.push(v);
+    if (!graph || !graph.nodes || !graph.neighbors || !graph.nodeOfRef || !rings || !rings.length){
+      return new Uint8Array(0);
+    }
+    const reachable = new Uint8Array(graph.nodes.length);
+    const queue = [];
+    const outerRing = rings[rings.length - 1] || [];
+    for (const vertex of outerRing){
+      if (!vertex || vertex.air <= 0.5) continue;
+      const idx = graph.nodeOfRef.get(vertex);
+      if (idx === undefined || reachable[idx]) continue;
+      reachable[idx] = 1;
+      queue.push(idx);
+    }
+    for (let q = 0; q < queue.length; q++){
+      const idx = queue[q];
+      for (const edge of (graph.neighbors[idx] || [])){
+        const next = edge.to;
+        if (reachable[next]) continue;
+        const node = graph.nodes[next];
+        if (!node) continue;
+        const ring = rings[node.r];
+        const vertex = ring && ring[node.i];
+        if (!vertex || vertex.air <= 0.5) continue;
+        reachable[next] = 1;
+        queue.push(next);
+      }
+    }
+    return reachable;
+  }
+
+  /**
+   * @param {Array<any>} items
+   * @param {number} seed
+   * @returns {Array<any>}
+   */
+  _shuffleDeterministic(items, seed){
+    const out = items.slice();
+    const rand = mulberry32(seed | 0);
+    for (let i = out.length - 1; i > 0; i--){
+      const j = Math.floor(rand() * (i + 1));
+      const tmp = out[i];
+      out[i] = out[j];
+      out[j] = tmp;
     }
     return out;
   }
 
   /**
-   * @param {number} x
-   * @param {number} y
-   * @param {number} scale
-   * @param {{maxSlope?:number, requireSupport?:boolean}} [opts]
-   * @returns {[number,number]|null}
+   * @param {number} ring
+   * @param {number} seed
+   * @returns {number}
    */
-  _finalizeTurretPadAnchor(x, y, scale, opts = {}){
-    const maxSlope = (typeof opts.maxSlope === "number") ? opts.maxSlope : 0.24;
-    const requireSupport = opts.requireSupport !== false;
-    let ax = x;
-    let ay = y;
-    if (this.airValueAtWorld(ax, ay) <= 0.5){
-      const nudged = this.nudgeOutOfTerrain(ax, ay, 0.45, 0.04, 0.18);
-      if (nudged.ok){
-        ax = nudged.x;
-        ay = nudged.y;
-      }
-    }
-    const info = this.surfaceInfoAtWorld(ax, ay, 0.18);
-    if (!info) return null;
-    if (info.slope > maxSlope) return null;
-    if (!this.isLandableAtWorld(ax, ay, Math.max(0.24, maxSlope), 0.18, 0.18)) return null;
-    if (requireSupport){
-      const support = this._turretPadSupportAtWorld(ax, ay, scale, 0.18);
-      if (!support.ok) return null;
-    }
-    return [ax, ay];
+  _ringShuffleSeed(ring, seed){
+    return ((seed | 0) ^ (((ring + 1) * 2654435761) | 0)) | 0;
   }
 
   /**
-   * Snap a pad onto a nearby ring rock vertex instead of leaving it between
-   * vertices. Outer-rim pads prefer the outermost ring; inner-gap pads require
-   * air above on the next ring out.
-   * @param {[number,number]} point
-   * @param {number} [scale]
-   * @returns {[number,number]|null}
+   * @returns {Array<{x:number,y:number,angle:number,r:number,ring:number,depth:number,anchorKind:"outer_rock"|"under_air"}>}
    */
-  _snapTurretPadToRingVertex(point, scale = 0.55){
+  _buildBarrenPadCandidates(){
+    const graph = this.radialGraph;
     const rings = this.radial && this.radial.rings ? this.radial.rings : null;
-    if (!rings || !rings.length) return null;
+    if (!graph || !graph.nodes || !graph.neighbors || !graph.nodeOfRef || !rings || !rings.length){
+      return [];
+    }
     const outerRingIndex = rings.length - 1;
-    const baseAngle = Math.atan2(point[1], point[0]);
-    const baseR = Math.hypot(point[0], point[1]);
-    const outerCandidates = this._ringVertexCandidatesByAngle(outerRingIndex, baseAngle, 3);
-    if (!outerCandidates.length) return null;
-
-    let nearestOuter = outerCandidates[0];
-    for (const cand of outerCandidates){
-      if (cand.angleDiff < nearestOuter.angleDiff) nearestOuter = cand;
-    }
-
-    // Rule 1: pads on the outer ring center on an actual outer-ring rock vertex.
-    if (nearestOuter && nearestOuter.vertex.air <= 0.5){
-      for (const cand of outerCandidates){
-        if (cand.vertex.air > 0.5) continue;
-        if (cand.angleDiff > 0.4) continue;
-        const info = this.surfaceInfoAtWorld(cand.vertex.x, cand.vertex.y, 0.18);
-        if (!info) continue;
-        if (info.slope > 0.3) continue;
-        return [cand.vertex.x, cand.vertex.y];
-      }
-    }
-
-    // Rule 2: when the pad sits below the outer ring, center it directly under
-    // an outer-ring air vertex, but only if that air vertex connects to rock in
-    // the ring below.
-    for (const cand of outerCandidates){
-      if (cand.vertex.air <= 0.5) continue;
-      if (cand.angleDiff > 0.4) continue;
-      const rockBelow = this._rockNeighborsBelowRingVertex(cand.vertex, outerRingIndex);
-      if (rockBelow.length < 2) continue;
-      const surf = this._findSurfaceAtAngle(
-        cand.angle,
-        Math.max(0, outerRingIndex - 2.2),
-        outerRingIndex + 0.25
-      );
-      if (!surf) continue;
-      const anchor = this._finalizeTurretPadAnchor(surf.x, surf.y, scale, {
-        maxSlope: 0.26,
-        requireSupport: false,
+    const reachableAir = this._buildOuterAirReachableMask();
+    /** @type {Array<{x:number,y:number,angle:number,r:number,ring:number,depth:number,anchorKind:"outer_rock"|"under_air"}>} */
+    const out = [];
+    const seen = new Set();
+    const outerRing = rings[outerRingIndex] || [];
+    for (let i = 0; i < outerRing.length; i++){
+      const vertex = outerRing[i];
+      if (!vertex || vertex.air > 0.5) continue;
+      const key = `outer:${outerRingIndex}:${i}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({
+        x: vertex.x,
+        y: vertex.y,
+        angle: Math.atan2(vertex.y, vertex.x),
+        r: Math.hypot(vertex.x, vertex.y),
+        ring: outerRingIndex,
+        depth: 0,
+        anchorKind: "outer_rock",
       });
-      if (!anchor) continue;
-      const anchorAngle = Math.atan2(anchor[1], anchor[0]);
-      if (this._angleDistance(anchorAngle, cand.angle) > 0.08) continue;
-      return anchor;
     }
-
-    // Fallback for non-outer special cases: stay on a nearby landable rock
-    // vertex rather than a between-vertex interpolated point.
-    const startRing = Math.max(0, Math.min(outerRingIndex, Math.round(baseR)));
-    for (const ri of [startRing, startRing + 1, startRing - 1]){
-      if (ri < 0 || ri > outerRingIndex) continue;
-      const candidates = this._ringVertexCandidatesByAngle(ri, baseAngle, 2);
-      for (const cand of candidates){
-        if (cand.vertex.air > 0.5) continue;
-        if (cand.angleDiff > 0.32) continue;
-        const anchor = this._finalizeTurretPadAnchor(cand.vertex.x, cand.vertex.y, scale, {
-          maxSlope: 0.18,
-          requireSupport: true,
+    for (let ringIndex = outerRingIndex - 1; ringIndex >= 0; ringIndex--){
+      const upperRing = rings[ringIndex + 1] || [];
+      for (let airIndex = 0; airIndex < upperRing.length; airIndex++){
+        const airVertex = upperRing[airIndex];
+        if (!airVertex || airVertex.air <= 0.5) continue;
+        const airNode = graph.nodeOfRef.get(airVertex);
+        if (airNode === undefined || !reachableAir[airNode]) continue;
+        const around = this._ringVerticesAroundAngle(ringIndex, Math.atan2(airVertex.y, airVertex.x));
+        if (!around) continue;
+        if (around.minusVertex.air > 0.5 || around.plusVertex.air > 0.5) continue;
+        const minusNode = graph.nodeOfRef.get(around.minusVertex);
+        const plusNode = graph.nodeOfRef.get(around.plusVertex);
+        if (minusNode === undefined || plusNode === undefined) continue;
+        let minusLinked = false;
+        let plusLinked = false;
+        for (const edge of (graph.neighbors[airNode] || [])){
+          if (edge.to === minusNode) minusLinked = true;
+          if (edge.to === plusNode) plusLinked = true;
+          if (minusLinked && plusLinked) break;
+        }
+        if (!minusLinked || !plusLinked) continue;
+        const angle = Math.atan2(airVertex.y, airVertex.x);
+        const supportRadius = (Math.hypot(around.minusVertex.x, around.minusVertex.y) + Math.hypot(around.plusVertex.x, around.plusVertex.y)) * 0.5;
+        const airRadius = Math.hypot(airVertex.x, airVertex.y);
+        // Inner pads sit midway between the reachable air vertex and the
+        // supporting rock pair below instead of directly on the lower ring.
+        const radius = (supportRadius + airRadius) * 0.5;
+        const key = `inner:${ringIndex}:${airIndex}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({
+          x: Math.cos(angle) * radius,
+          y: Math.sin(angle) * radius,
+          angle,
+          r: radius,
+          ring: ringIndex,
+          depth: outerRingIndex - ringIndex,
+          anchorKind: "under_air",
         });
-        if (anchor) return anchor;
       }
     }
-    return null;
+    return out;
   }
 
   /**
-   * Nudge a pad away from ledges by selecting a nearby supported point
-   * along the same local surface band.
-   * @param {[number,number]} point
-   * @param {Array<[number,number,number,number]>} pool
-   * @param {number} [scale]
-   * @returns {[number,number]}
+   * @param {Array<{x:number,y:number,angle:number,r:number,ring:number,depth:number,anchorKind:"outer_rock"|"under_air"}>} candidates
+   * @param {number} seed
+   * @param {boolean} innerFirst
+   * @returns {Array<{x:number,y:number,angle:number,r:number,ring:number,depth:number,anchorKind:"outer_rock"|"under_air"}>}
    */
-  _refineTurretPadPoint(point, pool, scale = 0.55){
-    const initialSnap = this._snapTurretPadToRingVertex(point, scale);
-    return initialSnap || point;
+  _orderedBarrenPadCandidates(candidates, seed, innerFirst = true){
+    const groups = new Map();
+    for (const candidate of candidates){
+      const group = groups.get(candidate.ring);
+      if (group) group.push(candidate);
+      else groups.set(candidate.ring, [candidate]);
+    }
+    const ringOrder = Array.from(groups.keys()).sort((a, b) => innerFirst ? (a - b) : (b - a));
+    /** @type {Array<{x:number,y:number,angle:number,r:number,ring:number,depth:number,anchorKind:"outer_rock"|"under_air"}>} */
+    const out = [];
+    for (const ring of ringOrder){
+      const group = groups.get(ring) || [];
+      out.push(...this._shuffleDeterministic(group, this._ringShuffleSeed(ring, seed)));
+    }
+    return out;
+  }
+
+  /**
+   * @param {Array<{x:number,y:number,angle:number,r:number,ring:number,depth:number,anchorKind:"outer_rock"|"under_air"}>} ordered
+   * @param {number} count
+   * @param {number} minDist
+   * @returns {Array<{x:number,y:number,angle:number,r:number,ring:number,depth:number,anchorKind:"outer_rock"|"under_air"}>}
+   */
+  _takeBarrenPadCandidates(ordered, count, minDist){
+    if (count <= 0 || !ordered.length) return [];
+    /** @type {Array<{x:number,y:number,angle:number,r:number,ring:number,depth:number,anchorKind:"outer_rock"|"under_air"}>} */
+    const picked = [];
+    const addWithSpacing = (spacing) => {
+      for (const candidate of ordered){
+        if (picked.length >= count) break;
+        if (picked.includes(candidate)) continue;
+        let ok = true;
+        for (const cur of picked){
+          const dx = candidate.x - cur.x;
+          const dy = candidate.y - cur.y;
+          if (dx * dx + dy * dy < spacing * spacing){
+            ok = false;
+            break;
+          }
+        }
+        if (!ok) continue;
+        picked.push(candidate);
+      }
+    };
+    addWithSpacing(Math.max(0, minDist));
+    if (picked.length < count){
+      addWithSpacing(Math.max(0.18, minDist * 0.55));
+    }
+    return picked;
+  }
+
+  /**
+   * @param {number} seed
+   * @param {boolean} innerFirst
+   * @returns {Array<any>}
+   */
+  _orderedBarrenPadProps(seed, innerFirst = true){
+    /** @type {Array<any>} */
+    const pads = [];
+    for (const prop of (this.props || [])){
+      if (prop.type !== "turret_pad" || prop.dead) continue;
+      if (typeof prop.padRing !== "number") continue;
+      pads.push(prop);
+    }
+    const groups = new Map();
+    for (const pad of pads){
+      const group = groups.get(pad.padRing);
+      if (group) group.push(pad);
+      else groups.set(pad.padRing, [pad]);
+    }
+    const ringOrder = Array.from(groups.keys()).sort((a, b) => innerFirst ? (a - b) : (b - a));
+    /** @type {Array<any>} */
+    const out = [];
+    for (const ring of ringOrder){
+      const group = groups.get(ring) || [];
+      out.push(...this._shuffleDeterministic(group, this._ringShuffleSeed(ring, seed)));
+    }
+    return out;
+  }
+
+  /**
+   * Reserve deeper barren pads for miners before turrets consume the outer pads.
+   * @param {number} count
+   * @param {number} seed
+   * @param {number} [minDist]
+   * @returns {Array<[number,number]>}
+   */
+  reserveBarrenPadsForMiners(count, seed, minDist = GAME.MINER_MIN_SEP){
+    const cfg = this.getPlanetConfig ? this.getPlanetConfig() : null;
+    if (!(cfg && cfg.flags && cfg.flags.barrenPerimeter) || count <= 0) return [];
+    const ordered = this._orderedBarrenPadProps(seed, true);
+    /** @type {Array<any>} */
+    const chosen = [];
+    for (const pad of ordered){
+      if (chosen.length >= count) break;
+      if (pad.padReservedFor) continue;
+      if (!this._isFarFromReservations(pad.x, pad.y, minDist, this._spawnReservations)) continue;
+      let ok = true;
+      for (const cur of chosen){
+        const dx = pad.x - cur.x;
+        const dy = pad.y - cur.y;
+        if (dx * dx + dy * dy < minDist * minDist){
+          ok = false;
+          break;
+        }
+      }
+      if (!ok) continue;
+      pad.padReservedFor = "miner";
+      chosen.push(pad);
+    }
+    if (chosen.length){
+      this.reserveSpawnPoints(chosen.map((pad) => ({ x: pad.x, y: pad.y })), minDist);
+    }
+    return chosen.map((pad) => [pad.x, pad.y]);
   }
 
   /**
@@ -1275,61 +1357,12 @@ export class Planet {
     }
     const seed = (this.mapgen.getWorld().seed | 0) + 913;
     const minDist = GAME.MINER_MIN_SEP;
+    /** @type {Array<any>} */
     let placed = [];
     if (forceHorizontalPads){
-      const rMax = (this.planetParams && typeof this.planetParams.RMAX === "number")
-        ? this.planetParams.RMAX
-        : CFG.RMAX;
-      const outerMinR = Math.max(0, rMax - 1.4);
-      const graph = this.radialGraph;
-      const nodes = graph && graph.nodes ? graph.nodes : [];
-      const neighbors = graph && graph.neighbors ? graph.neighbors : [];
-      const eps = 0.18;
-      /** @type {Array<[number,number,number,number]>} */
-      const outerBoundaryPool = [];
-      const seenAngles = new Set();
-      for (let i = 0; i < nodes.length; i++){
-        const n0 = nodes[i];
-        const a0 = this.airValueAtWorld(n0.x, n0.y);
-        const neigh = neighbors[i] || [];
-        for (const edge of neigh){
-          const j = edge.to;
-          if (j <= i) continue;
-          const n1 = nodes[j];
-          if (!n1) continue;
-          const a1 = this.airValueAtWorld(n1.x, n1.y);
-          if ((a0 > 0.5) === (a1 > 0.5)) continue;
-          const denom = (a1 - a0);
-          const t = (denom !== 0)
-            ? Math.max(0, Math.min(1, (0.5 - a0) / denom))
-            : 0.5;
-          const sx = n0.x + (n1.x - n0.x) * t;
-          const sy = n0.y + (n1.y - n0.y) * t;
-          const info = this.surfaceInfoAtWorld(sx, sy, eps);
-          if (!info) continue;
-          const x = sx + info.nx * 0.02;
-          const y = sy + info.ny * 0.02;
-          const r = Math.hypot(x, y);
-          if (r < outerMinR) continue;
-          if (!this.isLandableAtWorld(x, y, 0.45, 0.16, eps)) continue;
-          const ang = Math.atan2(y, x);
-          const bucket = Math.round(((ang + Math.PI) / (Math.PI * 2)) * 2048);
-          if (seenAngles.has(bucket)) continue;
-          seenAngles.add(bucket);
-          outerBoundaryPool.push([x, y, ang, r]);
-        }
-      }
-      if (outerBoundaryPool.length){
-        const saved = this._standablePoints;
-        this._standablePoints = outerBoundaryPool;
-        placed = this.sampleStandablePoints(pads.length, seed, "uniform", minDist, false);
-        this._standablePoints = saved;
-        placed = placed.map((pt, i) => this._refineTurretPadPoint(
-          pt,
-          outerBoundaryPool,
-          (pads[i] && typeof pads[i].scale === "number") ? pads[i].scale : 0.55
-        ));
-      }
+      const candidates = this._buildBarrenPadCandidates();
+      const ordered = this._orderedBarrenPadCandidates(candidates, seed, true);
+      placed = this._takeBarrenPadCandidates(ordered, pads.length, minDist);
     } else {
       const standable = this._standablePoints || [];
       const flatPool = standable.filter((pt) => {
@@ -1339,7 +1372,6 @@ export class Planet {
         if (!up) return false;
         if (info.slope > 0.08) return false;
         if (info.nx * up.ux + info.ny * up.uy < 0.98) return false;
-        // Require support under both shoulders to avoid overhang placements.
         const tx = -info.ny;
         const ty = info.nx;
         const shoulder = 0.38;
@@ -1355,34 +1387,43 @@ export class Planet {
       if (pool !== standable){
         const saved = this._standablePoints;
         this._standablePoints = pool;
-        placed = this.sampleStandablePoints(pads.length, seed, "uniform", minDist, false);
+        placed = this.sampleStandablePoints(pads.length, seed, "uniform", minDist, false)
+          .map((pt) => ({ x: pt[0], y: pt[1] }));
         this._standablePoints = saved;
       } else {
-        placed = this.sampleStandablePoints(pads.length, seed, "uniform", minDist, false);
+        placed = this.sampleStandablePoints(pads.length, seed, "uniform", minDist, false)
+          .map((pt) => ({ x: pt[0], y: pt[1] }));
       }
-      placed = placed.map((pt, i) => this._refineTurretPadPoint(
-        pt,
-        pool,
-        (pads[i] && typeof pads[i].scale === "number") ? pads[i].scale : 0.55
-      ));
     }
     for (let i = 0; i < pads.length; i++){
       const p = pads[i];
-      const pt = placed[i];
+      const pt = placed[i] || null;
+      p.padReservedFor = null;
       if (!pt){
         p.dead = true;
         p.hp = 0;
+        delete p.padRing;
+        delete p.padDepth;
+        delete p.padAnchorKind;
         continue;
       }
-      p.x = pt[0];
-      p.y = pt[1];
+      p.dead = false;
+      p.x = pt.x;
+      p.y = pt.y;
       if (forceHorizontalPads){
+        p.padRing = pt.ring;
+        p.padDepth = pt.depth;
+        p.padAnchorKind = pt.anchorKind;
         const up = this._upDirAt(p.x, p.y);
         if (up){
           p.padNx = up.ux;
           p.padNy = up.uy;
           continue;
         }
+      } else {
+        delete p.padRing;
+        delete p.padDepth;
+        delete p.padAnchorKind;
       }
       const info = this.surfaceInfoAtWorld(p.x, p.y, 0.18);
       if (info){
@@ -2169,43 +2210,32 @@ export class Planet {
   sampleTurretPoints(count, seed, placement = "random", minDist = 0, reserve = false){
     const cfg = this.getPlanetConfig ? this.getPlanetConfig() : null;
     if (cfg && cfg.flags && cfg.flags.barrenPerimeter){
-      const pads = [];
-      for (const p of (this.props || [])){
-        if (p.type === "turret_pad" && !p.dead) pads.push([p.x, p.y]);
-      }
+      const pads = this._orderedBarrenPadProps(seed, false).filter((pad) => pad.padReservedFor !== "miner");
       if (pads.length){
-        const rand = mulberry32(seed);
-        for (let i = pads.length - 1; i > 0; i--){
-          const j = Math.floor(rand() * (i + 1));
-          const tmp = pads[i];
-          pads[i] = pads[j];
-          pads[j] = tmp;
-        }
-        if (minDist <= 0){
-          return pads.slice(0, count);
-        }
-        /** @type {Array<[number,number]>} */
-        const out = [];
-        for (const p of pads){
-          if (!this._isFarFromReservations(p[0], p[1], minDist, this._spawnReservations)) continue;
+        /** @type {Array<any>} */
+        const chosen = [];
+        for (const pad of pads){
+          if (chosen.length >= count) break;
+          if (!this._isFarFromReservations(pad.x, pad.y, minDist, this._spawnReservations)) continue;
           let ok = true;
-          for (const q of out){
-            const dx = p[0] - q[0];
-            const dy = p[1] - q[1];
+          for (const cur of chosen){
+            const dx = pad.x - cur.x;
+            const dy = pad.y - cur.y;
             if (dx * dx + dy * dy < minDist * minDist){
               ok = false;
               break;
             }
           }
           if (!ok) continue;
-          out.push(p);
-          if (out.length >= count) break;
+          chosen.push(pad);
         }
-        if (reserve && out.length){
-          const reservePoints = out.map((pt) => ({ x: pt[0], y: pt[1] }));
-          this.reserveSpawnPoints(reservePoints, minDist);
+        if (reserve && chosen.length){
+          for (const pad of chosen){
+            if (!pad.padReservedFor) pad.padReservedFor = "turret";
+          }
+          this.reserveSpawnPoints(chosen.map((pad) => ({ x: pad.x, y: pad.y })), minDist);
         }
-        return out;
+        return chosen.map((pad) => [pad.x, pad.y]);
       }
     }
     const pool = this.sampleStandablePoints(Math.max(count * 3, count), seed, placement, minDist, false);
