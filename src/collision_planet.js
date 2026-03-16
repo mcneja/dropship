@@ -782,7 +782,7 @@ export function findPlanetCollisionExactAt(ctx, x, y){
  * @param {import("./planet.js").Planet} args.planet
  * @param {import("./mothership.js").Mothership|null} args.mothership
  * @param {{CRASH_SPEED:number,LAND_SPEED:number,LAND_FRICTION:number,WALL_FRICTION?:number,BOUNCE_RESTITUTION?:number}} args.planetParams
- * @param {{SURFACE_DOT:number,BOUNCE_RESTITUTION:number,MOTHERSHIP_FRICTION:number}} args.game
+ * @param {{SURFACE_DOT:number,BOUNCE_RESTITUTION:number,MOTHERSHIP_FRICTION:number,MOTHERSHIP_RESTITUTION:number,LAND_SPEED:number}} args.game
  * @param {number} args.dt
  * @param {number} args.eps
  * @param {boolean} [args.debugEnabled]
@@ -1873,15 +1873,25 @@ export function resolvePlanetCollisionResponse(args){
 
   const tx = -ny;
   const ty = nx;
-  const e = Math.max(0, Math.min(1, game.BOUNCE_RESTITUTION));
+  const e = Number.isFinite(game.MOTHERSHIP_RESTITUTION)
+    ? Math.max(0, Math.min(1, Number(game.MOTHERSHIP_RESTITUTION)))
+    : Math.max(0, Math.min(1, Number(game.BOUNCE_RESTITUTION) || 0));
+  const mothershipFriction = Number.isFinite(game.MOTHERSHIP_FRICTION)
+    ? Math.max(0, Number(game.MOTHERSHIP_FRICTION))
+    : 0;
   const relInVx = relVx;
   const relInVy = relVy;
   const vnIn = vn;
   const vtIn = vt;
-  const relOutVx = relInVx - (1 + e) * vnIn * nx;
-  const relOutVy = relInVy - (1 + e) * vnIn * ny;
+  const relReflectVx = relInVx - (1 + e) * vnIn * nx;
+  const relReflectVy = relInVy - (1 + e) * vnIn * ny;
+  const vnReflect = relReflectVx * nx + relReflectVy * ny;
+  const vtReflect = relReflectVx * tx + relReflectVy * ty;
+  const damp = Math.max(0, 1 - mothershipFriction * 0.45 * Math.max(0, dt));
+  const vtOut = vtReflect * damp;
+  const relOutVx = vnReflect * nx + vtOut * tx;
+  const relOutVy = vnReflect * ny + vtOut * ty;
   const vnOut = relOutVx * nx + relOutVy * ny;
-  const vtOut = relOutVx * tx + relOutVy * ty;
   ship.vx = base.vx + relOutVx;
   ship.vy = base.vy + relOutVy;
 

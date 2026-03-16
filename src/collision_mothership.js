@@ -1016,7 +1016,7 @@ export function hasStrictMothershipOverlapAtPose(mothership, shipCollisionPoints
  * @property {import("./types.d.js").CollisionQuery} collision
  * @property {import("./mothership.js").Mothership} mothership
  * @property {{CRASH_SPEED:number,LAND_SPEED:number,LAND_FRICTION:number}} planetParams
- * @property {{SURFACE_DOT:number,BOUNCE_RESTITUTION:number,MOTHERSHIP_FRICTION:number,LAND_SPEED:number}} game
+ * @property {{SURFACE_DOT:number,BOUNCE_RESTITUTION:number,MOTHERSHIP_FRICTION:number,MOTHERSHIP_RESTITUTION:number,LAND_SPEED:number}} game
  * @property {number} dt
  * @property {number} eps
  * @property {boolean} [debugEnabled]
@@ -1070,6 +1070,29 @@ function reflectVelocity(v, n, restitution){
   return {
     x: v.x - (1 + restitution) * vn * n.x,
     y: v.y - (1 + restitution) * vn * n.y,
+  };
+}
+
+/**
+ * Reflect relative velocity and damp tangential slide along the impact surface.
+ * @param {{x:number,y:number}} v
+ * @param {{x:number,y:number}} n
+ * @param {number} restitution
+ * @param {number} friction
+ * @param {number} dt
+ * @returns {{x:number,y:number}}
+ */
+function reflectVelocityWithFriction(v, n, restitution, friction, dt){
+  const reflected = reflectVelocity(v, n, restitution);
+  const tx = -n.y;
+  const ty = n.x;
+  const vn = reflected.x * n.x + reflected.y * n.y;
+  const vt = reflected.x * tx + reflected.y * ty;
+  const damp = Math.max(0, 1 - Math.max(0, friction) * 0.45 * Math.max(0, dt));
+  const vtDamped = vt * damp;
+  return {
+    x: n.x * vn + tx * vtDamped,
+    y: n.y * vn + ty * vtDamped,
   };
 }
 
@@ -1325,7 +1348,12 @@ export function resolveMothershipCollisionResponse(args){
   }
 
   const omega = Number.isFinite(mothershipAngularVel) ? Number(mothershipAngularVel) : 0;
-  const restitution = 0.8;
+  const restitution = Number.isFinite(game.MOTHERSHIP_RESTITUTION)
+    ? Math.max(0, Math.min(1, Number(game.MOTHERSHIP_RESTITUTION)))
+    : 0.8;
+  const mothershipFriction = Number.isFinite(game.MOTHERSHIP_FRICTION)
+    ? Math.max(0, Number(game.MOTHERSHIP_FRICTION))
+    : 0;
   const maxImpacts = 4;
   const finalPose = /** @type {Pose} */ ({ x: mothership.x, y: mothership.y, angle: mothership.angle });
   const startPose = mothershipPrevPose
@@ -1525,7 +1553,7 @@ export function resolveMothershipCollisionResponse(args){
       return;
     }
 
-    const relOut = reflectVelocity(relIn, n, restitution);
+    const relOut = reflectVelocityWithFriction(relIn, n, restitution, mothershipFriction, dt);
     curVx = baseAtHit.vx + relOut.x;
     curVy = baseAtHit.vy + relOut.y;
     curX += n.x * Math.max(0.002, (mothership.spacing || 0.4) * 0.03);
@@ -1556,7 +1584,7 @@ export function resolveMothershipCollisionResponse(args){
     const relIn = { x: ship.vx - base.vx, y: ship.vy - base.vy };
     const vnIn = relIn.x * n.x + relIn.y * n.y;
     if (vnIn < 0){
-      const relOut = reflectVelocity(relIn, n, restitution);
+      const relOut = reflectVelocityWithFriction(relIn, n, restitution, mothershipFriction, dt);
       ship.vx = base.vx + relOut.x;
       ship.vy = base.vy + relOut.y;
     }

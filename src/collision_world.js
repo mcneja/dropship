@@ -11,7 +11,7 @@ import { findPlanetCollisionExactAt, resolvePlanetCollisionResponse, stabilizePl
  * @property {import("./planet.js").Planet} planet
  * @property {import("./mothership.js").Mothership|null} mothership
  * @property {{CRASH_SPEED:number,LAND_SPEED:number,LAND_FRICTION:number}} planetParams
- * @property {{SURFACE_DOT:number,BOUNCE_RESTITUTION:number,MOTHERSHIP_FRICTION:number,LAND_SPEED:number}} game
+ * @property {{SURFACE_DOT:number,BOUNCE_RESTITUTION:number,MOTHERSHIP_FRICTION:number,MOTHERSHIP_RESTITUTION:number,LAND_SPEED:number}} game
  * @property {number} dt
  * @property {number} eps
  * @property {boolean} [debugEnabled]
