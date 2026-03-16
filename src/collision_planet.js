@@ -1189,82 +1189,6 @@ export function resolvePlanetCollisionResponse(args){
       return best;
     };
 
-    /**
-     * @param {Array<{x:number,y:number,nx:number,ny:number,tri:Array<{x:number,y:number,air:number}>|null,t:number,pointIndex:number,entryVn:number}>} contacts
-     * @param {number} probeX
-     * @param {number} probeY
-     * @returns {{x:number,y:number,nx:number,ny:number,tri:Array<{x:number,y:number,air:number}>|null,t:number,pointIndex:number,entryVn:number,dotUp:number,downness:number,dProbe:number,airFront:number,airBack:number}|null}
-     */
-    const pickSupportContact = (contacts, probeX, probeY) => {
-      if (!contacts.length) return null;
-      const clearOutside = Math.max(0.12, shipRadius * 0.45);
-      const clearInside = Math.max(0.10, shipRadius * 0.38);
-      const rOuter = (typeof planet.planetRadius === "number")
-        ? planet.planetRadius
-        : (planet.radial && planet.radial.rings ? (planet.radial.rings.length - 1) : Infinity);
-      let best = null;
-      let bestScore = -Infinity;
-      for (const c of contacts){
-        const rcx = c.x - ship.x;
-        const rcy = c.y - ship.y;
-        const rLen = Math.hypot(rcx, rcy);
-        if (rLen < 1e-6) continue;
-
-        /**
-         * @param {number} nx
-         * @param {number} ny
-         * @returns {{score:number,dotUp:number,downness:number,dProbe:number,airFront:number,airBack:number,nx:number,ny:number}|null}
-         */
-        const evalSupportNormal = (nx, ny) => {
-          const dotUp = nx * shipUpX + ny * shipUpY;
-          const downness = (-(rcx * shipUpX + rcy * shipUpY) / rLen);
-          if (dotUp <= 0 || downness < 0.1) return null;
-          const airFront = collision.planetAirValueAtWorld(c.x + nx * clearOutside, c.y + ny * clearOutside);
-          const airBack = collision.planetAirValueAtWorld(c.x - nx * clearInside, c.y - ny * clearInside);
-          if (!(airFront > 0.5 && airBack <= 0.52)) return null;
-          const dProbe = Math.hypot(c.x - probeX, c.y - probeY);
-          const score = dotUp * 4 + downness * 2 - dProbe * 1.5 - c.t * 0.25;
-          return { score, dotUp, downness, dProbe, airFront, airBack, nx, ny };
-        };
-
-        let candidate = evalSupportNormal(c.nx, c.ny);
-        const tri = c.tri;
-        if (tri && tri.length >= 3){
-          let outerCount = 0;
-          let airMin = Infinity;
-          let airMax = -Infinity;
-          for (const v of tri){
-            const rv = Math.hypot(v.x, v.y);
-            airMin = Math.min(airMin, v.air);
-            airMax = Math.max(airMax, v.air);
-            if (rv >= rOuter - 0.22) outerCount++;
-          }
-          const rr = Math.hypot(c.x, c.y) || 1;
-          if (outerCount >= 2 && airMin <= 0.5 && airMax > 0.5 && rr >= rOuter - 0.35){
-            const radial = evalSupportNormal(c.x / rr, c.y / rr);
-            if (radial && (!candidate || radial.score > candidate.score)){
-              candidate = radial;
-            }
-          }
-        }
-
-        if (candidate && candidate.score > bestScore){
-          bestScore = candidate.score;
-          best = {
-            ...c,
-            nx: candidate.nx,
-            ny: candidate.ny,
-            dotUp: candidate.dotUp,
-            downness: candidate.downness,
-            dProbe: candidate.dProbe,
-            airFront: candidate.airFront,
-            airBack: candidate.airBack,
-          };
-        }
-      }
-      return best;
-    };
-
     const probeX = ship.x - shipUpX * shipRadius;
     const probeY = ship.y - shipUpY * shipRadius;
     const contacts = sweepContacts();
@@ -1282,10 +1206,7 @@ export function resolvePlanetCollisionResponse(args){
       pointIndex: -10,
       entryVn: ship.vx * avgHitContact.nx + ship.vy * avgHitContact.ny,
     } : null;
-    /** @type {Array<{x:number,y:number,nx:number,ny:number,tri:Array<{x:number,y:number,air:number}>|null,t:number,pointIndex:number,entryVn:number}>} */
-    const supportContacts = contactsPose.length ? contactsPose : contacts;
     const contactImpact = hitImpactContact || pickImpactContact(contacts);
-    const contactSupport = pickSupportContact(supportContacts, probeX, probeY);
     let impactX = hx;
     let impactY = hy;
     let impactTri = null;
@@ -1303,9 +1224,9 @@ export function resolvePlanetCollisionResponse(args){
       impactTri = nHit.tri;
     }
 
-    const supportX = contactSupport ? contactSupport.x : impactX;
-    const supportY = contactSupport ? contactSupport.y : impactY;
-    const supportTri = contactSupport ? contactSupport.tri : impactTri;
+    const supportX = impactX;
+    const supportY = impactY;
+    const supportTri = impactTri;
 
     /**
      * @param {Array<{x:number,y:number,air:number}>|null} tri
@@ -1333,7 +1254,7 @@ export function resolvePlanetCollisionResponse(args){
     };
     let bestDotUpAny = -Infinity;
     let bestDotUpUnder = -Infinity;
-    for (const c of supportContacts){
+    for (const c of contactsPose.length ? contactsPose : contacts){
       const dot = c.nx * shipUpX + c.ny * shipUpY;
       if (dot > bestDotUpAny) bestDotUpAny = dot;
       const rcx = c.x - ship.x;
@@ -1376,16 +1297,25 @@ export function resolvePlanetCollisionResponse(args){
     const speedAbs = Math.hypot(ship.vx, ship.vy);
     const maxSlope = 1 - Math.cos(Math.PI / 8); // 22.5 deg
     const landSlope = Math.min((1 - game.SURFACE_DOT) + 0.03, maxSlope);
-    const landingInfo = contactSupport ? {
-      dotUp: contactSupport.dotUp,
-      slope: Math.max(0, 1 - contactSupport.dotUp),
-      vn: ship.vx * contactSupport.nx + ship.vy * contactSupport.ny,
-      vt: ship.vx * (-contactSupport.ny) + ship.vy * contactSupport.nx,
-      airFront: contactSupport.airFront,
-      airBack: contactSupport.airBack,
-      supportDist: contactSupport.dProbe,
-      landable: contactSupport.dotUp > 0 && Math.max(0, 1 - contactSupport.dotUp) <= landSlope,
-    } : null;
+    const impactDotUp = impactNormal.nx * shipUpX + impactNormal.ny * shipUpY;
+    const impactAirFront = collision.planetAirValueAtWorld(
+      impactX + impactNormal.nx * Math.max(0.12, shipRadius * 0.45),
+      impactY + impactNormal.ny * Math.max(0.12, shipRadius * 0.45)
+    );
+    const impactAirBack = collision.planetAirValueAtWorld(
+      impactX - impactNormal.nx * Math.max(0.10, shipRadius * 0.38),
+      impactY - impactNormal.ny * Math.max(0.10, shipRadius * 0.38)
+    );
+    const landingInfo = {
+      dotUp: impactDotUp,
+      slope: Math.max(0, 1 - impactDotUp),
+      vn: vnImpact,
+      vt: ship.vx * (-impactNormal.ny) + ship.vy * impactNormal.nx,
+      airFront: impactAirFront,
+      airBack: impactAirBack,
+      supportDist: Math.hypot(impactX - probeX, impactY - probeY),
+      landable: impactDotUp > 0 && Math.max(0, 1 - impactDotUp) <= landSlope,
+    };
     const landVt = Math.max(0.8, planetParams.LAND_SPEED * 0.6);
     /** @type {{source:string,reason:string,dotUp:number,slope:number,landSlope:number,vn:number,vt:number,speed:number,airFront:number,airBack:number,landable:boolean,landed:boolean,support:boolean,supportDist:number,contactsCount:number,bestDotUpAny:number,bestDotUpUnder:number,impactPoint:number,supportPoint:number,impactT:number,supportT:number,impactX:number,impactY:number,supportX:number,supportY:number,supportTriOuterCount:number,supportTriAirMin:number,supportTriAirMax:number,supportTriRMin:number,supportTriRMax:number,overlapBeforeCount?:number,overlapAfterCount?:number,overlapBeforeMin?:number,overlapAfterMin?:number,depenPush?:number,depenIter?:number,depenCleared?:boolean}} */
     const landingDbg = {
@@ -1394,22 +1324,22 @@ export function resolvePlanetCollisionResponse(args){
       dotUp: landingInfo ? landingInfo.dotUp : 0,
       slope: landingInfo ? landingInfo.slope : 1,
       landSlope,
-      vn: landingInfo ? landingInfo.vn : vnImpact,
-      vt: landingInfo ? landingInfo.vt : (ship.vx * (-impactNormal.ny) + ship.vy * impactNormal.nx),
+      vn: landingInfo.vn,
+      vt: landingInfo.vt,
       speed: speedAbs,
-      airFront: landingInfo ? landingInfo.airFront : 1,
-      airBack: landingInfo ? landingInfo.airBack : 1,
-      landable: !!(landingInfo && landingInfo.landable),
+      airFront: landingInfo.airFront,
+      airBack: landingInfo.airBack,
+      landable: landingInfo.landable,
       landed: false,
-      support: !!contactSupport,
-      supportDist: landingInfo ? landingInfo.supportDist : Number.POSITIVE_INFINITY,
-      contactsCount: supportContacts.length,
+      support: !!contactImpact,
+      supportDist: landingInfo.supportDist,
+      contactsCount: contactsPose.length ? contactsPose.length : contacts.length,
       bestDotUpAny,
       bestDotUpUnder,
       impactPoint: contactImpact ? contactImpact.pointIndex : -1,
-      supportPoint: contactSupport ? contactSupport.pointIndex : -1,
+      supportPoint: contactImpact ? contactImpact.pointIndex : -1,
       impactT: contactImpact ? contactImpact.t : Number.NaN,
-      supportT: contactSupport ? contactSupport.t : Number.NaN,
+      supportT: contactImpact ? contactImpact.t : Number.NaN,
       impactX,
       impactY,
       supportX,
@@ -1422,7 +1352,6 @@ export function resolvePlanetCollisionResponse(args){
     };
 
     if (
-      landingInfo &&
       landingInfo.landable &&
       landingInfo.vn >= -planetParams.LAND_SPEED &&
       Math.abs(landingInfo.vt) <= landVt &&
@@ -1464,6 +1393,8 @@ export function resolvePlanetCollisionResponse(args){
       landingDbg.vt = ship.vx * (-impactNormal.ny) + ship.vy * impactNormal.nx;
     } else {
       landingDbg.reason = "planet_graze";
+      landingDbg.vn = ship.vx * impactNormal.nx + ship.vy * impactNormal.ny;
+      landingDbg.vt = ship.vx * (-impactNormal.ny) + ship.vy * impactNormal.nx;
     }
 
     const overlapBefore = shipCollidesAt(ship.x, ship.y);
