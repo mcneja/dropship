@@ -63,6 +63,7 @@
  * @property {number} gunPower
  * @property {boolean} rescueeDetector
  * @property {boolean} planetScanner
+ * @property {number} [renderAngle]
  * 
  * @property {Array<[number,number,boolean,number]>|null} [_samples]
  * @property {{x:number,y:number,source?:"planet"|"mothership",tri?:Array<{x:number,y:number,air?:number}>|null,node?:{x:number,y:number}|null,contacts?:Array<{x:number,y:number,nx:number,ny:number,av?:number}>|null}|null} [_collision]

@@ -5,6 +5,7 @@ import { MapGen } from "./mapgen.js";
 
 /**
  * @typedef {import("./mothership.js").Mothership} Mothership
+ * @typedef {Pick<Mothership, "x"|"y"|"vx"|"vy"|"angle"|"points"|"tris"|"triAir"|"renderPoints"|"renderTris"|"bounds"|"spacing"|"rows"|"cols">} JumpdriveMothershipPose
  * @typedef {import("./types.d.js").MapWorld} MapWorld
  * @typedef {import("./types.d.js").RenderState} RenderState
  * @typedef {import("./types.d.js").ViewState} ViewState
@@ -139,7 +140,7 @@ function screenDirFromWorldAngle(worldAngle, viewAngle){
 }
 
 /**
- * @param {Mothership|null|undefined} mothership
+ * @param {JumpdriveMothershipPose|null|undefined} mothership
  * @returns {{x:number,y:number}}
  */
 function mothershipSternLocalCenter(mothership){
@@ -172,7 +173,7 @@ function mothershipSternLocalCenter(mothership){
 }
 
 /**
- * @param {Mothership|null|undefined} mothership
+ * @param {JumpdriveMothershipPose|null|undefined} mothership
  * @returns {{x:number,y:number}}
  */
 function mothershipSternWorld(mothership){
@@ -189,8 +190,8 @@ function mothershipSternWorld(mothership){
 }
 
 /**
- * @param {Mothership|null|undefined} mothership
- * @returns {null|{x:number,y:number,vx:number,vy:number,angle:number,points:any,tris:any,triAir:any,renderPoints:any,renderTris:any,bounds:number,spacing:number,rows:number,cols:number}}
+ * @param {JumpdriveMothershipPose|null|undefined} mothership
+ * @returns {JumpdriveMothershipPose|null}
  */
 function cloneMothershipPose(mothership){
   if (!mothership) return null;
@@ -223,6 +224,31 @@ function cloneRenderState(state){
   };
 }
 
+/**
+ * @param {any} ship
+ * @param {Pick<JumpdriveMothershipPose, "x"|"y"|"vx"|"vy"|"angle">|null|undefined} mothership
+ * @returns {any}
+ */
+function shipDockPoseForMothership(ship, mothership){
+  if (!ship || !mothership){
+    return ship ? { ...ship, explodeT: 0 } : ship;
+  }
+  const dock = ship._dock || { lx: GAME.MOTHERSHIP_START_DOCK_X, ly: GAME.MOTHERSHIP_START_DOCK_Y };
+  const c = Math.cos(mothership.angle);
+  const s = Math.sin(mothership.angle);
+  return {
+    ...ship,
+    x: mothership.x + c * dock.lx - s * dock.ly,
+    y: mothership.y + s * dock.lx + c * dock.ly,
+    vx: mothership.vx,
+    vy: mothership.vy,
+    state: "landed",
+    explodeT: 0,
+    _dock: { lx: dock.lx, ly: dock.ly },
+    renderAngle: mothership.angle + Math.PI,
+  };
+}
+
 export class JumpdriveTransition {
   constructor(){
     this.cfg = GAME.JUMPDRIVE;
@@ -238,8 +264,11 @@ export class JumpdriveTransition {
     this.revealView = null;
     this.focusStartView = null;
     this.focusEndView = null;
+    /** @type {JumpdriveMothershipPose|null} */
     this.startMothership = null;
+    /** @type {JumpdriveMothershipPose|null} */
     this.visualMothership = null;
+    /** @type {JumpdriveMothershipPose|null} */
     this.finalMothership = null;
     this.hiddenShip = null;
     this.seed = 0;
@@ -313,8 +342,11 @@ export class JumpdriveTransition {
     this.currentPlanetRadius = opts.currentPlanetRadius || 0;
     this.startMothership = cloneMothershipPose(opts.mothership);
     this.visualMothership = cloneMothershipPose(opts.mothership);
-    this.hiddenShip = { ...opts.ship, state: "crashed" };
     const mothership = opts.mothership;
+    this.hiddenShip = shipDockPoseForMothership({
+      ...opts.ship,
+      _dock: (opts.ship && opts.ship._dock) ? opts.ship._dock : { lx: GAME.MOTHERSHIP_START_DOCK_X, ly: GAME.MOTHERSHIP_START_DOCK_Y },
+    }, mothership);
     if (mothership){
       const r2 = mothership.x * mothership.x + mothership.y * mothership.y;
       this.startCamAngularVel = (r2 > 1e-6)
@@ -591,11 +623,14 @@ export class JumpdriveTransition {
     nextState.touchStartMode = null;
     nextState.aimWorld = null;
     nextState.aimOrigin = null;
-    nextState.ship = this.hiddenShip ? { ...this.hiddenShip } : { ...nextState.ship, state: "crashed" };
+    nextState.ship = shipDockPoseForMothership(
+      this.hiddenShip || nextState.ship,
+      this.visualMothership || nextState.mothership || null
+    );
     const view = this._currentView(state.view);
     nextState.view = view;
     if (this.visualMothership){
-      nextState.mothership = { ...this.visualMothership };
+      nextState.mothership = /** @type {RenderState["mothership"]} */ ({ ...this.visualMothership });
     }
     return nextState;
   }

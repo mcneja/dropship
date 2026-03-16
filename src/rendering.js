@@ -1037,7 +1037,9 @@ function drawFrameImpl(renderer, state, planet){
     }
   }
 
-  const shipRot = getDropshipWorldRotation(state.ship.x, state.ship.y);
+  const shipRot = Number.isFinite(state.ship.renderAngle)
+    ? state.ship.renderAngle
+    : getDropshipWorldRotation(state.ship.x, state.ship.y);
   const lighten = (c) => Math.min(1, c + 0.3);
   const rockPoint = [1.0, 0.55, 0.12];
   const airPoint = [lighten(airLight[0]), lighten(airLight[1]), lighten(airLight[2])];
