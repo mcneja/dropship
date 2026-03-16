@@ -107,6 +107,7 @@ export class Planet {
 
   /**
    * @returns {{
+   *  iceShard:Array<{x:number,y:number,vx:number,vy:number,life:number,maxLife:number,size:number}>,
    *  lava:Array<{x:number,y:number,vx:number,vy:number,life:number}>,
    *  mushroom:Array<{x:number,y:number,vx:number,vy:number,life:number}>,
    *  bubbles:Array<{x:number,y:number,vx:number,vy:number,life:number,maxLife:number,size:number,rot:number,spin:number}>,
@@ -114,7 +115,7 @@ export class Planet {
    * }}
    */
   getFeatureParticles(){
-    return this.features ? this.features.getParticles() : { lava: [], mushroom: [], bubbles: [], splashes: [] };
+    return this.features ? this.features.getParticles() : { iceShard: [], lava: [], mushroom: [], bubbles: [], splashes: [] };
   }
 
   /**
@@ -141,12 +142,13 @@ export class Planet {
    * @param {number} dt
    * @param {{
    *  ship: import("./types.d.js").Ship,
-   *  enemies: Array<{x:number,y:number,hp:number,hitT?:number}>,
+   *  enemies: Array<{x:number,y:number,hp:number,hitT?:number,stunT?:number}>,
    *  miners: import("./types.d.js").Miner[],
    *  onShipDamage?: (x:number, y:number)=>void,
    *  onShipHeat?: (amount:number)=>void,
    *  onShipConfuse?: (duration:number)=>void,
-   *  onEnemyHit?: (enemy:{x:number,y:number,hp:number,hitT?:number}, x:number, y:number)=>void,
+   *  onEnemyHit?: (enemy:{x:number,y:number,hp:number,hitT?:number,stunT?:number}, x:number, y:number)=>void,
+   *  onEnemyStun?: (enemy:{x:number,y:number,hp:number,hitT?:number,stunT?:number}, duration:number)=>void,
    *  onMinerKilled?: (miner:import("./types.d.js").Miner)=>void,
    * }} state
    * @returns {void}

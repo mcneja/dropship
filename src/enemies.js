@@ -298,6 +298,9 @@ export class Enemies {
       if (e.hitT && e.hitT > 0){
         e.hitT = Math.max(0, e.hitT - dt);
       }
+      if (e.stunT && e.stunT > 0){
+        e.stunT = Math.max(0, e.stunT - dt);
+      }
       if (e.hp <= 0){
         this._notifyEnemyDestroyed(e, "hp");
         this._spawnEnemyDebrisBurst(e, e.type === "crawler" ? 10 : 6);
@@ -307,6 +310,9 @@ export class Enemies {
           this.explosions.push({ x: e.x, y: e.y, life: 0.5, maxLife: 0.5, owner: e.type, radius: 0.8 });
         }
         this.enemies.splice(i, 1);
+        continue;
+      }
+      if (e.stunT && e.stunT > 0){
         continue;
       }
 

@@ -114,6 +114,7 @@
  * @property {number} hp
  * @property {number|null} iNodeGoal
  * @property {number} [hitT]
+ * @property {number} [stunT]
  */
 
 /**
@@ -171,13 +172,13 @@
  * @property {number} level
  * @property {number} minersDead
  * @property {number} [minerTarget]
- * @property {Array<{x:number,y:number,type:EnemyType,vx?:number,vy?:number,cooldown?:number,hp?:number,hitT?:number,dir?:number,fuse?:number}>} enemies
+ * @property {Array<{x:number,y:number,type:EnemyType,vx?:number,vy?:number,cooldown?:number,hp?:number,hitT?:number,stunT?:number,dir?:number,fuse?:number}>} enemies
  * @property {Array<{x:number,y:number,vx?:number,vy?:number,life?:number,owner:string}>} shots
  * @property {Array<{x:number,y:number,life:number,maxLife?:number,owner:string,radius?:number}>} explosions
  * @property {Array<{x:number,y:number,vx?:number,vy?:number,a:number,w?:number,life:number}>} enemyDebris
  * @property {Array<{x:number,y:number,vx?:number,vy?:number,life?:number}>} playerShots
  * @property {Array<{x:number,y:number,vx?:number,vy?:number,life?:number}>} playerBombs
- * @property {{lava:Array<{x:number,y:number,vx?:number,vy?:number,life?:number}>,mushroom:Array<{x:number,y:number,vx?:number,vy?:number,life?:number}>,bubbles:Array<{x:number,y:number,vx?:number,vy?:number,life?:number,maxLife?:number,size?:number,rot?:number,spin?:number}>,splashes:Array<{x:number,y:number,vx?:number,vy?:number,life?:number,maxLife?:number,size?:number,rot?:number,cr?:number,cg?:number,cb?:number}>}} featureParticles
+ * @property {{iceShard:Array<{x:number,y:number,vx?:number,vy?:number,life?:number,maxLife?:number,size?:number}>,lava:Array<{x:number,y:number,vx?:number,vy?:number,life?:number}>,mushroom:Array<{x:number,y:number,vx?:number,vy?:number,life?:number}>,bubbles:Array<{x:number,y:number,vx?:number,vy?:number,life?:number,maxLife?:number,size?:number,rot?:number,spin?:number}>,splashes:Array<{x:number,y:number,vx?:number,vy?:number,life?:number,maxLife?:number,size?:number,rot?:number,cr?:number,cg?:number,cb?:number}>}} featureParticles
  * @property {Array<{x:number,y:number,life:number,radius?:number}>} entityExplosions
  * @property {{x:number,y:number}|null} aimWorld
  * @property {{x:number,y:number}|null} [aimOrigin]

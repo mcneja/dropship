@@ -1309,6 +1309,11 @@ function drawFrameImpl(renderer, state, planet){
         const alpha = 0.25 + pulse * 0.45;
         triVerts += pushEnemyShape(pos, col, enemyRender, [1.0, 0.2, 0.2], game.ENEMY_SCALE * 1.08, alpha, false) * 3;
       }
+      if (enemy.stunT && enemy.stunT > 0){
+        const pulse = 0.5 + 0.5 * Math.sin(tNow * 10.0);
+        const alpha = 0.12 + pulse * 0.20;
+        triVerts += pushEnemyShape(pos, col, enemyRender, [0.72, 0.92, 1.0], game.ENEMY_SCALE * 1.12, alpha, false) * 3;
+      }
     }
   }
 
@@ -1513,6 +1518,30 @@ function drawFrameImpl(renderer, state, planet){
       if (state.fogEnabled && !planet.fogSeenAt(p.x, p.y)) continue;
       pushDiamond(pos, col, p.x, p.y, size, 0.95, 0.45, 0.75, 0.95);
       triVerts += 6;
+    }
+  }
+  const iceShardParticles = featureParticles ? featureParticles.iceShard : null;
+  if (iceShardParticles && iceShardParticles.length){
+    for (const p of iceShardParticles){
+      if (state.fogEnabled && !planet.fogSeenAt(p.x, p.y)) continue;
+      const lifeN = (p.maxLife && p.maxLife > 0) ? Math.max(0, Math.min(1, p.life / p.maxLife)) : 1;
+      const progress = 1 - lifeN;
+      const vlen = Math.hypot(p.vx || 0, p.vy || 0) || 1;
+      const ux = (p.vx || 0) / vlen;
+      const uy = (p.vy || 0) / vlen;
+      const tx = -uy;
+      const ty = ux;
+      const size = (p.size || 0.16) * (0.9 + progress * 0.45);
+      const tipX = p.x + ux * (size * 1.25);
+      const tipY = p.y + uy * (size * 1.25);
+      const baseX = p.x - ux * (size * 0.40);
+      const baseY = p.y - uy * (size * 0.40);
+      const blX = baseX + tx * (size * 0.52);
+      const blY = baseY + ty * (size * 0.52);
+      const brX = baseX - tx * (size * 0.52);
+      const brY = baseY - ty * (size * 0.52);
+      pushTri(pos, col, blX, blY, brX, brY, tipX, tipY, 0.74, 0.92, 1.0, 0.92 * lifeN);
+      triVerts += 3;
     }
   }
   const splashParticles = featureParticles ? featureParticles.splashes : null;

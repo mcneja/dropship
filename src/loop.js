@@ -301,10 +301,10 @@ export class GameLoop {
         this.ship.invertT = Math.max(this.ship.invertT || 0, d);
       },
       onEnemyHit: (enemy, x, y) => {
-        enemy.hp = Math.max(0, enemy.hp - 1);
-        if (enemy.hp > 0){
-          this._applyEnemyHitFeedback(enemy);
-        }
+        this._damageEnemy(enemy, 1);
+      },
+      onEnemyStun: (enemy, duration) => {
+        this._stunEnemy(enemy, duration);
       },
       onMinerKilled: () => {
         this.minersRemaining = Math.max(0, this.minersRemaining - 1);
@@ -695,6 +695,32 @@ export class GameLoop {
       life: this.NONLETHAL_HIT_FLASH_LIFE,
       radius: this.ENEMY_HIT_BLAST,
     });
+  }
+
+  /**
+   * @param {{x:number,y:number,hp:number,hitT?:number}} enemy
+   * @param {number} amount
+   * @returns {void}
+   */
+  _damageEnemy(enemy, amount){
+    if (!enemy || enemy.hp <= 0) return;
+    const dmg = Math.max(0, amount || 0);
+    if (dmg <= 0) return;
+    enemy.hp = Math.max(0, enemy.hp - dmg);
+    if (enemy.hp > 0){
+      this._applyEnemyHitFeedback(enemy);
+    }
+  }
+
+  /**
+   * @param {{x:number,y:number,hp:number,stunT?:number,hitT?:number}} enemy
+   * @param {number} duration
+   * @returns {void}
+   */
+  _stunEnemy(enemy, duration){
+    if (!enemy || enemy.hp <= 0) return;
+    enemy.stunT = Math.max(0.1, duration || 0);
+    this._applyEnemyHitFeedback(enemy);
   }
 
   /**
@@ -3139,6 +3165,7 @@ export class GameLoop {
       onShipHeat: this.featureCallbacks.onShipHeat,
       onShipConfuse: this.featureCallbacks.onShipConfuse,
       onEnemyHit: this.featureCallbacks.onEnemyHit,
+      onEnemyStun: this.featureCallbacks.onEnemyStun,
       onMinerKilled: this.featureCallbacks.onMinerKilled,
     });
     if (this.ship.state !== "crashed"){
