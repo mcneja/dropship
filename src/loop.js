@@ -401,7 +401,7 @@ export class GameLoop {
       }
     }
     if (obj.type === "clear"){
-      const target = (obj.count && obj.count > 0) ? obj.count : this._totalEnemiesForLevel(lvl);
+      const target = (obj.count && obj.count > 0) ? obj.count : this._enemyTotalForConfig(cfg, lvl);
       return { type: "clear", target };
     }
     if (obj.type === "extract"){
@@ -1861,7 +1861,7 @@ export class GameLoop {
     const enemies = new Enemies({
       planet,
       collision,
-      total: this._totalEnemiesForLevel(level),
+      total: this._enemyTotalForConfig(planetConfig, level),
       level,
       levelSeed: planet.getSeed(),
       placement: planetConfig.enemyPlacement || "random",
