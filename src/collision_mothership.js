@@ -1016,7 +1016,7 @@ export function hasStrictMothershipOverlapAtPose(mothership, shipCollisionPoints
  * @property {import("./types.d.js").CollisionQuery} collision
  * @property {import("./mothership.js").Mothership} mothership
  * @property {{CRASH_SPEED:number,LAND_SPEED:number,LAND_FRICTION:number}} planetParams
- * @property {{SURFACE_DOT:number,BOUNCE_RESTITUTION:number,MOTHERSHIP_FRICTION:number}} game
+ * @property {{SURFACE_DOT:number,BOUNCE_RESTITUTION:number,MOTHERSHIP_FRICTION:number,LAND_SPEED:number}} game
  * @property {number} dt
  * @property {number} eps
  * @property {boolean} [debugEnabled]
@@ -1422,12 +1422,15 @@ export function resolveMothershipCollisionResponse(args){
     }
 
     const landing = buildLandingData(mothership, n.x, n.y, curX, curY, shipRadius, game);
+    const mothershipLandSpeed = Math.max(0, Number(game.LAND_SPEED) || 0);
+    const landVn = Math.max(0.08, mothershipLandSpeed * 3.0);
+    const landVt = Math.max(0.8, mothershipLandSpeed * 0.6);
     if (
       landing.landable
       && landing.dockableSurface
       && landing.dockFloorNormal
-      && vnIn >= -(planetParams.LAND_SPEED * 3.0)
-      && Math.abs(vtIn) < 1.0
+      && vnIn >= -landVn
+      && Math.abs(vtIn) < landVt
     ){
       ship.state = "landed";
       ship.x = landing.landedTestX;

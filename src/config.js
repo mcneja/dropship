@@ -52,7 +52,7 @@ export const GAME = Object.freeze({
   THRUST: 4.5,
   TURN_RATE: 2.4,
   DRAG: 0.12,
-  CRASH_SPEED: 4.5,
+  CRASH_SPEED: 6,
   LAND_SPEED: 4.0,
   SURFACE_DOT: 0.7,
   LAND_FRICTION: 10,

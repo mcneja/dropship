@@ -1674,8 +1674,9 @@ export function resolvePlanetCollisionResponse(args){
   const dotUpRaw = nx * upx + ny * upy;
   const slope = 1 - Math.abs(dotUpRaw);
   const landable = (dotUpRaw < 0 && slope <= landSlope);
-  const landVn = planetParams.LAND_SPEED * 3.0;
-  const landVt = 1.0;
+  const mothershipLandSpeed = Math.max(0, Number(game.LAND_SPEED) || 0);
+  const landVn = Math.max(0.08, mothershipLandSpeed * 3.0);
+  const landVt = Math.max(0.8, mothershipLandSpeed * 0.6);
   if (!overlapNowStrict && (!hasEventContact || vn >= 0) && !landable){
     ship._collision = null;
     if (ship._landingDebug){
