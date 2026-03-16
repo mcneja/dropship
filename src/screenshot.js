@@ -27,7 +27,7 @@ export function drawStartTitle(ctx, w, h, dpr, text, alpha){
   ctx.textBaseline = "middle";
   ctx.font = `700 ${fontPx}px ${fontFamily}`;
   ctx.globalAlpha = alpha;
-  ctx.fillStyle = "rgba(224, 64, 48, 1)";
+  ctx.fillStyle = "rgb(48, 174, 224)";
   ctx.fillText(text, w * 0.5, h * 0.25);
   ctx.globalAlpha = 1;
 }
@@ -150,6 +150,7 @@ export async function copyGameplayScreenshotToClipboard(opts){
     debugCollisions: false,
     debugPlanetTriangles: false,
     debugCollisionContours: false,
+    debugRingVertices: false,
     showGameplayIndicators: false,
     touchUi: null,
     touchStart: false,

@@ -12,9 +12,9 @@ import { buildPlanetMaterials, createIceShardHazard, createRidgeSpikeHazard, cre
  */
 export class Planet {
   /**
-   * @param {{seed:number, planetConfig: import("./planet_config.js").PlanetConfig, planetParams: import("./planet_config.js").PlanetParams}} deps
+   * @param {{seed:number, planetConfig: import("./planet_config.js").PlanetConfig, planetParams: import("./planet_config.js").PlanetParams, mapWorld?:import("./types.d.js").MapWorld|null}} deps
    */
-  constructor({ seed, planetConfig, planetParams }){
+  constructor({ seed, planetConfig, planetParams, mapWorld = null }){
     if (!planetConfig) {
       throw new Error("Planet requires a planetConfig");
     }
@@ -24,7 +24,7 @@ export class Planet {
     this.planetConfig = planetConfig;
     this.planetParams = planetParams;
     this.coreRadius = this._coreRadiusWorld();
-    this.mapgen = new MapGen(seed, planetParams);
+    this.mapgen = new MapGen(seed, planetParams, mapWorld);
     const rPlanet = planetParams.RMAX ?? CFG.RMAX;
     this.planetRadius = rPlanet;
     const surfaceG = (typeof planetParams.SURFACE_G === "number") ? planetParams.SURFACE_G : 2.0;

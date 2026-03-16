@@ -30,6 +30,7 @@ import { pickPlanetConfig, pickPlanetConfigById, resolveLevelProgression, resolv
 import { mulberry32 } from "./rng.js";
 import { clearSavedGame, createLoopSaveSnapshot, restoreLoopFromSaveSnapshot } from "./save_state.js";
 import { copyGameplayScreenshotToClipboard, drawStartTitle } from "./screenshot.js";
+import { JumpdriveTransition } from "./jumpdrive_transition.js";
 import {
   extractPathSegment,
   findGuidePathTargetIndex,
@@ -38,6 +39,8 @@ import {
   moveAlongPathPositive,
   posFromPathIndex,
 } from "./surface_guide_path.js";
+
+/** @typedef {import("./types.d.js").RenderState} RenderState */
 import { lerpAngleShortest, sweptShipVsMovingMothership } from "./collision_mothership.js";
 
 /** @typedef {import("./types.d.js").ViewState} ViewState */
@@ -88,6 +91,9 @@ export class GameLoop {
     this.helpPopup = helpPopup || null;
     this.overlay = overlay || null;
     this.overlayCtx = this.overlay ? this.overlay.getContext("2d") : null;
+    this.jumpdriveTransition = new JumpdriveTransition();
+    /** @type {RenderState|null} */
+    this._lastRenderState = null;
 
     this.TERRAIN_PAD = 0.5;
     this.TERRAIN_MAX = this.planetParams.RMAX + this.TERRAIN_PAD;
@@ -256,14 +262,11 @@ export class GameLoop {
     this._landingDebugSessionSource = "";
     this._minerPathDebugCooldown = 0;
     this._resetStartTitle();
+    this.pendingBootJumpdriveIntro = true;
     this.NEW_GAME_HELP_PROMPT_SECS = 10;
     this.newGameHelpPromptT = 0;
     this.newGameHelpPromptArmed = true;
     this.START_TITLE_FADE_PER_SEC = 1.8;
-    this.levelWipeActive = false;
-    this.levelWipeT = 0;
-    this.levelWipeDir = 1;
-    this.LEVEL_WIPE_DURATION = 1.0;
     this.COMBAT_THREAT_HOLD_MS = 12000;
     this.OBJECTIVE_COMPLETE_SFX_DELAY_MS = 1000;
     this.combatThreatUntilMs = 0;
@@ -1756,15 +1759,17 @@ export class GameLoop {
 
   /**
    * @param {number} level
+   * @param {number} [progressionSeedOverride]
    * @returns {PlanetConfig}
    */
-  _planetConfigFromLevel(level){
-    const progression = resolveLevelProgression(this.progressionSeed || CFG.seed, level);
+  _planetConfigFromLevel(level, progressionSeedOverride){
+    const progressionSeed = Number.isFinite(progressionSeedOverride) ? +progressionSeedOverride : (this.progressionSeed || CFG.seed);
+    const progression = resolveLevelProgression(progressionSeed, level);
     /** @type {PlanetTypeId|undefined} */
     const configOverride = progression ? progression.planetId : undefined;
     const planetConfig =
       (configOverride !== undefined) ? pickPlanetConfigById(configOverride) :
-      pickPlanetConfig(this.progressionSeed || CFG.seed, level);
+      pickPlanetConfig(progressionSeed, level);
     const out = this._applyProgressionOverrides(planetConfig, progression);
     // Scale barren turret-pad count with progression while guaranteeing
     // enough pads for both enemy and miner budgets on this level.
@@ -1784,41 +1789,21 @@ export class GameLoop {
   /**
    * @param {number} seed
    * @param {number} level
-   * @returns {void}
+   * @param {import("./types.d.js").MapWorld|null} [mapWorld]
+   * @returns {{seed:number, level:number, planetConfig:PlanetConfig, planetParams:import("./planet_config.js").PlanetParams, planet:Planet, objective:any, mothership:Mothership, collision:import("./types.d.js").CollisionQuery, enemies:Enemies}}
    */
-  _beginLevel(seed, level){
-    const previousLevel = this.level;
-    this.level = level;
-    if (level === 1){
-      this.progressionSeed = seed | 0;
-    }
-    const planetConfig = this._planetConfigFromLevel(this.level);
-    const planetParams = resolvePlanetParams(seed, this.level, planetConfig, GAME);
-    this.planet = new Planet({ seed, planetConfig, planetParams });
-    this.planetParams = planetParams;
-    this.objective = this._buildObjective(planetConfig, this.level);
-    console.log("[Level] begin", {
-      level: this.level,
-      planetId: planetConfig.id,
-      enemies: this._totalEnemiesForLevel(this.level),
-      miners: this._targetMinersForLevel(),
-      platformCount: planetConfig.platformCount,
-      props: (this.planet.props || []).length,
-    });
-    if (this.planet.props && this.planet.props.length){
-      console.log("[Level] props sample", this.planet.props.slice(0, 3).map((p) => ({ type: p.type, x: p.x, y: p.y, dead: !!p.dead })));
-    }
-    this.TERRAIN_MAX = this.planetParams.RMAX + this.TERRAIN_PAD;
-    this.SURFACE_EPS = Math.max(0.12, this.planetParams.RMAX / 280);
-    this.COLLISION_EPS = Math.max(0.18, this.planetParams.RMAX / 240);
-    this.mothership = new Mothership({ RMAX: this.planetParams.RMAX, MOTHERSHIP_ORBIT_HEIGHT: this.planetParams.MOTHERSHIP_ORBIT_HEIGHT }, this.planet);
-    this.collision = createCollisionRouter(this.planet, () => this.mothership);
-    this.enemies = new Enemies({
-      planet: this.planet,
-      collision: this.collision,
-      total: this._totalEnemiesForLevel(this.level),
-      level: this.level,
-      levelSeed: this.planet.getSeed(),
+  _buildLevelBundle(seed, level, mapWorld = null){
+    const planetConfig = this._planetConfigFromLevel(level, (level === 1) ? (seed | 0) : undefined);
+    const planetParams = resolvePlanetParams(seed, level, planetConfig, GAME);
+    const planet = new Planet({ seed, planetConfig, planetParams, mapWorld });
+    const mothership = new Mothership({ RMAX: planetParams.RMAX, MOTHERSHIP_ORBIT_HEIGHT: planetParams.MOTHERSHIP_ORBIT_HEIGHT }, planet);
+    const collision = createCollisionRouter(planet, () => mothership);
+    const enemies = new Enemies({
+      planet,
+      collision,
+      total: this._totalEnemiesForLevel(level),
+      level,
+      levelSeed: planet.getSeed(),
       placement: planetConfig.enemyPlacement || "random",
       onEnemyShot: () => {
         this._playSfx("enemy_fire", { volume: 0.55 });
@@ -1829,6 +1814,49 @@ export class GameLoop {
         this._playSfx("enemy_destroyed", { volume: 0.8 });
       },
     });
+    return {
+      seed,
+      level,
+      planetConfig,
+      planetParams,
+      planet,
+      objective: this._buildObjective(planetConfig, level),
+      mothership,
+      collision,
+      enemies,
+    };
+  }
+
+  /**
+   * @param {{seed:number, level:number, planetConfig:PlanetConfig, planetParams:import("./planet_config.js").PlanetParams, planet:Planet, objective:any, mothership:Mothership, collision:import("./types.d.js").CollisionQuery, enemies:Enemies}} bundle
+   * @param {number} previousLevel
+   * @returns {void}
+   */
+  _applyLevelBundle(bundle, previousLevel){
+    this.level = bundle.level;
+    if (bundle.level === 1){
+      this.progressionSeed = bundle.seed | 0;
+    }
+    this.planet = bundle.planet;
+    this.planetParams = bundle.planetParams;
+    this.objective = bundle.objective;
+    this.TERRAIN_MAX = this.planetParams.RMAX + this.TERRAIN_PAD;
+    this.SURFACE_EPS = Math.max(0.12, this.planetParams.RMAX / 280);
+    this.COLLISION_EPS = Math.max(0.18, this.planetParams.RMAX / 240);
+    this.mothership = bundle.mothership;
+    this.collision = bundle.collision;
+    this.enemies = bundle.enemies;
+    console.log("[Level] begin", {
+      level: this.level,
+      planetId: bundle.planetConfig.id,
+      enemies: this._totalEnemiesForLevel(this.level),
+      miners: this._targetMinersForLevel(),
+      platformCount: bundle.planetConfig.platformCount,
+      props: (this.planet.props || []).length,
+    });
+    if (this.planet.props && this.planet.props.length){
+      console.log("[Level] props sample", this.planet.props.slice(0, 3).map((p) => ({ type: p.type, x: p.x, y: p.y, dead: !!p.dead })));
+    }
     this._initializeClearObjectiveTracking();
     this.coreMeltdownActive = false;
     this.coreMeltdownT = 0;
@@ -1846,8 +1874,7 @@ export class GameLoop {
     this.minerPopups.length = 0;
     this.planet.clearFeatureParticles();
 
-    // Reset progression when starting the first level
-    if (level === 1){
+    if (this.level === 1){
       this.hasLaunchedPlayerShip = false;
       this.newGameHelpPromptT = 0;
       this.newGameHelpPromptArmed = true;
@@ -1865,7 +1892,6 @@ export class GameLoop {
       this.ship.gunPower = GAME.SHIP_STARTING_GUN_POWER;
       this.ship.rescueeDetector = false;
       this.ship.planetScanner = false;
-
       this.pendingPerkChoice = null;
       this.victoryMusicTriggered = false;
     }
@@ -1877,9 +1903,102 @@ export class GameLoop {
       this.audio.returnToAmbient(true);
     }
     this._setThrustLoopActive(false);
-    if (level === previousLevel + 1){
-      this._startLevelWipe(level);
+    if (previousLevel !== this.level){
+      this.levelAdvanceReady = false;
     }
+  }
+
+  /**
+   * @param {number} seed
+   * @param {number} level
+   * @param {import("./types.d.js").MapWorld|null} [mapWorld]
+   * @param {boolean} [keepTransition]
+   * @returns {void}
+   */
+  _beginLevel(seed, level, mapWorld = null, keepTransition = false){
+    if (!keepTransition){
+      this.jumpdriveTransition.cancel();
+    }
+    const previousLevel = this.level;
+    const bundle = this._buildLevelBundle(seed, level, mapWorld);
+    this._applyLevelBundle(bundle, previousLevel);
+  }
+
+  /**
+   * @param {number} seed
+   * @param {number} level
+   * @returns {void}
+   */
+  _startJumpdriveTransition(seed, level){
+    if (this.jumpdriveTransition.isActive()) return;
+    this.manualZoomActive = false;
+    this.manualZoomMultiplier = 1;
+    this.planetView = false;
+    this.levelAdvanceReady = false;
+    this._setThrustLoopActive(false);
+    const planetConfig = this._planetConfigFromLevel(level);
+    const planetParams = resolvePlanetParams(seed, level, planetConfig, GAME);
+    this.jumpdriveTransition.start({
+      seed,
+      level,
+      planetConfig,
+      planetParams,
+      view: this._autoViewState(),
+      mothership: this.mothership,
+      ship: this.ship,
+      currentPlanetRadius: this.planet ? this.planet.planetRadius : (this.planetParams ? this.planetParams.RMAX : 0),
+    });
+  }
+
+  /**
+   * @returns {import("./types.d.js").MapWorld|null}
+   */
+  _currentMapWorldClone(){
+    if (!this.planet || !this.planet.mapgen || typeof this.planet.mapgen.getWorld !== "function") return null;
+    const world = this.planet.mapgen.getWorld();
+    if (!world || !world.air) return null;
+    return {
+      seed: +world.seed || 0,
+      air: new Uint8Array(world.air),
+      entrances: Array.isArray(world.entrances) ? world.entrances.map((p) => [p[0], p[1]]) : [],
+      finalAir: +world.finalAir || 0,
+    };
+  }
+
+  /**
+   * @returns {void}
+   */
+  _startCurrentLevelJumpdriveIntro(){
+    if (this.jumpdriveTransition.isActive() || !this.mothership || !this.planet) return;
+    this.manualZoomActive = false;
+    this.manualZoomMultiplier = 1;
+    this.planetView = false;
+    this.levelAdvanceReady = false;
+    this._setThrustLoopActive(false);
+    const planetConfig = this.planet.getPlanetConfig();
+    const planetParams = this.planet.getPlanetParams();
+    const mapWorld = this._currentMapWorldClone();
+    if (!planetConfig || !planetParams || !mapWorld) return;
+    this.jumpdriveTransition.start({
+      seed: this.planet.getSeed(),
+      level: this.level,
+      planetConfig,
+      planetParams,
+      mapWorld,
+      view: this._autoViewState(),
+      mothership: this.mothership,
+      ship: this.ship,
+      currentPlanetRadius: this.planet.planetRadius,
+    });
+  }
+
+  /**
+   * @param {number} seed
+   * @returns {void}
+   */
+  _beginNewGameWithIntro(seed){
+    this._beginLevel(seed, 1);
+    this._startCurrentLevelJumpdriveIntro();
   }
 
   /**
@@ -2292,6 +2411,20 @@ export class GameLoop {
    * @returns {void}
    */
   _step(dt, inputState){
+    if (this.jumpdriveTransition.isActive()){
+      this._setThrustLoopActive(false);
+      this.jumpdriveTransition.update(dt);
+      const preparedLevel = this.jumpdriveTransition.consumePreparedLevel();
+      if (preparedLevel){
+        this._beginLevel(preparedLevel.seed, preparedLevel.level, preparedLevel.mapWorld, true);
+        this.jumpdriveTransition.applyPreparedLevel({
+          mothership: this.mothership,
+          view: this._autoViewState(),
+        });
+      }
+      return;
+    }
+
     let {
       stickThrust,
       left,
@@ -2344,14 +2477,14 @@ export class GameLoop {
           this._restartWithNewPilot();
         } else {
           const nextSeed = this.planet.getSeed() + 1;
-          this._beginLevel(nextSeed, 1);
+          this._beginNewGameWithIntro(nextSeed);
         }
       } else if (this._isDockedWithMothership()) {
         if (this.pendingPerkChoice === null && this.ship.mothershipEngineers > 0){
           this._presentNextPerkChoice();
         } else if (this.levelAdvanceReady){
           const nextSeed = this.planet.getSeed() + 1;
-          this._beginLevel(nextSeed, this.level + 1);
+          this._startJumpdriveTransition(nextSeed, this.level + 1);
         } else if (this.ship.planetScanner){
           this.planetView = !this.planetView;
         }
@@ -3409,27 +3542,28 @@ export class GameLoop {
     const now = performance.now();
     const rawDt = Math.min(0.05, (now - this.lastTime) / 1000);
     this.lastTime = now;
-    const touchStartActionMode = this._touchStartActionMode();
+    const transitionActive = this.jumpdriveTransition.isActive();
+    const touchStartActionMode = transitionActive ? null : this._touchStartActionMode();
     const touchStartPromptActive = touchStartActionMode !== null;
     this.input.setTouchStartPromptActive(touchStartPromptActive);
-    this.input.setGameOver(this.ship.state === "crashed");
+    this.input.setGameOver(!transitionActive && this.ship.state === "crashed");
     if (this.input && typeof this.input.setDebugCommandsEnabled === "function"){
       this.input.setDebugCommandsEnabled(this.devHudVisible);
     }
     const inputState = this.input.update();
-    if (inputState.toggleFrameStep){
+    if (!transitionActive && inputState.toggleFrameStep){
       this.debugFrameStepMode = !this.debugFrameStepMode;
       this.accumulator = 0;
       this._showStatusCue(this.debugFrameStepMode ? "Frame step on (Alt+L, Space steps)" : "Frame step off");
     }
-    if (this.debugFrameStepMode){
+    if (this.debugFrameStepMode || transitionActive){
       inputState.thrust = false;
     }
-    if (inputState.zoomReset){
+    if (!transitionActive && inputState.zoomReset){
       this._resetManualZoom();
       this._showZoomCue();
     }
-    if (typeof inputState.zoomDelta === "number" && Math.abs(inputState.zoomDelta) > 1e-4){
+    if (!transitionActive && typeof inputState.zoomDelta === "number" && Math.abs(inputState.zoomDelta) > 1e-4){
       this._applyManualZoomDelta(inputState.zoomDelta);
     }
     if (this.helpPopup && typeof this.helpPopup.setTouchMode === "function"){
@@ -3455,29 +3589,31 @@ export class GameLoop {
     }
 
     this.levelAdvanceReady =
+      !transitionActive &&
       this.pendingPerkChoice === null &&
       this.ship.mothershipEngineers <= 0 &&
       this._objectiveComplete() &&
       this._isDockedWithMothership();
-    this._updateStartTitle(dt, inputState);
-    this._updateLevelWipe(dt);
+    if (!transitionActive){
+      this._updateStartTitle(dt, inputState);
+    }
 
-    if (this.ship.state === "crashed"){
+    if (!transitionActive && this.ship.state === "crashed"){
       this.ship.explodeT = Math.min(1.2, this.ship.explodeT + dt * 0.9);
     }
 
-    if (inputState.regen){
+    if (!transitionActive && inputState.regen){
       const nextSeed = this.planet.getSeed() + 1;
       this._beginLevel(nextSeed, this.level);
     }
-    if (inputState.prevLevel){
+    if (!transitionActive && inputState.prevLevel){
       if (this.level > 1){
         const nextSeed = this.planet.getSeed() + 1;
-        this._beginLevel(nextSeed, this.level - 1);
+        this._startJumpdriveTransition(nextSeed, this.level - 1);
       }
-    } else if (inputState.nextLevel){
+    } else if (!transitionActive && inputState.nextLevel){
       const nextSeed = this.planet.getSeed() + 1;
-      this._beginLevel(nextSeed, this.level + 1);
+      this._startJumpdriveTransition(nextSeed, this.level + 1);
     }
     if (inputState.toggleDebug){
       this.debugCollisions = !this.debugCollisions;
@@ -3791,9 +3927,12 @@ export class GameLoop {
       this.fpsTime = now;
     }
 
-    const gameOver = this.ship.state === "crashed";
-    this.planet.syncRenderFog(this.renderer, this.ship.x, this.ship.y);
-    const renderState = {
+    const gameOver = !transitionActive && this.ship.state === "crashed";
+    if (!transitionActive){
+      this.planet.syncRenderFog(this.renderer, this.ship.x, this.ship.y);
+    }
+    /** @type {RenderState} */
+    let renderState = {
       view: this._viewState(),
       ship: this.ship,
       mothership: this.mothership,
@@ -3831,6 +3970,10 @@ export class GameLoop {
       touchStart: inputState.inputType === "touch" && touchStartPromptActive,
       touchStartMode: inputState.inputType === "touch" ? touchStartActionMode : null,
     };
+    if (transitionActive){
+      renderState = this.jumpdriveTransition.decorateRenderState(renderState);
+    }
+    this._lastRenderState = renderState;
     this.renderer.drawFrame(renderState, this.planet);
 
     this._drawMinerPopups();
@@ -3889,7 +4032,7 @@ export class GameLoop {
       });
     }
     const heat = this.ship.heat || 0;
-    const showHeat = this._heatMechanicsActive();
+    const showHeat = !transitionActive && this._heatMechanicsActive();
     const heating = showHeat && (heat > this.lastHeat + 0.1);
     this.lastHeat = heat;
     if (this.heatMeter && this.ui.updateHeatMeter){
@@ -3897,8 +4040,8 @@ export class GameLoop {
     }
     const titleShowing = !this.startTitleSeen && this.startTitleAlpha > 0;
     if (this.planetLabel){
-      this.planetLabel.style.visibility = titleShowing ? "hidden" : "visible";
-      if (!titleShowing && this.ui.updatePlanetLabel){
+      this.planetLabel.style.visibility = (titleShowing || transitionActive) ? "hidden" : "visible";
+      if (!titleShowing && !transitionActive && this.ui.updatePlanetLabel){
         const cfg = this.planet.getPlanetConfig();
         const label = cfg ? cfg.label : "";
         const prefix = `Level ${this.level}: `;
@@ -3906,7 +4049,7 @@ export class GameLoop {
       }
     }
     if (this.objectiveLabel){
-      this.objectiveLabel.style.visibility = "visible";
+      this.objectiveLabel.style.visibility = transitionActive ? "hidden" : "visible";
       const abandonHoldActive = !!inputState.abandonHoldActive;
       const abandonHoldRemainingMs = (typeof inputState.abandonHoldRemainingMs === "number")
         ? inputState.abandonHoldRemainingMs
@@ -3935,8 +4078,8 @@ export class GameLoop {
       }
     }
     if (this.shipStatusLabel){
-      this.shipStatusLabel.style.visibility = titleShowing ? "hidden" : "visible";
-      if (!titleShowing && this.ui.updateShipStatusLabel){
+      this.shipStatusLabel.style.visibility = (titleShowing || transitionActive) ? "hidden" : "visible";
+      if (!titleShowing && !transitionActive && this.ui.updateShipStatusLabel){
         this.ui.updateShipStatusLabel(this.shipStatusLabel, {
           shipHp: this.ship.hpCur,
           shipHpMax: this.ship.hpMax,
@@ -3967,70 +4110,6 @@ export class GameLoop {
       this.startTitleSeen = true;
       this.startTitleAlpha = 0;
     }
-  }
-
-  /**
-   * @param {number} nextLevel
-   * @returns {void}
-   */
-  _startLevelWipe(nextLevel){
-    this.levelWipeActive = true;
-    this.levelWipeT = 0;
-    this.levelWipeDir = ((nextLevel | 0) % 2 === 0) ? 1 : -1;
-  }
-
-  /**
-   * @param {number} dt
-   * @returns {void}
-   */
-  _updateLevelWipe(dt){
-    if (!this.levelWipeActive) return;
-    const duration = Math.max(0.05, this.LEVEL_WIPE_DURATION);
-    this.levelWipeT += Math.max(0, dt) / duration;
-    if (this.levelWipeT >= 1){
-      this.levelWipeT = 1;
-      this.levelWipeActive = false;
-    }
-  }
-
-  /**
-   * @param {CanvasRenderingContext2D} ctx
-   * @param {number} w
-   * @param {number} h
-   * @param {number} dpr
-   * @returns {void}
-   */
-  _drawLevelWipe(ctx, w, h, dpr){
-    if (!this.levelWipeActive) return;
-    const t = Math.max(0, Math.min(1, this.levelWipeT));
-    const coverage = 1 - Math.abs(1 - 2 * t); // 0 -> 1 -> 0
-    const band = Math.max(20 * dpr, w * 0.07);
-    const edge =
-      (this.levelWipeDir > 0)
-        ? (coverage * (w + band) - band)
-        : (w - coverage * (w + band));
-
-    ctx.save();
-    ctx.globalAlpha = 1;
-    ctx.fillStyle = "rgba(5, 8, 15, 0.96)";
-    if (this.levelWipeDir > 0){
-      ctx.fillRect(0, 0, Math.max(0, edge), h);
-    } else {
-      ctx.fillRect(edge, 0, w - edge, h);
-    }
-
-    const grad =
-      (this.levelWipeDir > 0)
-        ? ctx.createLinearGradient(edge - band, 0, edge + band, 0)
-        : ctx.createLinearGradient(edge + band, 0, edge - band, 0);
-    grad.addColorStop(0, "rgba(72, 226, 255, 0)");
-    grad.addColorStop(0.4, "rgba(72, 226, 255, 0.2)");
-    grad.addColorStop(0.5, "rgba(245, 250, 255, 0.92)");
-    grad.addColorStop(0.6, "rgba(72, 226, 255, 0.2)");
-    grad.addColorStop(1, "rgba(72, 226, 255, 0)");
-    ctx.fillStyle = grad;
-    ctx.fillRect(edge - band, 0, band * 2, h);
-    ctx.restore();
   }
 
   /**
@@ -4183,6 +4262,10 @@ export class GameLoop {
    * @returns {void}
    */
   start(){
+    if (this.pendingBootJumpdriveIntro){
+      this.pendingBootJumpdriveIntro = false;
+      this._startCurrentLevelJumpdriveIntro();
+    }
     requestAnimationFrame(() => this._frame());
   }
 
@@ -4319,7 +4402,7 @@ export class GameLoop {
   _abandonRunAndRestart(){
     clearSavedGame();
     const nextSeed = this.planet.getSeed() + 1;
-    this._beginLevel(nextSeed, 1);
+    this._beginNewGameWithIntro(nextSeed);
   }
 
   /**
@@ -4393,6 +4476,8 @@ export class GameLoop {
    * @returns {boolean}
    */
   restoreFromSaveSnapshot(snapshot){
+    this.pendingBootJumpdriveIntro = false;
+    this.jumpdriveTransition.cancel();
     return restoreLoopFromSaveSnapshot(this, snapshot);
   }
 
@@ -4415,8 +4500,13 @@ export class GameLoop {
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, w, h);
+    if (this.jumpdriveTransition.isActive()){
+      this.jumpdriveTransition.drawOverlay(ctx, w, h, dpr, this._lastRenderState);
+      ctx.globalAlpha = 1;
+      return;
+    }
     const showStartTitle = !this.startTitleSeen && this.startTitleAlpha > 0;
-    if (!showStartTitle && !this.minerPopups.length && !this.shipHitPopups.length && !this.lastAimScreen && !this.pendingPerkChoice && !this.levelWipeActive){
+    if (!showStartTitle && !this.minerPopups.length && !this.shipHitPopups.length && !this.lastAimScreen && !this.pendingPerkChoice){
       return;
     }
 
@@ -4510,7 +4600,6 @@ export class GameLoop {
     if (showStartTitle){
       drawStartTitle(ctx, w, h, dpr, this.startTitleText, this.startTitleAlpha);
     }
-    this._drawLevelWipe(ctx, w, h, dpr);
     ctx.globalAlpha = 1;
   }
 }

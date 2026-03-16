@@ -95,6 +95,36 @@ export const GAME = Object.freeze({
   FOG_BUDGET_TRIS: 300,
   FOG_LOS_THRESH: 0.5,
   FOG_ALPHA_LERP: 0.2,
+  JUMPDRIVE: Object.freeze({
+    // Seconds spent damping camera rotation and pitching the mothership up.
+    alignDuration: 0.5,
+    // Minimum seconds spent in the star-streak jumpdrive run.
+    jumpdriveMinDuration: 1.1,
+    // Seconds spent revealing the next planet while staying zoomed out.
+    revealDuration: 3.05,
+    // Seconds spent zooming back into the normal gameplay framing.
+    focusDuration: 0.7,
+    // Max degrees the mothership pitches from its current heading toward open space.
+    launchTiltDeg: 38,
+    // Camera radius multiplier reached by the end of the align phase.
+    alignZoomMultiplier: 1.12,
+    // Additional camera radius multiplier used during the jumpdrive run.
+    jumpdriveZoomMultiplier: 1.45,
+    // Camera radius multiplier used at the start of the arrival reveal.
+    revealStartZoomMultiplier: 3.5,
+    // Camera radius multiplier reached by the end of the wide arrival reveal.
+    revealZoomMultiplier: 1.85,
+    // Overall scale multiplier for the mothership jumpdrive rocket plume.
+    plumeScale: 1.5,
+    // How far the mothership travels during launch, in view-radius units.
+    launchDistanceMultiplier: 3.2,
+    // How far above the final orbit position the arrival path starts.
+    arrivalOffsetMultiplier: 1.9,
+    // Sideways offset applied to the arrival path for a curved orbit entry.
+    arrivalLateralMultiplier: 0.42,
+    // Number of star streaks drawn in the jumpdrive overlay.
+    streakCount: 84,
+  }),
 });
 
 export const TOUCH_UI = Object.freeze({

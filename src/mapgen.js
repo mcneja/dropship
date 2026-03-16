@@ -12,8 +12,9 @@ export class MapGen {
    * Create a map generator.
    * @param {number} seed
    * @param {import("./planet_config.js").PlanetParams} params
+   * @param {MapWorld|null} [prebuiltWorld]
    */
-  constructor(seed, params){
+  constructor(seed, params, prebuiltWorld = null){
     this.params = params;
     const G = CFG.GRID;
     const worldMin = -(params.RMAX + params.PAD);
@@ -58,7 +59,11 @@ export class MapGen {
     /** @type {MapWorld} */
     this._current = { seed, air: new Uint8Array(G*G), entrances: [], finalAir: 0 };
 
-    this.regenWorld(seed);
+    if (prebuiltWorld){
+      this._current = normalizeMapWorld(prebuiltWorld, G, seed);
+    } else {
+      this.regenWorld(seed);
+    }
   }
 
   /**
@@ -533,4 +538,30 @@ export class MapGen {
   getWorld(){
     return this._current;
   }
+}
+
+/**
+ * @param {MapWorld|null|undefined} world
+ * @param {number} gridSize
+ * @param {number} fallbackSeed
+ * @returns {MapWorld}
+ */
+function normalizeMapWorld(world, gridSize, fallbackSeed){
+  const targetSize = Math.max(1, gridSize | 0) * Math.max(1, gridSize | 0);
+  const srcAir = world && world.air ? world.air : null;
+  let air;
+  if (srcAir instanceof Uint8Array && srcAir.length === targetSize){
+    air = srcAir;
+  } else {
+    air = new Uint8Array(targetSize);
+    if (srcAir){
+      air.set(srcAir.subarray ? srcAir.subarray(0, targetSize) : srcAir.slice(0, targetSize));
+    }
+  }
+  return {
+    seed: (world && Number.isFinite(world.seed)) ? +world.seed : +fallbackSeed,
+    air,
+    entrances: Array.isArray(world && world.entrances) ? world.entrances.map((p) => [p[0], p[1]]) : [],
+    finalAir: (world && Number.isFinite(world.finalAir)) ? +world.finalAir : 0,
+  };
 }
