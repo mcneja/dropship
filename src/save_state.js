@@ -131,7 +131,7 @@ export function createLoopSaveSnapshot(loop){
     playerBombs: cloneSaveData(loop.playerBombs),
     debris: cloneSaveData(loop.debris),
     entityExplosions: cloneSaveData(loop.entityExplosions),
-    minerPopups: cloneSaveData(loop.minerPopups),
+    popups: cloneSaveData(loop.popups),
     shipHitPopups: cloneSaveData(loop.shipHitPopups),
 
     objective: cloneSaveData(loop.objective),
@@ -223,7 +223,7 @@ export function restoreLoopFromSaveSnapshot(loop, snapshot){
     loop.playerBombs = Array.isArray(snapshot.playerBombs) ? cloneSaveData(snapshot.playerBombs) : [];
     loop.debris = Array.isArray(snapshot.debris) ? cloneSaveData(snapshot.debris) : [];
     loop.entityExplosions = Array.isArray(snapshot.entityExplosions) ? cloneSaveData(snapshot.entityExplosions) : [];
-    loop.minerPopups = Array.isArray(snapshot.minerPopups) ? cloneSaveData(snapshot.minerPopups) : [];
+    loop.popups = Array.isArray(snapshot.popups) ? cloneSaveData(snapshot.popups) : [];
     loop.shipHitPopups = Array.isArray(snapshot.shipHitPopups) ? cloneSaveData(snapshot.shipHitPopups) : [];
 
     loop.objective = (snapshot.objective && typeof snapshot.objective === "object")

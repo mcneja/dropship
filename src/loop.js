@@ -158,8 +158,8 @@ export class GameLoop {
     this.playerBombs = [];
     /** @type {Array<{x:number,y:number,life:number,radius?:number}>} */
     this.entityExplosions = [];
-    /** @type {Array<{x:number,y:number,vx:number,vy:number,life:number}>} */
-    this.minerPopups = [];
+    /** @type {Array<{x:number,y:number,vx:number,vy:number,text:string,life:number}>} */
+    this.popups = [];
     /** @type {Array<{x:number,y:number,vx:number,vy:number,life:number}>} */
     this.shipHitPopups = [];
     /** @type {{x:number,y:number}|null} */
@@ -596,7 +596,7 @@ export class GameLoop {
     this.playerShots.length = 0;
     this.playerBombs.length = 0;
     this.entityExplosions.length = 0;
-    this.minerPopups.length = 0;
+    this.popups.length = 0;
     this.shipHitPopups.length = 0;
     this.playerShotCooldown = 0;
     this.planet.clearFeatureParticles();
@@ -1975,7 +1975,7 @@ export class GameLoop {
       enemies: this.enemies.enemies,
       miners: this.miners,
     });
-    this.minerPopups.length = 0;
+    this.popups.length = 0;
     this.planet.clearFeatureParticles();
 
     if (this.level === 1){
@@ -2720,10 +2720,6 @@ export class GameLoop {
         ).samples;
         this.lastAimWorld = null;
         this.lastAimScreen = null;
-        // Stay locked to the mothership; skip gravity/collision integration.
-        this._setThrustLoopActive(false);
-        this.enemies.update(this.ship, dt);
-        return;
       }
     }
 
@@ -2980,8 +2976,10 @@ export class GameLoop {
         aimWorld = { x: gunOrigin.x + dirx * aimLen, y: gunOrigin.y + diry * aimLen };
       }
     }
-    this.lastAimWorld = aimWorld;
-    if (aim) this.lastAimScreen = aim;
+    if (!this._isDockedWithMothership()){
+      this.lastAimWorld = aimWorld;
+      if (aim) this.lastAimScreen = aim;
+    }
 
     if (this.ship.state === "crashed"){
       this.ship.guidePath = null;
@@ -3080,7 +3078,7 @@ export class GameLoop {
     }
     this._resolveShipSolidPropCollisions();
 
-    if (this.ship.state !== "crashed"){
+    if (this.ship.state !== "crashed" && !this._isDockedWithMothership()){
       const wantsShoot = !!(shootPressed || shootHeld);
       if (wantsShoot && this.playerShotCooldown <= 0){
         let dirx = 0, diry = 0;
@@ -3546,11 +3544,12 @@ export class GameLoop {
         const tx = -upy;
         const ty = upx;
         const jitter = (Math.random() * 2 - 1) * GAME.MINER_POPUP_TANGENTIAL;
-        this.minerPopups.push({
+        this.popups.push({
           x: miner.x + upx * 0.1,
           y: miner.y + upy * 0.1,
           vx: upx * GAME.MINER_POPUP_SPEED + tx * jitter,
           vy: upy * GAME.MINER_POPUP_SPEED + ty * jitter,
+          text: "+1",
           life: GAME.MINER_POPUP_LIFE,
         });
         this._playSfx("miner_rescued", {
@@ -3566,13 +3565,13 @@ export class GameLoop {
       this._minerPathDebugCooldown = 0.35;
     }
 
-    if (this.minerPopups.length){
-      for (let i = this.minerPopups.length - 1; i >= 0; i--){
-        const p = this.minerPopups[i];
+    if (this.popups.length){
+      for (let i = this.popups.length - 1; i >= 0; i--){
+        const p = this.popups[i];
         p.x += p.vx * dt;
         p.y += p.vy * dt;
         p.life -= dt;
-        if (p.life <= 0) this.minerPopups.splice(i, 1);
+        if (p.life <= 0) this.popups.splice(i, 1);
       }
     }
 
@@ -4378,6 +4377,32 @@ export class GameLoop {
    * @returns {void}
    */
   _onSuccessfullyDocked(){
+    let y = 0.5;
+    const r = Math.hypot(this.ship.x, this.ship.y);
+    const upx = this.ship.x / r;
+    const upy = this.ship.y / r;
+    const addPopup = (msg) => {
+      this.popups.push({
+        x: this.ship.x + upx * y,
+        y: this.ship.y + upy * y,
+        vx: this.mothership.vx + upx * GAME.MINER_POPUP_SPEED,
+        vy: this.mothership.vy + upy * GAME.MINER_POPUP_SPEED,
+        text: msg,
+        life: 2.0,
+      });
+      y += 0.25;
+    };
+    const addGroupPopup = (name, count) => {
+      if (count <= 0) return;
+      addPopup(name + " +" + count);
+    };
+
+    addGroupPopup("pilot", this.ship.dropshipPilots);
+    addGroupPopup("engineer", this.ship.dropshipEngineers);
+    addGroupPopup("miner", this.ship.dropshipMiners);
+    addGroupPopup("hull", this.ship.hpMax - this.ship.hpCur);
+    addGroupPopup("bomb", this.ship.bombsMax - this.ship.bombsCur);
+
     this.ship.mothershipMiners += this.ship.dropshipMiners;
     this.ship.mothershipPilots += this.ship.dropshipPilots;
     this.ship.mothershipEngineers += this.ship.dropshipEngineers;
@@ -4611,7 +4636,7 @@ export class GameLoop {
       return;
     }
     const showStartTitle = !this.startTitleSeen && this.startTitleAlpha > 0;
-    if (!showStartTitle && !this.minerPopups.length && !this.shipHitPopups.length && !this.lastAimScreen && !this.pendingPerkChoice){
+    if (!showStartTitle && !this.popups.length && !this.shipHitPopups.length && !this.lastAimScreen && !this.pendingPerkChoice){
       return;
     }
 
@@ -4620,7 +4645,7 @@ export class GameLoop {
     ctx.font = `700 ${Math.max(12, Math.round(16 * dpr))}px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace`;
     const screenT = this._screenTransform(w / h);
 
-    for (const p of this.minerPopups){
+    for (const p of this.popups){
       const t = Math.max(0, Math.min(1, p.life / GAME.MINER_POPUP_LIFE));
       const alpha = 0.9 * t;
       const screen = this._worldToScreenNorm(p.x, p.y, screenT);
@@ -4628,7 +4653,7 @@ export class GameLoop {
       const py = screen.y * h;
       ctx.globalAlpha = alpha;
       ctx.fillStyle = "rgba(255, 236, 170, 1)";
-      ctx.fillText("+1", px, py);
+      ctx.fillText(p.text, px, py);
     }
     for (const p of this.shipHitPopups){
       const t = Math.max(0, Math.min(1, p.life / GAME.SHIP_HIT_POPUP_LIFE));
