@@ -63,6 +63,7 @@ export class Input {
       bomb: false,
       rescueAll: false,
       killAllEnemies: false,
+      removeEntities: false,
       spawnEnemyType: null,
     };
     /** @type {boolean} */
@@ -182,6 +183,7 @@ export class Input {
       this.oneshot.zoomReset = false;
       this.oneshot.rescueAll = false;
       this.oneshot.killAllEnemies = false;
+      this.oneshot.removeEntities = false;
       this.oneshot.musicVolumeUp = false;
       this.oneshot.musicVolumeDown = false;
       this.oneshot.sfxVolumeUp = false;
@@ -419,6 +421,7 @@ export class Input {
     if (this.debugCommandsEnabled && debugChord && debugDigit) this.oneshot.spawnEnemyType = code[5];
     if (this.debugCommandsEnabled && debugChord && code === "KeyP") this.oneshot.rescueAll = true;
     if (this.debugCommandsEnabled && debugChord && code === "KeyX") this.oneshot.killAllEnemies = true;
+    if (this.debugCommandsEnabled && debugChord && code === "KeyE") this.oneshot.removeEntities = true;
   }
 
   /**
@@ -867,6 +870,7 @@ export class Input {
         bomb: false,
         rescueAll: false,
         killAllEnemies: false,
+        removeEntities: false,
         spawnEnemyType: null,
         aim: null,
         aimShoot: null,
@@ -1031,6 +1035,7 @@ export class Input {
       bomb: this.oneshot.bomb,
       rescueAll: this.oneshot.rescueAll,
       killAllEnemies: this.oneshot.killAllEnemies,
+      removeEntities: this.oneshot.removeEntities,
       spawnEnemyType: this.oneshot.spawnEnemyType,
       aim,
       aimShoot,
@@ -1084,6 +1089,7 @@ export class Input {
     this.oneshot.bomb = false;
     this.oneshot.rescueAll = false;
     this.oneshot.killAllEnemies = false;
+    this.oneshot.removeEntities = false;
     this.oneshot.spawnEnemyType = null;
     this.zoomDelta = 0;
     this.bombReleaseFrom = null;

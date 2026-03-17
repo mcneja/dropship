@@ -228,6 +228,7 @@
  * @property {boolean} bomb
  * @property {boolean} rescueAll
  * @property {boolean} killAllEnemies
+ * @property {boolean} removeEntities
  * @property {EnemyType|null} [spawnEnemyType]
  * @property {Point|null} [aim]
  * @property {Point|null} [aimShoot]

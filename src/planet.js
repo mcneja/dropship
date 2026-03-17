@@ -8,6 +8,18 @@ import { mulberry32 } from "./rng.js";
 import { buildPlanetMaterials, createIceShardHazard, createRidgeSpikeHazard, createMushroomHazard, createPlanetFeatures } from "./planet_features.js";
 
 /**
+ * @param {import("./planet_config.js").PlanetConfig|null|undefined} cfg
+ * @returns {{min:number,max:number}}
+ */
+function getFactorySpawnCooldownRange(cfg){
+  const min = (cfg && typeof cfg.factorySpawnCooldownMin === "number") ? cfg.factorySpawnCooldownMin : 6.5;
+  const max = (cfg && typeof cfg.factorySpawnCooldownMax === "number") ? cfg.factorySpawnCooldownMax : 10.5;
+  const lo = Math.max(0.1, Math.min(min, max));
+  const hi = Math.max(lo, Math.max(min, max));
+  return { min: lo, max: hi };
+}
+
+/**
  * Planet terrain abstraction backed by mapgen grid truth.
  */
 export class Planet {
@@ -610,6 +622,7 @@ export class Planet {
   _alignMechanizedStructures(){
     const cfg = this.getPlanetConfig ? this.getPlanetConfig() : null;
     if (!cfg || cfg.id !== "mechanized") return;
+    const factorySpawnCooldown = getFactorySpawnCooldownRange(cfg);
     if (!this.props || !this.props.length) return;
     const coreR = this.getCoreRadius ? this.getCoreRadius() : 0;
     const factories = [];
@@ -738,7 +751,7 @@ export class Planet {
         }
         factory.propId = iFactory;
         factory.hp = (typeof factory.hp === "number") ? Math.max(1, factory.hp) : 5;
-        factory.spawnCd = 6.5 + rand() * 4.0;
+        factory.spawnCd = factorySpawnCooldown.min + rand() * (factorySpawnCooldown.max - factorySpawnCooldown.min);
         factory.spawnT = rand() * factory.spawnCd;
       };
 
@@ -829,7 +842,7 @@ export class Planet {
       }
       p.propId = i;
       p.hp = (typeof p.hp === "number") ? Math.max(1, p.hp) : 5;
-      p.spawnCd = 6.5 + rand() * 4.0;
+      p.spawnCd = factorySpawnCooldown.min + rand() * (factorySpawnCooldown.max - factorySpawnCooldown.min);
       p.spawnT = rand() * p.spawnCd;
     }
 

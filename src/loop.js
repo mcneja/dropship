@@ -394,7 +394,7 @@ export class GameLoop {
    */
   _buildObjective(cfg, lvl){
     const obj = cfg && cfg.objective ? cfg.objective : { type: "extract", count: 0 };
-    if (cfg && cfg.id === "mechanized" && lvl >= 16){
+    if (cfg && cfg.id === "mechanized" && this.planet && this.planet.getCoreRadius && this.planet.getCoreRadius() > 0.5){
       const target = this._tetherPropsAll().length;
       if (target > 0){
         return { type: "destroy_core", target };
@@ -403,6 +403,10 @@ export class GameLoop {
     if (obj.type === "clear"){
       const target = (obj.count && obj.count > 0) ? obj.count : this._enemyTotalForConfig(cfg, lvl);
       return { type: "clear", target };
+    }
+    if (obj.type === "destroy_factories"){
+      const target = (obj.count && obj.count > 0) ? obj.count : this._factoryPropsAlive().length;
+      return { type: "destroy_factories", target };
     }
     if (obj.type === "extract"){
       const base = (cfg && typeof cfg.minerCountBase === "number") ? cfg.minerCountBase : 5;
@@ -527,11 +531,26 @@ export class GameLoop {
    * @returns {number}
    */
   _remainingClearTargets(){
-    let remaining = this._remainingCombatEnemies();
-    if (this._isMechanizedLevel()){
-      remaining += this._factoryPropsAlive().length;
-    }
-    return remaining;
+    return this._remainingCombatEnemies();
+  }
+
+  /**
+   * @returns {number}
+   */
+  _remainingFactoryTargets(){
+    return this._factoryPropsAlive().length;
+  }
+
+  /**
+   * @returns {{min:number,max:number}}
+   */
+  _factorySpawnCooldownRange(){
+    const cfg = this.planet && this.planet.getPlanetConfig ? this.planet.getPlanetConfig() : null;
+    const min = (cfg && typeof cfg.factorySpawnCooldownMin === "number") ? cfg.factorySpawnCooldownMin : 6.5;
+    const max = (cfg && typeof cfg.factorySpawnCooldownMax === "number") ? cfg.factorySpawnCooldownMax : 10.5;
+    const lo = Math.max(0.1, Math.min(min, max));
+    const hi = Math.max(lo, Math.max(min, max));
+    return { min: lo, max: hi };
   }
 
   /**
@@ -567,20 +586,16 @@ export class GameLoop {
       const remaining = this._remainingClearTargets();
       const target = Math.max(this.objective.target || 0, this.clearObjectiveTotal || 0, remaining);
       const done = target ? Math.max(0, target - remaining) : 0;
-      return `Objective: Clear ${done}${target ? `/${target}` : ""}`;
+      return `Objective: Clear enemies ${done}${target ? `/${target}` : ""}`;
+    }
+    if (this.objective.type === "destroy_factories"){
+      return "Object: Destroy factories";
     }
     if (this.objective.type === "extract"){
       const remaining = this.minersRemaining;
       const target = this.objective.target || 0;
       const rescued = target ? Math.max(0, target - remaining) : 0;
-      return `Objective: Extract ${rescued}${target ? `/${target}` : ""} (dead ${this.minersDead})`;
-    }
-    if (this.minerTarget > 0){
-      const remaining = this.enemies ? this.enemies.enemies.length : 0;
-      const clearTarget = this.objective && this.objective.target ? this.objective.target : 0;
-      const cleared = clearTarget ? Math.max(0, clearTarget - remaining) : 0;
-      const rescued = Math.max(0, this.minerTarget - this.minersRemaining);
-      return `Objective: Clear ${cleared}/${clearTarget} | Rescue ${rescued}/${this.minerTarget} (dead ${this.minersDead})`;
+      return `Objective: Extract miners ${rescued}${target ? `/${target}` : ""} (dead ${this.minersDead})`;
     }
     return `Objective: ${this.objective.type}`;
   }
@@ -1586,12 +1601,15 @@ export class GameLoop {
     if (!this._isMechanizedLevel()) return;
     const factories = this._factoryPropsAlive();
     if (!factories.length) return;
+    const spawnCooldown = this._factorySpawnCooldownRange();
     for (const p of factories){
-      p.spawnCd = (typeof p.spawnCd === "number" && p.spawnCd > 0) ? p.spawnCd : (6.5 + Math.random() * 4.0);
+      p.spawnCd = (typeof p.spawnCd === "number" && p.spawnCd > 0)
+        ? p.spawnCd
+        : (spawnCooldown.min + Math.random() * (spawnCooldown.max - spawnCooldown.min));
       p.spawnT = (typeof p.spawnT === "number") ? (p.spawnT + dt) : (Math.random() * p.spawnCd);
       if (p.spawnT < p.spawnCd) continue;
       p.spawnT -= p.spawnCd;
-      p.spawnCd = 6.5 + Math.random() * 4.0;
+      p.spawnCd = spawnCooldown.min + Math.random() * (spawnCooldown.max - spawnCooldown.min);
       this._spawnEnemyFromFactory(p);
     }
   }
@@ -3741,6 +3759,9 @@ export class GameLoop {
       this._rescueAll();
     }
     if (inputState.killAllEnemies){
+      this._killAllEnemies();
+    }
+    if (inputState.removeEntities){
       this._killAllEnemiesAndFactories();
     }
     const captureScreenshot = !!inputState.copyScreenshot;
@@ -4202,7 +4223,7 @@ export class GameLoop {
     if (inputState.copyScreenshot || inputState.copyScreenshotClean || inputState.copyScreenshotCleanTitle) return true;
     if (inputState.zoomReset) return true;
     if (typeof inputState.zoomDelta === "number" && Math.abs(inputState.zoomDelta) > 1e-4) return true;
-    if (inputState.rescueAll || inputState.spawnEnemyType !== null) return true;
+    if (inputState.rescueAll || inputState.killAllEnemies || inputState.removeEntities || inputState.spawnEnemyType !== null) return true;
     if (inputState.inputType === "touch" && (inputState.aim || inputState.aimShoot || inputState.aimBomb)) return true;
     if (inputState.inputType === "gamepad" && (inputState.aim || inputState.aimShoot || inputState.aimBomb)) return true;
     const st = inputState.stickThrust;
@@ -4331,6 +4352,7 @@ export class GameLoop {
   _objectiveComplete(){
     const objType = this.objective ? this.objective.type : "extract";
     if (objType === "clear") return this._remainingClearTargets() === 0;
+    if (objType === "destroy_factories") return this._remainingFactoryTargets() === 0;
     if (objType === "extract") return this.minersRemaining === 0;
     if (objType === "destroy_core") return this.coreMeltdownActive || this._tetherPropsAlive().length === 0;
     return false;
@@ -4529,6 +4551,24 @@ export class GameLoop {
     if (this._isDockedWithMothership()){
       this._onSuccessfullyDocked();
     }
+  }
+
+  /**
+   * Debug helper: remove all active enemies without touching factories.
+   * @returns {void}
+   */
+  _killAllEnemies(){
+    let enemyCount = 0;
+    if (this.enemies && this.enemies.enemies){
+      for (const e of this.enemies.enemies){
+        if (e && (e.hp || 0) > 0) enemyCount++;
+      }
+      this.enemies.enemies.length = 0;
+      if (this.enemies.shots) this.enemies.shots.length = 0;
+      if (this.enemies.explosions) this.enemies.explosions.length = 0;
+      if (this.enemies.debris) this.enemies.debris.length = 0;
+    }
+    this._showStatusCue(enemyCount > 0 ? `Debug clear: ${enemyCount} enemies` : "Debug clear: no enemies alive");
   }
 
   /**

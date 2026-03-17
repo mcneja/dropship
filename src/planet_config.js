@@ -19,7 +19,7 @@
 
 /**
  * @typedef {Object} PlanetObjective
- * @property {"clear"|"extract"|"find"|"deploy"|"deploy_and_extract"|"destroy_core"} type
+ * @property {"clear"|"extract"|"find"|"deploy"|"deploy_and_extract"|"destroy_core"|"destroy_factories"} type
  * @property {number} count
  */
 
@@ -88,6 +88,8 @@
  * @property {number} platformCount
  * @property {EnemyTypeId[]} enemyAllow
  * @property {number} [orbitingTurretCount]
+ * @property {number} [factorySpawnCooldownMin]
+ * @property {number} [factorySpawnCooldownMax]
  * @property {string} [notes]
  * @property {PlanetConfigDefaults} [defaults]
  * @property {{noCaves?:boolean,barrenPerimeter?:boolean,disableTerrainDestruction?:boolean}} [flags]
@@ -717,12 +719,14 @@ export const PLANET_CONFIGS = [
     enemyCountPerLevel: 5,
     enemyCountCap: 30,
     enemyPlacement: "random",
-    objective: { type: "clear", count: 0 },
+    objective: { type: "destroy_factories", count: 0 },
     minerCountBase: 0,
     minerCountPerLevel: 0,
     minerCountCap: 0,
     platformCount: 10,
     enemyAllow: ["hunter", "ranger", "turret", "orbitingTurret"],
+    factorySpawnCooldownMin: 6.5,
+    factorySpawnCooldownMax: 10.5,
     notes: "Industrial look with destroyable factories and blocked gates.",
     flags: { disableTerrainDestruction: true },
     defaults: {
