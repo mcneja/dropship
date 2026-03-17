@@ -33,6 +33,8 @@
  * @property {Range} PAD
  * @property {Range} MOTHERSHIP_ORBIT_HEIGHT
  * @property {Range} SURFACE_G
+ * @property {Range} ATMOSPHERE_DRAG_MULT
+ * @property {Range} [ATMOSPHERE_HEIGHT]
  * @property {Range} DRAG_MULT
  * @property {Range} THRUST_MULT
  * @property {Range} TURN_RATE_MULT
@@ -109,10 +111,12 @@
 
 /**
  * @typedef {Object} PlanetParams
-  * @property {number} RMAX
+ * @property {number} RMAX
  * @property {number} PAD
  * @property {number} MOTHERSHIP_ORBIT_HEIGHT
  * @property {number} SURFACE_G
+ * @property {number} ATMOSPHERE_DRAG
+ * @property {number} ATMOSPHERE_HEIGHT
  * @property {number} TARGET_FINAL_AIR
  * @property {number} CA_STEPS
  * @property {number} AIR_KEEP_N8
@@ -195,6 +199,7 @@ export const PLANET_CONFIGS = [
       PAD: r(1.0, 1.4),
       MOTHERSHIP_ORBIT_HEIGHT: r(8, 12),
       SURFACE_G: r(1.6, 2.2),
+      ATMOSPHERE_DRAG_MULT: r(1.0, 1.0),
       DRAG_MULT: r(0.9, 1.1),
       THRUST_MULT: r(0.95, 1.1),
       TURN_RATE_MULT: r(0.95, 1.1),
@@ -263,6 +268,7 @@ export const PLANET_CONFIGS = [
       PAD: r(1.0, 1.4),
       MOTHERSHIP_ORBIT_HEIGHT: r(8, 12),
       SURFACE_G: r(1.6, 2.2),
+      ATMOSPHERE_DRAG_MULT: r(1.0, 1.0),
       DRAG_MULT: r(0.9, 1.1),
       THRUST_MULT: r(0.95, 1.1),
       TURN_RATE_MULT: r(0.95, 1.1),
@@ -331,6 +337,7 @@ export const PLANET_CONFIGS = [
       PAD: r(1.0, 1.6),
       MOTHERSHIP_ORBIT_HEIGHT: r(12, 20),
       SURFACE_G: r(1.8, 2.6),
+      ATMOSPHERE_DRAG_MULT: r(1.0, 1.0),
       DRAG_MULT: r(0.9, 1.2),
       THRUST_MULT: r(0.9, 1.15),
       TURN_RATE_MULT: r(0.9, 1.15),
@@ -399,6 +406,7 @@ export const PLANET_CONFIGS = [
       PAD: r(1.0, 1.5),
       MOTHERSHIP_ORBIT_HEIGHT: r(11, 19),
       SURFACE_G: r(2.0, 2.8),
+      ATMOSPHERE_DRAG_MULT: r(1.0, 1.0),
       DRAG_MULT: r(0.9, 1.2),
       THRUST_MULT: r(0.9, 1.1),
       TURN_RATE_MULT: r(0.9, 1.1),
@@ -466,6 +474,7 @@ export const PLANET_CONFIGS = [
       PAD: r(1.0, 1.7),
       MOTHERSHIP_ORBIT_HEIGHT: r(12, 20),
       SURFACE_G: r(1.6, 2.3),
+      ATMOSPHERE_DRAG_MULT: r(1.0, 1.0),
       DRAG_MULT: r(0.9, 1.1),
       THRUST_MULT: r(0.95, 1.15),
       TURN_RATE_MULT: r(0.95, 1.15),
@@ -539,6 +548,7 @@ export const PLANET_CONFIGS = [
       PAD: r(1.0, 1.5),
       MOTHERSHIP_ORBIT_HEIGHT: r(12, 18),
       SURFACE_G: r(1.8, 2.4),
+      ATMOSPHERE_DRAG_MULT: r(1.0, 1.0),
       DRAG_MULT: r(0.95, 1.25),
       THRUST_MULT: r(0.95, 1.10),
       TURN_RATE_MULT: r(0.95, 1.10),
@@ -606,6 +616,7 @@ export const PLANET_CONFIGS = [
       PAD: r(1.1, 1.8),
       MOTHERSHIP_ORBIT_HEIGHT: r(12, 20),
       SURFACE_G: r(1.0, 1.6),
+      ATMOSPHERE_DRAG_MULT: r(1.0, 1.0),
       DRAG_MULT: r(2.2, 3.1),
       THRUST_MULT: r(0.85, 1.00),
       TURN_RATE_MULT: r(0.80, 0.95),
@@ -673,6 +684,7 @@ export const PLANET_CONFIGS = [
       PAD: r(1.0, 1.4),
       MOTHERSHIP_ORBIT_HEIGHT: r(12, 17),
       SURFACE_G: r(1.9, 2.4),
+      ATMOSPHERE_DRAG_MULT: r(1.0, 1.0),
       DRAG_MULT: r(0.95, 1.15),
       THRUST_MULT: r(0.95, 1.10),
       TURN_RATE_MULT: r(0.95, 1.10),
@@ -743,6 +755,7 @@ export const PLANET_CONFIGS = [
       PAD: r(1.0, 1.4),
       MOTHERSHIP_ORBIT_HEIGHT: r(14, 22),
       SURFACE_G: r(2.0, 2.6),
+      ATMOSPHERE_DRAG_MULT: r(1.0, 1.0),
       DRAG_MULT: r(0.9, 1.1),
       THRUST_MULT: r(0.95, 1.05),
       TURN_RATE_MULT: r(0.9, 1.05),
@@ -1143,6 +1156,8 @@ export function clampPlanetConfig(sample){
     PAD: [0.8, 2.0],
     MOTHERSHIP_ORBIT_HEIGHT: [4, 26],
     SURFACE_G: [1.2, 3.2],
+    ATMOSPHERE_DRAG_MULT: [0.0, 4.0],
+    ATMOSPHERE_HEIGHT: [0.0, 12.0],
     DRAG_MULT: [0.7, 2.0],
     THRUST_MULT: [0.7, 1.4],
     TURN_RATE_MULT: [0.7, 1.4],
@@ -1224,12 +1239,15 @@ export function resolvePlanetParams(seed, level, cfg, baseGame){
   // Mapgen: TARGET_FINAL_AIR, CA_STEPS, AIR_KEEP_N8, ROCK_TO_AIR_N8, ENTRANCES, ENTRANCE_OUTER, ENTRANCE_INNER,
   //         WARP_F, WARP_A, BASE_F, VEIN_F, VEIN_THRESH, VEIN_DILATE
   // Visibility: VIS_RANGE, FOG_SEEN_ALPHA, FOG_UNSEEN_ALPHA, FOG_BUDGET_TRIS
-  // Gameplay: DRAG, THRUST, TURN_RATE, LAND_FRICTION, WALL_FRICTION, BOUNCE_RESTITUTION, CRASH_SPEED, LAND_SPEED
+  // Gameplay: ATMOSPHERE_DRAG, ATMOSPHERE_HEIGHT, DRAG, THRUST, TURN_RATE,
+  //           LAND_FRICTION, WALL_FRICTION, BOUNCE_RESTITUTION, CRASH_SPEED, LAND_SPEED
   return {
     RMAX: roll.RMAX,
     PAD: roll.PAD,
     MOTHERSHIP_ORBIT_HEIGHT: roll.MOTHERSHIP_ORBIT_HEIGHT,
     SURFACE_G: roll.SURFACE_G,
+    ATMOSPHERE_DRAG: baseGame.ATMOSPHERE_DRAG * (roll.ATMOSPHERE_DRAG_MULT ?? 1),
+    ATMOSPHERE_HEIGHT: Number.isFinite(roll.ATMOSPHERE_HEIGHT) ? Math.max(0, roll.ATMOSPHERE_HEIGHT) : baseGame.ATMOSPHERE_HEIGHT,
     TARGET_FINAL_AIR: roll.TARGET_FINAL_AIR,
     CA_STEPS: roll.CA_STEPS,
     AIR_KEEP_N8: roll.AIR_KEEP_N8,

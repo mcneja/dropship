@@ -52,6 +52,10 @@ export const GAME = Object.freeze({
   THRUST: 4.5,
   TURN_RATE: 2.4,
   DRAG: 0.12,
+  // Quadratic drag in planetary air. Set to 0 to disable atmosphere drag entirely.
+  ATMOSPHERE_DRAG: 0.2,
+  // Thickness of the atmosphere band above the outer surface, in world units.
+  ATMOSPHERE_HEIGHT: 0.0,
   CRASH_SPEED: 6.0,
   LAND_SPEED: 4.0,
   SURFACE_DOT: 0.7,

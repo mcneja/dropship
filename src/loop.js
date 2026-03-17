@@ -51,6 +51,43 @@ import { lerpAngleShortest, sweptShipVsMovingMothership } from "./collision_moth
 /** @typedef {import("./planet_config.js").PlanetTypeId} PlanetTypeId */
 /** @typedef {import("./planet_config.js").PlanetConfig} PlanetConfig */
 
+/**
+ * Fade atmosphere density from full strength at/below the surface to zero above the configured height.
+ * @param {Planet} planet
+ * @param {import("./planet_config.js").PlanetParams} planetParams
+ * @param {number} surfaceR
+ * @param {number} x
+ * @param {number} y
+ * @returns {number}
+ */
+function sampleAtmosphereDensity(planet, planetParams, surfaceR, x, y){
+  if (!(planetParams && planetParams.ATMOSPHERE_DRAG > 0)) return 0;
+  if (!planet || typeof planet.airValueAtWorld !== "function") return 0;
+  if (planet.airValueAtWorld(x, y) <= 0.5) return 0;
+  const r = Math.hypot(x, y);
+  const surface = Math.max(0, surfaceR);
+  const height = Math.max(0, planetParams.ATMOSPHERE_HEIGHT || 0);
+  if (height <= 0) return (r <= surface + 0.02) ? 1 : 0;
+  const altitude = Math.max(0, r - surface);
+  return Math.max(0, Math.min(1, 1 - altitude / height));
+}
+
+/**
+ * Apply stable quadratic drag without flipping velocity when dt or speed spikes.
+ * @param {number} vx
+ * @param {number} vy
+ * @param {number} dragCoeff
+ * @param {number} dt
+ * @returns {{vx:number, vy:number}}
+ */
+function applyQuadraticVelocityDrag(vx, vy, dragCoeff, dt){
+  if (!(dragCoeff > 0) || !(dt > 0)) return { vx, vy };
+  const speed = Math.hypot(vx, vy);
+  if (speed <= 1e-6) return { vx, vy };
+  const scale = 1 / (1 + dragCoeff * speed * dt);
+  return { vx: vx * scale, vy: vy * scale };
+}
+
 export class GameLoop {
   /**
    * Main gameplay loop orchestrator.
@@ -2808,14 +2845,10 @@ export class GameLoop {
       this.ship.vy += (ay + (gy + gy2) / 2) * dt;
       const shipWaterSpeed = Math.hypot(this.ship.vx, this.ship.vy);
 
-      /*
-      const drag = Math.max(0, 1 - this.planetParams.DRAG * dt);
-      this.ship.vx *= drag;
-      this.ship.vy *= drag;
-      */
+      let shipInWaterNow = false;
       if (isWaterWorld){
         const rNow = Math.hypot(this.ship.x, this.ship.y) || 1;
-        const shipInWaterNow = !!(waterR > 0 && rNow <= waterR + 0.02 && this.planet.airValueAtWorld(this.ship.x, this.ship.y) > 0.5);
+        shipInWaterNow = !!(waterR > 0 && rNow <= waterR + 0.02 && this.planet.airValueAtWorld(this.ship.x, this.ship.y) > 0.5);
         if (shipInWaterNow && !this._shipWasInWater){
           this._playSfx("water_splash", {
             volume: Math.max(0.35, Math.min(0.95, 0.42 + shipWaterSpeed * 0.12)),
@@ -2850,6 +2883,19 @@ export class GameLoop {
         this._shipWasInWater = shipInWaterNow;
       } else {
         this._shipWasInWater = false;
+      }
+      if (!shipInWaterNow){
+        const atmosphereDensity = sampleAtmosphereDensity(this.planet, this.planetParams, outerRingR, this.ship.x, this.ship.y);
+        if (atmosphereDensity > 0){
+          const dragOut = applyQuadraticVelocityDrag(
+            this.ship.vx,
+            this.ship.vy,
+            this.planetParams.ATMOSPHERE_DRAG * atmosphereDensity,
+            dt
+          );
+          this.ship.vx = dragOut.vx;
+          this.ship.vy = dragOut.vy;
+        }
       }
 
       /*
