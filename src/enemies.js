@@ -681,11 +681,12 @@ export class Enemies {
     const dvx = ship.vx - e.vx;
     const dvy = ship.vy - e.vy;
 
-    const dtHit = dTImpact(dx, dy, dvx, dvy, this._TURRET_SHOT_SPEED);
+    // Orbiting turrets use target leading so they can aim ahead since the player is typically
+    // traveling fast. Other enemies just shoot at where the player is now.
+
+    const dtHit = e.type === "orbitingTurret" ? dTImpact(dx, dy, dvx, dvy, this._TURRET_SHOT_SPEED) : 0;
     const dxAim = dx + dvx * dtHit;
     const dyAim = dy + dvy * dtHit;
-
-//    if (dxAim*dxAim + dyAim*dyAim > distSqrMax) return;
 
     // Put turret on extra cooldown when player is out of sight, to
     // give players the element of "surprise" when they get into view.
@@ -747,7 +748,9 @@ export class Enemies {
 }
 
 /**
- * 
+ * Compute time-to-impact, given relative position and velocity of the target
+ * and bullet speed s. Use the time-to-impact to project the target's position
+ * forward to determine where to aim.
  * @param {number} x 
  * @param {number} y 
  * @param {number} vx 
