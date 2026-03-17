@@ -2029,6 +2029,41 @@ export class GameLoop {
   }
 
   /**
+   * Dev-only level jump that keeps map generation but skips the jumpdrive overlay.
+   * @param {number} level
+   * @returns {void}
+   */
+  _devJumpToLevel(level){
+    if (!this.planet) return;
+    const targetLevel = Math.max(1, Math.floor(level));
+    if (!Number.isFinite(targetLevel)) return;
+    const reloadingCurrentLevel = targetLevel === this.level;
+    const nextSeed = this.planet.getSeed() + 1;
+    this.manualZoomActive = false;
+    this.manualZoomMultiplier = 1;
+    this.planetView = false;
+    this.levelAdvanceReady = false;
+    this._setThrustLoopActive(false);
+    this._beginLevel(nextSeed, targetLevel);
+    this._showStatusCue(reloadingCurrentLevel ? `Reloaded level ${targetLevel}` : `Jumped to level ${targetLevel}`);
+  }
+
+  /**
+   * @returns {void}
+   */
+  _promptDevJumpToLevel(){
+    if (typeof window === "undefined" || typeof window.prompt !== "function") return;
+    const raw = window.prompt("Jump to level number", String(this.level));
+    if (raw === null) return;
+    const targetLevel = Number.parseInt(raw.trim(), 10);
+    if (!Number.isFinite(targetLevel) || targetLevel < 1){
+      this._showStatusCue("Invalid level number");
+      return;
+    }
+    this._devJumpToLevel(targetLevel);
+  }
+
+  /**
    * @returns {import("./types.d.js").MapWorld|null}
    */
   _currentMapWorldClone(){
@@ -3695,14 +3730,15 @@ export class GameLoop {
       const nextSeed = this.planet.getSeed() + 1;
       this._beginLevel(nextSeed, this.level);
     }
+    if (!transitionActive && inputState.promptLevelJump){
+      this._promptDevJumpToLevel();
+    }
     if (!transitionActive && inputState.prevLevel){
       if (this.level > 1){
-        const nextSeed = this.planet.getSeed() + 1;
-        this._startJumpdriveTransition(nextSeed, this.level - 1);
+        this._devJumpToLevel(this.level - 1);
       }
     } else if (!transitionActive && inputState.nextLevel){
-      const nextSeed = this.planet.getSeed() + 1;
-      this._startJumpdriveTransition(nextSeed, this.level + 1);
+      this._devJumpToLevel(this.level + 1);
     }
     if (inputState.toggleDebug){
       this.debugCollisions = !this.debugCollisions;

@@ -221,6 +221,7 @@
  * @property {boolean} copyScreenshotCleanTitle
  * @property {boolean} nextLevel
  * @property {boolean} prevLevel
+ * @property {boolean} [promptLevelJump]
  * @property {boolean} [zoomReset]
  * @property {boolean} shootHeld
  * @property {boolean} shootPressed

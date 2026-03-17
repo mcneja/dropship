@@ -58,6 +58,7 @@ export class Input {
       abandonRun: false,
       nextLevel: false,
       prevLevel: false,
+      promptLevelJump: false,
       zoomReset: false,
       shoot: false,
       bomb: false,
@@ -358,6 +359,7 @@ export class Input {
       debugChord && (
         code === "KeyM" ||
         code === "KeyI" ||
+        code === "KeyK" ||
         code === "KeyN" ||
         code === "KeyL" ||
         code === "KeyV" ||
@@ -383,6 +385,7 @@ export class Input {
     if (debugToggleHud) this.oneshot.toggleDevHud = true;
     if (this.debugCommandsEnabled && debugChord && code === "KeyM") this.oneshot.regen = true;
     if (this.debugCommandsEnabled && debugChord && code === "KeyI") this.oneshot.toggleDebug = true;
+    if (this.debugCommandsEnabled && debugChord && code === "KeyK") this.oneshot.promptLevelJump = true;
     if (this.debugCommandsEnabled && debugChord && code === "KeyL") this.oneshot.toggleFrameStep = true;
     if (this.debugCommandsEnabled && debugChord && code === "KeyN"){
       if (e.shiftKey) this.oneshot.prevLevel = true;
@@ -863,6 +866,7 @@ export class Input {
         copyScreenshotCleanTitle: false,
         nextLevel: false,
         prevLevel: false,
+        promptLevelJump: false,
         zoomReset: false,
         shootHeld: false,
         shootPressed: false,
@@ -1028,6 +1032,7 @@ export class Input {
       copyScreenshotCleanTitle: this.oneshot.copyScreenshotCleanTitle,
       nextLevel: this.oneshot.nextLevel,
       prevLevel: this.oneshot.prevLevel,
+      promptLevelJump: this.oneshot.promptLevelJump,
       zoomReset: this.oneshot.zoomReset,
       shootHeld,
       shootPressed,
@@ -1084,6 +1089,7 @@ export class Input {
     this.oneshot.copyScreenshotCleanTitle = false;
     this.oneshot.nextLevel = false;
     this.oneshot.prevLevel = false;
+    this.oneshot.promptLevelJump = false;
     this.oneshot.zoomReset = false;
     this.oneshot.shoot = false;
     this.oneshot.bomb = false;
