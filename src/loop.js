@@ -18,6 +18,7 @@ import {
   buildDropshipWorldConvexHullVertices,
   computeDropshipConvexHullBoundRadius,
   computeDropshipAcceleration,
+  computeDropshipInertialDriveAcceleration,
   getDropshipGunPivotLocal,
   hasDropshipThrustInput,
   pointDistanceToDropshipWorldConvexHull,
@@ -182,6 +183,7 @@ export class GameLoop {
       hpMax: GAME.SHIP_STARTING_MAX_HP,
       bombsMax: GAME.SHIP_STARTING_MAX_BOMBS,
       thrust: GAME.SHIP_STARTING_THRUST,
+      inertialDrive: GAME.SHIP_STARTING_INERTIAL_DRIVE,
       gunPower: GAME.SHIP_STARTING_GUN_POWER,
       rescueeDetector: false,
       planetScanner: false,
@@ -2004,6 +2006,7 @@ export class GameLoop {
       this.ship.bombsMax = GAME.SHIP_STARTING_MAX_BOMBS;
       this.ship.bombsCur = GAME.SHIP_STARTING_MAX_BOMBS;
       this.ship.thrust = GAME.SHIP_STARTING_THRUST;
+      this.ship.inertialDrive = GAME.SHIP_STARTING_INERTIAL_DRIVE;
       this.ship.gunPower = GAME.SHIP_STARTING_GUN_POWER;
       this.ship.rescueeDetector = false;
       this.ship.planetScanner = false;
@@ -2809,9 +2812,20 @@ export class GameLoop {
         ? (this.planet.radial.rings.length - 1)
         : Math.floor(this.planetParams.RMAX || 0);
       const thrustMax = this.planetParams.THRUST * (1 + this.ship.thrust * 0.1);
+      const inertialDriveThrust = GAME.INERTIAL_DRIVE_THRUST * (1 + this.ship.inertialDrive * 0.1);
       const thrustAccel = computeDropshipAcceleration(this.ship, { left, right, thrust, down, stickThrust }, thrustMax);
       let ax = thrustAccel.ax;
       let ay = thrustAccel.ay;
+      const inertialDriveAccel = computeDropshipInertialDriveAcceleration(
+        this.ship,
+        { left, right, thrust, down, stickThrust },
+        inertialDriveThrust,
+        GAME.INERTIAL_DRIVE_REVERSE_FRACTION,
+        GAME.INERTIAL_DRIVE_LATERAL_FRACTION,
+        dt
+      );
+      ax += inertialDriveAccel.ax;
+      ay += inertialDriveAccel.ay;
       const { r, rx, ry, tx, ty } = thrustAccel;
       const waterR = isWaterWorld ? Math.max(0, outerRingR) : 0;
       const shipInWaterBefore = !!(isWaterWorld && waterR > 0 && r <= waterR + 0.02 && this.planet.airValueAtWorld(this.ship.x, this.ship.y) > 0.5);
@@ -4510,6 +4524,9 @@ export class GameLoop {
     if (this.ship.thrust < 3){
       perksAvailable.push("thrust");
     }
+    if (this.ship.inertialDrive < 3){
+      perksAvailable.push("inertialDrive");
+    }
     if (this.ship.gunPower < 2){
       perksAvailable.push("gunPower");
     }
@@ -4542,6 +4559,7 @@ export class GameLoop {
     if (perk === "hpMax") return "Reinforced hull: +1 max HP";
     if (perk === "bombsMax") return "Expanded payload bay: +1 max bomb";
     if (perk === "thrust") return "Engine tune-up: +10% thrust power";
+    if (perk === "inertialDrive") return "Inertial drive: +10% corrective thrust";
     if (perk === "gunPower") return "Firepower: +1 HP damage";
     if (perk === "rescueeDetector") return "Rescuee detector: locate stranded crew";
     if (perk === "planetScanner") return "Planet scanner: scan planet from mothership";
@@ -4572,6 +4590,8 @@ export class GameLoop {
       this.ship.bombsCur = this.ship.bombsMax;
     } else if (perk === "thrust"){
       ++this.ship.thrust;
+    } else if (perk === "inertialDrive"){
+      ++this.ship.inertialDrive;
     } else if (perk === "gunPower"){
       ++this.ship.gunPower;
     } else if (perk === "rescueeDetector"){

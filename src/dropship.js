@@ -394,6 +394,78 @@ export function computeDropshipAcceleration(ship, input, thrustMax){
 }
 
 /**
+ * Apply input-aware momentum correction. No input means no inertial-drive force.
+ * @param {{x:number,y:number,vx:number,vy:number}} ship
+ * @param {DropshipInput} input
+ * @param {number} driveThrust
+ * @param {number} reverseFraction
+ * @param {number} lateralFraction
+ * @param {number} dt
+ * @returns {{ax:number,ay:number}}
+ */
+export function computeDropshipInertialDriveAcceleration(ship, input, driveThrust, reverseFraction, lateralFraction, dt){
+  if (!(driveThrust > 0) || !(dt > 0)) return { ax: 0, ay: 0 };
+  const { rx, ry, tx, ty } = computeDropshipAxes(ship.x, ship.y);
+  const stick = input.stickThrust || { x: 0, y: 0 };
+  let dx = 0;
+  let dy = 0;
+  if (input.left){
+    dx += tx;
+    dy += ty;
+  }
+  if (input.right){
+    dx -= tx;
+    dy -= ty;
+  }
+  if (input.thrust){
+    dx += rx;
+    dy += ry;
+  }
+  if (input.down){
+    dx -= rx;
+    dy -= ry;
+  }
+  dx += stick.x * -tx + stick.y * rx;
+  dy += stick.x * -ty + stick.y * ry;
+
+  const desiredLen = Math.hypot(dx, dy);
+  if (desiredLen <= 1e-6) return { ax: 0, ay: 0 };
+  dx /= desiredLen;
+  dy /= desiredLen;
+
+  const lx = -dy;
+  const ly = dx;
+  const vForward = ship.vx * dx + ship.vy * dy;
+  const vLateral = ship.vx * lx + ship.vy * ly;
+  let ax = 0;
+  let ay = 0;
+
+  const reverseCap = driveThrust * Math.max(0, reverseFraction);
+  const reverseSpeed = Math.max(0, -vForward);
+  if (reverseCap > 0 && reverseSpeed > 1e-6){
+    const accel = Math.min(reverseSpeed / dt, reverseCap);
+    ax += dx * accel;
+    ay += dy * accel;
+  }
+
+  const lateralCap = driveThrust * Math.max(0, lateralFraction);
+  if (lateralCap > 0 && Math.abs(vLateral) > 1e-6){
+    const accel = Math.min(Math.abs(vLateral) / dt, lateralCap);
+    const sign = Math.sign(vLateral);
+    ax -= lx * sign * accel;
+    ay -= ly * sign * accel;
+  }
+
+  const accelLen = Math.hypot(ax, ay);
+  if (accelLen > driveThrust){
+    const scale = driveThrust / accelLen;
+    ax *= scale;
+    ay *= scale;
+  }
+  return { ax, ay };
+}
+
+/**
  * @param {number} cabinSide
  * @param {DropshipInput} input
  * @param {number} [stickDead]

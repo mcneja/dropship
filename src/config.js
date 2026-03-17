@@ -52,6 +52,12 @@ export const GAME = Object.freeze({
   THRUST: 4.5,
   TURN_RATE: 2.4,
   DRAG: 0.12,
+  // Max corrective acceleration available to the inertial drive while input is held (set to 0 to disable)
+  INERTIAL_DRIVE_THRUST: 2.25,
+  // Share of inertial-drive thrust allowed to oppose velocity opposite the desired input direction.
+  INERTIAL_DRIVE_REVERSE_FRACTION: 1.0,
+  // Share of inertial-drive thrust allowed to oppose velocity sideways to the desired input direction.
+  INERTIAL_DRIVE_LATERAL_FRACTION: 1.0,
   // Quadratic drag in planetary air. Set to 0 to disable atmosphere drag entirely.
   ATMOSPHERE_DRAG: 0.2,
   // Thickness of the atmosphere band above the outer surface, in world units.
@@ -87,6 +93,7 @@ export const GAME = Object.freeze({
   SHIP_STARTING_MAX_HP: 3,
   SHIP_STARTING_MAX_BOMBS: 3,
   SHIP_STARTING_THRUST: 0,
+  SHIP_STARTING_INERTIAL_DRIVE: 0,
   SHIP_STARTING_GUN_POWER: 1,
   SHIP_HIT_COOLDOWN: 0.25,
   SHIP_HIT_POPUP_LIFE: 0.6,
