@@ -3180,17 +3180,25 @@ export class GameLoop {
           diry = dy / dist;
         }
         if (dirx || diry){
-          this.playerShots.push({
-            x: gunOrigin.x + dirx * 0.45,
-            y: gunOrigin.y + diry * 0.45,
-            vx: dirx * this.PLAYER_SHOT_SPEED + this.ship.vx,
-            vy: diry * this.PLAYER_SHOT_SPEED + this.ship.vy,
-            life: this.PLAYER_SHOT_LIFE,
-          });
-          this.playerShotCooldown = this.PLAYER_SHOT_INTERVAL;
-          this._playSfx("ship_laser", {
-            volume: 0.1,
-          });
+          const vn = this.ship.vx *  dirx + this.ship.vy * diry;
+          const vt = this.ship.vx * -diry + this.ship.vy * dirx;
+          // muzzle speed in (dirx, diry) is whatever's left over from negating ship velocity in perpendicular direction
+          let speed = Math.sqrt(Math.max(0, this.PLAYER_SHOT_SPEED*this.PLAYER_SHOT_SPEED - vt*vt));
+          if (speed > 0){
+            // add in the ship's speed in the shooting direction
+            speed += vn;
+            this.playerShots.push({
+              x: gunOrigin.x + dirx * 0.45,
+              y: gunOrigin.y + diry * 0.45,
+              vx: dirx * speed,
+              vy: diry * speed,
+              life: this.PLAYER_SHOT_LIFE,
+            });
+            this.playerShotCooldown = this.PLAYER_SHOT_INTERVAL;
+            this._playSfx("ship_laser", {
+              volume: 0.1,
+            });
+          }
         }
       }
       if (bomb && this.ship.bombsCur > 0){
@@ -3213,18 +3221,26 @@ export class GameLoop {
           diry = dy / dist;
         }
         if (dirx || diry){
-          --this.ship.bombsCur;
-          this.playerBombs.push({
-            x: gunOrigin.x + dirx * 0.45,
-            y: gunOrigin.y + diry * 0.45,
-            vx: dirx * this.PLAYER_BOMB_SPEED + this.ship.vx,
-            vy: diry * this.PLAYER_BOMB_SPEED + this.ship.vy,
-            life: this.PLAYER_BOMB_LIFE,
-          });
-          this._playSfx("bomb_launch", {
-            volume: 0.55,
-            rate: 0.96 + Math.random() * 0.08,
-          });
+          const vn = this.ship.vx *  dirx + this.ship.vy * diry;
+          const vt = this.ship.vx * -diry + this.ship.vy * dirx;
+          // muzzle speed in (dirx, diry) is whatever's left over from negating ship velocity in perpendicular direction
+          let speed = Math.sqrt(Math.max(0, this.PLAYER_BOMB_SPEED*this.PLAYER_BOMB_SPEED - vt*vt));
+          if (speed > 0){
+            // add in the ship's speed in the shooting direction
+            speed += vn;
+            --this.ship.bombsCur;
+            this.playerBombs.push({
+              x: gunOrigin.x + dirx * 0.45,
+              y: gunOrigin.y + diry * 0.45,
+              vx: dirx * speed,
+              vy: diry * speed,
+              life: this.PLAYER_BOMB_LIFE,
+            });
+            this._playSfx("bomb_launch", {
+              volume: 0.55,
+              rate: 0.96 + Math.random() * 0.08,
+            });
+          }
         }
       }
     }
