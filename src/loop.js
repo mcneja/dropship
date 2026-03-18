@@ -3180,25 +3180,18 @@ export class GameLoop {
           diry = dy / dist;
         }
         if (dirx || diry){
-          const vn = this.ship.vx *  dirx + this.ship.vy * diry;
-          const vt = this.ship.vx * -diry + this.ship.vy * dirx;
-          // muzzle speed in (dirx, diry) is whatever's left over from negating ship velocity in perpendicular direction
-          let speed = Math.sqrt(Math.max(0, this.PLAYER_SHOT_SPEED*this.PLAYER_SHOT_SPEED - vt*vt));
-          if (speed > 0){
-            // add in the ship's speed in the shooting direction
-            speed += vn;
-            this.playerShots.push({
-              x: gunOrigin.x + dirx * 0.45,
-              y: gunOrigin.y + diry * 0.45,
-              vx: dirx * speed,
-              vy: diry * speed,
-              life: this.PLAYER_SHOT_LIFE,
-            });
-            this.playerShotCooldown = this.PLAYER_SHOT_INTERVAL;
-            this._playSfx("ship_laser", {
-              volume: 0.1,
-            });
-          }
+          const {vx:vx, vy:vy} = muzzleVelocity(dirx, diry, this.ship.vx, this.ship.vy, this.PLAYER_SHOT_SPEED);
+          this.playerShots.push({
+            x: gunOrigin.x + dirx * 0.45,
+            y: gunOrigin.y + diry * 0.45,
+            vx: vx,
+            vy: vy,
+            life: this.PLAYER_SHOT_LIFE,
+          });
+          this.playerShotCooldown = this.PLAYER_SHOT_INTERVAL;
+          this._playSfx("ship_laser", {
+            volume: 0.1,
+          });
         }
       }
       if (bomb && this.ship.bombsCur > 0){
@@ -3221,26 +3214,19 @@ export class GameLoop {
           diry = dy / dist;
         }
         if (dirx || diry){
-          const vn = this.ship.vx *  dirx + this.ship.vy * diry;
-          const vt = this.ship.vx * -diry + this.ship.vy * dirx;
-          // muzzle speed in (dirx, diry) is whatever's left over from negating ship velocity in perpendicular direction
-          let speed = Math.sqrt(Math.max(0, this.PLAYER_BOMB_SPEED*this.PLAYER_BOMB_SPEED - vt*vt));
-          if (speed > 0){
-            // add in the ship's speed in the shooting direction
-            speed += vn;
-            --this.ship.bombsCur;
-            this.playerBombs.push({
-              x: gunOrigin.x + dirx * 0.45,
-              y: gunOrigin.y + diry * 0.45,
-              vx: dirx * speed,
-              vy: diry * speed,
-              life: this.PLAYER_BOMB_LIFE,
-            });
-            this._playSfx("bomb_launch", {
-              volume: 0.55,
-              rate: 0.96 + Math.random() * 0.08,
-            });
-          }
+          const {vx:vx, vy:vy} = muzzleVelocity(dirx, diry, this.ship.vx, this.ship.vy, this.PLAYER_BOMB_SPEED);
+          --this.ship.bombsCur;
+          this.playerBombs.push({
+            x: gunOrigin.x + dirx * 0.45,
+            y: gunOrigin.y + diry * 0.45,
+            vx: vx,
+            vy: vy,
+            life: this.PLAYER_BOMB_LIFE,
+          });
+          this._playSfx("bomb_launch", {
+            volume: 0.55,
+            rate: 0.96 + Math.random() * 0.08,
+          });
         }
       }
     }
@@ -4943,4 +4929,34 @@ function drawCenteredWrappedText(ctx, text, cx, topY, maxWidth, lineHeight, maxL
   for (let i = 0; i < lines.length; i++){
     ctx.fillText(lines[i], cx, topY + i * lineHeight);
   }
+}
+
+/**
+ * Given a unit vector for aim direction (dirx, diry), current ship velocity (vx, vy), and bullet speed,
+ * compute the bullet's initial velocity.
+ * @param {number} dirx
+ * @param {number} diry
+ * @param {number} vx
+ * @param {number} vy
+ * @param {number} bulletSpeed 
+ * @returns {{vx:number, vy:number}}
+ */
+function muzzleVelocity(dirx, diry, vx, vy, bulletSpeed){
+  const vn = vx *  dirx + vy * diry; // ship velocity in aim direction
+  const vt = vx * -diry + vy * dirx; // ship velocity perpendicular to aim direction
+  // muzzle speed in (dirx, diry) is whatever's left over from negating ship velocity in perpendicular direction
+  let speed = Math.sqrt(Math.max(0, bulletSpeed*bulletSpeed - vt*vt));
+  const MIN_LAUNCH_SPEED = 0.5;
+  if (speed < MIN_LAUNCH_SPEED){
+    // cannot achieve minimum speed in the (dirx, diry) direction, so just shoot in the aim direction (which will miss)
+    vx += dirx * bulletSpeed;
+    vy += diry * bulletSpeed;
+  } else {
+    // add in the ship's speed in the shooting direction
+    speed += vn;
+    vx = dirx * speed;
+    vy = diry * speed;
+  }
+
+  return {vx:vx, vy:vy};
 }
