@@ -3507,7 +3507,28 @@ export class GameLoop {
     for (let i = this.healthPickups.length - 1; i >= 0; i--){
       const pickup = this.healthPickups[i];
       if (Math.hypot(pickup.x - this.ship.x, pickup.y - this.ship.y) < GAME.SHIP_SCALE){
+        const prevHp = this.ship.hpCur;
         this.ship.hpCur = Math.min(this.ship.hpMax, this.ship.hpCur + 1);
+        if (this.ship.hpCur > prevHp){
+          const r = Math.hypot(pickup.x, pickup.y) || 1;
+          const upx = pickup.x / r;
+          const upy = pickup.y / r;
+          const tx = -upy;
+          const ty = upx;
+          const jitter = (Math.random() * 2 - 1) * GAME.MINER_POPUP_TANGENTIAL;
+          this.popups.push({
+            x: pickup.x + upx * 0.1,
+            y: pickup.y + upy * 0.1,
+            vx: upx * GAME.MINER_POPUP_SPEED + tx * jitter,
+            vy: upy * GAME.MINER_POPUP_SPEED + ty * jitter,
+            text: "+1 hull",
+            life: GAME.MINER_POPUP_LIFE,
+          });
+          this._playSfx("miner_rescued", {
+            volume: 0.45,
+            rate: 0.95 + Math.random() * 0.1,
+          });
+        }
         this.healthPickups.splice(i, 1);
       } else {
         pickup.life -= dt;
