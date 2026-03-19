@@ -1348,6 +1348,15 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
           p.y += ny * 0.05;
         }
       }
+      if (mushroomHazard){
+        const hitProp = mushroomHazard.hitAt(p.x, p.y, tuning.mushroom.radius);
+        if (hitProp){
+          const info = mushroomHazard.burst(hitProp);
+          triggerMushroomBurst(info);
+          mush.splice(i, 1);
+          continue;
+        }
+      }
       if (state.ship){
         const dxs = state.ship.x - p.x;
         const dys = state.ship.y - p.y;
