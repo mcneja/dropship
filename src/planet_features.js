@@ -557,7 +557,7 @@ function collectWaterBubbleSources(planet, target){
  * @property {(amount:number)=>void} [onShipHeat]
  * @property {(duration:number)=>void} [onShipConfuse]
  * @property {(enemy:{x:number,y:number,hp:number,hitT?:number,stunT?:number}, x:number, y:number)=>void} [onEnemyHit]
- * @property {(enemy:{x:number,y:number,hp:number,hitT?:number,stunT?:number}, duration:number)=>void} [onEnemyStun]
+ * @property {(enemy:{x:number,y:number,hp:number,hitT?:number,stunT?:number}, duration:number, source?:"mushroom"|"lava")=>void} [onEnemyStun]
  * @property {(miner:import("./types.d.js").Miner)=>void} [onMinerKilled]
  */
 
@@ -598,6 +598,19 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
       flashDuration: 2.0,
       ventPeriod: 6.5,
       heatHit: 14,
+      stunTime: 0.9,
+      ventContactHeatRise: 24,
+      unsafeReach: 4.8,
+      unsafeBaseWidth: 0.34,
+      unsafeWidthGrow: 0.18,
+      enemyAvoidAfterLaunchGrace: 1.0,
+      enemyAvoidBeforeLaunchGrace: 1.0,
+      shotTriggerDuration: 1.0,
+      shotTriggerKick: 0.18,
+      bombTriggerDuration: 5.0,
+      bombTriggerKick: 0.45,
+      bombRateMul: 2.35,
+      bombSpeedMul: 1.45,
     },
     // Wider hot-core heat falloff so the danger zone reaches farther from the core.
     coreHeatRadius: 3.2,
@@ -691,6 +704,229 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
   }
   let shipBubbleT = tuning.water.shipRateMin;
   let shipUnderwater = false;
+  /** @type {Uint8Array|null} */
+  let enemyVentNavMask = null;
+  let enemyVentMaskActive = false;
+
+  /**
+   * @param {PlanetProp} p
+   * @returns {{nx:number,ny:number,tx:number,ty:number}}
+   */
+  const ventAxes = (p) => {
+    let nx = (typeof p.nx === "number") ? p.nx : 0;
+    let ny = (typeof p.ny === "number") ? p.ny : 0;
+    if (!nx && !ny){
+      const normal = planet.normalAtWorld ? planet.normalAtWorld(p.x, p.y) : null;
+      nx = normal ? normal.nx : (p.x / (Math.hypot(p.x, p.y) || 1));
+      ny = normal ? normal.ny : (p.y / (Math.hypot(p.x, p.y) || 1));
+    }
+    const nlen = Math.hypot(nx, ny) || 1;
+    nx /= nlen;
+    ny /= nlen;
+    return { nx, ny, tx: -ny, ty: nx };
+  };
+
+  /**
+   * @param {PlanetProp} p
+   * @returns {number}
+   */
+  const ventCyclePhase = (p) => {
+    const period = Math.max(0.001, tuning.lava.ventPeriod);
+    const raw = (typeof p.ventT === "number") ? p.ventT : 0;
+    return ((raw % period) + period) % period;
+  };
+
+  /**
+   * @param {PlanetProp} p
+   * @returns {boolean}
+   */
+  const ventBaseActive = (p) => (
+    ventCyclePhase(p) >= (tuning.lava.ventPeriod - tuning.lava.flashDuration)
+  );
+
+  /**
+   * @param {PlanetProp} p
+   * @returns {boolean}
+   */
+  const ventForcedActive = (p) => (
+    ((p.ventShotT || 0) > 0) || ((p.ventBombT || 0) > 0)
+  );
+
+  /**
+   * @param {PlanetProp} p
+   * @returns {boolean}
+   */
+  const ventIsEmitting = (p) => ventBaseActive(p) || ventForcedActive(p);
+
+  /**
+   * @param {PlanetProp} p
+   * @returns {boolean}
+   */
+  const ventBlocksEnemies = (p) => {
+    if (p.type !== "vent" || p.dead) return false;
+    if (ventForcedActive(p) || ventBaseActive(p)) return true;
+    const phase = ventCyclePhase(p);
+    const activeStart = tuning.lava.ventPeriod - tuning.lava.flashDuration;
+    if (phase <= tuning.lava.enemyAvoidAfterLaunchGrace) return false;
+    if ((activeStart - phase) <= tuning.lava.enemyAvoidBeforeLaunchGrace) return false;
+    return true;
+  };
+
+  /**
+   * @param {PlanetProp} p
+   * @param {number} x
+   * @param {number} y
+   * @param {number} radius
+   * @returns {boolean}
+   */
+  const pointInVentBody = (p, x, y, radius = 0) => {
+    const { nx, ny, tx, ty } = ventAxes(p);
+    const dx = x - p.x;
+    const dy = y - p.y;
+    const localX = dx * tx + dy * ty;
+    const localY = dx * nx + dy * ny;
+    const s = p.scale || 1;
+    const halfH = 0.45 * s;
+    const halfW0 = 0.22 * s;
+    const halfW1 = 0.12 * s;
+    if (localY < -halfH - radius || localY > halfH + radius) return false;
+    const t = Math.max(0, Math.min(1, (localY + halfH) / (2 * halfH || 1)));
+    const halfW = halfW0 + (halfW1 - halfW0) * t;
+    return Math.abs(localX) <= halfW + radius;
+  };
+
+  /**
+   * @param {PlanetProp} p
+   * @param {number} x
+   * @param {number} y
+   * @param {number} radius
+   * @returns {boolean}
+   */
+  const pointInVentPlume = (p, x, y, radius = 0) => {
+    const { nx, ny } = ventAxes(p);
+    const dx = x - p.x;
+    const dy = y - p.y;
+    const forward = dx * nx + dy * ny;
+    if (forward < -radius || forward > tuning.lava.unsafeReach + radius) return false;
+    const side = Math.abs(dx * -ny + dy * nx);
+    const width = tuning.lava.unsafeBaseWidth + Math.max(0, forward) * tuning.lava.unsafeWidthGrow;
+    return side <= width + radius;
+  };
+
+  /**
+   * @param {PlanetProp} p
+   * @returns {void}
+   */
+  const ensureVentUnsafeNodes = (p) => {
+    if (p.ventUnsafeNodes) return;
+    const graph = planet.radialGraph;
+    const air = planet.airNodesBitmap;
+    /** @type {number[]} */
+    const nodes = [];
+    if (graph && graph.nodes && air && air.length === graph.nodes.length){
+      for (let i = 0; i < graph.nodes.length; i++){
+        if (!air[i]) continue;
+        const n = graph.nodes[i];
+        if (pointInVentPlume(p, n.x, n.y, 0.08)){
+          nodes.push(i);
+        }
+      }
+    }
+    p.ventUnsafeNodes = nodes;
+  };
+
+  /**
+   * @returns {void}
+   */
+  const rebuildEnemyVentNavMask = () => {
+    const base = planet.airNodesBitmap;
+    if (!base || !base.length || !props || !props.length){
+      enemyVentMaskActive = false;
+      enemyVentNavMask = null;
+      return;
+    }
+    let blocked = false;
+    for (const p of props){
+      if (p.type !== "vent" || p.dead) continue;
+      if (!ventBlocksEnemies(p)) continue;
+      blocked = true;
+      break;
+    }
+    enemyVentMaskActive = blocked;
+    if (!blocked){
+      enemyVentNavMask = null;
+      return;
+    }
+    if (!enemyVentNavMask || enemyVentNavMask.length !== base.length){
+      enemyVentNavMask = new Uint8Array(base.length);
+    }
+    enemyVentNavMask.set(base);
+    for (const p of props){
+      if (p.type !== "vent" || p.dead) continue;
+      if (!ventBlocksEnemies(p)) continue;
+      ensureVentUnsafeNodes(p);
+      const unsafeNodes = p.ventUnsafeNodes || [];
+      for (const iNode of unsafeNodes){
+        if (iNode < 0 || iNode >= enemyVentNavMask.length) continue;
+        enemyVentNavMask[iNode] = 0;
+      }
+    }
+  };
+
+  /**
+   * @param {PlanetProp} p
+   * @param {number} dt
+   * @param {number} [rateMul]
+   * @param {number} [speedMul]
+   * @returns {void}
+   */
+  const emitVentLava = (p, dt, rateMul = 1, speedMul = 1) => {
+    if (dt <= 0) return;
+    const { nx, ny, tx, ty } = ventAxes(p);
+    const rate = tuning.lava.burstRate * Math.max(0, rateMul) * dt;
+    const emitCount = Math.max(0, Math.floor(rate));
+    const frac = rate - emitCount;
+    const total = emitCount + (Math.random() < frac ? 1 : 0);
+    const speed = tuning.lava.speed * Math.max(0, speedMul);
+    for (let i = 0; i < total; i++){
+      const jitter = (Math.random() * 2 - 1) * 0.25;
+      const spread = (Math.random() * 2 - 1) * 0.35;
+      const vx = (nx + tx * spread) * speed;
+      const vy = (ny + ty * spread) * speed;
+      particles.lava.push({
+        x: p.x + nx * 0.12,
+        y: p.y + ny * 0.12,
+        vx: vx + jitter * 0.4 * Math.max(1, speedMul),
+        vy: vy + jitter * 0.4 * Math.max(1, speedMul),
+        life: tuning.lava.life,
+      });
+    }
+  };
+
+  /**
+   * @param {PlanetProp} p
+   * @returns {boolean}
+   */
+  const triggerVentShot = (p) => {
+    if (ventIsEmitting(p)) return false;
+    p.ventShotT = Math.max(p.ventShotT || 0, tuning.lava.shotTriggerDuration);
+    p.ventHeat = 1;
+    emitVentLava(p, tuning.lava.shotTriggerKick, 1, 1);
+    rebuildEnemyVentNavMask();
+    return true;
+  };
+
+  /**
+   * @param {PlanetProp} p
+   * @returns {boolean}
+   */
+  const triggerVentBomb = (p) => {
+    p.ventBombT = Math.max(p.ventBombT || 0, tuning.lava.bombTriggerDuration);
+    p.ventHeat = 1;
+    emitVentLava(p, tuning.lava.bombTriggerKick, tuning.lava.bombRateMul, tuning.lava.bombSpeedMul);
+    rebuildEnemyVentNavMask();
+    return true;
+  };
 
   /**
    * @param {{x:number,y:number,scale:number,nx:number,ny:number}|null} info
@@ -773,32 +1009,17 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
    * @param {number} x
    * @param {number} y
    * @param {number} radius
+   * @param {number} dt
    * @param {FeatureCallbacks} callbacks
    * @returns {boolean}
    */
-  const handleShipContact = (x, y, radius, callbacks) => {
+  const handleShipContact = (x, y, radius, dt, callbacks) => {
     let hit = false;
     if (props && props.length){
       for (const p of props){
         if (p.type !== "vent" || p.dead) continue;
-        const normal = planet.normalAtWorld ? planet.normalAtWorld(p.x, p.y) : null;
-        const nx = normal ? normal.nx : (p.x / (Math.hypot(p.x, p.y) || 1));
-        const ny = normal ? normal.ny : (p.y / (Math.hypot(p.x, p.y) || 1));
-        const tx = -ny;
-        const ty = nx;
-        const dx = x - p.x;
-        const dy = y - p.y;
-        const localX = dx * tx + dy * ty;
-        const localY = dx * nx + dy * ny;
-        const s = p.scale || 1;
-        const halfH = 0.45 * s;
-        const halfW0 = 0.22 * s;
-        const halfW1 = 0.12 * s;
-        if (localY < -halfH - radius || localY > halfH + radius) continue;
-        const t = Math.max(0, Math.min(1, (localY + halfH) / (2 * halfH || 1)));
-        const halfW = halfW0 + (halfW1 - halfW0) * t;
-        if (Math.abs(localX) <= halfW + radius){
-          if (callbacks.onShipCrash) callbacks.onShipCrash(p.x, p.y);
+        if (pointInVentBody(p, x, y, radius)){
+          if (callbacks.onShipHeat) callbacks.onShipHeat(tuning.lava.ventContactHeatRise * Math.max(0, dt));
           hit = true;
           break;
         }
@@ -853,6 +1074,19 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
    */
   const handleShot = (x, y, radius, callbacks) => {
     let hit = false;
+    if (props && props.length){
+      for (const p of props){
+        if (p.type !== "vent" || p.dead) continue;
+        const plumeHit = ventIsEmitting(p) && pointInVentPlume(p, x, y, radius);
+        const sourceHit = pointInVentBody(p, x, y, radius);
+        if (!plumeHit && !sourceHit) continue;
+        if (sourceHit){
+          triggerVentShot(p);
+        }
+        hit = true;
+        break;
+      }
+    }
     if (ridgeSpikeHazard){
       const hitProp = ridgeSpikeHazard.hitAt(x, y, radius);
       if (hitProp){
@@ -890,6 +1124,19 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
    */
   const handleBomb = (x, y, impactRadius, bombRadius, callbacks) => {
     let hit = false;
+    if (props && props.length){
+      const ventRadius = Math.max(impactRadius, bombRadius);
+      let triggeredVent = false;
+      for (const p of props){
+        if (p.type !== "vent" || p.dead) continue;
+        const plumeHit = ventIsEmitting(p) && pointInVentPlume(p, x, y, ventRadius);
+        const sourceHit = pointInVentBody(p, x, y, ventRadius);
+        if (!plumeHit && !sourceHit) continue;
+        triggerVentBomb(p);
+        triggeredVent = true;
+      }
+      if (triggeredVent) hit = true;
+    }
     if (ridgeSpikeHazard){
       const exposed = ridgeSpikeHazard.breakIfExposed(planet, x, y, impactRadius + 0.4);
       for (const info of exposed){
@@ -983,40 +1230,19 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
     for (const p of props){
       if (p.type !== "vent") continue;
       p.ventT = (p.ventT || 0) + dt;
-      const phase = (p.ventT % tuning.lava.ventPeriod);
-      const active = phase >= (tuning.lava.ventPeriod - tuning.lava.flashDuration);
+      p.ventShotT = Math.max(0, (p.ventShotT || 0) - dt);
+      p.ventBombT = Math.max(0, (p.ventBombT || 0) - dt);
+      const baseActive = ventBaseActive(p);
+      const bombActive = (p.ventBombT || 0) > 0;
+      const shotActive = (p.ventShotT || 0) > 0;
+      const active = baseActive || shotActive || bombActive;
       p.ventHeat = active ? 1 : 0;
       if (!active) continue;
-      const rate = tuning.lava.burstRate * dt;
-      const emitCount = Math.max(0, Math.floor(rate));
-      const frac = rate - emitCount;
-      const total = emitCount + (Math.random() < frac ? 1 : 0);
-      let nx = (typeof p.nx === "number") ? p.nx : 0;
-      let ny = (typeof p.ny === "number") ? p.ny : 0;
-      if (!nx && !ny){
-        const normal = planet.normalAtWorld ? planet.normalAtWorld(p.x, p.y) : null;
-        nx = normal ? normal.nx : (p.x / (Math.hypot(p.x, p.y) || 1));
-        ny = normal ? normal.ny : (p.y / (Math.hypot(p.x, p.y) || 1));
-      }
-      const nlen = Math.hypot(nx, ny) || 1;
-      nx /= nlen;
-      ny /= nlen;
-      const tx = -ny;
-      const ty = nx;
-      for (let i = 0; i < total; i++){
-        const jitter = (Math.random() * 2 - 1) * 0.25;
-        const spread = (Math.random() * 2 - 1) * 0.35;
-        const vx = (nx + tx * spread) * tuning.lava.speed;
-        const vy = (ny + ty * spread) * tuning.lava.speed;
-        particles.lava.push({
-          x: p.x + nx * 0.12,
-          y: p.y + ny * 0.12,
-          vx: vx + jitter * 0.4,
-          vy: vy + jitter * 0.4,
-          life: tuning.lava.life,
-        });
-      }
+      const rateMul = bombActive ? tuning.lava.bombRateMul : 1;
+      const speedMul = bombActive ? tuning.lava.bombSpeedMul : 1;
+      emitVentLava(p, dt, rateMul, speedMul);
     }
+    rebuildEnemyVentNavMask();
   };
 
   /**
@@ -1055,7 +1281,7 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
           const dx = e.x - p.x;
           const dy = e.y - p.y;
           if (dx * dx + dy * dy <= hitR2){
-            if (state.onEnemyHit) state.onEnemyHit(e, p.x, p.y);
+          if (state.onEnemyStun) state.onEnemyStun(e, tuning.lava.stunTime, "lava");
             lava.splice(i, 1);
             hit = true;
             break;
@@ -1137,7 +1363,7 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
         const dx = e.x - p.x;
         const dy = e.y - p.y;
         if (dx * dx + dy * dy <= hitR2){
-          if (state.onEnemyStun) state.onEnemyStun(e, tuning.mushroom.stunTime);
+          if (state.onEnemyStun) state.onEnemyStun(e, tuning.mushroom.stunTime, "mushroom");
           mush.splice(i, 1);
           break;
         }
@@ -1434,6 +1660,8 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
     }
   };
 
+  rebuildEnemyVentNavMask();
+
   return {
     getParticles: () => particles,
     clearParticles: () => {
@@ -1442,6 +1670,10 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
       particles.mushroom.length = 0;
       particles.bubbles.length = 0;
       particles.splashes.length = 0;
+    },
+    getEnemyNavigationMask: () => {
+      if (!enemyVentMaskActive || !enemyVentNavMask) return planet.airNodesBitmap;
+      return enemyVentNavMask;
     },
     reconcile: (state) => {
       if (ventsPruned) return;
@@ -1460,6 +1692,7 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
       if (!points.length) return;
       pruneMoltenVentsAgainstPoints(planet, props, points);
       ventsPruned = true;
+      rebuildEnemyVentNavMask();
     },
     update: (dt, state) => {
       updateCoreHeat(dt, state);
@@ -1499,6 +1732,9 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
  * @property {number} [padSourceIndex]
  * @property {number} [ventT]
  * @property {number} [ventHeat]
+ * @property {number} [ventShotT]
+ * @property {number} [ventBombT]
+ * @property {number[]} [ventUnsafeNodes]
  * @property {number} [nx]
  * @property {number} [ny]
  * @property {number} [spawnT]

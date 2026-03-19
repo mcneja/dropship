@@ -346,8 +346,8 @@ export class GameLoop {
       onEnemyHit: (enemy, x, y) => {
         this._damageEnemy(enemy, 1);
       },
-      onEnemyStun: (enemy, duration) => {
-        this._stunEnemy(enemy, duration);
+      onEnemyStun: (enemy, duration, source) => {
+        this._stunEnemy(enemy, duration, source);
       },
       onMinerKilled: () => {
         this.minersRemaining = Math.max(0, this.minersRemaining - 1);
@@ -762,15 +762,20 @@ export class GameLoop {
 
   /**
    * @param {{x:number,y:number,hitT?:number}} enemy
+   * @param {"lava"|"mushroom"|null} [source]
    * @returns {void}
    */
-  _applyEnemyHitFeedback(enemy){
+  _applyEnemyHitFeedback(enemy, source = null){
     enemy.hitT = 0.25;
+    const flashCol = (source === "lava")
+      ? { cr: 1.0, cg: 0.42, cb: 0.08 }
+      : null;
     this.entityExplosions.push({
       x: enemy.x,
       y: enemy.y,
       life: this.NONLETHAL_HIT_FLASH_LIFE,
       radius: this.ENEMY_HIT_BLAST,
+      ...(flashCol || {}),
     });
   }
 
@@ -792,12 +797,13 @@ export class GameLoop {
   /**
    * @param {{x:number,y:number,hp:number,stunT?:number,hitT?:number}} enemy
    * @param {number} duration
+   * @param {"lava"|"mushroom"} [source]
    * @returns {void}
    */
-  _stunEnemy(enemy, duration){
+  _stunEnemy(enemy, duration, source){
     if (!enemy || enemy.hp <= 0) return;
     enemy.stunT = Math.max(0.1, duration || 0);
-    this._applyEnemyHitFeedback(enemy);
+    this._applyEnemyHitFeedback(enemy, source || null);
   }
 
   /**
@@ -3255,7 +3261,7 @@ export class GameLoop {
 
     if (this.ship.state !== "crashed"){
       const shipRadius = this._shipRadius();
-      this.planet.handleFeatureContact(this.ship.x, this.ship.y, shipRadius, this.featureCallbacks);
+      this.planet.handleFeatureContact(this.ship.x, this.ship.y, shipRadius, dt, this.featureCallbacks);
     }
 
     this._updateCoreMeltdown(dt);

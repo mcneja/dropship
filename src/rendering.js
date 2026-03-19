@@ -1004,11 +1004,11 @@ function drawFrameImpl(renderer, state, planet){
   let triVerts = 0;
   let lineVerts = 0;
   let pointVerts = 0;
+  const planetCfg = planet.getPlanetConfig ? planet.getPlanetConfig() : null;
 
   // Atmosphere ring around the planet (configurable per-planet).
   {
-    const cfg = planet.getPlanetConfig ? planet.getPlanetConfig() : null;
-    const atmo = (cfg && cfg.defaults && cfg.defaults.ATMOSPHERE) ? cfg.defaults.ATMOSPHERE : null;
+    const atmo = (planetCfg && planetCfg.defaults && planetCfg.defaults.ATMOSPHERE) ? planetCfg.defaults.ATMOSPHERE : null;
     if (!atmo) {
       // no atmosphere for this planet
     } else {
@@ -1065,7 +1065,9 @@ function drawFrameImpl(renderer, state, planet){
   const invertT = Math.max(0, state.ship.invertT || 0);
   const invertPulse = invertT > 0 ? (0.55 + 0.45 * Math.sin(now * 8)) : 0;
   const invertMix = invertT > 0 ? Math.min(0.65, 0.25 + 0.35 * invertPulse) : 0;
-  const invertTint = [0.72, 0.25, 0.9];
+  const invertTint = (planetCfg && planetCfg.id === "molten")
+    ? [1.0, 0.48, 0.16]
+    : [0.72, 0.25, 0.9];
   const hitCooldownT = (state.ship.state !== "crashed") ? Math.max(0, state.ship.hitCooldown || 0) : 0;
   const hitCooldownMax = Math.max(1e-6, game.SHIP_HIT_COOLDOWN || 1);
   const damageNorm = hitCooldownT > 0 ? Math.min(1, hitCooldownT / hitCooldownMax) : 0;
@@ -1319,9 +1321,15 @@ function drawFrameImpl(renderer, state, planet){
       } else {
         base = [0.5, 0.125, 1.0];
       }
-      const outline = /** @type {[number,number,number]} */ ([base[0] * 0.55, base[1] * 0.55, base[2] * 0.55]);
+      const moltenStun = !!(planetCfg && planetCfg.id === "molten" && enemy.stunT && enemy.stunT > 0);
+      const bodyBase = moltenStun
+        ? /** @type {[number,number,number]} */ ([0.92, 0.34, 0.08])
+        : base;
+      const outline = moltenStun
+        ? /** @type {[number,number,number]} */ ([0.55, 0.20, 0.06])
+        : /** @type {[number,number,number]} */ ([bodyBase[0] * 0.55, bodyBase[1] * 0.55, bodyBase[2] * 0.55]);
       triVerts += pushEnemyShape(pos, col, enemyRender, outline, game.ENEMY_SCALE, 1, false, outlineSize) * 3;
-      triVerts += pushEnemyShape(pos, col, enemyRender, base, game.ENEMY_SCALE, 1, true) * 3;
+      triVerts += pushEnemyShape(pos, col, enemyRender, bodyBase, game.ENEMY_SCALE, 1, true) * 3;
       if (enemy.hitT && enemy.hitT > 0){
         const pulse = 0.5 + 0.5 * Math.sin(tNow * 14.0);
         const alpha = 0.25 + pulse * 0.45;
@@ -1329,8 +1337,11 @@ function drawFrameImpl(renderer, state, planet){
       }
       if (enemy.stunT && enemy.stunT > 0){
         const pulse = 0.5 + 0.5 * Math.sin(tNow * 10.0);
-        const alpha = 0.12 + pulse * 0.20;
-        triVerts += pushEnemyShape(pos, col, enemyRender, [0.72, 0.92, 1.0], game.ENEMY_SCALE * 1.12, alpha, false) * 3;
+        const alpha = 0.18 + pulse * 0.24;
+        const stunCol = (planetCfg && planetCfg.id === "molten")
+          ? /** @type {[number,number,number]} */ ([1.0, 0.38, 0.04])
+          : /** @type {[number,number,number]} */ ([0.72, 0.92, 1.0]);
+        triVerts += pushEnemyShape(pos, col, enemyRender, stunCol, game.ENEMY_SCALE * 1.12, alpha, false) * 3;
       }
     }
   }
@@ -2354,6 +2365,9 @@ function drawFrameImpl(renderer, state, planet){
       const t = Math.max(0, Math.min(1, ex.life / 0.8));
       const r = (ex.radius ?? 1.0) * (0.4 + (1 - t) * 0.9);
       const alpha = 0.9 * t;
+      const er = Number.isFinite(ex.cr) ? ex.cr : 1.0;
+      const eg = Number.isFinite(ex.cg) ? ex.cg : 0.9;
+      const eb = Number.isFinite(ex.cb) ? ex.cb : 0.4;
       const seg = 18;
       for (let i = 0; i < seg; i++){
         const a0 = (i / seg) * Math.PI * 2;
@@ -2364,11 +2378,11 @@ function drawFrameImpl(renderer, state, planet){
         const y0 = ex.y + Math.sin(a0) * r0;
         const x1 = ex.x + Math.cos(a1) * r1;
         const y1 = ex.y + Math.sin(a1) * r1;
-        pushLine(pos, col, x0, y0, x1, y1, 1.0, 0.9, 0.4, alpha);
+        pushLine(pos, col, x0, y0, x1, y1, er, eg, eb, alpha);
         lineVerts += 2;
       }
-      pushLine(pos, col, ex.x - r * 0.6, ex.y, ex.x + r * 0.6, ex.y, 1.0, 0.95, 0.6, 0.7 * alpha);
-      pushLine(pos, col, ex.x, ex.y - r * 0.6, ex.x, ex.y + r * 0.6, 1.0, 0.95, 0.6, 0.7 * alpha);
+      pushLine(pos, col, ex.x - r * 0.6, ex.y, ex.x + r * 0.6, ex.y, Math.min(1, er), Math.min(1, eg + 0.05), Math.min(1, eb + 0.08), 0.7 * alpha);
+      pushLine(pos, col, ex.x, ex.y - r * 0.6, ex.x, ex.y + r * 0.6, Math.min(1, er), Math.min(1, eg + 0.05), Math.min(1, eb + 0.08), 0.7 * alpha);
       lineVerts += 4;
     }
   }

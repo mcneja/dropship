@@ -160,13 +160,23 @@ export class Planet {
    *  onShipHeat?: (amount:number)=>void,
    *  onShipConfuse?: (duration:number)=>void,
    *  onEnemyHit?: (enemy:{x:number,y:number,hp:number,hitT?:number,stunT?:number}, x:number, y:number)=>void,
-   *  onEnemyStun?: (enemy:{x:number,y:number,hp:number,hitT?:number,stunT?:number}, duration:number)=>void,
+   *  onEnemyStun?: (enemy:{x:number,y:number,hp:number,hitT?:number,stunT?:number}, duration:number, source?:"mushroom"|"lava")=>void,
    *  onMinerKilled?: (miner:import("./types.d.js").Miner)=>void,
    * }} state
    * @returns {void}
    */
   updateFeatureEffects(dt, state){
     if (this.features) this.features.update(dt, state);
+  }
+
+  /**
+   * @returns {Uint8Array}
+   */
+  getEnemyNavigationMask(){
+    if (this.features && this.features.getEnemyNavigationMask){
+      return this.features.getEnemyNavigationMask();
+    }
+    return this.airNodesBitmap;
   }
 
   /**
@@ -181,6 +191,7 @@ export class Planet {
    * @param {number} x
    * @param {number} y
    * @param {number} radius
+   * @param {number} dt
    * @param {{
    *  onExplosion?: (info:{x:number,y:number,life:number,radius:number})=>void,
    *  onDebris?: (info:{x:number,y:number,vx:number,vy:number,a:number,w:number,life:number})=>void,
@@ -188,9 +199,9 @@ export class Planet {
    * }} callbacks
    * @returns {boolean}
    */
-  handleFeatureContact(x, y, radius, callbacks){
+  handleFeatureContact(x, y, radius, dt, callbacks){
     if (!this.features) return false;
-    return this.features.handleShipContact(x, y, radius, callbacks);
+    return this.features.handleShipContact(x, y, radius, dt, callbacks);
   }
 
   /**

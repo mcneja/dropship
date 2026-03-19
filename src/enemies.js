@@ -120,6 +120,18 @@ export class Enemies {
   }
 
   /**
+   * @returns {Uint8Array}
+   */
+  _enemyNavigationMask(){
+    const mask = this.planet.getEnemyNavigationMask
+      ? this.planet.getEnemyNavigationMask()
+      : this.planet.airNodesBitmap;
+    return (mask && mask.length === this.planet.airNodesBitmap.length)
+      ? mask
+      : this.planet.airNodesBitmap;
+  }
+
+  /**
    * @param {EnemyType} type
    * @param {number} x
    * @param {number} y
@@ -366,10 +378,11 @@ export class Enemies {
     if (Math.hypot(e.x - ship.x, e.y - ship.y) > maxPathDist) return false;
 
     const radialGraph = this.planet.radialGraph;
+    const navMask = this._enemyNavigationMask();
 
     const nodeShip = this.planet.nearestRadialNodeInAir(ship.x, ship.y);
     const nodeHunter = this.planet.nearestRadialNodeInAir(e.x, e.y);
-    const pathNodes = findPathAStar(radialGraph, nodeHunter, nodeShip, this.planet.airNodesBitmap);
+    const pathNodes = findPathAStar(radialGraph, nodeHunter, nodeShip, navMask);
     if (!pathNodes || pathNodes.length < 2) return false;
 
     /**
@@ -446,7 +459,12 @@ export class Enemies {
    */
   _wander(e, speed, dt) {
     const iNodeFrom = this.planet.nearestRadialNodeInAir(e.x, e.y);
-    if (e.iNodeGoal === null || iNodeFrom === e.iNodeGoal) {
+    const navMask = this._enemyNavigationMask();
+    if (
+      e.iNodeGoal === null
+      || iNodeFrom === e.iNodeGoal
+      || !navMask[e.iNodeGoal]
+    ) {
       e.iNodeGoal = this._iNodeWanderDirection(iNodeFrom, e.x, e.y, e.vx, e.vy);
     }
     const nodeGoal = this.planet.radialGraph.nodes[e.iNodeGoal];
@@ -476,11 +494,12 @@ export class Enemies {
    */
   _iNodeWanderDirection(iNodeFrom, x, y, vx, vy) {
     const radialGraph = this.planet.radialGraph;
+    const navMask = this._enemyNavigationMask();
     /** @type {Array<number>} */
     const iNodeCandidates = [];
     for (const n of radialGraph.neighbors[iNodeFrom]) {
       const iNode = n.to;
-      if (this.planet.airNodesBitmap[iNode] === 0) continue;
+      if (navMask[iNode] === 0) continue;
       const node = radialGraph.nodes[iNode];
       const dx = node.x - x;
       const dy = node.y - y;
@@ -491,7 +510,7 @@ export class Enemies {
     if (iNodeCandidates.length === 0) {
       for (const n of radialGraph.neighbors[iNodeFrom]) {
         const iNode = n.to;
-        if (this.planet.airNodesBitmap[iNode] === 0) continue;
+        if (navMask[iNode] === 0) continue;
         iNodeCandidates.push(iNode);
       }
     }
@@ -583,8 +602,49 @@ export class Enemies {
     this._reflectVelocityBackTowardPlanet(e);
     const next = { x: e.x + e.vx * dt, y: e.y + e.vy * dt };
     this._reflectVelocityAwayFromTerrain(e, prev, next);
+    this._deflectCrawlerFromUnsafeNodes(e, dt);
     e.x += e.vx * dt;
     e.y += e.vy * dt;
+  }
+
+  /**
+   * @param {Enemy} e
+   * @param {number} dt
+   * @returns {void}
+   */
+  _deflectCrawlerFromUnsafeNodes(e, dt){
+    const navMask = this._enemyNavigationMask();
+    const graph = this.planet.radialGraph;
+    if (!graph || !graph.nodes || !graph.neighbors) return;
+    const nextX = e.x + e.vx * dt;
+    const nextY = e.y + e.vy * dt;
+    const iNodeNext = this.planet.nearestRadialNodeInAir(nextX, nextY);
+    if (iNodeNext < 0 || iNodeNext >= navMask.length || navMask[iNodeNext]) return;
+    const iNodeFrom = this.planet.nearestRadialNodeInAir(e.x, e.y);
+    if (iNodeFrom < 0 || iNodeFrom >= graph.neighbors.length) return;
+    let bestDx = 0;
+    let bestDy = 0;
+    let bestScore = -Infinity;
+    for (const edge of graph.neighbors[iNodeFrom]){
+      const iNode = edge.to;
+      if (iNode < 0 || iNode >= navMask.length || !navMask[iNode]) continue;
+      const node = graph.nodes[iNode];
+      if (!node) continue;
+      const dx = node.x - e.x;
+      const dy = node.y - e.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist <= 1e-6) continue;
+      const score = (dx * e.vx + dy * e.vy) / dist;
+      if (score > bestScore){
+        bestScore = score;
+        bestDx = dx / dist;
+        bestDy = dy / dist;
+      }
+    }
+    if (bestScore <= -Infinity) return;
+    const speed = Math.max(0.001, Math.hypot(e.vx, e.vy));
+    e.vx = bestDx * speed;
+    e.vy = bestDy * speed;
   }
 
   /**
