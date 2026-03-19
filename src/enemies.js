@@ -635,10 +635,10 @@ export class Enemies {
    */
   _reflectVelocityAwayFromTerrain(e, prev, next) {
     const planet = this.planet;
-    const hit = planet.terrainCrossingNormal(prev, next);
-    if (!hit) return;
-    const nx = hit.nx;
-    const ny = hit.ny;
+    const crossing = planet.terrainCrossing(prev, next);
+    if (!crossing) return;
+    const nx = crossing.nx;
+    const ny = crossing.ny;
 
     const vNormal = nx * e.vx + ny * e.vy;
     if (vNormal >= 0) return;

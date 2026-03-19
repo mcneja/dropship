@@ -2556,13 +2556,13 @@ export class Planet {
   }
 
   /**
-   * Exact terrain crossing normal along a swept segment.
+   * Exact terrain crossing along a swept segment.
    * Returns null when the segment does not cross a terrain surface.
    * @param {{x:number,y:number}} p1
    * @param {{x:number,y:number}} p2
    * @returns {{x:number,y:number,nx:number,ny:number}|null}
    */
-  terrainCrossingNormal(p1, p2){
+  terrainCrossing(p1, p2){
     if (!p1 || !p2) return null;
     const ax = p1.x;
     const ay = p1.y;

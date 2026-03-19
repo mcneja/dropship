@@ -3300,6 +3300,8 @@ export class GameLoop {
 
     for (let i = this.playerShots.length - 1; i >= 0; i--){
       const s = this.playerShots[i];
+      const prevX = s.x;
+      const prevY = s.y;
       s.x += s.vx * dt;
       s.y += s.vy * dt;
       s.life -= dt;
@@ -3313,18 +3315,23 @@ export class GameLoop {
       }
       if (this.collision.airValueAtWorld(s.x, s.y) <= 0.5){
         if (this.ship.bounceShots){
-          const eps = 0.12;
-          let nx = this.collision.airValueAtWorld(s.x + eps, s.y) - this.collision.airValueAtWorld(s.x - eps, s.y);
-          let ny = this.collision.airValueAtWorld(s.x, s.y + eps) - this.collision.airValueAtWorld(s.x, s.y - eps);
-          const vNormal = nx * s.vx + ny * s.vy;
-          if (vNormal < 0){
-            let nlen = nx*nx + ny*ny;
-            s.vx -= 2 * vNormal * nx / nlen;
-            s.vy -= 2 * vNormal * ny / nlen;
+          const crossing = this.planet.terrainCrossing(
+            { x: prevX, y: prevY },
+            { x: s.x, y: s.y }
+          );
+          if (crossing){
+            const { nx, ny } = crossing;
+            const vNormal = nx * s.vx + ny * s.vy;
+            if (vNormal < 0){
+              s.x = prevX;
+              s.y = prevY;
+              s.vx -= 2 * vNormal * nx;
+              s.vy -= 2 * vNormal * ny;
+              continue;
+            }
           }
-        } else {
-          this.playerShots.splice(i, 1);
         }
+        this.playerShots.splice(i, 1);
         continue;
       }
       if (mechanizedLevel){

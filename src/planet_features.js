@@ -1101,13 +1101,11 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
         mush.splice(i, 1);
         continue;
       }
-      const hit = planet.terrainCrossingNormal
-        ? planet.terrainCrossingNormal({ x: xPrev, y: yPrev }, { x: p.x, y: p.y })
-        : null;
-      if (hit){
+      const crossing = planet.terrainCrossing({ x: xPrev, y: yPrev }, { x: p.x, y: p.y });
+      if (crossing){
         // Keep spores in-air by reflecting velocity off terrain boundaries.
-        const nx = hit.nx;
-        const ny = hit.ny;
+        const nx = crossing.nx;
+        const ny = crossing.ny;
         const vn = p.vx * nx + p.vy * ny;
         if (vn < 0){
           const bounce = 0.72;
@@ -1157,10 +1155,15 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
     const hitR2 = tuning.iceShard.radius * tuning.iceShard.radius;
     for (let i = ice.length - 1; i >= 0; i--){
       const p = ice[i];
+      const xPrev = p.x;
+      const yPrev = p.y;
       p.x += p.vx * dt;
       p.y += p.vy * dt;
       p.life -= dt;
-      if (p.life <= 0 || planet.airValueAtWorld(p.x, p.y) <= 0.5){
+      const crossing = planet.terrainCrossing
+        ? planet.terrainCrossing({ x: xPrev, y: yPrev }, { x: p.x, y: p.y })
+        : null;
+      if (p.life <= 0 || crossing || planet.airValueAtWorld(p.x, p.y) <= 0.5){
         ice.splice(i, 1);
         continue;
       }
