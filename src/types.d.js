@@ -162,6 +162,13 @@
  */
 
 /**
+ * @typedef {Object} HealthPickup
+ * @property {number} x
+ * @property {number} y
+ * @property {number} life
+ */
+
+/**
  * @typedef {"hunter"|"ranger"|"crawler"|"turret"|"orbitingTurret"} EnemyType
  */
 
@@ -234,6 +241,7 @@
  * @property {number} level
  * @property {number} minersDead
  * @property {number} [minerTarget]
+ * @property {Array<HealthPickup>} healthPickups
  * @property {Array<{x:number,y:number,type:EnemyType,vx?:number,vy?:number,cooldown?:number,hp?:number,hitT?:number,stunT?:number,dir?:number,fuse?:number}>} enemies
  * @property {Array<{x:number,y:number,vx?:number,vy?:number,life?:number,owner:string}>} shots
  * @property {Array<{x:number,y:number,life:number,maxLife?:number,owner:string,radius?:number}>} explosions

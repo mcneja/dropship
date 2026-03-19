@@ -716,6 +716,18 @@ function pushMiner(pos, col, x, y, jumpCycle, r, g, b, scale, skipHelmet = false
 /**
  * @param {number[]} pos
  * @param {number[]} col
+ * @param {number} x
+ * @param {number} y
+ * @returns {number}
+ */
+function pushHealthPickup(pos, col, x, y){
+  pushSquare(pos, col, x, y, 0.1, 0, 1, 0, 1);
+  return 6;
+}
+
+/**
+ * @param {number[]} pos
+ * @param {number[]} col
  * @param {EnemyRender} enemy
  * @param {[number,number,number]} baseColor
  * @param {number} scale
@@ -1470,6 +1482,11 @@ function drawFrameImpl(renderer, state, planet){
       const [r, g, b] = minerColor(miner.type);
       triVerts += pushMiner(pos, col, miner.x, miner.y, miner.jumpCycle, r, g, b, game.MINER_SCALE, false, 1/16) * 3;
     }
+  }
+
+  for (const healthPickup of state.healthPickups){
+    if (state.fogEnabled && !planet.fogSeenAt(healthPickup.x, healthPickup.y)) continue;
+    triVerts += pushHealthPickup(pos, col, healthPickup.x, healthPickup.y);
   }
 
   if (state.shots && state.shots.length){

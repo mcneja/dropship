@@ -28,7 +28,6 @@ import {
 import { Mothership, updateMothership, mothershipCollisionInfo } from "./mothership.js";
 import { Planet } from "./planet.js";
 import { pickPlanetConfig, pickPlanetConfigById, resolveLevelProgression, resolvePlanetParams } from "./planet_config.js";
-import { mulberry32 } from "./rng.js";
 import { clearSavedGame, createLoopSaveSnapshot, restoreLoopFromSaveSnapshot } from "./save_state.js";
 import { copyGameplayScreenshotToClipboard, drawStartTitle } from "./screenshot.js";
 import { JumpdriveTransition } from "./jumpdrive_transition.js";
@@ -47,6 +46,7 @@ import { lerpAngleShortest, sweptShipVsMovingMothership } from "./collision_moth
 /** @typedef {import("./types.d.js").ViewState} ViewState */
 /** @typedef {import("./types.d.js").Ship} Ship */
 /** @typedef {import("./types.d.js").Miner} Miner */
+/** @typedef {import("./types.d.js").HealthPickup} HealthPickup */
 /** @typedef {import("./types.d.js").Ui} Ui */
 /** @typedef {import("./help_popup.js").HelpPopup} HelpPopup */
 /** @typedef {import("./planet_config.js").PlanetTypeId} PlanetTypeId */
@@ -269,6 +269,8 @@ export class GameLoop {
         this._handleEnemyDestroyed(enemy);
       },
     });
+    /** @type {Array<HealthPickup>} */
+    this.healthPickups = [];
     this._initializeClearObjectiveTracking();
     this._syncTetherProtectionStates();
 
@@ -804,6 +806,21 @@ export class GameLoop {
    */
   _handleEnemyDestroyed(enemy){
     this._playSfx("enemy_destroyed", { volume: 0.8 });
+
+    // Spawn a health pickup if there are none and the player is low on health
+    if (this.healthPickups.length === 0 && this.ship.hpCur < this.ship.hpMax){
+      const hpCurClamped = Math.min(4, this.ship.hpCur);
+      const hpMaxClamped = 4;
+      const healthPickupChance = (hpMaxClamped - hpCurClamped) / hpMaxClamped;
+      if (Math.random() < healthPickupChance){
+        this.healthPickups.push({
+          x: enemy.x,
+          y: enemy.y,
+          life: 4
+        });
+      }
+    }
+
     if (!enemy || enemy.type !== "crawler"){
       return;
     }
@@ -1964,6 +1981,7 @@ export class GameLoop {
     this.mothership = bundle.mothership;
     this.collision = bundle.collision;
     this.enemies = bundle.enemies;
+    this.healthPickups = [];
     console.log("[Level] begin", {
       level: this.level,
       planetId: bundle.planetConfig.id,
@@ -3436,6 +3454,17 @@ export class GameLoop {
       }
     }
 
+    for (let i = this.healthPickups.length - 1; i >= 0; i--){
+      const pickup = this.healthPickups[i];
+      if (Math.hypot(pickup.x - this.ship.x, pickup.y - this.ship.y) < GAME.SHIP_SCALE){
+        this.ship.hpCur = Math.min(this.ship.hpMax, this.ship.hpCur + 1);
+        this.healthPickups.splice(i, 1);
+      } else {
+        pickup.life -= dt;
+        if (pickup.life <= 0) this.healthPickups.splice(i, 1);
+      }
+    }
+
     const guidepathMargin = Math.max(0.15, GAME.MINER_GUIDE_ATTACH_RADIUS || 0.75);
     const guidepathAttachTolerance = 0.12;
     const attachDist = guidepathMargin + guidepathAttachTolerance;
@@ -4164,6 +4193,7 @@ export class GameLoop {
       minerTarget: this.minerTarget,
       level: this.level,
       minersDead: this.minersDead,
+      healthPickups: this.healthPickups,
       enemies: this.enemies.enemies,
       shots: this.enemies.shots,
       explosions: this.enemies.explosions,
