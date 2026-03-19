@@ -1152,10 +1152,10 @@ function drawFrameImpl(renderer, state, planet){
       ux = p.padNx / nlen;
       uy = p.padNy / nlen;
     } else {
-      const info = planet.surfaceInfoAtWorld ? planet.surfaceInfoAtWorld(p.x, p.y, 0.18) : null;
-      if (info){
-        ux = info.nx;
-        uy = info.ny;
+      const normal = planet.normalAtWorld ? planet.normalAtWorld(p.x, p.y) : null;
+      if (normal){
+        ux = normal.nx;
+        uy = normal.ny;
       }
     }
     let tx;
@@ -1708,10 +1708,10 @@ function drawFrameImpl(renderer, state, planet){
           tx = -uy;
           ty = ux;
         } else {
-          const info = planet.surfaceInfoAtWorld ? planet.surfaceInfoAtWorld(p.x, p.y, 0.18) : null;
-          if (info){
-            ux = info.nx;
-            uy = info.ny;
+          const normal = planet.normalAtWorld ? planet.normalAtWorld(p.x, p.y) : null;
+          if (normal){
+            ux = normal.nx;
+            uy = normal.ny;
             tx = -uy;
             ty = ux;
           } else {

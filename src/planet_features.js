@@ -781,9 +781,9 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
     if (props && props.length){
       for (const p of props){
         if (p.type !== "vent" || p.dead) continue;
-        const info = planet.surfaceInfoAtWorld ? planet.surfaceInfoAtWorld(p.x, p.y, 0.18) : null;
-        const nx = info ? info.nx : (p.x / (Math.hypot(p.x, p.y) || 1));
-        const ny = info ? info.ny : (p.y / (Math.hypot(p.x, p.y) || 1));
+        const normal = planet.normalAtWorld ? planet.normalAtWorld(p.x, p.y) : null;
+        const nx = normal ? normal.nx : (p.x / (Math.hypot(p.x, p.y) || 1));
+        const ny = normal ? normal.ny : (p.y / (Math.hypot(p.x, p.y) || 1));
         const tx = -ny;
         const ty = nx;
         const dx = x - p.x;
@@ -994,9 +994,9 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
       let nx = (typeof p.nx === "number") ? p.nx : 0;
       let ny = (typeof p.ny === "number") ? p.ny : 0;
       if (!nx && !ny){
-        const info = planet.surfaceInfoAtWorld ? planet.surfaceInfoAtWorld(p.x, p.y, 0.18) : null;
-        nx = info ? info.nx : (p.x / (Math.hypot(p.x, p.y) || 1));
-        ny = info ? info.ny : (p.y / (Math.hypot(p.x, p.y) || 1));
+        const normal = planet.normalAtWorld ? planet.normalAtWorld(p.x, p.y) : null;
+        nx = normal ? normal.nx : (p.x / (Math.hypot(p.x, p.y) || 1));
+        ny = normal ? normal.ny : (p.y / (Math.hypot(p.x, p.y) || 1));
       }
       const nlen = Math.hypot(nx, ny) || 1;
       nx /= nlen;
@@ -1101,24 +1101,13 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
         mush.splice(i, 1);
         continue;
       }
-      if (planet.airValueAtWorld(p.x, p.y) <= 0.5){
+      const hit = planet.terrainCrossingNormal
+        ? planet.terrainCrossingNormal({ x: xPrev, y: yPrev }, { x: p.x, y: p.y })
+        : null;
+      if (hit){
         // Keep spores in-air by reflecting velocity off terrain boundaries.
-        const eps = 0.12;
-        const axp = planet.airValueAtWorld(p.x + eps, p.y);
-        const axm = planet.airValueAtWorld(p.x - eps, p.y);
-        const ayp = planet.airValueAtWorld(p.x, p.y + eps);
-        const aym = planet.airValueAtWorld(p.x, p.y - eps);
-        let nx = axp - axm;
-        let ny = ayp - aym;
-        let nLen = Math.hypot(nx, ny);
-        if (nLen < 1e-4){
-          const r = Math.hypot(xPrev, yPrev) || 1;
-          nx = xPrev / r;
-          ny = yPrev / r;
-          nLen = 1;
-        }
-        nx /= nLen;
-        ny /= nLen;
+        const nx = hit.nx;
+        const ny = hit.ny;
         const vn = p.vx * nx + p.vy * ny;
         if (vn < 0){
           const bounce = 0.72;

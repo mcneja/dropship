@@ -1836,10 +1836,10 @@ export class GameLoop {
       if (barrenPerimeter){
         let x = p[0];
         let y = p[1];
-        const info = this.planet.surfaceInfoAtWorld(x, y, 0.18);
-        if (info){
-          x += info.nx * 0.02;
-          y += info.ny * 0.02;
+        const normal = this.planet.normalAtWorld(x, y);
+        if (normal){
+          x += normal.nx * 0.02;
+          y += normal.ny * 0.02;
         }
         nudged.push({ x, y, jumpCycle: Math.random(), type: minerType, state: "idle" });
       } else {
@@ -3140,12 +3140,12 @@ export class GameLoop {
       // Restored landed positions can occasionally sit on a degenerate sample point.
       // Probe nearby points and keep the first usable multi-segment path.
       if (!guidePathUsable(guidePath) && this.ship.state === "landed"){
-        const info = this.planet.surfaceInfoAtWorld(guideAnchorX, guideAnchorY, 0.24);
-        if (info){
-          const tx = -info.ny;
-          const ty = info.nx;
-          const nx = info.nx;
-          const ny = info.ny;
+        const normal = this.planet.normalAtWorld(guideAnchorX, guideAnchorY);
+        if (normal){
+          const tx = -normal.ny;
+          const ty = normal.nx;
+          const nx = normal.nx;
+          const ny = normal.ny;
           const probes = [
             [ tx * 0.30, ty * 0.30],
             [-tx * 0.30,-ty * 0.30],

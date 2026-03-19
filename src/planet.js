@@ -380,12 +380,12 @@ export class Planet {
         : this._buildStandablePoints();
       const bandPoints = standable.filter((p) => p[3] >= surfaceR && p[3] <= rMax);
       const flatPoints = bandPoints.filter((p) => {
-        const info = this.surfaceInfoAtWorld(p[0], p[1], eps);
-        if (!info) return false;
+        const normal = this.normalAtWorld(p[0], p[1]);
+        if (!normal) return false;
         const r = Math.hypot(p[0], p[1]) || 1;
         const nx = p[0] / r;
         const ny = p[1] / r;
-        const dot = info.nx * nx + info.ny * ny;
+        const dot = normal.nx * nx + normal.ny * ny;
         return dot >= 0.98;
       });
       const pool = flatPoints.length ? flatPoints : (bandPoints.length ? bandPoints : standable);
@@ -424,13 +424,13 @@ export class Planet {
         const pt = points[i];
         p.x = pt[0];
         p.y = pt[1];
-        const info = this.surfaceInfoAtWorld(p.x, p.y, eps);
-        if (info){
-          p.nx = info.nx;
-          p.ny = info.ny;
+        const normal = this.normalAtWorld(p.x, p.y);
+        if (normal){
+          p.nx = normal.nx;
+          p.ny = normal.ny;
           const recess = 0.02;
-          p.x -= info.nx * recess;
-          p.y -= info.ny * recess;
+          p.x -= normal.nx * recess;
+          p.y -= normal.ny * recess;
         }
       }
     }
@@ -475,7 +475,7 @@ export class Planet {
       }
       p.x = pt[0];
       p.y = pt[1];
-      const info = this.surfaceInfoAtWorld(p.x, p.y, 0.18);
+      const info = this.normalAtWorld(p.x, p.y);
       if (!info) continue;
       p.nx = info.nx;
       p.ny = info.ny;
@@ -741,13 +741,13 @@ export class Planet {
         const pt = factorySites[idx];
         factory.x = pt[0];
         factory.y = pt[1];
-        const info = this.surfaceInfoAtWorld(factory.x, factory.y, 0.18);
-        if (info){
-          factory.nx = info.nx;
-          factory.ny = info.ny;
-          factory.x -= info.nx * (0.05 * (factory.scale || 1));
-          factory.y -= info.ny * (0.05 * (factory.scale || 1));
-          factory.rot = Math.atan2(info.ny, info.nx) - Math.PI * 0.5;
+        const normal = this.normalAtWorld(factory.x, factory.y);
+        if (normal){
+          factory.nx = normal.nx;
+          factory.ny = normal.ny;
+          factory.x -= normal.nx * (0.05 * (factory.scale || 1));
+          factory.y -= normal.ny * (0.05 * (factory.scale || 1));
+          factory.rot = Math.atan2(normal.ny, normal.nx) - Math.PI * 0.5;
         }
         factory.propId = iFactory;
         factory.hp = (typeof factory.hp === "number") ? Math.max(1, factory.hp) : 5;
@@ -832,13 +832,13 @@ export class Planet {
       }
       p.x = pt[0];
       p.y = pt[1];
-      const info = this.surfaceInfoAtWorld(p.x, p.y, 0.18);
-      if (info){
-        p.nx = info.nx;
-        p.ny = info.ny;
-        p.x -= info.nx * (0.05 * (p.scale || 1));
-        p.y -= info.ny * (0.05 * (p.scale || 1));
-        p.rot = Math.atan2(info.ny, info.nx) - Math.PI * 0.5;
+      const normal = this.normalAtWorld(p.x, p.y);
+      if (normal){
+        p.nx = normal.nx;
+        p.ny = normal.ny;
+        p.x -= normal.nx * (0.05 * (p.scale || 1));
+        p.y -= normal.ny * (0.05 * (p.scale || 1));
+        p.rot = Math.atan2(normal.ny, normal.nx) - Math.PI * 0.5;
       }
       p.propId = i;
       p.hp = (typeof p.hp === "number") ? Math.max(1, p.hp) : 5;
@@ -856,13 +856,13 @@ export class Planet {
       }
       p.x = pt[0];
       p.y = pt[1];
-      const info = this.surfaceInfoAtWorld(p.x, p.y, 0.18);
-      if (info){
-        p.nx = info.nx;
-        p.ny = info.ny;
-        p.x -= info.nx * (0.03 * (p.scale || 1));
-        p.y -= info.ny * (0.03 * (p.scale || 1));
-        p.rot = Math.atan2(info.ny, info.nx) - Math.PI * 0.5;
+      const normal = this.normalAtWorld(p.x, p.y);
+      if (normal){
+        p.nx = normal.nx;
+        p.ny = normal.ny;
+        p.x -= normal.nx * (0.03 * (p.scale || 1));
+        p.y -= normal.ny * (0.03 * (p.scale || 1));
+        p.rot = Math.atan2(normal.ny, normal.nx) - Math.PI * 0.5;
       }
     }
   }
@@ -912,8 +912,8 @@ export class Planet {
     for (const p of this.props){
       if (p.type !== "ice_shard") continue;
       if (p.dead || (typeof p.hp === "number" && p.hp <= 0)) continue;
-      let info = this.surfaceInfoAtWorld(p.x, p.y, 0.18);
-      if (!info){
+      let normal = this.normalAtWorld(p.x, p.y);
+      if (!normal){
         p.dead = true;
         p.hp = 0;
         continue;
@@ -921,8 +921,8 @@ export class Planet {
       // If in air, move toward rock; if buried, nudge outward, then embed slightly.
       if (this.airValueAtWorld(p.x, p.y) > 0.5){
         for (let i = 0; i < 6; i++){
-          p.x -= info.nx * 0.06;
-          p.y -= info.ny * 0.06;
+          p.x -= normal.nx * 0.06;
+          p.y -= normal.ny * 0.06;
           if (this.airValueAtWorld(p.x, p.y) <= 0.5) break;
         }
       } else {
@@ -932,15 +932,15 @@ export class Planet {
           p.y = res.y;
         }
       }
-      info = this.surfaceInfoAtWorld(p.x, p.y, 0.18);
-      if (!info){
+      normal = this.normalAtWorld(p.x, p.y);
+      if (!normal){
         p.dead = true;
         p.hp = 0;
         continue;
       }
       // Embed slightly so they appear attached.
-      p.x -= info.nx * 0.03;
-      p.y -= info.ny * 0.03;
+      p.x -= normal.nx * 0.03;
+      p.y -= normal.ny * 0.03;
     }
   }
 
@@ -967,10 +967,10 @@ export class Planet {
       p.x = pt[0];
       p.y = pt[1];
       // Orient roughly orthogonal to the surface normal (tangent), with random flip/jitter.
-      const info = this.surfaceInfoAtWorld(p.x, p.y, 0.18);
-      if (info){
-        const tx = -info.ny;
-        const ty = info.nx;
+      const normal = this.normalAtWorld(p.x, p.y);
+      if (normal){
+        const tx = -normal.ny;
+        const ty = normal.nx;
         const base = Math.atan2(ty, tx);
         p.rot = base + (rand() - 0.5) * 0.6;
       } else {
@@ -1038,25 +1038,26 @@ export class Planet {
    * @returns {{ok:boolean, plusOk:boolean, minusOk:boolean, info:{nx:number,ny:number,slope:number}|null, tx:number, ty:number}}
    */
   _turretPadSupportAtWorld(x, y, scale = 0.55, eps = 0.18){
-    const info = this.surfaceInfoAtWorld(x, y, eps);
-    if (!info){
+    const normal = this._upAlignedNormalAtWorld(x, y);
+    const slope = this._surfaceSlopeAtWorld(x, y, normal);
+    if (!normal || slope === null){
       return { ok: false, plusOk: false, minusOk: false, info: null, tx: 0, ty: 0 };
     }
-    const tx = -info.ny;
-    const ty = info.nx;
+    const tx = -normal.ny;
+    const ty = normal.nx;
     const shoulder = 0.55 * scale + 0.08;
     const airClearance = 0.12;
     const rockDepth = 0.09;
     const shoulderSupported = (dir) => {
       const sx = x + tx * shoulder * dir;
       const sy = y + ty * shoulder * dir;
-      return (this.airValueAtWorld(sx + info.nx * airClearance, sy + info.ny * airClearance) > 0.5)
-        && (this.airValueAtWorld(sx - info.nx * rockDepth, sy - info.ny * rockDepth) <= 0.5);
+      return (this.airValueAtWorld(sx + normal.nx * airClearance, sy + normal.ny * airClearance) > 0.5)
+        && (this.airValueAtWorld(sx - normal.nx * rockDepth, sy - normal.ny * rockDepth) <= 0.5);
     };
     const plusOk = shoulderSupported(1);
     const minusOk = shoulderSupported(-1);
     const ok = this.isLandableAtWorld(x, y, 0.45, 0.16, eps) && plusOk && minusOk;
-    return { ok, plusOk, minusOk, info, tx, ty };
+    return { ok, plusOk, minusOk, info: { nx: normal.nx, ny: normal.ny, slope }, tx, ty };
   }
 
   /**
@@ -1463,10 +1464,10 @@ export class Planet {
       prop.padNy = up.uy;
       return;
     }
-    const info = this.surfaceInfoAtWorld(prop.x, prop.y, 0.18);
-    if (info){
-      prop.padNx = info.nx;
-      prop.padNy = info.ny;
+    const normal = this.normalAtWorld(prop.x, prop.y);
+    if (normal){
+      prop.padNx = normal.nx;
+      prop.padNy = normal.ny;
     }
   }
 
@@ -1638,20 +1639,21 @@ export class Planet {
     } else {
       const standable = this._standablePoints || [];
       const flatPool = standable.filter((pt) => {
-        const info = this.surfaceInfoAtWorld(pt[0], pt[1], 0.18);
-        if (!info) return false;
+        const normal = this._upAlignedNormalAtWorld(pt[0], pt[1]);
+        const slope = this._surfaceSlopeAtWorld(pt[0], pt[1], normal);
+        if (!normal || slope === null) return false;
         const up = this._upDirAt(pt[0], pt[1]);
         if (!up) return false;
-        if (info.slope > 0.08) return false;
-        if (info.nx * up.ux + info.ny * up.uy < 0.98) return false;
-        const tx = -info.ny;
-        const ty = info.nx;
+        if (slope > 0.08) return false;
+        if (normal.nx * up.ux + normal.ny * up.uy < 0.98) return false;
+        const tx = -normal.ny;
+        const ty = normal.nx;
         const shoulder = 0.38;
         for (const dir of [-1, 1]){
           const sx = pt[0] + tx * shoulder * dir;
           const sy = pt[1] + ty * shoulder * dir;
-          if (this.airValueAtWorld(sx + info.nx * 0.12, sy + info.ny * 0.12) <= 0.5) return false;
-          if (this.airValueAtWorld(sx - info.nx * 0.09, sy - info.ny * 0.09) > 0.5) return false;
+          if (this.airValueAtWorld(sx + normal.nx * 0.12, sy + normal.ny * 0.12) <= 0.5) return false;
+          if (this.airValueAtWorld(sx - normal.nx * 0.09, sy - normal.ny * 0.09) > 0.5) return false;
         }
         return true;
       });
@@ -1706,10 +1708,10 @@ export class Planet {
         delete p.padSourceRing;
         delete p.padSourceIndex;
       }
-      const info = this.surfaceInfoAtWorld(p.x, p.y, 0.18);
-      if (info){
-        p.padNx = info.nx;
-        p.padNy = info.ny;
+      const normal = this.normalAtWorld(p.x, p.y);
+      if (normal){
+        p.padNx = normal.nx;
+        p.padNy = normal.ny;
       } else {
         const up = this._upDirAt(p.x, p.y);
         if (up){
@@ -1872,10 +1874,10 @@ export class Planet {
       const t = denom !== 0 ? Math.max(0, Math.min(1, (0.5 - aInner) / denom)) : 0.5;
       const sx = nb.x + (n.x - nb.x) * t;
       const sy = nb.y + (n.y - nb.y) * t;
-      const info = this.surfaceInfoAtWorld(sx, sy, eps);
-      if (!info) continue;
-      const px = sx + info.nx * 0.02;
-      const py = sy + info.ny * 0.02;
+      const normal = this._upAlignedNormalAtWorld(sx, sy);
+      if (!normal) continue;
+      const px = sx + normal.nx * 0.02;
+      const py = sy + normal.ny * 0.02;
       if (!this.isStandableAtWorld(px, py, maxSlope, clearance, eps, sideClearance)) continue;
       const ang = Math.atan2(py, px);
       const r = Math.hypot(px, py);
@@ -2501,15 +2503,13 @@ export class Planet {
     const eps = 0.1;
 
     const dist = this.radial.airValueAtWorld(x, y) - 0.5;
-    const gdx = this.radial.airValueAtWorld(x + eps, y) - this.radial.airValueAtWorld(x - eps, y);
-    const gdy = this.radial.airValueAtWorld(x, y + eps) - this.radial.airValueAtWorld(x, y - eps);
-    const g = Math.hypot(gdx, gdy);
-    if (g < 1e-4) {
+    const n = this._airGradientNormalAtWorld(x, y, eps);
+    if (!n) {
       return null;
     }
 
-    const step = -dist / g;
-    return {x: x + gdx * step, y: y + gdy * step};
+    const step = -dist;
+    return {x: x + n.nx * step, y: y + n.ny * step};
   }
 
   /**
@@ -2527,25 +2527,199 @@ export class Planet {
   }
 
   /**
-   * Surface normal and slope info at world point.
-   * Returns slope as (1 - dot(normal, gravityDir)), so 0 is perfectly flat.
+   * Exact surface normal at a world point.
+   * Returns null when the point is not on a boundary-carrying terrain surface.
    * @param {number} x
    * @param {number} y
-   * @param {number} [eps]
-   * @returns {{nx:number, ny:number, slope:number}|null}
+   * @returns {{nx:number, ny:number}|null}
    */
-  surfaceInfoAtWorld(x, y, eps = 0.18){
-    const up = this._upDirAt(x, y);
-    if (!up) return null;
-    const n = this.radialNormalAtWorld(x, y, eps);
-    if (!n) return null;
-    let dot = n.nx * up.ux + n.ny * up.uy;
-    if (dot < 0){
-      n.nx = -n.nx;
-      n.ny = -n.ny;
-      dot = -dot;
+  normalAtWorld(x, y){
+    const tri = this.radial && typeof this.radial.findTriAtWorld === "function"
+      ? this.radial.findTriAtWorld(x, y)
+      : null;
+    if (this._triStraddlesBoundary(tri)){
+      return this._triGradientNormal(tri);
     }
-    return { nx: n.nx, ny: n.ny, slope: 1 - dot };
+    const rOuter = this._outerShellRadius();
+    if (!(rOuter > 0)) return null;
+    const r = Math.hypot(x, y);
+    if (r <= 1e-6) return null;
+    const ux = x / r;
+    const uy = y / r;
+    const probe = 0.08;
+    const shellGap = Math.max(0.08, probe * 1.5);
+    if (Math.abs(r - rOuter) > shellGap) return null;
+    const airOut = this.airValueAtWorld(x + ux * probe, y + uy * probe);
+    const airIn = this.airValueAtWorld(x - ux * probe, y - uy * probe);
+    if (!(airOut > 0.5 && airIn <= 0.5)) return null;
+    return { nx: ux, ny: uy };
+  }
+
+  /**
+   * Exact terrain crossing normal along a swept segment.
+   * Returns null when the segment does not cross a terrain surface.
+   * @param {{x:number,y:number}} p1
+   * @param {{x:number,y:number}} p2
+   * @returns {{x:number,y:number,nx:number,ny:number}|null}
+   */
+  terrainCrossingNormal(p1, p2){
+    if (!p1 || !p2) return null;
+    const ax = p1.x;
+    const ay = p1.y;
+    const bx = p2.x;
+    const by = p2.y;
+    if (!Number.isFinite(ax) || !Number.isFinite(ay) || !Number.isFinite(bx) || !Number.isFinite(by)){
+      return null;
+    }
+    const a0 = this.airValueAtWorld(ax, ay);
+    const a1 = this.airValueAtWorld(bx, by);
+    const s0 = a0 > 0.5;
+    const s1 = a1 > 0.5;
+    if (s0 === s1){
+      return null;
+    }
+    let lo = 0;
+    let hi = 1;
+    for (let i = 0; i < 24; i++){
+      const mid = (lo + hi) * 0.5;
+      const mx = ax + (bx - ax) * mid;
+      const my = ay + (by - ay) * mid;
+      const airMid = this.airValueAtWorld(mx, my) > 0.5;
+      if (airMid === s0){
+        lo = mid;
+      } else {
+        hi = mid;
+      }
+    }
+    let x = ax + (bx - ax) * hi;
+    let y = ay + (by - ay) * hi;
+    let n = this.normalAtWorld(x, y);
+    if (!n){
+      const tShell = this._segmentOuterShellHitT(ax, ay, bx, by);
+      if (tShell === null){
+        return null;
+      }
+      x = ax + (bx - ax) * tShell;
+      y = ay + (by - ay) * tShell;
+      const r = Math.hypot(x, y);
+      if (r <= 1e-6) return null;
+      n = { nx: x / r, ny: y / r };
+    }
+    return { x, y, nx: n.nx, ny: n.ny };
+  }
+
+  /**
+   * @param {Array<{x:number,y:number,air:number}>|null|undefined} tri
+   * @param {number} [threshold]
+   * @returns {boolean}
+   */
+  _triStraddlesBoundary(tri, threshold = 0.5){
+    if (!tri || tri.length < 3) return false;
+    let minA = Infinity;
+    let maxA = -Infinity;
+    for (const v of tri){
+      minA = Math.min(minA, v.air);
+      maxA = Math.max(maxA, v.air);
+    }
+    return minA <= threshold && maxA > threshold;
+  }
+
+  /**
+   * @param {Array<{x:number,y:number,air:number}>|null|undefined} tri
+   * @returns {{nx:number,ny:number}|null}
+   */
+  _triGradientNormal(tri){
+    if (!tri || tri.length < 3) return null;
+    const a = tri[0];
+    const b = tri[1];
+    const c = tri[2];
+    const det = (b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y);
+    if (Math.abs(det) < 1e-8) return null;
+    const dfdx = (a.air * (b.y - c.y) + b.air * (c.y - a.y) + c.air * (a.y - b.y)) / det;
+    const dfdy = (a.air * (c.x - b.x) + b.air * (a.x - c.x) + c.air * (b.x - a.x)) / det;
+    const gLen = Math.hypot(dfdx, dfdy);
+    if (gLen < 1e-8) return null;
+    return { nx: dfdx / gLen, ny: dfdy / gLen };
+  }
+
+  /**
+   * @returns {number}
+   */
+  _outerShellRadius(){
+    return (this.radial && this.radial.rings && this.radial.rings.length)
+      ? (this.radial.rings.length - 1)
+      : this.planetRadius;
+  }
+
+  /**
+   * @param {number} ax
+   * @param {number} ay
+   * @param {number} bx
+   * @param {number} by
+   * @returns {number|null}
+   */
+  _segmentOuterShellHitT(ax, ay, bx, by){
+    const rOuter = this._outerShellRadius();
+    if (!(rOuter > 0)) return null;
+    const dx = bx - ax;
+    const dy = by - ay;
+    const qa = dx * dx + dy * dy;
+    if (qa <= 1e-10) return null;
+    const qb = 2 * (ax * dx + ay * dy);
+    const qc = ax * ax + ay * ay - rOuter * rOuter;
+    const disc = qb * qb - 4 * qa * qc;
+    if (disc < 0) return null;
+    const root = Math.sqrt(disc);
+    const t0 = (-qb - root) / (2 * qa);
+    const t1 = (-qb + root) / (2 * qa);
+    let t = null;
+    if (t0 >= 0 && t0 <= 1) t = t0;
+    if (t1 >= 0 && t1 <= 1){
+      t = (t === null) ? t1 : Math.min(t, t1);
+    }
+    return t;
+  }
+
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @returns {{nx:number,ny:number}|null}
+   */
+  _upAlignedNormalAtWorld(x, y){
+    const n = this.normalAtWorld(x, y);
+    const up = this._upDirAt(x, y);
+    if (!n || !up) return null;
+    if (n.nx * up.ux + n.ny * up.uy < 0){
+      return { nx: -n.nx, ny: -n.ny };
+    }
+    return n;
+  }
+
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @param {{nx:number,ny:number}|null|undefined} normal
+   * @returns {number|null}
+   */
+  _surfaceSlopeAtWorld(x, y, normal){
+    const up = this._upDirAt(x, y);
+    if (!up || !normal) return null;
+    return 1 - Math.abs(normal.nx * up.ux + normal.ny * up.uy);
+  }
+
+  /**
+   * Private recovery helper for nudging buried points back toward air.
+   * @param {number} x
+   * @param {number} y
+   * @param {number} eps
+   * @returns {{nx:number,ny:number}|null}
+   */
+  _airGradientNormalAtWorld(x, y, eps){
+    const gdx = this.radial.airValueAtWorld(x + eps, y) - this.radial.airValueAtWorld(x - eps, y);
+    const gdy = this.radial.airValueAtWorld(x, y + eps) - this.radial.airValueAtWorld(x, y - eps);
+    const len = Math.hypot(gdx, gdy);
+    if (len < 1e-6) return null;
+    return { nx: gdx / len, ny: gdy / len };
   }
 
   /**
@@ -2557,9 +2731,10 @@ export class Planet {
    * @returns {boolean}
    */
   isWalkableAtWorld(x, y, maxSlope = 0.35, eps = 0.18){
-    const info = this.surfaceInfoAtWorld(x, y, eps);
-    if (!info) return false;
-    return info.slope <= maxSlope;
+    const n = this._upAlignedNormalAtWorld(x, y);
+    const slope = this._surfaceSlopeAtWorld(x, y, n);
+    if (slope === null) return false;
+    return slope <= maxSlope;
   }
 
   /**
@@ -2572,13 +2747,13 @@ export class Planet {
    * @returns {boolean}
    */
   isLandableAtWorld(x, y, maxSlope = 0.4, clearance = 0.2, eps = 0.18){
-    const info = this.surfaceInfoAtWorld(x, y, eps);
-    if (!info) return false;
-    if (info.slope > maxSlope) return false;
-    const ax = x + info.nx * clearance;
-    const ay = y + info.ny * clearance;
-    const bx = x - info.nx * clearance;
-    const by = y - info.ny * clearance;
+    const n = this._upAlignedNormalAtWorld(x, y);
+    const slope = this._surfaceSlopeAtWorld(x, y, n);
+    if (!n || slope === null || slope > maxSlope) return false;
+    const ax = x + n.nx * clearance;
+    const ay = y + n.ny * clearance;
+    const bx = x - n.nx * clearance;
+    const by = y - n.ny * clearance;
     return (this.airValueAtWorld(ax, ay) > 0.5) && (this.airValueAtWorld(bx, by) <= 0.5);
   }
 
@@ -2593,11 +2768,11 @@ export class Planet {
    * @returns {boolean}
    */
   isStandableAtWorld(x, y, maxSlope = 0.4, clearance = 0.2, eps = 0.18, sideClearance = 0.25){
-    const info = this.surfaceInfoAtWorld(x, y, eps);
-    if (!info) return false;
-    if (info.slope > maxSlope) return false;
-    const nx = info.nx;
-    const ny = info.ny;
+    const n = this._upAlignedNormalAtWorld(x, y);
+    const slope = this._surfaceSlopeAtWorld(x, y, n);
+    if (!n || slope === null || slope > maxSlope) return false;
+    const nx = n.nx;
+    const ny = n.ny;
     const tx = -ny;
     const ty = nx;
     const ax = x + nx * clearance;
@@ -2632,7 +2807,7 @@ export class Planet {
     let cx = x;
     let cy = y;
     for (let i = 0; i < steps; i++){
-      const n = this.radialNormalAtWorld(cx, cy, eps);
+      const n = this._airGradientNormalAtWorld(cx, cy, eps);
       if (!n) break;
       cx += n.nx * step;
       cy += n.ny * step;
@@ -2652,21 +2827,6 @@ export class Planet {
     const r = Math.hypot(x, y);
     if (r < 1e-6) return null;
     return { ux: x / r, uy: y / r };
-  }
-
-  /**
-   * Normal from radial occupancy gradient.
-   * @param {number} x
-   * @param {number} y
-   * @param {number} eps
-   * @returns {{nx:number,ny:number}|null}
-   */
-  radialNormalAtWorld(x, y, eps){
-    const gdx = this.radial.airValueAtWorld(x + eps, y) - this.radial.airValueAtWorld(x - eps, y);
-    const gdy = this.radial.airValueAtWorld(x, y + eps) - this.radial.airValueAtWorld(x, y - eps);
-    const len = Math.hypot(gdx, gdy);
-    if (len < 1e-6) return null;
-    return { nx: gdx / len, ny: gdy / len };
   }
 
   /**

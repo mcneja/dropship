@@ -231,7 +231,7 @@ export class Enemies {
         tx = res.x;
         ty = res.y;
       }
-      const info = planet.surfaceInfoAtWorld(tx, ty, 0.18);
+      const info = planet.normalAtWorld(tx, ty);
       if (info){
         const lift = 0.18;
         tx += info.nx * lift;
@@ -578,9 +578,11 @@ export class Enemies {
    * @param {number} dt 
    */
   _moveCrawler(e, ship, dt) {
+    const prev = { x: e.x, y: e.y };
     this._approachPlayer(e, ship);
     this._reflectVelocityBackTowardPlanet(e);
-    this._reflectVelocityAwayFromTerrain(e);
+    const next = { x: e.x + e.vx * dt, y: e.y + e.vy * dt };
+    this._reflectVelocityAwayFromTerrain(e, prev, next);
     e.x += e.vx * dt;
     e.y += e.vy * dt;
   }
@@ -627,23 +629,16 @@ export class Enemies {
   /**
    * 
    * @param {Enemy} e 
+   * @param {{x:number,y:number}} prev
+   * @param {{x:number,y:number}} next
    * @returns {void}
    */
-  _reflectVelocityAwayFromTerrain(e) {
+  _reflectVelocityAwayFromTerrain(e, prev, next) {
     const planet = this.planet;
-
-    const distAboveGround = planet.airValueAtWorld(e.x, e.y) - 0.75;
-    if (distAboveGround > 0) return;
-
-    const eps = 0.18;
-    const gdx = planet.airValueAtWorld(e.x + eps, e.y) - planet.airValueAtWorld(e.x - eps, e.y);
-    const gdy = planet.airValueAtWorld(e.x, e.y + eps) - planet.airValueAtWorld(e.x, e.y - eps);
-    let nx = gdx;
-    let ny = gdy;
-    let nlen = Math.hypot(nx, ny);
-    if (nlen < 1e-4) return;
-    nx /= nlen;
-    ny /= nlen;
+    const hit = planet.terrainCrossingNormal(prev, next);
+    if (!hit) return;
+    const nx = hit.nx;
+    const ny = hit.ny;
 
     const vNormal = nx * e.vx + ny * e.vy;
     if (vNormal >= 0) return;

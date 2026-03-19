@@ -790,6 +790,10 @@ export function findPlanetCollisionExactAt(ctx, x, y){
  * @param {(x:number,y:number)=>boolean} args.shipCollidesAt
  * @param {(x:number,y:number)=>boolean} [args.shipCollidesMothershipAt]
  * @param {(x:number,y:number)=>Array<[number,number]>} [args.shipCollisionPointsAt]
+ * @param {number} [args.shipStartX]
+ * @param {number} [args.shipStartY]
+ * @param {number} [args.shipEndX]
+ * @param {number} [args.shipEndY]
  * @param {number} [args.mothershipAngularVel]
  * @param {Array<[number,number]>} [args.prevPoints]
  * @param {Array<[number,number]>} [args.currPoints]
@@ -2058,10 +2062,3 @@ export function stabilizePlanetPenetration(ctx, maxIters = 12){
     ship._collision = null;
   }
 }
-
-/**
- * Collision router for planet + mothership (and future sources).
- * @param {import("./planet.js").Planet} planet
- * @param {() => (import("./mothership.js").Mothership|null)} getMothership
- * @returns {import("./types.d.js").CollisionQuery}
- */
