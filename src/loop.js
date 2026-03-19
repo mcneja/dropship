@@ -4294,11 +4294,26 @@ export class GameLoop {
           shipHpMax: this.ship.hpMax,
           bombs: this.ship.bombsCur,
           bombsMax: this.ship.bombsMax,
+          signalStrength: this._signalStrength(),
         });
       }
     }
 
     requestAnimationFrame(() => this._frame());
+  }
+
+  /**
+   * @returns {number}
+   */
+  _signalStrength(){
+    let signalStrength = 0;
+    for (const m of this.miners){
+      const dx = m.x - this.ship.x;
+      const dy = m.y - this.ship.y;
+      signalStrength += 1 / Math.max(1, Math.sqrt(dx*dx + dy*dy));
+    }
+    signalStrength *= 10;
+    return Math.min(10, Math.ceil(signalStrength));
   }
 
   /**

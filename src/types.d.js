@@ -28,7 +28,67 @@
  */
 
 /**
- * @typedef {{updateHud:(hud:HTMLElement, stats:{fps:number,state:string,speed:number,verts:number,air:number,miners:number,minersDead:number,level:number,debug:boolean,minerCandidates:number,shipHp:number,bombs:number,landingDebug?:{source?:string,reason?:string,dotUp?:number,slope?:number,landSlope?:number,vn?:number,vt?:number,speed?:number,airFront?:number,airBack?:number,landable?:boolean,landed?:boolean,contactsCount?:number,bestDotUpAny?:number,bestDotUpUnder?:number,impactPoint?:number,supportPoint?:number,impactT?:number,supportT?:number,impactX?:number,impactY?:number,supportX?:number,supportY?:number,supportTriOuterCount?:number,supportTriAirMin?:number,supportTriAirMax?:number,supportTriRMin?:number,supportTriRMax?:number,overlapBeforeCount?:number,overlapAfterCount?:number,overlapBeforeMin?:number,overlapAfterMin?:number,depenIter?:number,depenPush?:number,depenCushion?:number,depenDir?:number,depenCleared?:boolean,collisionDiag?:any}|null,inputType:("keyboard"|"mouse"|"touch"|"gamepad"|null|undefined)})=>void, updatePlanetLabel?:(el:HTMLElement, label:string)=>void, updateObjectiveLabel?:(el:HTMLElement, text:string)=>void, updateShipStatusLabel?:(el:HTMLElement, stats:{shipHp:number,shipHpMax:number,bombs:number,bombsMax:number})=>void, updateHeatMeter?:(el:HTMLElement, heat:number, show:boolean, flashing:boolean)=>void}} Ui
+ * @typedef {Object} LandingDebug
+ * @property {string} [source]
+ * @property {string} [reason]
+ * @property {number} [dotUp]
+ * @property {number} [slope]
+ * @property {number} [landSlope]
+ * @property {number} [vn]
+ * @property {number} [vt]
+ * @property {number} [speed]
+ * @property {number} [airFront]
+ * @property {number} [airBack]
+ * @property {boolean} [landable]
+ * @property {boolean} [landed]
+ * @property {number} [contactsCount]
+ * @property {number} [bestDotUpAny]
+ * @property {number} [bestDotUpUnder]
+ * @property {number} [impactPoint]
+ * @property {number} [supportPoint]
+ * @property {number} [impactT]
+ * @property {number} [supportT]
+ * @property {number} [impactX]
+ * @property {number} [impactY]
+ * @property {number} [supportX]
+ * @property {number} [supportY]
+ * @property {number} [supportTriOuterCount]
+ * @property {number} [supportTriAirMin]
+ * @property {number} [supportTriAirMax]
+ * @property {number} [supportTriRMin]
+ * @property {number} [supportTriRMax]
+ * @property {number} [overlapBeforeCount]
+ * @property {number} [overlapAfterCount]
+ * @property {number} [overlapBeforeMin]
+ * @property {number} [overlapAfterMin]
+ * @property {number} [depenIter]
+ * @property {number} [depenPush]
+ * @property {number} [depenCushion]
+ * @property {number} [depenDir]
+ * @property {boolean} [depenCleared]
+ * @property {any} [collisionDiag]
+ */
+
+/**
+ * @typedef {Object} HudStats
+ * @property {number} fps
+ * @property {string} state
+ * @property {number} speed
+ * @property {number} verts
+ * @property {number} air
+ * @property {number} miners
+ * @property {number} minersDead
+ * @property {number} level
+ * @property {boolean} debug
+ * @property {number} minerCandidates
+ * @property {number} shipHp
+ * @property {number} bombs
+ * @property {LandingDebug|null} [landingDebug]
+ * @property {("keyboard"|"mouse"|"touch"|"gamepad"|null|undefined)} inputType
+ */
+
+/**
+ * @typedef {{updateHud:(hud:HTMLElement, stats:HudStats)=>void, updatePlanetLabel?:(el:HTMLElement, label:string)=>void, updateObjectiveLabel?:(el:HTMLElement, text:string)=>void, updateShipStatusLabel?:(el:HTMLElement, stats:{shipHp:number,shipHpMax:number,bombs:number,bombsMax:number,signalStrength:number})=>void, updateHeatMeter?:(el:HTMLElement, heat:number, show:boolean, flashing:boolean)=>void}} Ui
  */
 
 /**

@@ -47,11 +47,11 @@ export function updateObjectiveLabel(el, text){
 
 /**
  * @param {HTMLElement} el
- * @param {{shipHp:number,shipHpMax:number,bombs:number,bombsMax:number}} stats
+ * @param {{shipHp:number,shipHpMax:number,bombs:number,bombsMax:number,signalStrength:number}} stats
  * @returns {void}
  */
 export function updateShipStatusLabel(el, stats){
-  el.textContent = `Hull ${stats.shipHp}/${stats.shipHpMax} | Bombs ${stats.bombs}/${stats.bombsMax}`;
+  el.textContent = `Hull ${stats.shipHp}/${stats.shipHpMax} | Bombs ${stats.bombs}/${stats.bombsMax} | Signal ${stats.signalStrength}`;
 }
 
 /**
