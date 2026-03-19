@@ -20,6 +20,7 @@ import {
   computeDropshipAcceleration,
   computeDropshipInertialDriveAcceleration,
   getDropshipGunPivotLocal,
+  getDropshipWorldRotation,
   hasDropshipThrustInput,
   pointDistanceToDropshipWorldConvexHull,
   resolveDropshipFacing,
@@ -207,6 +208,7 @@ export class GameLoop {
     /** @type {{x:number,y:number}|null} */
     this.lastAimScreen = null;
     this._shipWasInWater = false;
+    this.ship.renderAngle = getDropshipWorldRotation(this.ship.x, this.ship.y);
 
     this.PLAYER_SHOT_SPEED = 7.5;
     this.PLAYER_SHOT_LIFE = 1.2;
@@ -684,6 +686,7 @@ export class GameLoop {
     this.combatThreatUntilMs = 0;
     this._setCombatActive(false);
     this._setThrustLoopActive(false);
+    this._resetShipRenderAngle();
   }
 
   /**
@@ -697,6 +700,32 @@ export class GameLoop {
     this.ship.vy = orbitState.vy;
     this.ship.state = "flying";
     this.ship._dock = null;
+    this._resetShipRenderAngle();
+  }
+
+  /**
+   * Reset ship/camera orientation after teleports, respawns, and load.
+   * @returns {void}
+   */
+  _resetShipRenderAngle(){
+    this.ship.renderAngle = getDropshipWorldRotation(this.ship.x, this.ship.y);
+  }
+
+  /**
+   * Damp the singular 180-degree flip at the planet core without adding general camera lag.
+   * @param {number} dt
+   * @returns {void}
+   */
+  _updateShipRenderAngle(dt){
+    const target = getDropshipWorldRotation(this.ship.x, this.ship.y);
+    const current = Number.isFinite(this.ship.renderAngle) ? this.ship.renderAngle : target;
+    const delta = lerpAngleShortest(current, target, 1) - current;
+    const maxStep = Math.PI * 8 * Math.max(0, dt);
+    if (!(maxStep > 0) || Math.abs(delta) <= maxStep){
+      this.ship.renderAngle = target;
+      return;
+    }
+    this.ship.renderAngle = lerpAngleShortest(current, target, maxStep / Math.abs(delta));
   }
 
   /**
@@ -1190,7 +1219,9 @@ export class GameLoop {
       xCenter: posViewCenterX,
       yCenter: posViewCenterY,
       radius: radiusView,
-      angle: Math.atan2(this.ship.x, this.ship.y || 1e-6)
+      angle: -(Number.isFinite(this.ship.renderAngle)
+        ? this.ship.renderAngle
+        : getDropshipWorldRotation(this.ship.x, this.ship.y))
     };
     if (this.mothership){
       const dx = this.ship.x - this.mothership.x;
@@ -2412,7 +2443,9 @@ export class GameLoop {
    * @returns {{x:number,y:number}}
    */
   _shipLocalPoint(px, py, shipX, shipY){
-    const camRot = Math.atan2(shipX, shipY || 1e-6);
+    const camRot = -(Number.isFinite(this.ship.renderAngle)
+      ? this.ship.renderAngle
+      : getDropshipWorldRotation(shipX, shipY));
     const shipRot = -camRot;
     const c = Math.cos(shipRot);
     const s = Math.sin(shipRot);
@@ -2478,7 +2511,9 @@ export class GameLoop {
 
   _shipGunPivotWorld(){
     const localPivot = getDropshipGunPivotLocal(GAME);
-    const camRot = Math.atan2(this.ship.x, this.ship.y || 1e-6);
+    const camRot = -(Number.isFinite(this.ship.renderAngle)
+      ? this.ship.renderAngle
+      : getDropshipWorldRotation(this.ship.x, this.ship.y));
     const shipRot = -camRot;
     const c = Math.cos(shipRot), s = Math.sin(shipRot);
     const wx = c * localPivot.x - s * localPivot.y;
@@ -3815,6 +3850,7 @@ export class GameLoop {
     const fixed = 1 / 60;
     const stepFrame = !!(this.debugFrameStepMode && inputState.stepFrame && !helpOpen);
     const dt = helpOpen ? 0 : (this.debugFrameStepMode ? (stepFrame ? fixed : 0) : rawDt);
+    this._updateShipRenderAngle(dt);
     if (this.newGameHelpPromptT > 0){
       this.newGameHelpPromptT = Math.max(0, this.newGameHelpPromptT - dt);
     }
@@ -4804,7 +4840,11 @@ export class GameLoop {
   restoreFromSaveSnapshot(snapshot){
     this.pendingBootJumpdriveIntro = false;
     this.jumpdriveTransition.cancel();
-    return restoreLoopFromSaveSnapshot(this, snapshot);
+    const restored = restoreLoopFromSaveSnapshot(this, snapshot);
+    if (restored){
+      this._resetShipRenderAngle();
+    }
+    return restored;
   }
 
   /**
