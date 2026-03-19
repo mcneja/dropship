@@ -4529,7 +4529,7 @@ export class GameLoop {
     if (this.ship.inertialDrive < 3){
       perksAvailable.push("inertialDrive");
     }
-    if (this.ship.gunPower < 2){
+    if (this.level > 5 && this.ship.gunPower < 2){
       perksAvailable.push("gunPower");
     }
     if (!this.ship.rescueeDetector){
