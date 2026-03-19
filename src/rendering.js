@@ -718,10 +718,16 @@ function pushMiner(pos, col, x, y, jumpCycle, r, g, b, scale, skipHelmet = false
  * @param {number[]} col
  * @param {number} x
  * @param {number} y
+ * @param {number} life
  * @returns {number}
  */
-function pushHealthPickup(pos, col, x, y){
-  pushSquare(pos, col, x, y, 0.1, 0, 1, 0, 1);
+function pushHealthPickup(pos, col, x, y, life){
+  let s = 0.1 * (1.0 + 0.2 * Math.sin(8 * life));
+  s *= Math.min(1.0, 16 * life);
+  const x0 = x - s, x1 = x + s;
+  const y0 = y - s, y1 = y + s;
+  pushTri(pos, col, x0, y0, x1, y0, x1, y1, 0, 1, 0, 1);
+  pushTri(pos, col, x0, y0, x1, y1, x0, y1, 0, 1, 0, 1);
   return 6;
 }
 
@@ -1486,7 +1492,7 @@ function drawFrameImpl(renderer, state, planet){
 
   for (const healthPickup of state.healthPickups){
     if (state.fogEnabled && !planet.fogSeenAt(healthPickup.x, healthPickup.y)) continue;
-    triVerts += pushHealthPickup(pos, col, healthPickup.x, healthPickup.y);
+    triVerts += pushHealthPickup(pos, col, healthPickup.x, healthPickup.y, healthPickup.life);
   }
 
   if (state.shots && state.shots.length){

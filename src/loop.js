@@ -808,7 +808,9 @@ export class GameLoop {
     this._playSfx("enemy_destroyed", { volume: 0.8 });
 
     // Spawn a health pickup if there are none and the player is low on health
-    if (this.healthPickups.length === 0 && this.ship.hpCur < this.ship.hpMax){
+    if (this.healthPickups.length === 0 &&
+        this.ship.hpCur < this.ship.hpMax &&
+        enemy.type !== "orbitingTurret"){
       const hpCurClamped = Math.min(4, this.ship.hpCur);
       const hpMaxClamped = 4;
       const healthPickupChance = (hpMaxClamped - hpCurClamped) / hpMaxClamped;
