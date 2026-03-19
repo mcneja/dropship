@@ -2136,6 +2136,7 @@ function drawFrameImpl(renderer, state, planet){
         const insideMothership = isInsideMothership(state.ship.x, state.ship.y);
 
         const thrustMax = planet.planetParams.THRUST * (1 + state.ship.thrust * 0.1);
+        const inertialDriveThrust = game.INERTIAL_DRIVE_THRUST * (1 + state.ship.inertialDrive * 0.1);
 
         let vx = state.ship.vx;
         let vy = state.ship.vy;
@@ -2145,7 +2146,7 @@ function drawFrameImpl(renderer, state, planet){
           vy -= state.mothership.vy;
         }
 
-        const vscale = vScaleStopping(planet, state.ship.x, state.ship.y, vx, vy, thrustMax);
+        const vscale = vScaleStopping(planet, state.ship.x, state.ship.y, vx, vy, thrustMax + inertialDriveThrust);
         vx *= vscale;
         vy *= vscale;
         
