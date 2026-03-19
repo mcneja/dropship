@@ -3293,7 +3293,7 @@ export class GameLoop {
       }
       if (this.collision.airValueAtWorld(s.x, s.y) <= 0.5){
         if (this.ship.bounceShots){
-          const eps = 0.1;
+          const eps = 0.12;
           let nx = this.collision.airValueAtWorld(s.x + eps, s.y) - this.collision.airValueAtWorld(s.x - eps, s.y);
           let ny = this.collision.airValueAtWorld(s.x, s.y + eps) - this.collision.airValueAtWorld(s.x, s.y - eps);
           const vNormal = nx * s.vx + ny * s.vy;
