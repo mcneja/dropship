@@ -187,6 +187,7 @@ export class GameLoop {
       gunPower: GAME.SHIP_STARTING_GUN_POWER,
       rescueeDetector: false,
       planetScanner: false,
+      bounceShots: false,
     };
     this.mothership = mothership;
     /** @type {Array<{x:number,y:number,vx:number,vy:number,a:number,w:number,life:number}>} */
@@ -2010,6 +2011,7 @@ export class GameLoop {
       this.ship.gunPower = GAME.SHIP_STARTING_GUN_POWER;
       this.ship.rescueeDetector = false;
       this.ship.planetScanner = false;
+      this.ship.bounceShots = false;
       this.pendingPerkChoice = null;
       this.victoryMusicTriggered = false;
     }
@@ -3276,71 +3278,81 @@ export class GameLoop {
       }
     }
 
-    if (this.playerShots.length){
-      for (let i = this.playerShots.length - 1; i >= 0; i--){
-        const s = this.playerShots[i];
-        s.x += s.vx * dt;
-        s.y += s.vy * dt;
-        s.life -= dt;
-        if (s.life <= 0){
+    for (let i = this.playerShots.length - 1; i >= 0; i--){
+      const s = this.playerShots[i];
+      s.x += s.vx * dt;
+      s.y += s.vy * dt;
+      s.life -= dt;
+      if (s.life <= 0){
+        this.playerShots.splice(i, 1);
+        continue;
+      }
+      if (this.planet.handleFeatureShot(s.x, s.y, this.PLAYER_SHOT_RADIUS, this.featureCallbacks)){
+        this.playerShots.splice(i, 1);
+        continue;
+      }
+      if (this.collision.airValueAtWorld(s.x, s.y) <= 0.5){
+        if (this.ship.bounceShots){
+          const eps = 0.1;
+          let nx = this.collision.airValueAtWorld(s.x + eps, s.y) - this.collision.airValueAtWorld(s.x - eps, s.y);
+          let ny = this.collision.airValueAtWorld(s.x, s.y + eps) - this.collision.airValueAtWorld(s.x, s.y - eps);
+          const vNormal = nx * s.vx + ny * s.vy;
+          if (vNormal < 0){
+            let nlen = nx*nx + ny*ny;
+            s.vx -= 2 * vNormal * nx / nlen;
+            s.vy -= 2 * vNormal * ny / nlen;
+          }
+        } else {
           this.playerShots.splice(i, 1);
-          continue;
         }
-        if (this.planet.handleFeatureShot(s.x, s.y, this.PLAYER_SHOT_RADIUS, this.featureCallbacks)){
-          this.playerShots.splice(i, 1);
-          continue;
-        }
-        if (this.collision.airValueAtWorld(s.x, s.y) <= 0.5){
-          this.playerShots.splice(i, 1);
-          continue;
-        }
-        if (mechanizedLevel){
-          let blocked = false;
-          if (mechShotBlockers){
-            for (const p of mechShotBlockers){
-              if (p.dead) continue;
-              if (this._solidPropPenetration(p, s.x, s.y, this.PLAYER_SHOT_RADIUS * 0.5)){
-                blocked = true;
-                break;
-              }
+        continue;
+      }
+      if (mechanizedLevel){
+        let blocked = false;
+        if (mechShotBlockers){
+          for (const p of mechShotBlockers){
+            if (p.dead) continue;
+            if (this._solidPropPenetration(p, s.x, s.y, this.PLAYER_SHOT_RADIUS * 0.5)){
+              blocked = true;
+              break;
             }
           }
-          if (blocked){
-            this.playerShots.splice(i, 1);
-            continue;
-          }
-          if (this._damageFactoryPropsAt(mechFactories, s.x, s.y, this.PLAYER_SHOT_RADIUS, 1, false)){
-            this.playerShots.splice(i, 1);
-            continue;
-          }
         }
-        for (let j = this.enemies.enemies.length - 1; j >= 0; j--){
-          const e = this.enemies.enemies[j];
-          if (e.hp <= 0) continue;
-          const dx = e.x - s.x;
-          const dy = e.y - s.y;
-          if (dx * dx + dy * dy <= this.PLAYER_SHOT_RADIUS * this.PLAYER_SHOT_RADIUS){
-            e.hp -= this.ship.gunPower;
-            if (e.hp > 0){
-              this._applyEnemyHitFeedback(e);
-            }
-            this.playerShots.splice(i, 1);
-            if (e.hp <= 0) e.hp = 0;
-            break;
-          }
+        if (blocked){
+          this.playerShots.splice(i, 1);
+          continue;
         }
-        if (i >= this.playerShots.length) continue;
-        for (let j = this.miners.length - 1; j >= 0; j--){
-          const m = this.miners[j];
-          const dx = m.x - s.x;
-          const dy = m.y - s.y;
-          if (dx * dx + dy * dy <= this.PLAYER_SHOT_RADIUS * this.PLAYER_SHOT_RADIUS){
-            this.miners.splice(j, 1);
-            this.minersRemaining = Math.max(0, this.minersRemaining - 1);
-            this.minersDead++;
-            this.playerShots.splice(i, 1);
-            break;
+        if (this._damageFactoryPropsAt(mechFactories, s.x, s.y, this.PLAYER_SHOT_RADIUS, 1, false)){
+          this.playerShots.splice(i, 1);
+          continue;
+        }
+      }
+      for (let j = this.enemies.enemies.length - 1; j >= 0; j--){
+        const e = this.enemies.enemies[j];
+        if (e.hp <= 0) continue;
+        const dx = e.x - s.x;
+        const dy = e.y - s.y;
+        if (dx * dx + dy * dy <= this.PLAYER_SHOT_RADIUS * this.PLAYER_SHOT_RADIUS){
+          e.hp -= this.ship.gunPower;
+          if (e.hp > 0){
+            this._applyEnemyHitFeedback(e);
           }
+          this.playerShots.splice(i, 1);
+          if (e.hp <= 0) e.hp = 0;
+          break;
+        }
+      }
+      if (i >= this.playerShots.length) continue;
+      for (let j = this.miners.length - 1; j >= 0; j--){
+        const m = this.miners[j];
+        const dx = m.x - s.x;
+        const dy = m.y - s.y;
+        if (dx * dx + dy * dy <= this.PLAYER_SHOT_RADIUS * this.PLAYER_SHOT_RADIUS){
+          this.miners.splice(j, 1);
+          this.minersRemaining = Math.max(0, this.minersRemaining - 1);
+          this.minersDead++;
+          this.playerShots.splice(i, 1);
+          break;
         }
       }
     }
@@ -4538,6 +4550,9 @@ export class GameLoop {
     if (!this.ship.planetScanner){
       perksAvailable.push("planetScanner");
     }
+    if (!this.ship.bounceShots){
+      perksAvailable.push("bounceShots");
+    }
     return perksAvailable;
   }
 
@@ -4565,6 +4580,7 @@ export class GameLoop {
     if (perk === "gunPower") return "Firepower: +1 HP damage";
     if (perk === "rescueeDetector") return "Rescuee detector: locate stranded crew";
     if (perk === "planetScanner") return "Planet scanner: scan planet from mothership";
+    if (perk === "bounceShots") return "Bounce shots";
     return perk;
   }
 
@@ -4600,6 +4616,8 @@ export class GameLoop {
       this.ship.rescueeDetector = true;
     } else if (perk === "planetScanner"){
       this.ship.planetScanner = true;
+    } else if (perk === "bounceShots"){
+      this.ship.bounceShots = true;
     }
   }
 

@@ -64,6 +64,7 @@
  * @property {number} gunPower
  * @property {boolean} rescueeDetector
  * @property {boolean} planetScanner
+ * @property {boolean} bounceShots
  * @property {number} [renderAngle]
  * 
  * @property {Array<[number,number,boolean,number]>|null} [_samples]
