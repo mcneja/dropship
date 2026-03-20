@@ -2845,11 +2845,10 @@ function drawFrameImpl(renderer, state, planet){
 
   /*
   if (state.aimWorld) {
+    const nodeShip = planet.nearestRadialNodeInAir(state.ship.x, state.ship.y);
+    const nodeCursor = planet.nearestRadialNodeInAir(state.aimWorld.x, state.aimWorld.y);
     const radialGraph = planet.radialGraph;
     const passable = planet.airNodesBitmap;
-    const nodeShip = nearestRadialNode(radialGraph, planet.radial, state.ship.x, state.ship.y);
-    const nodeCursor = nearestRadialNode(radialGraph, planet.radial, state.aimWorld.x, state.aimWorld.y);
-
     const path = findPathAStar(radialGraph, nodeShip, nodeCursor, passable);
     if (path) {
       for (let i = 1; i < path.length; ++i) {

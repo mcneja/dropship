@@ -1,9 +1,9 @@
 // @ts-check
 
 import { mulberry32 } from "./rng.js";
-import { findPathAStar, lineOfSightAir, nearestRadialNode } from "./navigation.js";
+import { findPathAStar, lineOfSightAir } from "./navigation.js";
 import { collidesAtOffsets, isAir } from "./collision_world.js";
-import { CFG, GAME } from "./config.js";
+import { GAME } from "./config.js";
 
 /** @typedef {import("./types.d.js").Vec2} Vec2 */
 /** @typedef {import("./types.d.js").EnemyType} EnemyType */

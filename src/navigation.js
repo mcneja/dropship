@@ -241,8 +241,6 @@ export function findPathAStar(graph, start, goal, passable){
   const n = graph.nodes.length;
   if (start < 0 || start >= n || goal < 0 || goal >= n) return null;
 
-  const costImpassable = 1000; // should be larger than the largest legal path between any two points
-
   const gScore = new Array(n).fill(Infinity);
   gScore[start] = 0;
   const cameFrom = new Int32Array(n).fill(-1);
@@ -265,7 +263,10 @@ export function findPathAStar(graph, start, goal, passable){
     if (node === goal) break;
     if (g > gScore[node]) continue;
     for (const edge of graph.neighbors[node]){
-      const tentative = g + edge.cost + (passable[edge.to] ? 0 : costImpassable);
+      if (!passable[edge.to]){
+        continue;
+      }
+      const tentative = g + edge.cost;
       if (tentative < gScore[edge.to]){
         gScore[edge.to] = tentative;
         cameFrom[edge.to] = node;
