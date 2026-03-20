@@ -179,8 +179,9 @@
  * @property {number} y
  * @property {number} vx
  * @property {number} vy
- * @property {number} cooldown
  * @property {number} hp
+ * @property {number} shotCooldown
+ * @property {number} modeCooldown
  * @property {number|null} iNodeGoal
  * @property {number} [hitT]
  * @property {number} [stunT]

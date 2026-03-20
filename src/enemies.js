@@ -90,6 +90,8 @@ export class Enemies {
     this._HUNTER_SHOT_CD = 1.2;
     this._RANGER_SHOT_CD = 1.8;
     this._SHOT_SPEED = 6.5;
+    this._HUNTER_SIGHT_RANGE = 8.0;
+    this._HUNTER_HUNT_DURATION = 10.0
     this._TURRET_MAX_RANGE = 5.0;
     this._TURRET_SHOT_SPEED = 5.0;
     this._SHOT_LIFE = 3.0;
@@ -138,19 +140,20 @@ export class Enemies {
    * @returns {void}
    */
   spawnDebug(type, x, y){
-    const cooldown = Math.random();
+    const shotCooldown = Math.random();
+    const modeCooldown = 0;
     if (type === "hunter"){
-      this.enemies.push({ type, x, y, vx: 0, vy: 0, cooldown, hp: 2, iNodeGoal: null });
+      this.enemies.push({ type, x, y, vx: 0, vy: 0, hp: 3, shotCooldown, modeCooldown, iNodeGoal: null });
     } else if (type === "ranger"){
-      this.enemies.push({ type, x, y, vx: 0, vy: 0, cooldown, hp: 2, iNodeGoal: null });
+      this.enemies.push({ type, x, y, vx: 0, vy: 0, hp: 2, shotCooldown, modeCooldown, iNodeGoal: null });
     } else if (type === "crawler"){
       const dir = Math.random() * Math.PI * 2;
       const speed = 1.5;
-      this.enemies.push({ type, x, y, vx: Math.cos(dir) * speed, vy: Math.sin(dir) * speed, cooldown: 0, hp: 1, iNodeGoal: null });
+      this.enemies.push({ type, x, y, vx: Math.cos(dir) * speed, vy: Math.sin(dir) * speed, hp: 1, shotCooldown: 0, modeCooldown: 0, iNodeGoal: null });
     } else if (type === "turret"){
-      this.enemies.push({ type, x, y, vx: 0, vy: 0, cooldown, hp: 1, iNodeGoal: null });
+      this.enemies.push({ type, x, y, vx: 0, vy: 0, hp: 1, shotCooldown, modeCooldown, iNodeGoal: null });
     } else if (type === "orbitingTurret"){
-      this.enemies.push({ type, x, y, vx: 0, vy: 0, cooldown, hp: 1, iNodeGoal: null });
+      this.enemies.push({ type, x, y, vx: 0, vy: 0, hp: 1, shotCooldown, modeCooldown, iNodeGoal: null });
     }
   }
 
@@ -223,17 +226,17 @@ export class Enemies {
     }
 
     for (const [x, y] of hunterPts){
-      this.enemies.push({ type: "hunter", x, y, vx: 0, vy: 0, cooldown: Math.random(), hp: 3, iNodeGoal: null });
+      this.enemies.push({ type: "hunter", x, y, vx: 0, vy: 0, hp: 3, shotCooldown: Math.random(), modeCooldown: 0, iNodeGoal: null });
     }
     for (const [x, y] of rangerPts){
-      this.enemies.push({ type: "ranger", x, y, vx: 0, vy: 0, cooldown: Math.random(), hp: 2, iNodeGoal: null });
+      this.enemies.push({ type: "ranger", x, y, vx: 0, vy: 0, hp: 2, shotCooldown: Math.random(), modeCooldown: 0, iNodeGoal: null });
     }
     for (const [x, y] of crawlerPts){
       const dir = Math.random() * Math.PI * 2;
       const speed = Math.min(3, level * 0.25 + 0.5);
       const vx = Math.cos(dir) * speed;
       const vy = Math.sin(dir) * speed;
-      this.enemies.push({ type: "crawler", x, y, vx: vx, vy: vy, cooldown: 0, hp: 1, iNodeGoal: null });
+      this.enemies.push({ type: "crawler", x, y, vx: vx, vy: vy, hp: 1, shotCooldown: 0, modeCooldown: 0, iNodeGoal: null });
     }
     for (const [x, y] of turretPts){
       let tx = x;
@@ -249,7 +252,7 @@ export class Enemies {
         tx += info.nx * lift;
         ty += info.ny * lift;
       }
-      this.enemies.push({ type: "turret", x: tx, y: ty, vx: 0, vy: 0, cooldown: Math.random(), hp: 1, iNodeGoal: null });
+      this.enemies.push({ type: "turret", x: tx, y: ty, vx: 0, vy: 0, hp: 1, shotCooldown: Math.random(), modeCooldown: 0, iNodeGoal: null });
     }
     {
       const rand = mulberry32(seed + 5);
@@ -259,7 +262,7 @@ export class Enemies {
       let angle = rand() * Math.PI * 2;
       for (let i = 0; i < orbitingTurrets; ++i){
         const {x: x, y: y, vx: vx, vy: vy} = planet.orbitStateFromElements(perigee, eccentricity, angle, directionCCW);
-        this.enemies.push({ type: "orbitingTurret", x, y, vx, vy, cooldown: Math.random(), hp: 1, iNodeGoal: null });
+        this.enemies.push({ type: "orbitingTurret", x, y, vx, vy, hp: 1, shotCooldown: Math.random(), modeCooldown: 0, iNodeGoal: null });
         angle += 0.1;
       }
     }
@@ -353,9 +356,18 @@ export class Enemies {
    * @returns {void}
    */
   _updateHunter(e, ship, dt) {
-    if (this._tryMoveHunter(e, ship, dt)) {
-      e.iNodeGoal = null;
+    const seesShip =
+      ship &&
+      Math.hypot(ship.x - e.x, ship.y - e.y) < this._HUNTER_SIGHT_RANGE &&
+      lineOfSightAir(this.collision, e.x, e.y, ship.x, ship.y, this._LOS_STEP);
+
+    if (seesShip) {
+      this.modeCooldown = Math.max(this.modeCooldown, this._HUNTER_HUNT_DURATION);
     } else {
+      this.modeCooldown = Math.max(0, this.modeCooldown - dt);
+    }
+
+    if (this.modeCooldown <= 0 || !this._tryMoveHunter(e, ship, dt)) {
       this._wander(e, this._HUNTER_SPEED, dt);
     }
 
@@ -419,6 +431,7 @@ export class Enemies {
     e.y += dy;
     e.vx = dx / dt;
     e.vy = dy / dt;
+    e.iNodeGoal = null;
 
     return true;
   }
@@ -718,7 +731,7 @@ export class Enemies {
   _updateTurret(e, ship, dt) {
     if (!ship) return;
 
-    e.cooldown = Math.max(0, e.cooldown - dt);
+    e.shotCooldown = Math.max(0, e.shotCooldown - dt);
 
     const dx = ship.x - e.x;
     const dy = ship.y - e.y;
@@ -729,7 +742,7 @@ export class Enemies {
     // reaction time when an enemy comes on screen.
 
     if (dx*dx + dy*dy > distSqrMax) {
-      e.cooldown = Math.max(e.cooldown, 0.5);
+      e.shotCooldown = Math.max(e.shotCooldown, 0.5);
       return;
     }
 
@@ -747,13 +760,13 @@ export class Enemies {
     // give players the element of "surprise" when they get into view.
 
     if (!lineOfSightAir(this.collision, e.x, e.y, ship.x, ship.y, this._LOS_STEP)) {
-      e.cooldown = Math.max(e.cooldown, 1.5);
+      e.shotCooldown = Math.max(e.shotCooldown, 1.5);
       return;
     }
 
-    if (e.cooldown > 0) return;
+    if (e.shotCooldown > 0) return;
 
-    e.cooldown = 1.0;
+    e.shotCooldown = 1.0;
     this._shoot(e, this._TURRET_SHOT_SPEED, dxAim, dyAim);
   }
 

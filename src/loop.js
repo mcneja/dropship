@@ -1671,15 +1671,15 @@ export class GameLoop {
       y = nudge.y;
       if (this.collision.airValueAtWorld(x, y) <= 0.5) return false;
     }
-    const cooldown = Math.random();
+    const shotCooldown = Math.random();
     if (type === "hunter"){
-      this.enemies.enemies.push({ type, x, y, vx: 0, vy: 0, cooldown, hp: 3, iNodeGoal: null });
+      this.enemies.enemies.push({ type, x, y, vx: 0, vy: 0, hp: 3, shotCooldown, modeCooldown: 0, iNodeGoal: null });
     } else if (type === "ranger"){
-      this.enemies.enemies.push({ type, x, y, vx: 0, vy: 0, cooldown, hp: 2, iNodeGoal: null });
+      this.enemies.enemies.push({ type, x, y, vx: 0, vy: 0, hp: 2, shotCooldown, modeCooldown: 0, iNodeGoal: null });
     } else {
       const ang = Math.random() * Math.PI * 2;
       const speed = Math.min(3, this.level * 0.25 + 0.5);
-      this.enemies.enemies.push({ type: "crawler", x, y, vx: Math.cos(ang) * speed, vy: Math.sin(ang) * speed, cooldown: 0, hp: 1, iNodeGoal: null });
+      this.enemies.enemies.push({ type: "crawler", x, y, vx: Math.cos(ang) * speed, vy: Math.sin(ang) * speed, hp: 1, shotCooldown: 0, modeCooldown: 0, iNodeGoal: null });
     }
     if (this.objective && this.objective.type === "clear"){
       this.clearObjectiveTotal = Math.max(this.clearObjectiveTotal || 0, this._remainingClearTargets()) + 1;
