@@ -617,7 +617,8 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
     coreHeatRise: 22,
     coreHeatDecay: 10,
     mushroom: {
-      life: 2.0,
+      lifeMin: 2.0,
+      lifeMax: 3.0,
       speed: 4.0,
       radius: 0.25,
       pieces: 12,
@@ -976,7 +977,7 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
         y,
         vx: Math.cos(ang) * sp,
         vy: Math.sin(ang) * sp,
-        life: tuning.mushroom.life,
+        life: tuning.mushroom.lifeMin + Math.random() * (tuning.mushroom.lifeMax - tuning.mushroom.lifeMin),
       });
     }
   };
@@ -1317,9 +1318,10 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
       const p = mush[i];
       const xPrev = p.x;
       const yPrev = p.y;
-      const { x: gx, y: gy } = planet.gravityAt(p.x, p.y);
-      p.vx += gx * dt;
-      p.vy += gy * dt;
+      const sporeDrag = -0.25;
+      const vSquared = p.vx*p.vx + p.vy*p.vy;
+      p.vx += p.vx * sporeDrag * vSquared * dt;
+      p.vy += p.vy * sporeDrag * vSquared * dt;
       p.x += p.vx * dt;
       p.y += p.vy * dt;
       p.life -= dt;
