@@ -3,7 +3,7 @@
 import { GAME } from "./config.js";
 import { Renderer } from "./rendering.js";
 import { Input } from "./input.js";
-import { updateHud, updatePlanetLabel, updateObjectiveLabel, updateShipStatusLabel, updateHeatMeter } from "./ui.js";
+import { updateHud, updatePlanetLabel, updateObjectiveLabel, updateShipStatusLabel, updateSignalMeter, updateHeatMeter } from "./ui.js";
 import { GameLoop } from "./loop.js";
 import { BackgroundMusic } from "./audio.js";
 import { HelpPopup } from "./help_popup.js";
@@ -14,6 +14,7 @@ const hud = /** @type {HTMLElement} */ (document.getElementById("hud"));
 const planetLabel = /** @type {HTMLElement} */ (document.getElementById("planet-label"));
 const objectiveLabel = /** @type {HTMLElement} */ (document.getElementById("objective-label"));
 const shipStatusLabel = /** @type {HTMLElement} */ (document.getElementById("ship-status-label"));
+const signalMeter = /** @type {HTMLElement} */ (document.getElementById("signal-meter"));
 const heatMeter = /** @type {HTMLElement} */ (document.getElementById("heat-meter"));
 
 const renderer = new Renderer(canvas, GAME);
@@ -28,13 +29,14 @@ const loop = new GameLoop({
   renderer,
   input,
   audio: bgm,
-  ui: { updateHud, updatePlanetLabel, updateObjectiveLabel, updateShipStatusLabel, updateHeatMeter },
+  ui: { updateHud, updatePlanetLabel, updateObjectiveLabel, updateShipStatusLabel, updateSignalMeter, updateHeatMeter },
   canvas,
   overlay: /** @type {HTMLCanvasElement} */ (document.getElementById("overlay")),
   hud,
   planetLabel,
   objectiveLabel,
   shipStatusLabel,
+  signalMeter,
   heatMeter,
   helpPopup,
 });

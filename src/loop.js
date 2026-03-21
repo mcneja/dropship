@@ -104,10 +104,11 @@ export class GameLoop {
    * @param {HTMLElement} [deps.planetLabel]
    * @param {HTMLElement} [deps.objectiveLabel]
    * @param {HTMLElement} [deps.shipStatusLabel]
+   * @param {HTMLElement} [deps.signalMeter]
    * @param {HTMLElement} [deps.heatMeter]
    * @param {HelpPopup} [deps.helpPopup]
    */
-  constructor({ renderer, input, ui, audio, canvas, hud, overlay, planetLabel, objectiveLabel, shipStatusLabel, heatMeter, helpPopup }){
+  constructor({ renderer, input, ui, audio, canvas, hud, overlay, planetLabel, objectiveLabel, shipStatusLabel, signalMeter, heatMeter, helpPopup }){
     this.level = 1;
     // const seed = CFG.seed;
     const seed = performance.now();
@@ -126,6 +127,7 @@ export class GameLoop {
     this.planetLabel = planetLabel || null;
     this.objectiveLabel = objectiveLabel || null;
     this.shipStatusLabel = shipStatusLabel || null;
+    this.signalMeter = signalMeter || null;
     this.heatMeter = heatMeter || null;
     this.helpPopup = helpPopup || null;
     this.overlay = overlay || null;
@@ -4396,9 +4398,11 @@ export class GameLoop {
           shipHpMax: this.ship.hpMax,
           bombs: this.ship.bombsCur,
           bombsMax: this.ship.bombsMax,
-          signalStrength: this._signalStrength(),
         });
       }
+    }
+    if (this.signalMeter && this.ui.updateSignalMeter){
+      this.ui.updateSignalMeter(this.signalMeter, this._signalStrength(), !titleShowing && !transitionActive);
     }
 
     requestAnimationFrame(() => this._frame());
@@ -4415,7 +4419,7 @@ export class GameLoop {
       signalStrength += 1 / Math.max(1, dx*dx + dy*dy);
     }
     if (signalStrength > 0){
-      signalStrength = Math.floor(10 + Math.log2(signalStrength));
+      signalStrength = Math.min(10, Math.ceil(10 + Math.log2(signalStrength)));
     }
     return signalStrength;
   }

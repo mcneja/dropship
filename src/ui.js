@@ -47,11 +47,31 @@ export function updateObjectiveLabel(el, text){
 
 /**
  * @param {HTMLElement} el
- * @param {{shipHp:number,shipHpMax:number,bombs:number,bombsMax:number,signalStrength:number}} stats
+ * @param {{shipHp:number,shipHpMax:number,bombs:number,bombsMax:number}} stats
  * @returns {void}
  */
 export function updateShipStatusLabel(el, stats){
-  el.textContent = `Hull ${stats.shipHp}/${stats.shipHpMax} | Bombs ${stats.bombs}/${stats.bombsMax} | Signal ${stats.signalStrength}`;
+  el.textContent = `Hull ${stats.shipHp}/${stats.shipHpMax} | Bombs ${stats.bombs}/${stats.bombsMax}`;
+}
+
+/**
+ * @param {HTMLElement} el
+ * @param {number} signalStrength
+ * @param {boolean} show
+ * @returns {void}
+ */
+export function updateSignalMeter(el, signalStrength, show){
+  if (!el) return;
+  if (!show){
+    el.style.display = "none";
+    return;
+  }
+  el.style.display = "block";
+  const fill = /** @type {HTMLElement|null} */ (el.querySelector(".signal-bar-fill"));
+  if (fill){
+    const pct = Math.max(0, Math.min(100, signalStrength * 10));
+    fill.style.width = `${pct}%`;
+  }
 }
 
 /**

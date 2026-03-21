@@ -56,7 +56,7 @@ const HELP_CONTENT = `
       <div class="help-legend-item"><span class="help-glyph help-glyph-mother"></span><div><b>Mothership indicator</b><span>Blue edge arrow points toward off-screen mothership.</span></div></div>
       <div class="help-legend-item"><span class="help-glyph help-glyph-orbit"></span><div><b>Apogee / Perigee markers</b><span>Orbit line with cross ticks for farthest and closest altitude points.</span></div></div>
       <div class="help-legend-item"><span class="help-glyph help-glyph-miner"></span><div><b>Closest miner indicator</b><span>When rescuee detector is unlocked, edge arrow points to nearest stranded miner.</span></div></div>
-      <div class="help-legend-item"><span class="help-glyph help-glyph-hud"></span><div><b>Status labels</b><span>Top-left: hull/bombs. Bottom-left: objective + prompts. Bottom-right: planet/level. Bottom-center: heat meter when active.</span></div></div>
+      <div class="help-legend-item"><span class="help-glyph help-glyph-hud"></span><div><b>Status labels</b><span>Top-left: hull/bombs. Top-center: signal meter. Bottom-left: objective + prompts. Bottom-right: planet/level. Bottom-center: heat meter when active.</span></div></div>
     </div>
   </section>
   <section class="help-section">
