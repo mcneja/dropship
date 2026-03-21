@@ -108,7 +108,7 @@ export class Enemies {
     this._DETONATE_FUSE = 0.6;
     this._LOS_STEP = 0.2;
     this._CRAWLER_BLAST_LIFE = 0.75;
-    this._CRAWLER_BLAST_RADIUS = 1.15;
+    this._CRAWLER_BLAST_RADIUS = 1.0;
 
     this._HUNTER_COLLIDER = circleOffsets(0.22, 6);
     this._RANGER_COLLIDER = circleOffsets(0.22, 6);

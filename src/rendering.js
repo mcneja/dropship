@@ -2220,8 +2220,8 @@ function drawFrameImpl(renderer, state, planet){
     const alpha = 0.85 * t;
     const burstN = 6;
     const burstPhase = Math.max(0, Math.min(1, (1 - t) * 2));
-    const burstCenterR = baseRadius * (0.18 + 0.48 * burstPhase);
-    const burstLen = baseRadius * 0.42;
+    const burstCenterR = baseRadius * (0.18 + 0.50 * burstPhase);
+    const burstLen = baseRadius * 0.55;
     const burstHalfW = baseRadius * 0.095;
     for (let i = 0; i < burstN; i++){
       const travelA = (i / burstN) * Math.PI * 2 + burstPhase * 0.18;
@@ -2589,7 +2589,7 @@ function drawFrameImpl(renderer, state, planet){
       const t = Math.max(0, Math.min(1, ex.life / maxLife));
       const baseRadius = ex.radius ?? 0.8;
       if (ex.owner === "crawler"){
-        const ringR = baseRadius * (0.4 + (1 - t) * 0.9);
+        const ringR = baseRadius * (0.4 + (1 - t) * 0.52);
         const alpha = 0.85 * t;
         const seg = 14;
         for (let i = 0; i < seg; i++){
@@ -2605,7 +2605,7 @@ function drawFrameImpl(renderer, state, planet){
           lineVerts += 2;
         }
         const spokeR = ringR * (0.35 + 0.25 * (1 - t));
-        const spokeOuter = ringR * 1.08;
+        const spokeOuter = Math.min(baseRadius, ringR * 1.08);
         for (let i = 0; i < 4; i++){
           const a = i * Math.PI * 0.5 + (1 - t) * 0.35;
           const ix = ex.x + Math.cos(a) * spokeR;
