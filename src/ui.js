@@ -92,8 +92,6 @@ export function updateHeatMeter(el, heat, show, flashing){
   el.style.display = "block";
   el.classList.toggle("heat-flash", !!flashing);
   const value = Math.max(0, Math.min(100, Math.round(heat)));
-  const text = /** @type {HTMLElement|null} */ (el.querySelector(".heat-text"));
-  if (text) text.textContent = `Heat ${value}`;
   const fill = /** @type {HTMLElement|null} */ (el.querySelector(".heat-bar-fill"));
   if (fill) fill.style.width = `${value}%`;
   layoutHeatMeter(el);
