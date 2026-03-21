@@ -20,6 +20,18 @@ function getFactorySpawnCooldownRange(cfg){
 }
 
 /**
+ * @template T
+ * @param {T|null|undefined} value
+ * @returns {T}
+ */
+function expectDefined(value){
+  if (value == null){
+    throw new Error("Expected value to be defined");
+  }
+  return value;
+}
+
+/**
  * Planet terrain abstraction backed by mapgen grid truth.
  */
 export class Planet {
@@ -45,6 +57,10 @@ export class Planet {
     this.radial = new RingMesh(this.mapgen, planetParams);
     this.radialGraph = new RadialGraph(this.radial);
     this.airNodesBitmap = buildAirNodesBitmap(this.radialGraph, this.radial);
+    this.radialGraphNavPadded = new RadialGraph(this.radial, {
+      navPadding: 0.75,
+    });
+    this.airNodesBitmapNavPadded = buildAirNodesBitmap(this.radialGraphNavPadded, this.radial);
     /** @type {Float32Array} */
     this.distanceToTarget = new Float32Array(this.radialGraph.nodes.length);
     const mats = buildPlanetMaterials(this.mapgen, this.planetConfig, this.planetParams);
@@ -59,6 +75,8 @@ export class Planet {
     this._spawnReservations = [];
     /** @type {Uint8Array|null} */
     this._spawnReachableMask = null;
+    /** @type {Uint8Array|null} */
+    this._enemyNavigationMaskNavPadded = null;
     this._rebuildSpawnReachabilityMask();
     this._spreadIceShardsUniform();
     this._snapIceShardsToSurface();
@@ -170,13 +188,39 @@ export class Planet {
   }
 
   /**
+   * @param {boolean} [navPadded]
+   * @returns {RadialGraph}
+   */
+  getRadialGraph(navPadded = false){
+    return navPadded ? this.radialGraphNavPadded : this.radialGraph;
+  }
+
+  /**
+   * @param {boolean} [navPadded]
    * @returns {Uint8Array}
    */
-  getEnemyNavigationMask(){
-    if (this.features && this.features.getEnemyNavigationMask){
-      return this.features.getEnemyNavigationMask();
+  getAirNodesBitmap(navPadded = false){
+    return navPadded ? this.airNodesBitmapNavPadded : this.airNodesBitmap;
+  }
+
+  /**
+   * @returns {Uint8Array}
+   */
+  getEnemyNavigationMask(navPadded = false){
+    const baseMask = (this.features && this.features.getEnemyNavigationMask)
+      ? this.features.getEnemyNavigationMask()
+      : this.airNodesBitmap;
+    if (!navPadded) return baseMask;
+    const navPaddedBase = this.airNodesBitmapNavPadded;
+    if (!navPaddedBase || baseMask.length === navPaddedBase.length){
+      return baseMask;
     }
-    return this.airNodesBitmap;
+    if (!this._enemyNavigationMaskNavPadded || this._enemyNavigationMaskNavPadded.length !== navPaddedBase.length){
+      this._enemyNavigationMaskNavPadded = new Uint8Array(navPaddedBase.length);
+    }
+    this._enemyNavigationMaskNavPadded.set(navPaddedBase);
+    this._enemyNavigationMaskNavPadded.set(baseMask.subarray(0, Math.min(baseMask.length, navPaddedBase.length)));
+    return this._enemyNavigationMaskNavPadded;
   }
 
   /**
@@ -241,16 +285,22 @@ export class Planet {
    * Find nearest radial node to world point using ring radius.
    * @param {number} x
    * @param {number} y
+   * @param {boolean} [navPadded]
    * @returns {number}
    */
-  nearestRadialNodeInAir(x, y){
-    const graph = this.radialGraph;
+  nearestRadialNodeInAir(x, y, navPadded = false){
+    const graph = this.getRadialGraph(navPadded);
     const iNode = nearestRadialNode(graph, this.radial, x, y);
     if (iNode < 0 || iNode >= graph.nodes.length) return -1;
-    const air = this.airNodesBitmap;
+    const air = this.getAirNodesBitmap(navPadded);
     if (air[iNode]) return iNode;
+    /**
+     * @param {number} idx
+     * @returns {boolean}
+     */
     const hasAirNeighbor = (idx) => {
-      for (const edge of graph.neighbors[idx]){
+      const neigh = graph.neighbors[idx] || [];
+      for (const edge of neigh){
         if (air[edge.to]) return true;
       }
       return false;
@@ -272,6 +322,7 @@ export class Planet {
       for (const idx of frontier){
         if (air[idx]){
           const node = graph.nodes[idx];
+          if (!node) continue;
           const dx = x - node.x;
           const dy = y - node.y;
           const d2 = dx * dx + dy * dy;
@@ -284,7 +335,8 @@ export class Planet {
             bestMovable = idx;
           }
         }
-        for (const edge of graph.neighbors[idx]){
+        const neigh = graph.neighbors[idx] || [];
+        for (const edge of neigh){
           const j = edge.to;
           if (visited[j]) continue;
           visited[j] = 1;
@@ -300,6 +352,7 @@ export class Planet {
     for (let i = 0; i < graph.nodes.length; i++){
       if (!air[i]) continue;
       const node = graph.nodes[i];
+      if (!node) continue;
       const dx = x - node.x;
       const dy = y - node.y;
       const d2 = dx * dx + dy * dy;
@@ -359,6 +412,7 @@ export class Planet {
       const p = vents[i];
       const idx = i % points.length;
       const pt = points[idx];
+      if (!p || !pt) continue;
       p.x = pt[0];
       p.y = pt[1];
     }
@@ -404,8 +458,8 @@ export class Planet {
       const shuffled = pool.slice();
       for (let i = shuffled.length - 1; i > 0; i--){
         const j = Math.floor(rand() * (i + 1));
-        const tmp = shuffled[i];
-        shuffled[i] = shuffled[j];
+        const tmp = expectDefined(shuffled[i]);
+        shuffled[i] = expectDefined(shuffled[j]);
         shuffled[j] = tmp;
       }
       /** @type {Array<[number,number]>} */
@@ -428,11 +482,13 @@ export class Planet {
       }
       for (let i = 0; i < trees.length; i++){
         const p = trees[i];
+        if (!p) continue;
         if (i >= points.length){
           p.dead = true;
           continue;
         }
         const pt = points[i];
+        if (!pt) continue;
         p.x = pt[0];
         p.y = pt[1];
         const normal = this.normalAtWorld(p.x, p.y);
@@ -451,6 +507,7 @@ export class Planet {
       for (let i = 0; i < mush.length && i < points.length; i++){
         const p = mush[i];
         const pt = points[i];
+        if (!p || !pt) continue;
         p.x = pt[0];
         p.y = pt[1];
       }
@@ -479,6 +536,7 @@ export class Planet {
     const points = this.sampleStandablePoints(debris.length, seed, placement, minDist, false);
     for (let i = 0; i < debris.length; i++){
       const p = debris[i];
+      if (!p) continue;
       const pt = points[i];
       if (!pt){
         p.dead = true;
@@ -525,6 +583,7 @@ export class Planet {
     for (let i = 0; i < nodes.length; i++){
       if (!air[i]) continue;
       const n = nodes[i];
+      if (!n) continue;
       const r = Math.hypot(n.x, n.y);
       if (r < rMin || r > rMax) continue;
       const neigh = neighbors[i] || [];
@@ -564,8 +623,8 @@ export class Planet {
     const rand = mulberry32(seed);
     for (let i = candidates.length - 1; i > 0; i--){
       const j = Math.floor(rand() * (i + 1));
-      const tmp = candidates[i];
-      candidates[i] = candidates[j];
+      const tmp = expectDefined(candidates[i]);
+      candidates[i] = expectDefined(candidates[j]);
       candidates[j] = tmp;
     }
     /** @type {Array<{x:number,y:number,nx:number,ny:number}>} */
@@ -608,7 +667,13 @@ export class Planet {
     const seed = (this.mapgen.getWorld().seed | 0) + 1327;
     const points = this._sampleCaveAttachmentPoints(total, seed, 0.45);
     let cursor = 0;
+    /**
+     * @param {any} p
+     * @param {number} sinkMul
+     * @returns {void}
+     */
     const applyAttach = (p, sinkMul) => {
+      if (!p) return;
       const pt = points[cursor++];
       if (!pt){
         p.dead = true;
@@ -662,8 +727,14 @@ export class Planet {
       // Prefer true landable sites so each tether's factory has a practical landing zone above it.
       const landableStandable = standable.filter((p) => this.isLandableAtWorld(p[0], p[1], 0.32, 0.2, 0.18));
       const factorySites = landableStandable.length ? landableStandable : standable;
+      /** @type {number[]} */
       const usedAngles = [];
       const usedSites = new Set();
+      /**
+       * @param {number} a
+       * @param {number} b
+       * @returns {number}
+       */
       const wrapDiff = (a, b) => {
         let d = Math.abs(a - b);
         if (d > Math.PI) d = Math.abs(d - Math.PI * 2);
@@ -722,6 +793,7 @@ export class Planet {
           for (let i = 0; i < factorySites.length; i++){
             if (usedSites.has(i)) continue;
             const sp = factorySites[i];
+            if (!sp) continue;
             if (sp[3] < minR) continue;
             const dAng = wrapDiff(sp[2], ang);
             if (dAng > th) continue;
@@ -750,6 +822,10 @@ export class Planet {
         }
         usedSites.add(idx);
         const pt = factorySites[idx];
+        if (!pt){
+          factory.dead = true;
+          return;
+        }
         factory.x = pt[0];
         factory.y = pt[1];
         const normal = this.normalAtWorld(factory.x, factory.y);
@@ -768,6 +844,7 @@ export class Planet {
 
       for (let i = 0; i < tethers.length; i++){
         const tether = tethers[i];
+        if (!tether) continue;
         let picked = null;
         const minAngSep = 0.4;
         const base = normalizeAngle((i / Math.max(1, tethers.length)) * Math.PI * 2 + (rand() - 0.5) * 0.35);
@@ -836,6 +913,7 @@ export class Planet {
     const factoryPts = this.sampleStandablePoints(factories.length, seed, "uniform", 1.5, false);
     for (let i = 0; i < factories.length; i++){
       const p = factories[i];
+      if (!p) continue;
       const pt = factoryPts[i];
       if (!pt){
         p.dead = true;
@@ -860,6 +938,7 @@ export class Planet {
     const gatePts = this.sampleStandablePoints(gates.length, seed + 97, "clusters", 2.0, false);
     for (let i = 0; i < gates.length; i++){
       const p = gates[i];
+      if (!p) continue;
       const pt = gatePts[i];
       if (!pt){
         p.dead = true;
@@ -891,6 +970,10 @@ export class Planet {
     const points = [];
     const rMax = this.planetParams.RMAX * 0.9;
     const attempts = Math.max(200, count * 140);
+    /**
+     * @param {number} i
+     * @returns {number}
+     */
     const angleAt = (i) => {
       if (placement === "uniform"){
         const base = (i / count) * Math.PI * 2;
@@ -974,7 +1057,9 @@ export class Planet {
     const rand = mulberry32(seed + 17);
     for (let i = 0; i < shards.length; i++){
       const p = shards[i];
+      if (!p) continue;
       const pt = points[i % points.length];
+      if (!pt) continue;
       p.x = pt[0];
       p.y = pt[1];
       // Orient roughly orthogonal to the surface normal (tangent), with random flip/jitter.
@@ -1007,6 +1092,10 @@ export class Planet {
       : 0;
     const rMax = Math.max(rMin + 0.5, this.planetParams.RMAX - shell - 0.15);
     const attempts = Math.max(200, count * 120);
+    /**
+     * @param {number} i
+     * @returns {number}
+     */
     const angleAt = (i) => {
       if (placement === "uniform"){
         const base = (i / count) * Math.PI * 2;
@@ -1023,6 +1112,11 @@ export class Planet {
     return points;
   }
 
+  /**
+   * @param {number} a
+   * @param {number} b
+   * @returns {number}
+   */
   _angleDistance(a, b){
     let d = Math.abs(a - b);
     if (d > Math.PI) d = Math.abs(d - Math.PI * 2);
@@ -1059,6 +1153,10 @@ export class Planet {
     const shoulder = 0.55 * scale + 0.08;
     const airClearance = 0.12;
     const rockDepth = 0.09;
+    /**
+     * @param {number} dir
+     * @returns {boolean}
+     */
     const shoulderSupported = (dir) => {
       const sx = x + tx * shoulder * dir;
       const sy = y + ty * shoulder * dir;
@@ -1086,7 +1184,9 @@ export class Planet {
     let plusIdx = 0;
     let plusDiff = Infinity;
     for (let i = 0; i < ring.length; i++){
-      const ang = this._normalizeAngle(Math.atan2(ring[i].y, ring[i].x));
+      const v = ring[i];
+      if (!v) continue;
+      const ang = this._normalizeAngle(Math.atan2(v.y, v.x));
       let diff = ang - target;
       if (diff < 0) diff += Math.PI * 2;
       if (diff < plusDiff){
@@ -1099,8 +1199,8 @@ export class Planet {
       ring,
       minusIdx,
       plusIdx,
-      minusVertex: ring[minusIdx],
-      plusVertex: ring[plusIdx],
+      minusVertex: expectDefined(ring[minusIdx]),
+      plusVertex: expectDefined(ring[plusIdx]),
     };
   }
 
@@ -1115,6 +1215,7 @@ export class Planet {
       return new Uint8Array(0);
     }
     const reachable = new Uint8Array(graph.nodes.length);
+    /** @type {number[]} */
     const queue = [];
     const outerRing = rings[rings.length - 1] || [];
     for (const vertex of outerRing){
@@ -1125,8 +1226,9 @@ export class Planet {
       queue.push(idx);
     }
     for (let q = 0; q < queue.length; q++){
-      const idx = queue[q];
-      for (const edge of (graph.neighbors[idx] || [])){
+      const idx = expectDefined(queue[q]);
+      const neigh = graph.neighbors[idx] || [];
+      for (const edge of neigh){
         const next = edge.to;
         if (reachable[next]) continue;
         const node = graph.nodes[next];
@@ -1363,12 +1465,20 @@ export class Planet {
       return null;
     }
     const { underAirByNode, outerRockByIndex, outerRingIndex } = lookup;
+    /**
+     * @param {any} cand
+     * @returns {boolean}
+     */
     const canUseCandidate = (cand) => (
       cand
       && cand !== candidate
       && !used.has(cand)
       && this._barrenCandidateHasSpacing(cand, chosenTurrets, minDist)
     );
+    /**
+     * @param {number} baseIndex
+     * @returns {any|null}
+     */
     const searchOuterRing = (baseIndex) => {
       const outerRing = rings[outerRingIndex] || [];
       const n = outerRing.length;
@@ -1384,6 +1494,10 @@ export class Planet {
       }
       return null;
     };
+    /**
+     * @param {number} nodeIdx
+     * @returns {boolean}
+     */
     const isAirNode = (nodeIdx) => {
       const node = graph.nodes[nodeIdx];
       if (!node) return false;
@@ -1401,14 +1515,19 @@ export class Planet {
     const sourceVertex = sourceRing && sourceRing[candidate.sourceIndex];
     const startNode = sourceVertex ? graph.nodeOfRef.get(sourceVertex) : undefined;
     if (startNode === undefined) return null;
+    const start = graph.nodes[startNode];
+    if (!start) return null;
     const visited = new Set([startNode]);
+    /** @type {number[]} */
     let frontier = [startNode];
-    for (let nextRing = graph.nodes[startNode].r + 1; nextRing <= outerRingIndex; nextRing++){
+    for (let nextRing = start.r + 1; nextRing <= outerRingIndex; nextRing++){
       /** @type {number[]} */
       const ringAir = [];
+      /** @type {number[]} */
       const queue = [];
       for (const nodeIdx of frontier){
-        for (const edge of (graph.neighbors[nodeIdx] || [])){
+        const neigh = graph.neighbors[nodeIdx] || [];
+        for (const edge of neigh){
           const nextIdx = edge.to;
           if (visited.has(nextIdx)) continue;
           const nextNode = graph.nodes[nextIdx];
@@ -1418,9 +1537,10 @@ export class Planet {
         }
       }
       for (let qi = 0; qi < queue.length; qi++){
-        const nodeIdx = queue[qi];
+        const nodeIdx = expectDefined(queue[qi]);
         ringAir.push(nodeIdx);
-        for (const edge of (graph.neighbors[nodeIdx] || [])){
+        const neigh = graph.neighbors[nodeIdx] || [];
+        for (const edge of neigh){
           const nextIdx = edge.to;
           if (visited.has(nextIdx)) continue;
           const nextNode = graph.nodes[nextIdx];
@@ -1553,6 +1673,7 @@ export class Planet {
     }
     for (let i = 0; i < pads.length; i++){
       const prop = pads[i];
+      if (!prop) continue;
       const placement = placements[i] || null;
       if (!placement){
         prop.dead = true;
@@ -1682,6 +1803,7 @@ export class Planet {
     }
     for (let i = 0; i < pads.length; i++){
       const p = pads[i];
+      if (!p) continue;
       const pt = placed[i] || null;
       p.padReservedFor = null;
       if (!pt){
@@ -1828,6 +1950,10 @@ export class Planet {
     const rMin = 1.0;
     const rMax = this.planetParams.RMAX + 1.2;
     const attempts = Math.max(200, count * 120);
+    /**
+     * @param {number} i
+     * @returns {number}
+     */
     const angleAt = (i) => {
       if (placement === "uniform"){
         const base = (i / count) * Math.PI * 2;
@@ -1866,9 +1992,11 @@ export class Planet {
     for (let i = 0; i < graph.nodes.length; i++){
       if (!passable[i]) continue;
       const n = graph.nodes[i];
+      if (!n) continue;
       let inner = -1;
       let innerR = -1;
-      for (const edge of graph.neighbors[i]){
+      const neigh = graph.neighbors[i] || [];
+      for (const edge of neigh){
         const nb = graph.nodes[edge.to];
         if (!nb || nb.r >= n.r) continue;
         if (passable[edge.to]) continue;
@@ -1879,6 +2007,7 @@ export class Planet {
       }
       if (inner < 0) continue;
       const nb = graph.nodes[inner];
+      if (!nb) continue;
       const aOuter = this.radial.airValueAtWorld(n.x, n.y);
       const aInner = this.radial.airValueAtWorld(nb.x, nb.y);
       const denom = (aOuter - aInner);
@@ -1982,6 +2111,7 @@ export class Planet {
     for (let i = 0; i < graph.nodes.length; i++){
       if (!passable[i]) continue;
       const n = graph.nodes[i];
+      if (!n) continue;
       const r = Math.hypot(n.x, n.y);
       if (r >= nearSurfaceR){
         sources.push(i);
@@ -2092,7 +2222,7 @@ export class Planet {
     /** @type {Array<{x:number,y:number,r:number}>} */
     const reservations = this._spawnReservations || [];
     if (placement === "uniform"){
-      indices.sort((a, b) => points[a][2] - points[b][2]);
+      indices.sort((a, b) => expectDefined(points[a])[2] - expectDefined(points[b])[2]);
       const offset = rand();
       const step = (Math.PI * 2) / take;
       const window = step * 0.65;
@@ -2102,6 +2232,7 @@ export class Planet {
         let pickedScore = Infinity;
         for (const idx of indices){
           const p = points[idx];
+          if (!p) continue;
           const ang = p[2];
           let d = Math.abs(ang - target);
           d = Math.min(d, Math.abs(d - Math.PI * 2));
@@ -2128,6 +2259,7 @@ export class Planet {
         }
         if (picked >= 0){
           const p = points[picked];
+          if (!p) continue;
           used.add(picked);
           out.push([p[0], p[1]]);
           if (out.length >= take) break;
@@ -2138,6 +2270,7 @@ export class Planet {
           if (out.length >= take) break;
           if (used.has(idx)) continue;
           const p = points[idx];
+          if (!p) continue;
           if (!this._isFarFromReservations(p[0], p[1], minDist, reservations)) continue;
           let ok = true;
           for (const q of out){
@@ -2160,18 +2293,24 @@ export class Planet {
         const centers = [];
         for (let i = 0; i < indices.length && centers.length < clusterCount; i++){
           const idx = indices[Math.floor(rand() * indices.length)];
-          centers.push(points[idx][2]);
+          if (idx === undefined) continue;
+          const p = points[idx];
+          if (!p) continue;
+          centers.push(p[2]);
         }
+        if (!centers.length) return out;
         let clusterIndex = 0;
         const window = (Math.PI * 2) / Math.max(6, clusterCount * 2);
         for (let i = 0; i < take; i++){
           const target = centers[clusterIndex % centers.length];
+          if (target === undefined) continue;
           clusterIndex++;
           let picked = -1;
           let pickedScore = Infinity;
           for (const idx of indices){
             if (used.has(idx)) continue;
             const p = points[idx];
+            if (!p) continue;
             let d = Math.abs(p[2] - target);
             d = Math.min(d, Math.abs(d - Math.PI * 2));
             if (d > window) continue;
@@ -2196,6 +2335,7 @@ export class Planet {
           }
           if (picked >= 0){
             const p = points[picked];
+            if (!p) continue;
             used.add(picked);
             out.push([p[0], p[1]]);
             if (out.length >= take) break;
@@ -2206,6 +2346,7 @@ export class Planet {
             if (out.length >= take) break;
             if (used.has(idx)) continue;
             const p = points[idx];
+            if (!p) continue;
             if (!this._isFarFromReservations(p[0], p[1], minDist, reservations)) continue;
             let ok = true;
             for (const q of out){
@@ -2224,12 +2365,13 @@ export class Planet {
       } else {
         for (let i = indices.length - 1; i > 0; i--){
           const j = Math.floor(rand() * (i + 1));
-          const tmp = indices[i];
-          indices[i] = indices[j];
+          const tmp = expectDefined(indices[i]);
+          indices[i] = expectDefined(indices[j]);
           indices[j] = tmp;
         }
         for (const idx of indices){
           const p = points[idx];
+          if (!p) continue;
           if (used.has(idx)) continue;
           if (!this._isFarFromReservations(p[0], p[1], minDist, reservations)) continue;
           let ok = true;
@@ -2256,6 +2398,7 @@ export class Planet {
             if (out.length >= take) break;
             if (used.has(idx)) continue;
             const p = points[idx];
+            if (!p) continue;
             if (!this._isFarFromReservations(p[0], p[1], minDist, reservations)) continue;
             let ok = true;
             for (const q of out){
@@ -2377,6 +2520,8 @@ export class Planet {
     this.mapgen.setAirDisk(x, y, radius, val);
     let newAir = this.radial.updateAirFlags(true);
     this.airNodesBitmap = buildAirNodesBitmap(this.radialGraph, this.radial);
+    this.airNodesBitmapNavPadded = buildAirNodesBitmap(this.radialGraphNavPadded, this.radial);
+    this._enemyNavigationMaskNavPadded = null;
     this._rebuildSpawnReachabilityMask();
     this._radialDebugDirty = true;
     return newAir;
@@ -2431,6 +2576,8 @@ export class Planet {
     world.air.set(state.air);
     const newAir = this.radial.updateAirFlags(true);
     this.airNodesBitmap = buildAirNodesBitmap(this.radialGraph, this.radial);
+    this.airNodesBitmapNavPadded = buildAirNodesBitmap(this.radialGraphNavPadded, this.radial);
+    this._enemyNavigationMaskNavPadded = null;
     this._rebuildSpawnReachabilityMask();
     this._radialDebugDirty = true;
 
@@ -2440,13 +2587,17 @@ export class Planet {
         const src = state.props[i];
         const dst = this.props[i];
         if (!src || typeof src !== "object" || !dst || typeof dst !== "object") continue;
-        for (const key of Object.keys(dst)){
-          if (!Object.prototype.hasOwnProperty.call(src, key)){
-            delete dst[key];
+        /** @type {Record<string, any>} */
+        const srcRecord = /** @type {Record<string, any>} */ (src);
+        /** @type {Record<string, any>} */
+        const dstRecord = /** @type {Record<string, any>} */ (dst);
+        for (const key of Object.keys(dstRecord)){
+          if (!Object.prototype.hasOwnProperty.call(srcRecord, key)){
+            delete dstRecord[key];
           }
         }
-        for (const key of Object.keys(src)){
-          dst[key] = clonePlainData(src[key]);
+        for (const key of Object.keys(srcRecord)){
+          dstRecord[key] = clonePlainData(srcRecord[key]);
         }
       }
     }
@@ -2644,6 +2795,7 @@ export class Planet {
     const a = tri[0];
     const b = tri[1];
     const c = tri[2];
+    if (!a || !b || !c) return null;
     const det = (b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y);
     if (Math.abs(det) < 1e-8) return null;
     const dfdx = (a.air * (b.y - c.y) + b.air * (c.y - a.y) + c.air * (a.y - b.y)) / det;
@@ -2955,7 +3107,17 @@ function buildAirNodesBitmap(radialGraph, ringMesh){
   const passable = new Uint8Array(radialGraph.nodes.length);
   for (let i = 0; i < radialGraph.nodes.length; i++){
     const n = radialGraph.nodes[i];
-    passable[i] = ringMesh.rings[n.r][n.i].air > 0.5 ? 1 : 0;
+    if (!n){
+      passable[i] = 0;
+      continue;
+    }
+    if (n.navPadded){
+      passable[i] = 1;
+      continue;
+    }
+    const ring = ringMesh.rings[n.r];
+    const vertex = ring ? ring[n.i] : null;
+    passable[i] = vertex && vertex.air > 0.5 ? 1 : 0;
   }
   return passable;
 }
@@ -2972,6 +3134,7 @@ function clonePlainData(value){
   if (Array.isArray(value)){
     return value.map((v) => clonePlainData(v));
   }
+  /** @type {Record<string, any>} */
   const out = {};
   for (const key of Object.keys(value)){
     const v = value[key];
