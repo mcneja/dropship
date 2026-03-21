@@ -72,6 +72,7 @@ export function updateSignalMeter(el, signalStrength, show){
     const pct = Math.max(0, Math.min(100, signalStrength * 10));
     fill.style.width = `${pct}%`;
   }
+  layoutSignalMeter(el);
 }
 
 /**
@@ -144,6 +145,33 @@ function layoutHeatMeter(el){
   const maxTop = Math.max(minViewportInset, Math.round(vH - liftedRect.height - minViewportInset));
   el.style.top = `${Math.min(maxTop, Math.max(minViewportInset, topY))}px`;
   el.style.bottom = "auto";
+}
+
+/**
+ * Keep the top-center signal meter from overlapping the top-left ship status on narrow screens.
+ * @param {HTMLElement} el
+ * @returns {void}
+ */
+function layoutSignalMeter(el){
+  const pad = 10;
+  const minViewportInset = 12;
+  const vH = window.innerHeight || document.documentElement.clientHeight || 0;
+  const shipStatus = /** @type {HTMLElement|null} */ (document.getElementById("ship-status-label"));
+
+  el.style.left = "50%";
+  el.style.transform = "translateX(-50%)";
+  el.style.top = "var(--ui-top)";
+  el.style.bottom = "auto";
+
+  if (!shipStatus) return;
+
+  const meterRect = el.getBoundingClientRect();
+  const shipRect = shipStatus.getBoundingClientRect();
+  if (!rectsOverlap(meterRect, shipRect, pad)) return;
+
+  const topY = Math.round(shipRect.bottom + pad);
+  const maxTop = Math.max(minViewportInset, Math.round(vH - meterRect.height - minViewportInset));
+  el.style.top = `${Math.min(maxTop, Math.max(minViewportInset, topY))}px`;
 }
 
 /**
