@@ -139,6 +139,7 @@ export class GameLoop {
     this.TERRAIN_PAD = 0.5;
     this.TERRAIN_MAX = this.planetParams.RMAX + this.TERRAIN_PAD;
     this.TERRAIN_IMPACT_RADIUS = 0.75;
+    this.TERRAIN_NODE_IMPACT_RANGE = 1.0;
     /** @type {Array<[number, number]>} */
     this.shipCollisionLocalConvexHull = buildDropshipLocalConvexHullPoints(GAME);
     this.shipCollisionEdgeSamplesPerEdge = 2;
@@ -224,7 +225,6 @@ export class GameLoop {
     this.PLAYER_BOMB_DAMAGE = 1.2;
     this.CRAWLER_DEATH_BLAST = 1.15;
     this.CRAWLER_DEATH_DAMAGE = 1.0;
-    this.CRAWLER_TERRAIN_BLAST = 0.55;
     this.CRAWLER_DEATH_FLASH_LIFE = 0.8;
     this.SHIP_HIT_BLAST = 0.55;
     this.ENEMY_HIT_BLAST = 0.35;
@@ -940,7 +940,7 @@ export class GameLoop {
   _applyCrawlerTerrainImpact(x, y){
     const cfg = this.planet ? this.planet.getPlanetConfig() : null;
     if (cfg && cfg.flags && cfg.flags.disableTerrainDestruction) return;
-    const newAir = this.planet.applyAirEdit(x, y, this.CRAWLER_TERRAIN_BLAST, 1);
+    const newAir = this.planet.destroyRockRadialNodesInRange(x, y, this.TERRAIN_NODE_IMPACT_RANGE);
     if (newAir) this.renderer.updateAir(newAir);
   }
 
@@ -1314,7 +1314,7 @@ export class GameLoop {
   _applyBombImpact(x, y){
     const cfg = this.planet ? this.planet.getPlanetConfig() : null;
     if (cfg && cfg.flags && cfg.flags.disableTerrainDestruction) return;
-    const newAir = this.planet.applyAirEdit(x, y, this.TERRAIN_IMPACT_RADIUS, 1);
+    const newAir = this.planet.destroyRockRadialNodesInRange(x, y, this.TERRAIN_NODE_IMPACT_RANGE, 1);
     if (newAir) this.renderer.updateAir(newAir);
   }
 
@@ -3519,9 +3519,7 @@ export class GameLoop {
         }
         if (hit){
           this.playerBombs.splice(i, 1);
-          if (hitSource === "planet"){
-            this._applyBombImpact(b.x, b.y);
-          }
+          this._applyBombImpact(b.x, b.y);
           this.planet.handleFeatureBomb(b.x, b.y, this.TERRAIN_IMPACT_RADIUS, this.PLAYER_BOMB_RADIUS, this.featureCallbacks);
           this._applyBombDamage(b.x, b.y);
           this.entityExplosions.push({ x: b.x, y: b.y, life: 0.8, radius: this.PLAYER_BOMB_BLAST });

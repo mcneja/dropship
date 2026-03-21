@@ -370,6 +370,49 @@ export class Planet {
   }
 
   /**
+   * @param {number} x
+   * @param {number} y
+   * @param {number} range
+   * @param {number} [maxTargets]
+   * @returns {Float32Array|undefined}
+   */
+  destroyRockRadialNodesInRange(x, y, range, maxTargets = Infinity){
+    const graph = this.radialGraph;
+    const nodes = graph && graph.nodes ? graph.nodes : null;
+    const air = this.airNodesBitmap;
+    if (!nodes || !nodes.length || !air || air.length !== nodes.length) return undefined;
+    const limit = Number.isFinite(maxTargets) ? Math.max(1, Math.floor(maxTargets)) : Infinity;
+    const rangeClamped = Math.max(0, range);
+    const rangeSq = rangeClamped * rangeClamped;
+    const coreRadius = Math.max(0, this.coreRadius || 0);
+    /** @type {Array<{idx:number,d2:number}>} */
+    const candidates = [];
+    for (let i = 0; i < nodes.length; i++){
+      if (air[i]) continue;
+      const node = nodes[i];
+      if (!node || node.navPadded) continue;
+      if (coreRadius > 0 && Math.hypot(node.x, node.y) <= coreRadius) continue;
+      const dx = node.x - x;
+      const dy = node.y - y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > rangeSq) continue;
+      candidates.push({ idx: i, d2 });
+    }
+    if (!candidates.length) return undefined;
+    candidates.sort((a, b) => a.d2 - b.d2);
+    let edited = false;
+    for (let i = 0; i < candidates.length && i < limit; i++){
+      const candidate = candidates[i];
+      if (!candidate) continue;
+      const node = nodes[candidate.idx];
+      if (!node) continue;
+      edited = this.mapgen.setAirAtWorld(node.x, node.y, 1) || edited;
+    }
+    if (!edited) return undefined;
+    return this._refreshAirAfterEdit();
+  }
+
+  /**
    * Compute and cache a distance map for every node in the graph to a given target position.
    * Useful when multiple enemies all want to go to the same place.
    * @param {number} x 
@@ -2518,7 +2561,14 @@ export class Planet {
    */
   applyAirEdit(x, y, radius, val = 1){
     this.mapgen.setAirDisk(x, y, radius, val);
-    let newAir = this.radial.updateAirFlags(true);
+    return this._refreshAirAfterEdit();
+  }
+
+  /**
+   * @returns {Float32Array|undefined}
+   */
+  _refreshAirAfterEdit(){
+    const newAir = this.radial.updateAirFlags(true);
     this.airNodesBitmap = buildAirNodesBitmap(this.radialGraph, this.radial);
     this.airNodesBitmapNavPadded = buildAirNodesBitmap(this.radialGraphNavPadded, this.radial);
     this._enemyNavigationMaskNavPadded = null;
@@ -2574,12 +2624,7 @@ export class Planet {
       return undefined;
     }
     world.air.set(state.air);
-    const newAir = this.radial.updateAirFlags(true);
-    this.airNodesBitmap = buildAirNodesBitmap(this.radialGraph, this.radial);
-    this.airNodesBitmapNavPadded = buildAirNodesBitmap(this.radialGraphNavPadded, this.radial);
-    this._enemyNavigationMaskNavPadded = null;
-    this._rebuildSpawnReachabilityMask();
-    this._radialDebugDirty = true;
+    const newAir = this._refreshAirAfterEdit();
 
     if (Array.isArray(state.props) && Array.isArray(this.props)){
       const count = Math.min(this.props.length, state.props.length);
