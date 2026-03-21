@@ -47,11 +47,32 @@ export function updateObjectiveLabel(el, text){
 
 /**
  * @param {HTMLElement} el
- * @param {{shipHp:number,shipHpMax:number,bombs:number,bombsMax:number,signalStrength:number}} stats
+ * @param {{shipHp:number,shipHpMax:number,bombs:number,bombsMax:number}} stats
  * @returns {void}
  */
 export function updateShipStatusLabel(el, stats){
-  el.textContent = `Hull ${stats.shipHp}/${stats.shipHpMax} | Bombs ${stats.bombs}/${stats.bombsMax} | Signal ${stats.signalStrength}`;
+  el.textContent = `Hull ${stats.shipHp}/${stats.shipHpMax} | Bombs ${stats.bombs}/${stats.bombsMax}`;
+}
+
+/**
+ * @param {HTMLElement} el
+ * @param {number} signalStrength
+ * @param {boolean} show
+ * @returns {void}
+ */
+export function updateSignalMeter(el, signalStrength, show){
+  if (!el) return;
+  if (!show){
+    el.style.display = "none";
+    return;
+  }
+  el.style.display = "block";
+  const fill = /** @type {HTMLElement|null} */ (el.querySelector(".signal-bar-fill"));
+  if (fill){
+    const pct = Math.max(0, Math.min(100, signalStrength * 10));
+    fill.style.width = `${pct}%`;
+  }
+  layoutSignalMeter(el);
 }
 
 /**
@@ -71,8 +92,6 @@ export function updateHeatMeter(el, heat, show, flashing){
   el.style.display = "block";
   el.classList.toggle("heat-flash", !!flashing);
   const value = Math.max(0, Math.min(100, Math.round(heat)));
-  const text = /** @type {HTMLElement|null} */ (el.querySelector(".heat-text"));
-  if (text) text.textContent = `Heat ${value}`;
   const fill = /** @type {HTMLElement|null} */ (el.querySelector(".heat-bar-fill"));
   if (fill) fill.style.width = `${value}%`;
   layoutHeatMeter(el);
@@ -91,6 +110,7 @@ function layoutHeatMeter(el){
   const objective = /** @type {HTMLElement|null} */ (document.getElementById("objective-label"));
   const planet = /** @type {HTMLElement|null} */ (document.getElementById("planet-label"));
   const shipStatus = /** @type {HTMLElement|null} */ (document.getElementById("ship-status-label"));
+  const signalMeter = /** @type {HTMLElement|null} */ (document.getElementById("signal-meter"));
 
   // Default placement: bottom center.
   el.style.left = "50%";
@@ -120,11 +140,43 @@ function layoutHeatMeter(el){
   const stillOverlaps = labels.some((r) => rectsOverlap(liftedRect, r, pad));
   if (!stillOverlaps) return;
 
-  // Fallback on very small screens: place below top-left ship status zone.
-  const topY = shipStatus ? Math.round(shipStatus.getBoundingClientRect().bottom + pad) : minViewportInset;
+  // Fallback on very small screens: place below the active top HUD stack.
+  const topAnchors = [shipStatus, signalMeter]
+    .filter((node) => !!node && /** @type {HTMLElement} */ (node).style.display !== "none")
+    .map((node) => /** @type {HTMLElement} */ (node).getBoundingClientRect().bottom);
+  const topY = topAnchors.length
+    ? Math.round(Math.max(...topAnchors) + pad)
+    : minViewportInset;
   const maxTop = Math.max(minViewportInset, Math.round(vH - liftedRect.height - minViewportInset));
   el.style.top = `${Math.min(maxTop, Math.max(minViewportInset, topY))}px`;
   el.style.bottom = "auto";
+}
+
+/**
+ * Keep the top-center signal meter from overlapping the top-left ship status on narrow screens.
+ * @param {HTMLElement} el
+ * @returns {void}
+ */
+function layoutSignalMeter(el){
+  const pad = 10;
+  const minViewportInset = 12;
+  const vH = window.innerHeight || document.documentElement.clientHeight || 0;
+  const shipStatus = /** @type {HTMLElement|null} */ (document.getElementById("ship-status-label"));
+
+  el.style.left = "50%";
+  el.style.transform = "translateX(-50%)";
+  el.style.top = "var(--ui-top)";
+  el.style.bottom = "auto";
+
+  if (!shipStatus) return;
+
+  const meterRect = el.getBoundingClientRect();
+  const shipRect = shipStatus.getBoundingClientRect();
+  if (!rectsOverlap(meterRect, shipRect, pad)) return;
+
+  const topY = Math.round(shipRect.bottom + pad);
+  const maxTop = Math.max(minViewportInset, Math.round(vH - meterRect.height - minViewportInset));
+  el.style.top = `${Math.min(maxTop, Math.max(minViewportInset, topY))}px`;
 }
 
 /**
