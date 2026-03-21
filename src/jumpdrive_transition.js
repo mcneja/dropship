@@ -273,9 +273,13 @@ export class JumpdriveTransition {
     this.hiddenShip = null;
     this.seed = 0;
     this.level = 0;
+    /** @type {import("./planet_config.js").PlanetConfig|null} */
     this.planetConfig = null;
+    /** @type {import("./planet_config.js").PlanetParams|null} */
     this.planetParams = null;
+    /** @type {MapWorld|null} */
     this.mapWorld = null;
+    /** @type {Worker|null} */
     this.worker = null;
     this.workerRequestId = 0;
     this.pendingPreparedLevel = null;
@@ -387,6 +391,7 @@ export class JumpdriveTransition {
    */
   _requestMapWorld(){
     const requestId = ++this.workerRequestId;
+    /** @param {MapWorld} mapWorld */
     const finishPrepared = (mapWorld) => {
       if (!this.active || requestId !== this.workerRequestId) return;
       this.mapWorld = mapWorld;
@@ -398,11 +403,12 @@ export class JumpdriveTransition {
         mapWorld,
       };
     };
+    /** @param {unknown} error */
     const failPrepared = (error) => {
       if (!this.active || requestId !== this.workerRequestId) return;
       this.loadFailed = true;
-      this.loadError = error || "";
-      const mapgen = new MapGen(this.seed, this.planetParams);
+      this.loadError = (typeof error === "string") ? error : "";
+      const mapgen = new MapGen(this.seed, /** @type {import("./planet_config.js").PlanetParams} */ (this.planetParams));
       const world = mapgen.getWorld();
       finishPrepared({
         seed: world.seed,
@@ -417,7 +423,8 @@ export class JumpdriveTransition {
         if (!this.worker){
           this.worker = new Worker(new URL("./workers/jumpdrive_level_worker.js", import.meta.url), { type: "module" });
         }
-        const worker = this.worker;
+        const worker = /** @type {Worker} */ (this.worker);
+        /** @param {MessageEvent} event */
         const onMessage = (event) => {
           const data = event && event.data ? event.data : null;
           if (!data || (data.requestId | 0) !== requestId) return;
@@ -630,7 +637,7 @@ export class JumpdriveTransition {
     const view = this._currentView(state.view);
     nextState.view = view;
     if (this.visualMothership){
-      nextState.mothership = /** @type {RenderState["mothership"]} */ ({ ...this.visualMothership });
+      nextState.mothership = /** @type {import("./mothership.js").Mothership} */ ({ ...this.visualMothership });
     }
     return nextState;
   }

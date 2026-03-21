@@ -320,6 +320,19 @@ export class GameLoop {
     this.OBJECTIVE_COMPLETE_SFX_DELAY_MS = 1000;
     this.combatThreatUntilMs = 0;
 
+    /** @type {{
+     *   onExplosion:(info:{x:number,y:number,life:number,radius:number})=>void,
+     *   onDebris:(info:{x:number,y:number,vx:number,vy:number,a:number,w:number,life:number})=>void,
+     *   onAreaDamage:(x:number,y:number,radius:number)=>void,
+     *   onShipDamage:(x:number,y:number)=>void,
+     *   onShipHeat:(amount:number)=>void,
+     *   onShipCrash:()=>void,
+     *   onShipConfuse:(duration:number)=>void,
+     *   onEnemyHit:(enemy:{x:number,y:number,hp:number,hitT?:number,stunT?:number}, x:number, y:number)=>void,
+     *   onEnemyStun:(enemy:{x:number,y:number,hp:number,hitT?:number,stunT?:number}, duration:number, source?:"mushroom"|"lava")=>void,
+     *   onMinerKilled:()=>void,
+     * }}
+     */
     this.featureCallbacks = {
       onExplosion: (info) => {
         this.entityExplosions.push(info);
@@ -483,6 +496,7 @@ export class GameLoop {
    * @returns {Array<any>}
    */
   _factoryPropsAlive(){
+    /** @type {Array<any>} */
     const out = [];
     if (!this.planet || !this.planet.props || !this.planet.props.length) return out;
     for (const p of this.planet.props){
@@ -497,6 +511,7 @@ export class GameLoop {
    * @returns {Array<any>}
    */
   _tetherPropsAlive(){
+    /** @type {Array<any>} */
     const out = [];
     if (!this.planet || !this.planet.props || !this.planet.props.length) return out;
     for (const p of this.planet.props){
@@ -511,6 +526,7 @@ export class GameLoop {
    * @returns {Array<any>}
    */
   _tetherPropsAll(){
+    /** @type {Array<any>} */
     const out = [];
     if (!this.planet || !this.planet.props || !this.planet.props.length) return out;
     for (const p of this.planet.props){
@@ -527,7 +543,7 @@ export class GameLoop {
     if (!this.planet || !this.planet.props || !this.planet.props.length) return null;
     for (const p of this.planet.props){
       if (p.type !== "factory") continue;
-      if ((p.propId | 0) === (propId | 0)) return p;
+      if ((/** @type {number} */ (p.propId) | 0) === (propId | 0)) return p;
     }
     return null;
   }
@@ -718,7 +734,7 @@ export class GameLoop {
    */
   _updateShipRenderAngle(dt){
     const target = getDropshipWorldRotation(this.ship.x, this.ship.y);
-    const current = Number.isFinite(this.ship.renderAngle) ? this.ship.renderAngle : target;
+    const current = Number.isFinite(this.ship.renderAngle) ? /** @type {number} */ (this.ship.renderAngle) : target;
     const delta = lerpAngleShortest(current, target, 1) - current;
     const maxStep = Math.PI * 8 * Math.max(0, dt);
     if (!(maxStep > 0) || Math.abs(delta) <= maxStep){
@@ -983,7 +999,7 @@ export class GameLoop {
    * @returns {void}
    */
   _markCombatThreat(holdMs){
-    const hold = Number.isFinite(holdMs) ? holdMs : this.COMBAT_THREAT_HOLD_MS;
+    const hold = Number.isFinite(holdMs) ? /** @type {number} */ (holdMs) : this.COMBAT_THREAT_HOLD_MS;
     const now = performance.now();
     this.combatThreatUntilMs = Math.max(this.combatThreatUntilMs, now + Math.max(0, hold));
   }
@@ -1220,7 +1236,7 @@ export class GameLoop {
       yCenter: posViewCenterY,
       radius: radiusView,
       angle: -(Number.isFinite(this.ship.renderAngle)
-        ? this.ship.renderAngle
+        ? /** @type {number} */ (this.ship.renderAngle)
         : getDropshipWorldRotation(this.ship.x, this.ship.y))
     };
     if (this.mothership){
@@ -1315,7 +1331,7 @@ export class GameLoop {
       }
     }
     for (let j = this.enemies.enemies.length - 1; j >= 0; j--){
-      const e = this.enemies.enemies[j];
+      const e = /** @type {import("./types.d.js").Enemy} */ (this.enemies.enemies[j]);
       const dx = e.x - x;
       const dy = e.y - y;
       if (dx * dx + dy * dy <= r2){
@@ -1323,7 +1339,7 @@ export class GameLoop {
       }
     }
     for (let j = this.miners.length - 1; j >= 0; j--){
-      const m = this.miners[j];
+      const m = /** @type {Miner} */ (this.miners[j]);
       const dx = m.x - x;
       const dy = m.y - y;
       if (dx * dx + dy * dy <= r2){
@@ -1352,7 +1368,7 @@ export class GameLoop {
       }
     }
     for (let j = this.enemies.enemies.length - 1; j >= 0; j--){
-      const e = this.enemies.enemies[j];
+      const e = /** @type {import("./types.d.js").Enemy} */ (this.enemies.enemies[j]);
       const dx = e.x - x;
       const dy = e.y - y;
       if (dx * dx + dy * dy <= r2){
@@ -1363,7 +1379,7 @@ export class GameLoop {
       }
     }
     for (let j = this.miners.length - 1; j >= 0; j--){
-      const m = this.miners[j];
+      const m = /** @type {Miner} */ (this.miners[j]);
       const dx = m.x - x;
       const dy = m.y - y;
       if (dx * dx + dy * dy <= r2){
@@ -1813,6 +1829,7 @@ export class GameLoop {
         if (p.type !== "turret_pad" || p.dead || p.padReservedFor !== "miner") continue;
         reservedPads.push(p);
       }
+      /** @param {number} ang */
       const normalizeAngle = (ang) => {
         let out = ang % (Math.PI * 2);
         if (out < 0) out += Math.PI * 2;
@@ -1871,8 +1888,8 @@ export class GameLoop {
         (nudged.length < cutoffEngineer) ? "engineer" :
         "miner";
       if (barrenPerimeter){
-        let x = p[0];
-        let y = p[1];
+        let x = /** @type {[number, number]} */ (p)[0];
+        let y = /** @type {[number, number]} */ (p)[1];
         const normal = this.planet.normalAtWorld(x, y);
         if (normal){
           x += normal.nx * 0.02;
@@ -1880,7 +1897,7 @@ export class GameLoop {
         }
         nudged.push({ x, y, jumpCycle: Math.random(), type: minerType, state: "idle" });
       } else {
-        const res = this.planet.nudgeOutOfTerrain(p[0], p[1]);
+        const res = this.planet.nudgeOutOfTerrain(/** @type {[number, number]} */ (p)[0], /** @type {[number, number]} */ (p)[1]);
         if (!res.ok){
           continue;
         }
@@ -1936,7 +1953,8 @@ export class GameLoop {
    * @returns {PlanetConfig}
    */
   _planetConfigFromLevel(level, progressionSeedOverride){
-    const progressionSeed = Number.isFinite(progressionSeedOverride) ? +progressionSeedOverride : (this.progressionSeed || CFG.seed);
+    const overrideSeed = progressionSeedOverride ?? Number.NaN;
+    const progressionSeed = Number.isFinite(overrideSeed) ? overrideSeed : (this.progressionSeed || CFG.seed);
     const progression = resolveLevelProgression(progressionSeed, level);
     /** @type {PlanetTypeId|undefined} */
     const configOverride = progression ? progression.planetId : undefined;
@@ -2296,6 +2314,12 @@ export class GameLoop {
   }
 
   _shipCollisionExactCtx(){
+    /**
+     * @param {number} x
+     * @param {number} y
+     * @returns {Array<[number, number]>}
+     */
+    const shipConvexHullWorldVertices = (x, y) => this._shipConvexHullWorldVertices(x, y);
     return {
       planet: this.planet,
       mothership: this.mothership,
@@ -2303,7 +2327,7 @@ export class GameLoop {
       collisionEps: this.COLLISION_EPS,
       shipRadius: () => this._shipRadius(),
       shipLocalConvexHull: () => this._shipCollisionLocalConvexHull(),
-      shipConvexHullWorldVertices: (x, y) => this._shipConvexHullWorldVertices(x, y),
+      shipConvexHullWorldVertices,
     };
   }
 
@@ -2348,7 +2372,7 @@ export class GameLoop {
    */
   _nudgeMinersFromTerrain(){
     for (let i = this.miners.length - 1; i >= 0; i--){
-      const m = this.miners[i];
+      const m = /** @type {Miner} */ (this.miners[i]);
       const res = this.planet.nudgeOutOfTerrain(m.x, m.y);
       if (!res.ok){
         this.miners.splice(i, 1);
@@ -2444,7 +2468,7 @@ export class GameLoop {
    */
   _shipLocalPoint(px, py, shipX, shipY){
     const camRot = -(Number.isFinite(this.ship.renderAngle)
-      ? this.ship.renderAngle
+      ? /** @type {number} */ (this.ship.renderAngle)
       : getDropshipWorldRotation(shipX, shipY));
     const shipRot = -camRot;
     const c = Math.cos(shipRot);
@@ -2512,7 +2536,7 @@ export class GameLoop {
   _shipGunPivotWorld(){
     const localPivot = getDropshipGunPivotLocal(GAME);
     const camRot = -(Number.isFinite(this.ship.renderAngle)
-      ? this.ship.renderAngle
+      ? /** @type {number} */ (this.ship.renderAngle)
       : getDropshipWorldRotation(this.ship.x, this.ship.y));
     const shipRot = -camRot;
     const c = Math.cos(shipRot), s = Math.sin(shipRot);
@@ -2772,6 +2796,7 @@ export class GameLoop {
       mothershipAngularVel = da / Math.max(1e-6, dt);
     }
     if (spawnEnemyType){
+      /** @type {Record<"1"|"2"|"3"|"4"|"5", import("./types.d.js").EnemyType>} */
       const map = {
         "1": "hunter",
         "2": "ranger",
@@ -2779,7 +2804,10 @@ export class GameLoop {
         "4": "turret",
         "5": "orbitingTurret",
       };
-      const type = map[spawnEnemyType];
+      /** @type {import("./types.d.js").EnemyType} */
+      const type = (spawnEnemyType in map)
+        ? map[/** @type {"1"|"2"|"3"|"4"|"5"} */ (spawnEnemyType)]
+        : /** @type {import("./types.d.js").EnemyType} */ (spawnEnemyType);
       if (type){
         const ang = Math.random() * Math.PI * 2;
         const dist = 10;
@@ -3048,14 +3076,18 @@ export class GameLoop {
         const hitTri = (hitSource === "planet")
           ? (hit.tri || this.planet.radial.findTriAtWorld(hit.x, hit.y))
           : null;
-        this.ship._collision = {
+        /** @type {NonNullable<Ship["_collision"]>} */
+        const collisionHit = {
           x: hit.x,
           y: hit.y,
-          source: hitSource,
           tri: hitTri,
           node: (hitSource === "planet") ? this.planet.radial.nearestNodeOnRing(hit.x, hit.y) : null,
           contacts: Array.isArray(hit.contacts) ? hit.contacts : null,
         };
+        if (hitSource){
+          collisionHit.source = hitSource;
+        }
+        this.ship._collision = collisionHit;
       } else {
         this.ship._collision = null;
       }
@@ -3196,14 +3228,15 @@ export class GameLoop {
             [-nx * 0.18,-ny * 0.18],
           ];
           for (let i = 0; i < probes.length && !guidePathUsable(guidePath); i++){
-            const p = probes[i];
+            const p = /** @type {[number, number]} */ (probes[i]);
             guidePath = tryGuidePath(guideAnchorX + p[0], guideAnchorY + p[1]);
           }
         }
         if (!guidePathUsable(guidePath)){
+          /** @type {number[]} */
           const ringOffsets = [0.35, 0.65];
           for (let i = 0; i < ringOffsets.length && !guidePathUsable(guidePath); i++){
-            const r = ringOffsets[i];
+            const r = /** @type {number} */ (ringOffsets[i]);
             for (let a = 0; a < 8 && !guidePathUsable(guidePath); a++){
               const ang = (Math.PI * 2 * a) / 8;
               guidePath = tryGuidePath(guideAnchorX + Math.cos(ang) * r, guideAnchorY + Math.sin(ang) * r);
@@ -3340,7 +3373,7 @@ export class GameLoop {
     }
 
     for (let i = this.playerShots.length - 1; i >= 0; i--){
-      const s = this.playerShots[i];
+      const s = /** @type {import("./types.d.js").Shot} */ (this.playerShots[i]);
       const prevX = s.x;
       const prevY = s.y;
       s.x += s.vx * dt;
@@ -3396,7 +3429,7 @@ export class GameLoop {
         }
       }
       for (let j = this.enemies.enemies.length - 1; j >= 0; j--){
-        const e = this.enemies.enemies[j];
+        const e = /** @type {import("./types.d.js").Enemy} */ (this.enemies.enemies[j]);
         if (e.hp <= 0) continue;
         const dx = e.x - s.x;
         const dy = e.y - s.y;
@@ -3412,7 +3445,7 @@ export class GameLoop {
       }
       if (i >= this.playerShots.length) continue;
       for (let j = this.miners.length - 1; j >= 0; j--){
-        const m = this.miners[j];
+        const m = /** @type {Miner} */ (this.miners[j]);
         const dx = m.x - s.x;
         const dy = m.y - s.y;
         if (dx * dx + dy * dy <= this.PLAYER_SHOT_RADIUS * this.PLAYER_SHOT_RADIUS){
@@ -3427,7 +3460,7 @@ export class GameLoop {
 
     if (this.playerBombs.length){
       for (let i = this.playerBombs.length - 1; i >= 0; i--){
-        const b = this.playerBombs[i];
+        const b = /** @type {{x:number,y:number,vx:number,vy:number,life:number}} */ (this.playerBombs[i]);
         b.x += b.vx * dt;
         b.y += b.vy * dt;
         b.life -= dt;
@@ -3456,7 +3489,7 @@ export class GameLoop {
         }
         if (!hit){
           for (let j = this.enemies.enemies.length - 1; j >= 0; j--){
-            const e = this.enemies.enemies[j];
+            const e = /** @type {import("./types.d.js").Enemy} */ (this.enemies.enemies[j]);
             const dx = e.x - b.x;
             const dy = e.y - b.y;
             if (dx * dx + dy * dy <= this.PLAYER_BOMB_RADIUS * this.PLAYER_BOMB_RADIUS){
@@ -3468,7 +3501,7 @@ export class GameLoop {
           }
           if (!hit){
             for (let j = this.miners.length - 1; j >= 0; j--){
-              const m = this.miners[j];
+              const m = /** @type {Miner} */ (this.miners[j]);
               const dx = m.x - b.x;
               const dy = m.y - b.y;
               if (dx * dx + dy * dy <= this.PLAYER_BOMB_RADIUS * this.PLAYER_BOMB_RADIUS){
@@ -3499,13 +3532,14 @@ export class GameLoop {
 
     if (this.entityExplosions.length){
       for (let i = this.entityExplosions.length - 1; i >= 0; i--){
-        this.entityExplosions[i].life -= dt;
-        if (this.entityExplosions[i].life <= 0) this.entityExplosions.splice(i, 1);
+        const explosion = /** @type {import("./types.d.js").Explosion} */ (this.entityExplosions[i]);
+        explosion.life -= dt;
+        if (explosion.life <= 0) this.entityExplosions.splice(i, 1);
       }
     }
 
     for (let i = this.healthPickups.length - 1; i >= 0; i--){
-      const pickup = this.healthPickups[i];
+      const pickup = /** @type {HealthPickup} */ (this.healthPickups[i]);
       if (Math.hypot(pickup.x - this.ship.x, pickup.y - this.ship.y) < GAME.SHIP_SCALE){
         const prevHp = this.ship.hpCur;
         this.ship.hpCur = Math.min(this.ship.hpMax, this.ship.hpCur + 1);
@@ -3554,7 +3588,7 @@ export class GameLoop {
     const guidePathIndexShip = (landed && guidePathUsable) ? findGuidePathTargetIndex(guidePath, this.ship.x, this.ship.y) : null;
 
     for (let i = this.miners.length - 1; i >= 0; i--){
-      const miner = this.miners[i];
+      const miner = /** @type {Miner} */ (this.miners[i]);
       const prevMinerX = miner.x;
       const prevMinerY = miner.y;
 
@@ -3589,9 +3623,10 @@ export class GameLoop {
       miner.jumpCycle -= Math.floor(miner.jumpCycle);
 
       if (miner.state === "running"){
-        indexPathTarget = (guidePathIndexShip !== null) ? guidePathIndexShip : guidePath.indexClosest;
+        const activeGuidePath = /** @type {NonNullable<typeof guidePath>} */ (guidePath);
+        indexPathTarget = (guidePathIndexShip !== null) ? guidePathIndexShip : activeGuidePath.indexClosest;
         distMax = (landed ? GAME.MINER_RUN_SPEED : GAME.MINER_JOG_SPEED) * dt;
-        const posAttach = posFromPathIndex(guidePath.path, indexPathMiner);
+        const posAttach = posFromPathIndex(activeGuidePath.path, /** @type {number} */ (indexPathMiner));
         const dxAttach = posAttach.x - miner.x;
         const dyAttach = posAttach.y - miner.y;
         dAttach = Math.hypot(dxAttach, dyAttach);
@@ -3609,21 +3644,21 @@ export class GameLoop {
           miner.x += (dxAttach / dAttach) * step;
           miner.y += (dyAttach / dAttach) * step;
         } else {
-          if (indexPathMiner < indexPathTarget) {
-            indexPathMiner = moveAlongPathPositive(guidePath.path, indexPathMiner, distMax, indexPathTarget);
-          } else if (indexPathMiner > indexPathTarget) {
-            indexPathMiner = moveAlongPathNegative(guidePath.path, indexPathMiner, distMax, indexPathTarget);
+          if (/** @type {number} */ (indexPathMiner) < /** @type {number} */ (indexPathTarget)) {
+            indexPathMiner = moveAlongPathPositive(activeGuidePath.path, /** @type {number} */ (indexPathMiner), distMax, /** @type {number} */ (indexPathTarget));
+          } else if (/** @type {number} */ (indexPathMiner) > /** @type {number} */ (indexPathTarget)) {
+            indexPathMiner = moveAlongPathNegative(activeGuidePath.path, /** @type {number} */ (indexPathMiner), distMax, /** @type {number} */ (indexPathTarget));
             console.assert(indexPathMiner >= 0);
           }
 
-          const posNew = posFromPathIndex(guidePath.path, indexPathMiner);
+          const posNew = posFromPathIndex(activeGuidePath.path, /** @type {number} */ (indexPathMiner));
           const rNew = Math.hypot(posNew.x, posNew.y);
           const scalePos = 1 + pathRaiseAmount / rNew;
           miner.x = posNew.x * scalePos;
           miner.y = posNew.y * scalePos;
 
           // Final leg to ship center after reaching the on-surface target index.
-          if (Math.abs(indexPathMiner - indexPathTarget) <= 0.08){
+          if (Math.abs(/** @type {number} */ (indexPathMiner) - /** @type {number} */ (indexPathTarget)) <= 0.08){
             const dxShip = this.ship.x - miner.x;
             const dyShip = this.ship.y - miner.y;
             const dShip = Math.hypot(dxShip, dyShip);
@@ -3649,7 +3684,7 @@ export class GameLoop {
           indexPathMinerInitial === null &&
           attachDebug &&
           Number.isFinite(attachDebug.nearestDist) &&
-          attachDebug.nearestDist <= attachDist * 2.25
+          /** @type {number} */ (attachDebug.nearestDist) <= attachDist * 2.25
         ){
           minerPathDebugRecord = {
             reason: "idle_no_attach",
@@ -3662,7 +3697,8 @@ export class GameLoop {
           };
         } else if (indexPathMinerInitial !== null){
           const pathDelta = (indexPathTarget !== null) ? Math.abs(indexPathMinerInitial - indexPathTarget) : 0;
-          const shouldStepToAttach = Number.isFinite(dAttach) && dAttach > (attachSnap + 1e-4);
+          const attachDistance = dAttach ?? Number.NaN;
+          const shouldStepToAttach = Number.isFinite(attachDistance) && attachDistance > (attachSnap + 1e-4);
           const shouldStepAlongPath = Number.isFinite(pathDelta) && pathDelta > 0.06;
           if (attachBlocked){
             minerPathDebugRecord = {
@@ -3761,7 +3797,7 @@ export class GameLoop {
 
     if (this.popups.length){
       for (let i = this.popups.length - 1; i >= 0; i--){
-        const p = this.popups[i];
+        const p = /** @type {{x:number,y:number,vx:number,vy:number,life:number}} */ (this.popups[i]);
         p.x += p.vx * dt;
         p.y += p.vy * dt;
         p.life -= dt;
@@ -3771,7 +3807,7 @@ export class GameLoop {
 
     if (this.shipHitPopups.length){
       for (let i = this.shipHitPopups.length - 1; i >= 0; i--){
-        const p = this.shipHitPopups[i];
+        const p = /** @type {{x:number,y:number,vx:number,vy:number,life:number}} */ (this.shipHitPopups[i]);
         p.x += p.vx * dt;
         p.y += p.vy * dt;
         p.life -= dt;
@@ -3781,7 +3817,7 @@ export class GameLoop {
 
     if (this.debris.length){
       for (let i = this.debris.length - 1; i >= 0; i--){
-        const d = this.debris[i];
+        const d = /** @type {import("./types.d.js").Debris} */ (this.debris[i]);
         const r = Math.hypot(d.x, d.y) || 1;
         const {x: gx, y: gy} = this.planet.gravityAt(d.x, d.y);
         d.vx += gx * dt;
@@ -3802,7 +3838,7 @@ export class GameLoop {
 
     if (this.ship.state !== "crashed"){
       for (let i = this.enemies.shots.length - 1; i >= 0; i--){
-        const s = this.enemies.shots[i];
+        const s = /** @type {import("./types.d.js").Shot} */ (this.enemies.shots[i]);
         if (this._enemyShotHitsShip(s, dt)){
           this.enemies.shots.splice(i, 1);
           this._damageShip(s.x, s.y);
@@ -4025,16 +4061,21 @@ export class GameLoop {
       this._landingDebugSessionFrame = 0;
       this._landingDebugSessionSource = "";
     } else if (landingDbg){
+      /** @param {number|undefined|null} n */
       const fmt = (n) => Number.isFinite(n) ? Number(n).toFixed(2) : "-";
+      /** @param {number|undefined|null} n */
       const fmtI = (n) => Number.isFinite(n) ? String(Math.round(Number(n))) : "-";
+      /** @param {{vx?:number,vy?:number,speed?:number,dirDeg?:number}|null|undefined} v */
       const fmtVec = (v) => {
         if (!v) return "-";
         return `${fmt(v.vx)},${fmt(v.vy)}@${fmt(v.speed)}/${fmt(v.dirDeg)}deg`;
       };
+      /** @param {{nx?:number,ny?:number}|null|undefined} n */
       const fmtNormal = (n) => {
         if (!n) return "-";
         return `${fmt(n.nx)},${fmt(n.ny)}`;
       };
+      /** @param {{hits?:Array<{kind?:string,edgeIdx?:number,hullIdx?:number}>}|null|undefined} e */
       const fmtHits = (e) => {
         if (!e || !Array.isArray(e.hits)) return "-";
         return e.hits.map((h) => {
@@ -4528,6 +4569,7 @@ export class GameLoop {
   }
 
   /**
+   * @param {number} remainingMs
    * @returns {string}
    */
   _abandonHoldCountdownText(remainingMs){
@@ -4606,6 +4648,7 @@ export class GameLoop {
     const r = Math.hypot(this.ship.x, this.ship.y);
     const upx = this.ship.x / r;
     const upy = this.ship.y / r;
+    /** @param {string} msg */
     const addPopup = (msg) => {
       this.popups.push({
         x: this.ship.x + upx * y,
@@ -4617,6 +4660,11 @@ export class GameLoop {
       });
       y += 0.25;
     };
+    /**
+     * @param {string} name
+     * @param {number} count
+     * @returns {void}
+     */
     const addGroupPopup = (name, count) => {
       if (count <= 0) return;
       addPopup(name + " +" + count);
@@ -4684,7 +4732,7 @@ export class GameLoop {
     const idx0 = Math.floor(Math.random() * perksAvailable.length);
     let idx1 = Math.floor(Math.random() * (perksAvailable.length - 1));
     if (idx1 >= idx0) idx1 += 1;
-    return [perksAvailable[idx0], perksAvailable[idx1]];
+    return [/** @type {string} */ (perksAvailable[idx0]), /** @type {string} */ (perksAvailable[idx1])];
   }
 
   /**
@@ -4747,8 +4795,9 @@ export class GameLoop {
    */
   _handlePerkChoiceInput(leftPressed, rightPressed){
     const i = leftPressed ? 0 : rightPressed ? 1 : 2;
-    if (i < this.pendingPerkChoice.length){
-      this._applyPerk(this.pendingPerkChoice[i].perk);
+    const pendingPerkChoice = this.pendingPerkChoice;
+    if (pendingPerkChoice && i < pendingPerkChoice.length){
+      this._applyPerk((/** @type {{perk:string}} */ (pendingPerkChoice[i])).perk);
       this.pendingPerkChoice = null;
     }
   }
@@ -4777,7 +4826,7 @@ export class GameLoop {
    */
   _rescueAll(){
     for (let i = this.miners.length - 1; i >= 0; i--){
-      const miner = this.miners[i];
+      const miner = /** @type {Miner} */ (this.miners[i]);
       if (miner.type === "miner"){
         ++this.ship.dropshipMiners;
       } else if (miner.type === "pilot"){
@@ -4987,7 +5036,7 @@ export class GameLoop {
     }
 
     if (showStartTitle){
-      drawStartTitle(ctx, w, h, dpr, this.startTitleText, this.startTitleAlpha);
+      drawStartTitle(ctx, w, h, dpr, /** @type {string} */ (this.startTitleText), /** @type {number} */ (this.startTitleAlpha));
     }
     ctx.globalAlpha = 1;
   }
@@ -5068,7 +5117,7 @@ function drawCenteredWrappedText(ctx, text, cx, topY, maxWidth, lineHeight, maxL
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   for (let i = 0; i < lines.length; i++){
-    ctx.fillText(lines[i], cx, topY + i * lineHeight);
+    ctx.fillText(/** @type {string} */ (lines[i]), cx, topY + i * lineHeight);
   }
 }
 

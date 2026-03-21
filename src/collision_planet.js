@@ -2,6 +2,24 @@
 
 import { mothershipAirAtWorld } from "./mothership.js";
 
+/**
+ * @template T
+ * @param {T|null|undefined} value
+ * @returns {T}
+ */
+function expectDefined(value){
+  if (value == null){
+    throw new Error("Expected value to be defined");
+  }
+  return value;
+}
+
+/**
+ * @param {Array<{x:number,y:number,air:number}>|null|undefined} tri
+ * @param {number} fallbackNx
+ * @param {number} fallbackNy
+ * @returns {{nx:number,ny:number}}
+ */
 function triAirNormalFromTri(tri, fallbackNx, fallbackNy){
   if (!tri || tri.length < 3){
     return { nx: fallbackNx, ny: fallbackNy };
@@ -9,6 +27,9 @@ function triAirNormalFromTri(tri, fallbackNx, fallbackNy){
   const a = tri[0];
   const b = tri[1];
   const c = tri[2];
+  if (!a || !b || !c){
+    return { nx: fallbackNx, ny: fallbackNy };
+  }
   const det = (b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y);
   if (Math.abs(det) < 1e-8){
     return { nx: fallbackNx, ny: fallbackNy };
@@ -118,11 +139,14 @@ function mothershipAirAtLocalExact(mothership, lx, ly){
   let maxAir = -Infinity;
   for (let i = 0; i < tris.length; i++){
     const tri = tris[i];
+    if (!tri) continue;
     const a = points[tri[0]];
     const b = points[tri[1]];
     const c = points[tri[2]];
+    if (!a || !b || !c) continue;
     if (!pointInTriLocal(lx, ly, a.x, a.y, b.x, b.y, c.x, c.y)) continue;
-    const air = Number.isFinite(triAir[i]) ? triAir[i] : 1;
+    const triAirValue = triAir[i];
+    const air = (typeof triAirValue === "number" && Number.isFinite(triAirValue)) ? triAirValue : 1;
     if (!hit || air > maxAir){
       maxAir = air;
       hit = true;
@@ -210,11 +234,14 @@ function getMothershipBoundaryEdges(mothership){
   const edgeMap = new Map();
   for (let ti = 0; ti < tris.length; ti++){
     const tri = tris[ti];
-    const solid = (Number.isFinite(triAir[ti]) ? triAir[ti] : 1) <= 0.5;
+    if (!tri) continue;
+    const triAirValue = triAir[ti];
+    const solid = ((typeof triAirValue === "number" && Number.isFinite(triAirValue)) ? triAirValue : 1) <= 0.5;
     for (let e = 0; e < 3; e++){
       const i0 = tri[e];
       const i1 = tri[(e + 1) % 3];
       const ik = tri[(e + 2) % 3];
+      if (i0 === undefined || i1 === undefined || ik === undefined) continue;
       const i = Math.min(i0, i1);
       const j = Math.max(i0, i1);
       const key = `${i},${j}`;
@@ -239,6 +266,7 @@ function getMothershipBoundaryEdges(mothership){
     if (rec.solidCount >= 2 && rec.airCount === 0) continue;
     const a = points[rec.i];
     const b = points[rec.j];
+    if (!a || !b) continue;
     const ex = b.x - a.x;
     const ey = b.y - a.y;
     const len = Math.hypot(ex, ey);
@@ -251,6 +279,7 @@ function getMothershipBoundaryEdges(mothership){
       // Deterministic orientation for normal manifold boundary edges:
       // normal must point away from solid-triangle interior.
       const c = points[rec.solidThird];
+      if (!c) continue;
       const toSolidX = c.x - mx;
       const toSolidY = c.y - my;
       if (toSolidX * nx + toSolidY * ny > 0){
@@ -271,6 +300,7 @@ function getMothershipBoundaryEdges(mothership){
         ny = n2y;
       } else if (Math.abs(av1 - av2) <= 1e-6 && rec.solidThird >= 0){
         const c = points[rec.solidThird];
+        if (!c) continue;
         const toSolidX = c.x - mx;
         const toSolidY = c.y - my;
         if (toSolidX * nx + toSolidY * ny > 0){
@@ -341,8 +371,9 @@ function collectMothershipCollisionEvidence(mothership, prevPoints, currPoints){
     }
     let nLen = Math.hypot(snx, sny);
     if (nLen < 1e-8){
-      snx = hits[0].nx;
-      sny = hits[0].ny;
+      const first = expectDefined(hits[0]);
+      snx = first.nx;
+      sny = first.ny;
       nLen = Math.hypot(snx, sny) || 1;
     }
     return {
@@ -360,13 +391,17 @@ function collectMothershipCollisionEvidence(mothership, prevPoints, currPoints){
   const sweepHits = [];
   if (prevHull.length === currHull.length && prevHull.length >= 2){
     for (let i = 0; i < currHull.length; i++){
-      const p0 = worldToMothershipLocal(mothership, prevHull[i][0], prevHull[i][1]);
-      const p1 = worldToMothershipLocal(mothership, currHull[i][0], currHull[i][1]);
+      const prev = prevHull[i];
+      const curr = currHull[i];
+      if (!prev || !curr) continue;
+      const p0 = worldToMothershipLocal(mothership, prev[0], prev[1]);
+      const p1 = worldToMothershipLocal(mothership, curr[0], curr[1]);
       const dx = p1.x - p0.x;
       const dy = p1.y - p0.y;
       if (dx * dx + dy * dy < 1e-12) continue;
       for (let edgeIdx = 0; edgeIdx < edges.length; edgeIdx++){
         const edge = edges[edgeIdx];
+        if (!edge) continue;
         const hit = segmentIntersectionParams(
           p0.x, p0.y, dx, dy,
           edge.ax, edge.ay, edge.bx - edge.ax, edge.by - edge.ay
@@ -396,13 +431,17 @@ function collectMothershipCollisionEvidence(mothership, prevPoints, currPoints){
   /** @type {Array<{kind:string,edgeIdx:number,hullIdx:number,x:number,y:number,nx:number,ny:number,av?:number|null}>} */
   const edgeHits = [];
   for (let i = 0; i < currHull.length; i++){
-    const a = worldToMothershipLocal(mothership, currHull[i][0], currHull[i][1]);
-    const b = worldToMothershipLocal(mothership, currHull[(i + 1) % currHull.length][0], currHull[(i + 1) % currHull.length][1]);
+    const p0 = currHull[i];
+    const p1 = currHull[(i + 1) % currHull.length];
+    if (!p0 || !p1) continue;
+    const a = worldToMothershipLocal(mothership, p0[0], p0[1]);
+    const b = worldToMothershipLocal(mothership, p1[0], p1[1]);
     const dx = b.x - a.x;
     const dy = b.y - a.y;
     if (dx * dx + dy * dy < 1e-12) continue;
     for (let edgeIdx = 0; edgeIdx < edges.length; edgeIdx++){
       const edge = edges[edgeIdx];
+      if (!edge) continue;
       const hit = segmentIntersectionParams(
         a.x, a.y, dx, dy,
         edge.ax, edge.ay, edge.bx - edge.ax, edge.by - edge.ay
@@ -431,6 +470,7 @@ function collectMothershipCollisionEvidence(mothership, prevPoints, currPoints){
   const insideHits = [];
   for (let i = 0; i < currHull.length; i++){
     const p = currHull[i];
+    if (!p) continue;
     const lp = worldToMothershipLocal(mothership, p[0], p[1]);
     const av = mothershipAirAtLocalExact(mothership, lp.x, lp.y);
     if (av === null || av > 0.5) continue;
@@ -439,6 +479,7 @@ function collectMothershipCollisionEvidence(mothership, prevPoints, currPoints){
     let nearest = [];
     for (let edgeIdx = 0; edgeIdx < edges.length; edgeIdx++){
       const edge = edges[edgeIdx];
+      if (!edge) continue;
       const cp = closestPointOnSegment(edge.ax, edge.ay, edge.bx, edge.by, lp.x, lp.y);
       if (cp.d2 < minD2 - nearTol2){
         minD2 = cp.d2;
@@ -577,10 +618,16 @@ function projectPolyAxis(poly, nx, ny){
  * @returns {boolean}
  */
 function convexPolysOverlap(a, b){
+  /**
+   * @param {Array<[number, number]>} poly0
+   * @param {Array<[number, number]>} poly1
+   * @returns {boolean}
+   */
   const testAxes = (poly0, poly1) => {
     for (let i = 0; i < poly0.length; i++){
       const p0 = poly0[i];
       const p1 = poly0[(i + 1) % poly0.length];
+      if (!p0 || !p1) continue;
       const ex = p1[0] - p0[0];
       const ey = p1[1] - p0[1];
       const el = Math.hypot(ex, ey);
@@ -608,6 +655,7 @@ function rockPolygonFromTri(tri){
   for (let i = 0; i < 3; i++){
     const a = tri[i];
     const b = tri[(i + 1) % 3];
+    if (!a || !b) continue;
     const aRock = a.air <= 0.5;
     const bRock = b.air <= 0.5;
     if (aRock){
@@ -639,6 +687,11 @@ function extractHullBoundaryContacts(shipConvexHullWorldVertices, x, y, airAt, e
   const e = Math.max(1e-3, eps);
   /** @type {Array<{x:number,y:number,nx:number,ny:number,av:number}>} */
   const out = [];
+  /**
+   * @param {number} cx
+   * @param {number} cy
+   * @returns {void}
+   */
   const addContact = (cx, cy) => {
     if (!Number.isFinite(cx) || !Number.isFinite(cy)) return;
     const av = airAt(cx, cy);
@@ -677,6 +730,7 @@ function extractHullBoundaryContacts(shipConvexHullWorldVertices, x, y, airAt, e
   for (let i = 0; i < n; i++){
     const a = hull[i];
     const b = hull[(i + 1) % n];
+    if (!a || !b) continue;
     const av0 = airAt(a[0], a[1]);
     const av1 = airAt(b[0], b[1]);
     const in0 = av0 <= 0.5;
@@ -742,6 +796,7 @@ export function findPlanetCollisionExactAt(ctx, x, y){
     if (!tris) continue;
     for (const tri of tris){
       const a = tri[0], b = tri[1], c = tri[2];
+      if (!a || !b || !c) continue;
       const txMin = Math.min(a.x, b.x, c.x);
       const tyMin = Math.min(a.y, b.y, c.y);
       const txMax = Math.max(a.x, b.x, c.x);
@@ -753,6 +808,7 @@ export function findPlanetCollisionExactAt(ctx, x, y){
       for (let i = 0; i < rock.length; i++){
         const p0 = rock[i];
         const p1 = rock[(i + 1) % rock.length];
+        if (!p0 || !p1) continue;
         const cpt = closestPointOnSegment(p0[0], p0[1], p1[0], p1[1], x, y);
         if (cpt.d2 < bestD2){
           bestD2 = cpt.d2;
@@ -906,6 +962,11 @@ export function resolvePlanetCollisionResponse(args){
     };
   };
 
+  /**
+   * @param {number} vx
+   * @param {number} vy
+   * @returns {{vx:number,vy:number,speed:number,dirDeg:number}}
+   */
   const vecDiag = (vx, vy) => ({
     vx,
     vy,
@@ -962,6 +1023,7 @@ export function resolvePlanetCollisionResponse(args){
       const a = tri[0];
       const b = tri[1];
       const c = tri[2];
+      if (!a || !b || !c) return 1;
       const det = (b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y);
       if (Math.abs(det) < 1e-8){
         return (a.air + b.air + c.air) / 3;
@@ -1000,6 +1062,7 @@ export function resolvePlanetCollisionResponse(args){
         for (const tri of tris){
           if (!tri || tri.length < 3) continue;
           const a = tri[0], b = tri[1], c = tri[2];
+          if (!a || !b || !c) continue;
           if (!radial._pointInTri(x, y, a.x, a.y, b.x, b.y, c.x, c.y)) continue;
           let minA = Infinity;
           let maxA = -Infinity;
@@ -1047,6 +1110,7 @@ export function resolvePlanetCollisionResponse(args){
         const rr = Math.hypot(cx, cy) || 1;
         const rux = cx / rr;
         const ruy = cy / rr;
+        /** @type {Array<[number, number]>} */
         const probeDirs = [
           [-fallback.nx, -fallback.ny], // toward likely rock side
           [fallback.nx, fallback.ny], // toward likely air side
@@ -1057,8 +1121,10 @@ export function resolvePlanetCollisionResponse(args){
         for (const d of probeSteps){
           let found = null;
           for (const dir of probeDirs){
-            const qx = cx + dir[0] * d;
-            const qy = cy + dir[1] * d;
+            const probeDir = dir;
+            if (!probeDir) continue;
+            const qx = cx + probeDir[0] * d;
+            const qy = cy + probeDir[1] * d;
             const t = pickTriAtContact(qx, qy, fallback.nx, fallback.ny);
             if (t){
               found = t;
@@ -1190,8 +1256,10 @@ export function resolvePlanetCollisionResponse(args){
     const pickImpactContact = (contacts) => {
       if (!contacts.length) return null;
       let best = contacts[0];
+      if (!best) return null;
       for (let i = 1; i < contacts.length; i++){
         const c = contacts[i];
+        if (!c) continue;
         if (c.t < best.t - 1e-6){
           best = c;
           continue;
@@ -1377,7 +1445,7 @@ export function resolvePlanetCollisionResponse(args){
       }
       landingSupportRatio = supportTotal > 0 ? (supportCount / supportTotal) : 0;
     }
-    /** @type {{source:string,reason:string,dotUp:number,slope:number,landSlope:number,vn:number,vt:number,speed:number,airFront:number,airBack:number,landable:boolean,landed:boolean,support:boolean,supportDist:number,contactsCount:number,bestDotUpAny:number,bestDotUpUnder:number,impactPoint:number,supportPoint:number,impactT:number,supportT:number,impactX:number,impactY:number,supportX:number,supportY:number,supportTriOuterCount:number,supportTriAirMin:number,supportTriAirMax:number,supportTriRMin:number,supportTriRMax:number,supportRatio?:number,overlapBeforeCount?:number,overlapAfterCount?:number,overlapBeforeMin?:number,overlapAfterMin?:number,depenPush?:number,depenIter?:number,depenCleared?:boolean}} */
+    /** @type {{source:string,reason:string,dotUp:number,slope:number,landSlope:number,vn:number,vt:number,speed:number,airFront:number,airBack:number,landable:boolean,landed:boolean,support:boolean,supportDist:number,contactsCount:number,bestDotUpAny:number,bestDotUpUnder:number,impactPoint:number,supportPoint:number,impactT:number,supportT:number,impactX:number,impactY:number,supportX:number,supportY:number,supportTriOuterCount:number,supportTriAirMin:number,supportTriAirMax:number,supportTriRMin:number,supportTriRMax:number,supportRatio?:number,overlapBeforeCount?:number,overlapAfterCount?:number,overlapBeforeMin?:number,overlapAfterMin?:number,depenPush?:number,depenIter?:number,depenCleared?:boolean}|null} */
     const landingDbg = debugEnabled ? {
       source: "planet",
       reason: "planet_eval",
@@ -1541,9 +1609,15 @@ export function resolvePlanetCollisionResponse(args){
     return;
   }
 
+  if (!mothership){
+    ship._collision = null;
+    return;
+  }
+  const activeMothership = expectDefined(mothership);
+
   const collidesMothershipAt = shipCollidesMothershipAt || shipCollidesAt;
-  const strictEdges = shipCollisionPointsAt ? getMothershipBoundaryEdges(mothership) : [];
-  const strictSkin = Math.max(0.002, (mothership.spacing || 0.4) * 0.01);
+  const strictEdges = shipCollisionPointsAt ? getMothershipBoundaryEdges(activeMothership) : [];
+  const strictSkin = Math.max(0.002, (activeMothership.spacing || 0.4) * 0.01);
   /**
    * @param {number} x
    * @param {number} y
@@ -1555,9 +1629,9 @@ export function resolvePlanetCollisionResponse(args){
     const pts = shipCollisionPointsAt(x, y);
     pts.push([x, y]);
     for (const p of pts){
-      const av = mothershipAirAtWorld(mothership, p[0], p[1]);
+      const av = mothershipAirAtWorld(activeMothership, p[0], p[1]);
       if (av === null || av > 0.5) continue;
-      const lp = worldToMothershipLocal(mothership, p[0], p[1]);
+      const lp = worldToMothershipLocal(activeMothership, p[0], p[1]);
       let bestD2 = Infinity;
       for (const e of strictEdges){
         const c = closestPointOnSegment(e.ax, e.ay, e.bx, e.by, lp.x, lp.y);
@@ -1580,27 +1654,41 @@ export function resolvePlanetCollisionResponse(args){
    * @returns {{vx:number,vy:number}}
    */
   const baseVelocityAt = (x, y) => {
-    const rx = x - mothership.x;
-    const ry = y - mothership.y;
+    const rx = x - activeMothership.x;
+    const ry = y - activeMothership.y;
     return {
-      vx: mothership.vx - omega * ry,
-      vy: mothership.vy + omega * rx,
+      vx: activeMothership.vx - omega * ry,
+      vy: activeMothership.vy + omega * rx,
     };
   };
-  const collisionEvidence = collectMothershipCollisionEvidence(mothership, prevPoints, currPoints);
-  const hasEventContact = !!(collisionEvidence && collisionEvidence.count >= 2);
-  let contactX = hasEventContact ? collisionEvidence.avgX : hx;
-  let contactY = hasEventContact ? collisionEvidence.avgY : hy;
+  const collisionEvidence = collectMothershipCollisionEvidence(activeMothership, prevPoints, currPoints);
+  let hasEventContact = false;
+  /** @type {Array<{kind:string,edgeIdx:number,hullIdx:number,x:number,y:number,nx:number,ny:number,av?:number|null}>} */
+  let eventHits = [];
+  /** @type {"sweep_vertex"|"pose_edge"|"inside_vertex"|null} */
+  let eventMode = null;
+  let eventCount = 0;
+  let contactX = hx;
+  let contactY = hy;
   let nx;
   let ny;
-  let contactsCount = hasEventContact ? collisionEvidence.count : 0;
-  if (hasEventContact){
-    nx = collisionEvidence.avgNx;
-    ny = collisionEvidence.avgNy;
-  } else {
+  let contactsCount = 0;
+  const collisionEvidenceCount = collisionEvidence?.count ?? 0;
+  if (collisionEvidenceCount < 2){
     const nFallback = contactNormal((x, y) => collision.airValueAtWorld(x, y), hx, hy);
     nx = nFallback.nx;
     ny = nFallback.ny;
+  } else {
+    const evidence = /** @type {NonNullable<ReturnType<typeof collectMothershipCollisionEvidence>>} */ (collisionEvidence);
+    hasEventContact = true;
+    eventHits = evidence.hits.slice();
+    eventMode = evidence.mode;
+    eventCount = evidence.count;
+    contactX = evidence.avgX;
+    contactY = evidence.avgY;
+    contactsCount = evidence.count;
+    nx = evidence.avgNx;
+    ny = evidence.avgNy;
   }
 
   let base = baseVelocityAt(contactX, contactY);
@@ -1635,14 +1723,17 @@ export function resolvePlanetCollisionResponse(args){
     depenDir: 0,
     depenCleared: !overlapNowStrict,
   };
+  const mothershipDbg = expectDefined(ship._landingDebug);
 
   if (!hasEventContact && !overlapNowStrict){
     ship._collision = null;
-    ship._landingDebug.reason = "mothership_no_contact";
-    ship._landingDebug.vn = 0;
-    ship._landingDebug.vt = 0;
-    ship._landingDebug.speed = 0;
-    setMothershipDiag(ship._landingDebug, {
+    if (mothershipDbg){
+      mothershipDbg.reason = "mothership_no_contact";
+      mothershipDbg.vn = 0;
+      mothershipDbg.vt = 0;
+      mothershipDbg.speed = 0;
+    }
+    setMothershipDiag(mothershipDbg, {
       mode: "no_contact",
       absIn: vecDiag(absInVx, absInVy),
       absOut: vecDiag(ship.vx, ship.vy),
@@ -1669,8 +1760,8 @@ export function resolvePlanetCollisionResponse(args){
     return;
   }
 
-  const cUp = Math.cos(mothership.angle);
-  const sUp = Math.sin(mothership.angle);
+  const cUp = Math.cos(activeMothership.angle);
+  const sUp = Math.sin(activeMothership.angle);
   const upx = -sUp;
   const upy = cUp;
   const maxSlope = 1 - Math.cos(Math.PI / 8); // 22.5 deg
@@ -1683,16 +1774,16 @@ export function resolvePlanetCollisionResponse(args){
   const landVt = Math.max(0.8, mothershipLandSpeed * 0.6);
   if (!overlapNowStrict && (!hasEventContact || vn >= 0) && !landable){
     ship._collision = null;
-    if (ship._landingDebug){
-      ship._landingDebug.reason = "mothership_graze";
-      ship._landingDebug.contactsCount = 0;
-      ship._landingDebug.vn = 0;
-      ship._landingDebug.vt = 0;
-      ship._landingDebug.speed = 0;
-      ship._landingDebug.overlapBeforeCount = 0;
-      ship._landingDebug.overlapAfterCount = 0;
+    if (mothershipDbg){
+      mothershipDbg.reason = "mothership_graze";
+      mothershipDbg.contactsCount = 0;
+      mothershipDbg.vn = 0;
+      mothershipDbg.vt = 0;
+      mothershipDbg.speed = 0;
+      mothershipDbg.overlapBeforeCount = 0;
+      mothershipDbg.overlapAfterCount = 0;
     }
-    setMothershipDiag(ship._landingDebug, {
+    setMothershipDiag(mothershipDbg, {
       mode: "graze",
       absIn: vecDiag(absInVx, absInVy),
       absOut: vecDiag(ship.vx, ship.vy),
@@ -1703,11 +1794,11 @@ export function resolvePlanetCollisionResponse(args){
       vnOut: vn,
       vtOut: vt,
       normalAvg: hasEventContact ? { nx, ny } : null,
-      normals: hasEventContact ? collisionEvidence.hits.slice() : [],
+      normals: eventHits,
       evidence: {
         overlapNowStrict,
-        eventMode: hasEventContact ? collisionEvidence.mode : null,
-        eventCount: hasEventContact ? collisionEvidence.count : 0,
+        eventMode,
+        eventCount,
       },
     });
     ship._mothershipTrapFrames = 0;
@@ -1724,10 +1815,10 @@ export function resolvePlanetCollisionResponse(args){
       ship.x += nx * clearStep;
       ship.y += ny * clearStep;
     }
-    const dx2 = ship.x - mothership.x;
-    const dy2 = ship.y - mothership.y;
-    const c2 = Math.cos(-mothership.angle);
-    const s2 = Math.sin(-mothership.angle);
+    const dx2 = ship.x - activeMothership.x;
+    const dy2 = ship.y - activeMothership.y;
+    const c2 = Math.cos(-activeMothership.angle);
+    const s2 = Math.sin(-activeMothership.angle);
     ship._dock = {
       lx: c2 * dx2 - s2 * dy2,
       ly: s2 * dx2 + c2 * dy2,
@@ -1735,15 +1826,15 @@ export function resolvePlanetCollisionResponse(args){
     const vDock = baseVelocityAt(ship.x, ship.y);
     ship.vx = vDock.vx;
     ship.vy = vDock.vy;
-    if (ship._landingDebug){
-      ship._landingDebug.reason = "mothership_landed";
-      ship._landingDebug.landable = true;
-      ship._landingDebug.landed = true;
+    if (mothershipDbg){
+      mothershipDbg.reason = "mothership_landed";
+      mothershipDbg.landable = true;
+      mothershipDbg.landed = true;
     }
     if (isDockedWithMothership()){
       onSuccessfullyDocked();
     }
-    setMothershipDiag(ship._landingDebug, {
+    setMothershipDiag(mothershipDbg, {
       mode: "landed",
       absIn: vecDiag(absInVx, absInVy),
       absOut: vecDiag(ship.vx, ship.vy),
@@ -1754,11 +1845,11 @@ export function resolvePlanetCollisionResponse(args){
       vnOut: 0,
       vtOut: 0,
       normalAvg: { nx, ny },
-      normals: hasEventContact ? collisionEvidence.hits.slice() : [],
+      normals: eventHits,
       evidence: {
         overlapNowStrict,
-        eventMode: hasEventContact ? collisionEvidence.mode : null,
-        eventCount: hasEventContact ? collisionEvidence.count : 0,
+        eventMode,
+        eventCount,
       },
     });
     ship._mothershipTrapFrames = 0;
@@ -1766,19 +1857,19 @@ export function resolvePlanetCollisionResponse(args){
   }
 
   const backoff = backoffShipAlongNegativeRelativeVelocity(
-    mothership,
+    activeMothership,
     ship,
     hasStrictMothershipOverlapAt,
     baseVelocityAt,
     shipRadius
   );
-  if (ship._landingDebug){
-    ship._landingDebug.overlapBeforeCount = backoff.hadOverlap ? 1 : 0;
-    ship._landingDebug.overlapBeforeMin = backoff.hadOverlap ? 0 : 1;
-    ship._landingDebug.depenPush = backoff.dist;
-    ship._landingDebug.depenCleared = backoff.cleared;
-    ship._landingDebug.depenDir = (backoff.dirX || backoff.dirY) ? 1 : 0;
-    ship._landingDebug.depenIter = backoff.hadOverlap ? 1 : 0;
+  if (mothershipDbg){
+    mothershipDbg.overlapBeforeCount = backoff.hadOverlap ? 1 : 0;
+    mothershipDbg.overlapBeforeMin = backoff.hadOverlap ? 0 : 1;
+    mothershipDbg.depenPush = backoff.dist;
+    mothershipDbg.depenCleared = backoff.cleared;
+    mothershipDbg.depenDir = (backoff.dirX || backoff.dirY) ? 1 : 0;
+    mothershipDbg.depenIter = backoff.hadOverlap ? 1 : 0;
   }
   let overlapAfter = hasStrictMothershipOverlapAt(ship.x, ship.y);
   if (overlapAfter){
@@ -1794,26 +1885,26 @@ export function resolvePlanetCollisionResponse(args){
     ship.x = depNow.x;
     ship.y = depNow.y;
     overlapAfter = hasStrictMothershipOverlapAt(ship.x, ship.y);
-    if (ship._landingDebug){
-      ship._landingDebug.depenPush += depNow.push;
-      ship._landingDebug.depenIter += depNow.cleared ? 1 : 0;
-      ship._landingDebug.depenCleared = depNow.cleared && !overlapAfter;
+    if (mothershipDbg){
+      mothershipDbg.depenPush = (mothershipDbg.depenPush || 0) + depNow.push;
+      mothershipDbg.depenIter = (mothershipDbg.depenIter || 0) + (depNow.cleared ? 1 : 0);
+      mothershipDbg.depenCleared = depNow.cleared && !overlapAfter;
     }
   }
-  if (ship._landingDebug){
-    ship._landingDebug.overlapAfterCount = overlapAfter ? 1 : 0;
-    ship._landingDebug.overlapAfterMin = overlapAfter ? 0 : 1;
+  if (mothershipDbg){
+    mothershipDbg.overlapAfterCount = overlapAfter ? 1 : 0;
+    mothershipDbg.overlapAfterMin = overlapAfter ? 0 : 1;
   }
   if (!hasEventContact){
     ship._collision = null;
-    if (ship._landingDebug){
-      ship._landingDebug.reason = overlapAfter ? "mothership_overlap_only" : "mothership_graze";
-      ship._landingDebug.contactsCount = 0;
-      ship._landingDebug.vn = 0;
-      ship._landingDebug.vt = 0;
-      ship._landingDebug.speed = 0;
+    if (mothershipDbg){
+      mothershipDbg.reason = overlapAfter ? "mothership_overlap_only" : "mothership_graze";
+      mothershipDbg.contactsCount = 0;
+      mothershipDbg.vn = 0;
+      mothershipDbg.vt = 0;
+      mothershipDbg.speed = 0;
     }
-    setMothershipDiag(ship._landingDebug, {
+    setMothershipDiag(mothershipDbg, {
       mode: overlapAfter ? "overlap_only" : "graze",
       absIn: vecDiag(absInVx, absInVy),
       absOut: vecDiag(ship.vx, ship.vy),
@@ -1844,14 +1935,14 @@ export function resolvePlanetCollisionResponse(args){
   vt = relVx * -ny + relVy * nx;
   if (vn > 0){
     ship._collision = null;
-    if (ship._landingDebug){
-      ship._landingDebug.reason = "mothership_graze";
-      ship._landingDebug.contactsCount = 0;
-      ship._landingDebug.vn = 0;
-      ship._landingDebug.vt = 0;
-      ship._landingDebug.speed = 0;
+    if (mothershipDbg){
+      mothershipDbg.reason = "mothership_graze";
+      mothershipDbg.contactsCount = 0;
+      mothershipDbg.vn = 0;
+      mothershipDbg.vt = 0;
+      mothershipDbg.speed = 0;
     }
-    setMothershipDiag(ship._landingDebug, {
+    setMothershipDiag(mothershipDbg, {
       mode: "graze",
       absIn: vecDiag(absInVx, absInVy),
       absOut: vecDiag(ship.vx, ship.vy),
@@ -1862,12 +1953,12 @@ export function resolvePlanetCollisionResponse(args){
       vnOut: vn,
       vtOut: vt,
       normalAvg: hasEventContact ? { nx, ny } : null,
-      normals: hasEventContact ? collisionEvidence.hits.slice() : [],
+      normals: eventHits,
       evidence: {
         overlapNowStrict,
         overlapAfter,
-        eventMode: hasEventContact ? collisionEvidence.mode : null,
-        eventCount: hasEventContact ? collisionEvidence.count : 0,
+        eventMode,
+        eventCount,
       },
       backoff: { ...backoff },
     });
@@ -1899,16 +1990,16 @@ export function resolvePlanetCollisionResponse(args){
   ship.vx = base.vx + relOutVx;
   ship.vy = base.vy + relOutVy;
 
-  if (ship._landingDebug){
+  if (mothershipDbg){
     const relAfterX = ship.vx - base.vx;
     const relAfterY = ship.vy - base.vy;
-    ship._landingDebug.reason = "mothership_reflect";
-    ship._landingDebug.vn = relAfterX * nx + relAfterY * ny;
-    ship._landingDebug.vt = relAfterX * tx + relAfterY * ty;
-    ship._landingDebug.speed = Math.hypot(relAfterX, relAfterY);
-    ship._landingDebug.contactsCount = contactsCount;
-    setMothershipDiag(ship._landingDebug, {
-      mode: hasEventContact ? collisionEvidence.mode : "overlap_only",
+    mothershipDbg.reason = "mothership_reflect";
+    mothershipDbg.vn = relAfterX * nx + relAfterY * ny;
+    mothershipDbg.vt = relAfterX * tx + relAfterY * ty;
+    mothershipDbg.speed = Math.hypot(relAfterX, relAfterY);
+    mothershipDbg.contactsCount = contactsCount;
+    setMothershipDiag(mothershipDbg, {
+      mode: eventMode || "overlap_only",
       absIn: vecDiag(absInVx, absInVy),
       absOut: vecDiag(ship.vx, ship.vy),
       relIn: vecDiag(relInVx, relInVy),
@@ -1918,12 +2009,12 @@ export function resolvePlanetCollisionResponse(args){
       vnOut,
       vtOut,
       normalAvg: { nx, ny },
-      normals: hasEventContact ? collisionEvidence.hits.slice() : [],
+      normals: eventHits,
       evidence: {
         overlapNowStrict,
         overlapAfter,
-        eventMode: hasEventContact ? collisionEvidence.mode : null,
-        eventCount: hasEventContact ? collisionEvidence.count : 0,
+        eventMode,
+        eventCount,
       },
       backoff: { ...backoff },
     });
@@ -2051,13 +2142,17 @@ export function stabilizePlanetPenetration(ctx, maxIters = 12){
   const refreshed = collision.sampleCollisionPoints(samplePointsAt(ship.x, ship.y));
   ship._samples = refreshed.samples;
   if (refreshed.hit){
-    ship._collision = {
+    /** @type {NonNullable<import("./types.d.js").Ship["_collision"]>} */
+    const collisionHit = {
       x: refreshed.hit.x,
       y: refreshed.hit.y,
-      source: refreshed.hitSource,
       tri: planet.radial.findTriAtWorld(refreshed.hit.x, refreshed.hit.y),
       node: planet.radial.nearestNodeOnRing(refreshed.hit.x, refreshed.hit.y),
     };
+    if (refreshed.hitSource){
+      collisionHit.source = refreshed.hitSource;
+    }
+    ship._collision = collisionHit;
   } else {
     ship._collision = null;
   }

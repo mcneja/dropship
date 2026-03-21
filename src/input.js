@@ -34,6 +34,7 @@ export class Input {
     /** @type {{id:number|null,downAt:number,triggered:boolean}} */
     this.touchRestartControl = { id: null, downAt: 0, triggered: false };
 
+    /** @type {{regen:boolean,toggleDebug:boolean,toggleDevHud:boolean,toggleFrameStep:boolean,togglePlanetView:boolean,toggleRingVertices:boolean,togglePlanetTriangles:boolean,toggleCollisionContours:boolean,toggleMinerGuidePath:boolean,toggleFog:boolean,toggleMusic:boolean,toggleCombatMusic:boolean,musicVolumeUp:boolean,musicVolumeDown:boolean,sfxVolumeUp:boolean,sfxVolumeDown:boolean,copyScreenshot:boolean,copyScreenshotClean:boolean,copyScreenshotCleanTitle:boolean,reset:boolean,abandonRun:boolean,nextLevel:boolean,prevLevel:boolean,promptLevelJump:boolean,zoomReset:boolean,shoot:boolean,bomb:boolean,rescueAll:boolean,killAllEnemies:boolean,removeEntities:boolean,spawnEnemyType:"1"|"2"|"3"|"4"|"5"|null}} */
     this.oneshot = {
       regen: false,
       toggleDebug: false,
@@ -292,6 +293,7 @@ export class Input {
       }
       this._updateTouchRestartButtonVisual(this.touchRestartControl.downAt);
     });
+    /** @param {PointerEvent} e */
     const finishHold = (e) => {
       if (e.pointerType !== "touch") return;
       if (this.touchRestartControl.id !== e.pointerId) return;
@@ -352,7 +354,8 @@ export class Input {
     const key = e.key;
     const code = e.code;
     const debugChord = e.altKey && !e.ctrlKey && !e.metaKey;
-    const debugDigit = code.startsWith("Digit") && code.length === 6 && code[5] >= "1" && code[5] <= "9";
+    const debugDigitChar = code.charAt(5);
+    const debugDigit = code.startsWith("Digit") && code.length === 6 && debugDigitChar >= "1" && debugDigitChar <= "9";
     const debugToggleHud = debugChord && code === "Backslash";
     const screenshotTitleShortcut = debugChord && code === "KeyZ";
     const debugAction =
@@ -421,7 +424,7 @@ export class Input {
       this.oneshot.toggleMusic = true;
     }
     if (key === "j" || key === "J") this.oneshot.toggleCombatMusic = true;
-    if (this.debugCommandsEnabled && debugChord && debugDigit) this.oneshot.spawnEnemyType = code[5];
+    if (this.debugCommandsEnabled && debugChord && debugDigit) this.oneshot.spawnEnemyType = /** @type {"1"|"2"|"3"|"4"|"5"} */ (debugDigitChar);
     if (this.debugCommandsEnabled && debugChord && code === "KeyP") this.oneshot.rescueAll = true;
     if (this.debugCommandsEnabled && debugChord && code === "KeyX") this.oneshot.killAllEnemies = true;
     if (this.debugCommandsEnabled && debugChord && code === "KeyE") this.oneshot.removeEntities = true;
@@ -741,6 +744,7 @@ export class Input {
     const pads = navigator.getGamepads ? (navigator.getGamepads() || []) : [];
     let hasConnectedPad = false;
 
+    /** @type {{stickThrust:Point,left:boolean,right:boolean,thrust:boolean,down:boolean,aim:Point|null,shoot:boolean,bomb:boolean,reset:boolean,abandonRun:boolean}} */
     let inputCombined = { stickThrust:{x:0, y:0}, left:false, right:false, thrust:false, down:false, aim:null, shoot:false, bomb:false, reset:false, abandonRun:false };
 
     for (const pad of pads) {
@@ -748,10 +752,10 @@ export class Input {
       hasConnectedPad = true;
 
       const dead = 0.2;
-      const ax0 = pad.axes && pad.axes.length ? pad.axes[0] : 0;
-      const ax1 = pad.axes && pad.axes.length > 1 ? pad.axes[1] : 0;
-      const ax2 = pad.axes && pad.axes.length > 2 ? pad.axes[2] : 0;
-      const ax3 = pad.axes && pad.axes.length > 3 ? pad.axes[3] : 0;
+      const ax0 = (pad.axes && pad.axes.length ? pad.axes[0] : 0) ?? 0;
+      const ax1 = (pad.axes && pad.axes.length > 1 ? pad.axes[1] : 0) ?? 0;
+      const ax2 = (pad.axes && pad.axes.length > 2 ? pad.axes[2] : 0) ?? 0;
+      const ax3 = (pad.axes && pad.axes.length > 3 ? pad.axes[3] : 0) ?? 0;
       const alen = Math.hypot(ax2, ax3);
 
       const thrustLen = Math.hypot(ax0, ax1);

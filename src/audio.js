@@ -59,16 +59,19 @@ const THRUST_LOOP_FADE_OUT_MS = 320;
 
 const MAX_PENDING_SFX = 24;
 const DEFAULT_SFX_POOL_SIZE = 3;
+/** @type {Readonly<Record<string, number>>} */
 const SFX_POOL_SIZE = {
   ship_laser: 4,
   enemy_fire: 4,
   bomb_explosion: 3,
   water_splash: 4,
 };
+/** @type {Readonly<Record<string, number>>} */
 const SFX_MIN_INTERVAL_MS = {
   ship_laser: 70,
 };
 const WEB_AUDIO_SFX_IDS = Object.freeze(["ship_laser", "enemy_fire"]);
+/** @type {Readonly<Record<string, number[]>>} */
 const WEB_AUDIO_SFX_VARIANT_RATES = Object.freeze({
   ship_laser: [0.96, 1.0, 1.04],
 });
@@ -313,7 +316,9 @@ export class BackgroundMusic {
    */
   _decodeAudioData(ctx, data){
     return new Promise((resolve, reject) => {
+      /** @param {AudioBuffer} buffer */
       const done = (buffer) => resolve(buffer);
+      /** @param {unknown} err */
       const fail = (err) => reject(err);
       try {
         const maybe = ctx.decodeAudioData(data, done, fail);
@@ -883,7 +888,7 @@ export class BackgroundMusic {
     if (!pool || !pool.voices.length) return false;
     let voice = pool.voices.find((v) => v.paused || v.ended);
     if (!voice){
-      voice = pool.voices[pool.next];
+      voice = /** @type {HTMLAudioElement} */ (pool.voices[pool.next]);
       pool.next = (pool.next + 1) % pool.voices.length;
     }
     voice.currentTime = 0;

@@ -2,6 +2,8 @@
 
 import { mothershipAirAtWorld } from "./mothership.js";
 
+/** @typedef {[number, number, number]} TriIndex */
+
 /**
  * @typedef {Pick<import("./mothership.js").Mothership, "x"|"y"|"angle">} MothershipPose
  * @typedef {MothershipPose & Pick<import("./mothership.js").Mothership, "points"|"tris"|"triAir"> & Partial<Pick<import("./mothership.js").Mothership, "spacing">>} MothershipCollisionMesh
@@ -104,18 +106,21 @@ function pointInTriLocal(px, py, ax, ay, bx, by, cx, cy){
  * @returns {number|null}
  */
 export function mothershipAirAtLocalExact(mothership, lx, ly){
+  /** @type {Array<{x:number,y:number,air?:number}>} */
   const points = mothership.points;
+  /** @type {TriIndex[]} */
   const tris = mothership.tris;
+  /** @type {number[]} */
   const triAir = mothership.triAir || [];
   let hit = false;
   let maxAir = -Infinity;
   for (let i = 0; i < tris.length; i++){
-    const tri = tris[i];
-    const a = points[tri[0]];
-    const b = points[tri[1]];
-    const c = points[tri[2]];
+    const tri = /** @type {TriIndex} */ (tris[i]);
+    const a = /** @type {{x:number,y:number,air?:number}} */ (points[tri[0]]);
+    const b = /** @type {{x:number,y:number,air?:number}} */ (points[tri[1]]);
+    const c = /** @type {{x:number,y:number,air?:number}} */ (points[tri[2]]);
     if (!pointInTriLocal(lx, ly, a.x, a.y, b.x, b.y, c.x, c.y)) continue;
-    const air = Number.isFinite(triAir[i]) ? triAir[i] : 1;
+    const air = /** @type {number} */ (triAir[i]);
     if (!hit || air > maxAir){
       maxAir = air;
       hit = true;
@@ -174,10 +179,15 @@ function projectPolyAxis(poly, nx, ny){
  * @returns {boolean}
  */
 function convexPolysOverlap(a, b){
+  /**
+   * @param {Array<[number, number]>} poly0
+   * @param {Array<[number, number]>} poly1
+   * @returns {boolean}
+   */
   const testAxes = (poly0, poly1) => {
     for (let i = 0; i < poly0.length; i++){
-      const p0 = poly0[i];
-      const p1 = poly0[(i + 1) % poly0.length];
+      const p0 = /** @type {[number, number]} */ (poly0[i]);
+      const p1 = /** @type {[number, number]} */ (poly0[(i + 1) % poly0.length]);
       const ex = p1[0] - p0[0];
       const ey = p1[1] - p0[1];
       const el = Math.hypot(ex, ey);
@@ -209,6 +219,11 @@ function extractHullBoundaryContacts(shipConvexHullWorldVertices, x, y, airAt, e
   const e = Math.max(1e-3, eps);
   /** @type {Array<{x:number,y:number,nx:number,ny:number,av:number}>} */
   const out = [];
+  /**
+   * @param {number} cx
+   * @param {number} cy
+   * @returns {void}
+   */
   const addContact = (cx, cy) => {
     if (!Number.isFinite(cx) || !Number.isFinite(cy)) return;
     const av = airAt(cx, cy);
@@ -247,6 +262,7 @@ function extractHullBoundaryContacts(shipConvexHullWorldVertices, x, y, airAt, e
   for (let i = 0; i < n; i++){
     const a = hull[i];
     const b = hull[(i + 1) % n];
+    if (!a || !b) continue;
     const av0 = airAt(a[0], a[1]);
     const av1 = airAt(b[0], b[1]);
     const in0 = av0 <= 0.5;
@@ -305,8 +321,11 @@ export function findMothershipCollisionExactAtPose(ctx, x, y, mothershipPose){
     hyMax = Math.max(hyMax, p[1]);
   }
 
+  /** @type {Array<{x:number,y:number,air?:number}>} */
   const points = m.points || [];
+  /** @type {TriIndex[]} */
   const tris = m.tris || [];
+  /** @type {number[]} */
   const triAir = m.triAir || [];
   const c = Math.cos(m.angle);
   const s = Math.sin(m.angle);
@@ -314,13 +333,12 @@ export function findMothershipCollisionExactAtPose(ctx, x, y, mothershipPose){
   /** @type {import("./types.d.js").CollisionHit|null} */
   let best = null;
   for (let i = 0; i < tris.length; i++){
-    const air = Number.isFinite(triAir[i]) ? triAir[i] : 1;
+    const air = /** @type {number} */ (triAir[i]);
     if (air > 0.5) continue;
-    const tri = tris[i];
-    const a = points[tri[0]];
-    const b = points[tri[1]];
-    const cpt = points[tri[2]];
-    if (!a || !b || !cpt) continue;
+    const tri = /** @type {TriIndex} */ (tris[i]);
+    const a = /** @type {{x:number,y:number,air?:number}} */ (points[tri[0]]);
+    const b = /** @type {{x:number,y:number,air?:number}} */ (points[tri[1]]);
+    const cpt = /** @type {{x:number,y:number,air?:number}} */ (points[tri[2]]);
     const ax = m.x + c * a.x - s * a.y;
     const ay = m.y + s * a.x + c * a.y;
     const bx = m.x + c * b.x - s * b.y;
@@ -336,8 +354,8 @@ export function findMothershipCollisionExactAtPose(ctx, x, y, mothershipPose){
     const triPoly = [[ax, ay], [bx, by], [cx, cy]];
     if (!convexPolysOverlap(hull, triPoly)) continue;
     for (let e = 0; e < 3; e++){
-      const p0 = triPoly[e];
-      const p1 = triPoly[(e + 1) % 3];
+      const p0 = /** @type {[number, number]} */ (triPoly[e]);
+      const p1 = /** @type {[number, number]} */ (triPoly[(e + 1) % 3]);
       const cp = closestPointOnSegment(p0[0], p0[1], p1[0], p1[1], x, y);
       if (cp.d2 < bestD2){
         bestD2 = cp.d2;
@@ -373,18 +391,21 @@ export function getMothershipBoundaryEdges(mothership){
     // @ts-ignore dynamic cache on runtime object
     return mothership._collisionBoundaryEdgesExact;
   }
+  /** @type {Array<{x:number,y:number,air?:number}>} */
   const points = mothership.points;
+  /** @type {TriIndex[]} */
   const tris = mothership.tris;
+  /** @type {number[]} */
   const triAir = mothership.triAir || [];
   /** @type {Map<string,{i:number,j:number,solidCount:number,airCount:number,solidThird:number,solidTriIdx:number,airTriIdx:number}>} */
   const edgeMap = new Map();
   for (let ti = 0; ti < tris.length; ti++){
-    const tri = tris[ti];
-    const solid = (Number.isFinite(triAir[ti]) ? triAir[ti] : 1) <= 0.5;
+    const tri = /** @type {TriIndex} */ (tris[ti]);
+    const solid = /** @type {number} */ (triAir[ti]) <= 0.5;
     for (let e = 0; e < 3; e++){
-      const i0 = tri[e];
-      const i1 = tri[(e + 1) % 3];
-      const ik = tri[(e + 2) % 3];
+      const i0 = /** @type {number} */ (tri[e]);
+      const i1 = /** @type {number} */ (tri[(e + 1) % 3]);
+      const ik = /** @type {number} */ (tri[(e + 2) % 3]);
       const i = Math.min(i0, i1);
       const j = Math.max(i0, i1);
       const key = `${i},${j}`;
@@ -419,8 +440,8 @@ export function getMothershipBoundaryEdges(mothership){
   for (const rec of edgeMap.values()){
     if (rec.solidCount <= 0) continue;
     if (rec.solidCount >= 2 && rec.airCount === 0) continue;
-    const a = points[rec.i];
-    const b = points[rec.j];
+    const a = /** @type {{x:number,y:number,air?:number}} */ (points[rec.i]);
+    const b = /** @type {{x:number,y:number,air?:number}} */ (points[rec.j]);
     const ex = b.x - a.x;
     const ey = b.y - a.y;
     const len = Math.hypot(ex, ey);
@@ -430,7 +451,7 @@ export function getMothershipBoundaryEdges(mothership){
     const mx = (a.x + b.x) * 0.5;
     const my = (a.y + b.y) * 0.5;
     if (rec.solidCount === 1 && rec.solidThird >= 0){
-      const c = points[rec.solidThird];
+      const c = /** @type {{x:number,y:number,air?:number}} */ (points[rec.solidThird]);
       const toSolidX = c.x - mx;
       const toSolidY = c.y - my;
       if (toSolidX * nx + toSolidY * ny > 0){
@@ -526,6 +547,7 @@ function signedArea2(verts){
   for (let i = 0; i < verts.length; i++){
     const a = verts[i];
     const b = verts[(i + 1) % verts.length];
+    if (!a || !b) continue;
     s += a.x * b.y - a.y * b.x;
   }
   return s;
@@ -566,6 +588,7 @@ function transformHull(localHull, pos, angle){
   for (let i = 0; i < verts.length; i++){
     const a = verts[i];
     const b = verts[(i + 1) % verts.length];
+    if (!a || !b) continue;
     const ex = b.x - a.x;
     const ey = b.y - a.y;
     const len = Math.hypot(ex, ey) || 1;
@@ -774,6 +797,7 @@ function chooseBestHitIndex(hits, vel){
   for (let i = 1; i < hits.length; i++){
     const best = hits[bestIdx];
     const hit = hits[i];
+    if (!best || !hit) continue;
     if (hit.time < best.time - 1e-8){
       bestIdx = i;
       continue;
@@ -860,7 +884,9 @@ export function findSweptMothershipCollision(args){
 
   for (let vertexIdx = 0; vertexIdx < shipLocalConvexHull.length; vertexIdx++){
     const p0 = worldHull.verts[vertexIdx];
-    const v = localPointVelocity(state, shipLocalConvexHull[vertexIdx]);
+    const localPoint = shipLocalConvexHull[vertexIdx];
+    if (!p0 || !localPoint) continue;
+    const v = localPointVelocity(state, localPoint);
     for (const edge of candidates.edges){
       const hit = pointEdgeToi(p0, v, edge, span);
       if (!hit) continue;
@@ -880,7 +906,9 @@ export function findSweptMothershipCollision(args){
   for (const corner of candidates.corners){
     for (let edgeIdx = 0; edgeIdx < worldHull.edges.length; edgeIdx++){
       const edge = worldHull.edges[edgeIdx];
-      const edgeVel = localPointVelocity(state, shipLocalConvexHull[edgeIdx]);
+      const localPoint = shipLocalConvexHull[edgeIdx];
+      if (!edge || !localPoint) continue;
+      const edgeVel = localPointVelocity(state, localPoint);
       const hit = wallCornerPlayerEdgeToi(corner, edge, edgeVel, span);
       if (!hit) continue;
       let bestNormal = hit.normal;
@@ -917,6 +945,7 @@ export function findSweptMothershipCollision(args){
   const bestIdx = chooseBestHitIndex(hits, state.vel);
   if (bestIdx < 0) return null;
   const hit = hits[bestIdx];
+  if (!hit) return null;
   const fraction = Math.max(0, Math.min(1, hit.time / span));
   const safeFraction = Math.max(0, Math.min(1, (hit.time - 1e-5) / span));
   const poseAtImpact = interpolateMothershipPose(prevPose, currPose, fraction);
@@ -1145,6 +1174,7 @@ function nearestBoundaryContactAtPose(mothership, shipCollisionPointsAt, x, y){
     const inside = av !== null && av <= 0.5;
     for (let edgeIdx = 0; edgeIdx < edges.length; edgeIdx++){
       const edge = edges[edgeIdx];
+      if (!edge) continue;
       const cp = closestPointOnSegment(edge.ax, edge.ay, edge.bx, edge.by, lp.x, lp.y);
       const candidate = {
         inside,
@@ -1665,32 +1695,40 @@ export function resolveMothershipCollisionResponse(args){
     : null;
 
   ship._collision = null;
-  ship._landingDebug = debugEnabled ? {
-    source: "mothership",
-    reason: overlapAfter ? "mothership_overlap_only" : "mothership_reflect",
-    dotUp: landing ? landing.dotUpRaw : undefined,
-    slope: landing ? landing.slope : undefined,
-    landSlope: landing ? landing.landSlope : undefined,
-    vn: vnNow,
-    vt: vtNow,
-    speed: Math.hypot(relNowVx, relNowVy),
-    impactX: lastContact ? lastContact.x : hx,
-    impactY: lastContact ? lastContact.y : hy,
-    supportX: lastContact ? lastContact.x : hx,
-    supportY: lastContact ? lastContact.y : hy,
-    contactsCount: lastContact ? 1 : 0,
-    overlapBeforeCount: overlapBefore ? 1 : 0,
-    overlapAfterCount: overlapAfter ? 1 : 0,
-    overlapBeforeMin: overlapBefore ? 0 : 1,
-    overlapAfterMin: overlapAfter ? 0 : 1,
-    depenIter: depenPush > 0 ? 1 : 0,
-    depenPush,
-    depenCushion: 0,
-    depenDir: depenPush > 0 ? 1 : 0,
-    depenCleared,
-  } : null;
+  if (debugEnabled){
+    /** @type {NonNullable<typeof ship._landingDebug>} */
+    const landingDebug = {
+      source: "mothership",
+      reason: overlapAfter ? "mothership_overlap_only" : "mothership_reflect",
+      vn: vnNow,
+      vt: vtNow,
+      speed: Math.hypot(relNowVx, relNowVy),
+      impactX: lastContact ? lastContact.x : hx,
+      impactY: lastContact ? lastContact.y : hy,
+      supportX: lastContact ? lastContact.x : hx,
+      supportY: lastContact ? lastContact.y : hy,
+      contactsCount: lastContact ? 1 : 0,
+      overlapBeforeCount: overlapBefore ? 1 : 0,
+      overlapAfterCount: overlapAfter ? 1 : 0,
+      overlapBeforeMin: overlapBefore ? 0 : 1,
+      overlapAfterMin: overlapAfter ? 0 : 1,
+      depenIter: depenPush > 0 ? 1 : 0,
+      depenPush,
+      depenCushion: 0,
+      depenDir: depenPush > 0 ? 1 : 0,
+      depenCleared,
+    };
+    if (landing){
+      landingDebug.dotUp = landing.dotUpRaw;
+      landingDebug.slope = landing.slope;
+      landingDebug.landSlope = landing.landSlope;
+    }
+    ship._landingDebug = landingDebug;
+  } else {
+    ship._landingDebug = null;
+  }
 
-  if (debugEnabled) setDiag(ship._landingDebug, ship, {
+  if (debugEnabled && ship._landingDebug) setDiag(ship._landingDebug, ship, {
     phase: "reflect",
     hitCount: lastContact ? 1 : 0,
     distinctHullCount: lastContact ? 1 : 0,

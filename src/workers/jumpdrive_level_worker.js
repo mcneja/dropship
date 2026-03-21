@@ -2,7 +2,10 @@
 
 import { MapGen } from "../mapgen.js";
 
-self.onmessage = (event) => {
+/** @type {{onmessage:((event:MessageEvent)=>void)|null, postMessage:(message:any, transfer?:Transferable[])=>void}} */
+const workerScope = /** @type {any} */ (self);
+
+workerScope.onmessage = (event) => {
   const data = event && event.data ? event.data : null;
   const requestId = data && Number.isFinite(data.requestId) ? (data.requestId | 0) : 0;
   try {
@@ -10,7 +13,7 @@ self.onmessage = (event) => {
     const planetParams = data ? data.planetParams : null;
     const mapgen = new MapGen(seed, planetParams);
     const world = mapgen.getWorld();
-    self.postMessage({
+    workerScope.postMessage({
       requestId,
       ok: true,
       mapWorld: {
@@ -21,7 +24,7 @@ self.onmessage = (event) => {
       },
     }, [world.air.buffer]);
   } catch (err) {
-    self.postMessage({
+    workerScope.postMessage({
       requestId,
       ok: false,
       error: err instanceof Error ? err.message : String(err),

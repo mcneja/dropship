@@ -106,9 +106,10 @@ function layoutHeatMeter(el){
   const overlaps = labels.filter((r) => rectsOverlap(meterRect, r, pad));
   if (!overlaps.length) return;
 
-  let minTop = overlaps[0].top;
+  let minTop = /** @type {DOMRect} */ (overlaps[0]).top;
   for (let i = 1; i < overlaps.length; i++){
-    if (overlaps[i].top < minTop) minTop = overlaps[i].top;
+    const overlapRect = /** @type {DOMRect} */ (overlaps[i]);
+    if (overlapRect.top < minTop) minTop = overlapRect.top;
   }
   const liftedBottom = Math.max(baseBottom, Math.round(vH - minTop + pad));
   const maxLiftedBottom = Math.max(baseBottom, Math.round(vH - meterRect.height - minViewportInset));

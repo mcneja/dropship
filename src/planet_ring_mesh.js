@@ -8,6 +8,10 @@ import {
   invalidateSurfaceGuidePathCache,
 } from "./surface_guide_path.js";
 
+/** @typedef {{x:number,y:number,air:number}} MeshVertex */
+/** @typedef {[MeshVertex, MeshVertex, MeshVertex]} MeshTri */
+/** @typedef {MeshVertex[]} MeshRing */
+
 export class RingMesh {
   /**
    * Build mesh geometry and sampling helpers from a map source.
@@ -52,22 +56,23 @@ export class RingMesh {
      * @param {{x:number,y:number,air:number}[]} outer
      */
     function stitchBand(inner, outer){
+      /** @type {MeshTri[]} */
       const tris=[];
       const n0=inner.length, n1=outer.length;
-      const I = inner.concat([inner[0]]);
-      const O = outer.concat([outer[0]]);
+      const I = /** @type {MeshRing} */ (inner.concat([/** @type {MeshVertex} */ (inner[0])]));
+      const O = /** @type {MeshRing} */ (outer.concat([/** @type {MeshVertex} */ (outer[0])]));
       let i=0, j=0;
       while (i<n0 || j<n1){
         if (i>=n0){
-          tris.push([I[i], O[j], O[j+1]]); j++; continue;
+          tris.push([/** @type {MeshVertex} */ (I[i]), /** @type {MeshVertex} */ (O[j]), /** @type {MeshVertex} */ (O[j+1])]); j++; continue;
         }
         if (j>=n1){
-          tris.push([I[i], O[j], I[i+1]]); i++; continue;
+          tris.push([/** @type {MeshVertex} */ (I[i]), /** @type {MeshVertex} */ (O[j]), /** @type {MeshVertex} */ (I[i+1])]); i++; continue;
         }
         if ((i+1)/n0 < (j+1)/n1){
-          tris.push([I[i], O[j], I[i+1]]); i++;
+          tris.push([/** @type {MeshVertex} */ (I[i]), /** @type {MeshVertex} */ (O[j]), /** @type {MeshVertex} */ (I[i+1])]); i++;
         } else {
-          tris.push([I[i], O[j], O[j+1]]); j++;
+          tris.push([/** @type {MeshVertex} */ (I[i]), /** @type {MeshVertex} */ (O[j]), /** @type {MeshVertex} */ (O[j+1])]); j++;
         }
       }
       return tris;
@@ -86,18 +91,18 @@ export class RingMesh {
     const positions = [];
     /** @type {number[]} */
     const triCentroids = [];
-    /** @type {Array<Array<{x:number,y:number,air:number}>>} */
+    /** @type {MeshTri[]} */
     const triList = [];
     /** @type {number[]} */
     const airFlag = [];
     /** @type {number[]} */
     const shade = [];
-    /** @type {Array<{x:number,y:number,air:number}>} */
+    /** @type {MeshVertex[]} */
     const vertRefs = [];
 
-    /** @type {Array<{x:number,y:number,air:number}[]>} */
+    /** @type {MeshRing[]} */
     const rings = [];
-    /** @type {Array<Array<Array<{x:number,y:number,air:number}>>>} */
+    /** @type {MeshTri[][]} */
     const bandTris = [];
     const rMaxInt = Math.max(0, Math.floor(params.RMAX));
     for (let r=0;r<=rMaxInt;r++) rings.push(ringVertices(r));
@@ -105,7 +110,7 @@ export class RingMesh {
     this.rings = rings;
 
       for (let r = 0; r < rings.length; r++){
-        const ring = rings[r];
+        const ring = /** @type {MeshRing} */ (rings[r]);
         for (const v of ring){
           v.air = this._sampleAirAtWorldExtended(v.x, v.y);
         }
@@ -115,16 +120,16 @@ export class RingMesh {
       this._cleanupOuterRimSpikeArtifacts();
 
       for (let r=0;r<this._R_MESH;r++){
-        const inner = rings[r];
-        const outer = rings[r+1];
-        if (!inner || !outer) continue;
+        const inner = /** @type {MeshRing} */ (rings[r]);
+        const outer = /** @type {MeshRing} */ (rings[r+1]);
         if (r===0){
+        /** @type {MeshTri[]} */
         const tris = [];
-        const center = inner && inner.length ? inner[0] : {x:0,y:0,air:this._sampleAirAtWorldExtended(0, 0)};
+        const center = /** @type {MeshVertex} */ (inner[0]);
         for (let k=0;k<outer.length;k++){
           const a = center;
-          const b = outer[k];
-          const c = outer[(k+1)%outer.length];
+          const b = /** @type {MeshVertex} */ (outer[k]);
+          const c = /** @type {MeshVertex} */ (outer[(k+1)%outer.length]);
           tris.push([a, b, c]);
           triCentroids.push((a.x + b.x + c.x) / 3, (a.y + b.y + c.y) / 3);
           triList.push([a, b, c]);
@@ -161,9 +166,9 @@ export class RingMesh {
     this.airFlag = new Float32Array(airFlag);
     /** @type {Float32Array} */
     this.shade = new Float32Array(shade);
-    /** @type {Array<{x:number,y:number,air:number}[]>} */
+    /** @type {MeshRing[]} */
     this.rings = rings;
-    /** @type {Array<Array<Array<{x:number,y:number,air:number}>>>} */
+    /** @type {MeshTri[][]} */
     this.bandTris = bandTris;
     this._vertRefs = vertRefs;
     this._triCentroids = new Float32Array(triCentroids);
@@ -197,7 +202,6 @@ export class RingMesh {
     const vertIdOf = new Map();
     let vid = 0;
     for (const ring of this.rings){
-      if (!ring) continue;
       for (const v of ring){
         vertIdOf.set(v, vid++);
       }
@@ -254,7 +258,7 @@ export class RingMesh {
   /**
    * @param {number} x
    * @param {number} y
-   * @returns {Array<{x:number,y:number,air:number}>|null}
+   * @returns {MeshTri|null}
    */
   findTriAtWorld(x, y){
     const r = Math.hypot(x, y);
@@ -263,8 +267,7 @@ export class RingMesh {
     const bands = [r0, r0 - 1, r0 + 1];
     for (const bi of bands){
       if (bi < 0 || bi >= this._R_MESH) continue;
-      const tris = this.bandTris[bi];
-      if (!tris) continue;
+      const tris = /** @type {MeshTri[]} */ (this.bandTris[bi]);
       for (const tri of tris){
         const a = tri[0], b = tri[1], c = tri[2];
         if (this._pointInTri(x, y, a.x, a.y, b.x, b.y, c.x, c.y)) return tri;
@@ -281,9 +284,9 @@ export class RingMesh {
   nearestNodeOnRing(x, y){
     const r = Math.hypot(x, y);
     const ri = Math.max(0, Math.min(this.rings.length - 1, Math.round(r)));
-    const ring = this.rings[ri];
-    if (!ring || ring.length === 0) return null;
-    let best = ring[0];
+    const ring = /** @type {MeshRing} */ (this.rings[ri]);
+    if (ring.length === 0) return null;
+    let best = /** @type {MeshVertex} */ (ring[0]);
     let bestD = 1e9;
     for (const v of ring){
       const dx = v.x - x;
@@ -321,7 +324,7 @@ export class RingMesh {
   /**
    * @param {number} x
    * @param {number} y
-   * @param {Array<{x:number,y:number,air:number}>} tri
+   * @param {MeshTri} tri
    * @returns {number}
    */
   _airValueInTri(x, y, tri){
@@ -345,7 +348,7 @@ export class RingMesh {
   _airValueAtWorldNoOuterClamp(x, y){
     const r = Math.hypot(x, y);
     if (r <= 1e-6){
-      return this.rings[0][0].air;
+      return /** @type {MeshVertex} */ ((/** @type {MeshRing} */ (this.rings[0]))[0]).air;
     }
     const tri = this.findTriAtWorld(x, y);
     if (!tri){
@@ -429,7 +432,7 @@ export class RingMesh {
     this._forceOuterShellAir();
     this._cleanupOuterRimSpikeArtifacts();
     for (let i = 0; i < this.vertCount; i++){
-      this.airFlag[i] = this._vertRefs[i].air;
+      this.airFlag[i] = /** @type {MeshVertex} */ (this._vertRefs[i]).air;
     }
     invalidateSurfaceGuidePathCache(this);
     return new Float32Array(this.airFlag);
@@ -440,14 +443,13 @@ export class RingMesh {
    * @returns {void}
    */
   _forceOuterShellAir(){
-    if (!this.rings || !this.rings.length) return;
+    if (!this.rings.length) return;
     const ringCount = this.rings.length;
     const forceCount = Math.max(0, Math.min(ringCount, this._OUTER_FORCED_AIR_RINGS | 0));
     if (forceCount <= 0) return;
     const start = Math.max(0, ringCount - forceCount);
     for (let r = start; r < ringCount; r++){
-      const ring = this.rings[r];
-      if (!ring) continue;
+      const ring = /** @type {MeshRing} */ (this.rings[r]);
       for (const v of ring){
         v.air = 1;
       }
@@ -464,8 +466,7 @@ export class RingMesh {
     const moltenOuter = (typeof params.MOLTEN_RING_OUTER === "number") ? params.MOLTEN_RING_OUTER : 0;
     if (!(moltenOuter > moltenInner)) return;
     for (let r = 0; r < this.rings.length; r++){
-      const ring = this.rings[r];
-      if (!ring) continue;
+      const ring = /** @type {MeshRing} */ (this.rings[r]);
       const inBand = (r >= moltenInner) && (r <= moltenOuter);
       const inCore = (moltenInner > 0) && (r <= moltenInner);
       if (!inBand && !inCore) continue;
@@ -487,6 +488,11 @@ export class RingMesh {
     const rim = this.rings[outer - 1];
     const inner = this.rings[outer - 2];
     if (!rim || !inner || rim.length < 3 || inner.length < 3) return;
+    /**
+     * @param {number} i
+     * @param {number} n
+     * @returns {number}
+     */
     const wrap = (i, n) => {
       let out = i % n;
       if (out < 0) out += n;
@@ -497,14 +503,14 @@ export class RingMesh {
      * @returns {boolean}
      */
     const hasInwardSupport = (i) => {
-      const v = rim[i];
+      const v = /** @type {MeshVertex} */ (rim[i]);
       const len = Math.hypot(v.x, v.y) || 1;
       const ux = v.x / len;
       const uy = v.y / len;
       let best = 0;
       let bestDot = -2;
       for (let j = 0; j < inner.length; j++){
-        const iv = inner[j];
+        const iv = /** @type {MeshVertex} */ (inner[j]);
         const ilen = Math.hypot(iv.x, iv.y) || 1;
         const dot = (iv.x / ilen) * ux + (iv.y / ilen) * uy;
         if (dot > bestDot){
@@ -514,7 +520,7 @@ export class RingMesh {
       }
       const jl = wrap(best - 1, inner.length);
       const jr = wrap(best + 1, inner.length);
-      return (inner[best].air <= 0.5) || (inner[jl].air <= 0.5) || (inner[jr].air <= 0.5);
+      return (/** @type {MeshVertex} */ (inner[best])).air <= 0.5 || (/** @type {MeshVertex} */ (inner[jl])).air <= 0.5 || (/** @type {MeshVertex} */ (inner[jr])).air <= 0.5;
     };
 
     /** @type {number[]} */
@@ -527,10 +533,10 @@ export class RingMesh {
 
     // Clear isolated unsupported spikes.
     for (let i = 0; i < rim.length; i++){
-      const v = rim[i];
+      const v = /** @type {MeshVertex} */ (rim[i]);
       if (v.air > 0.5) continue;
-      const prev = rim[wrap(i - 1, rim.length)];
-      const next = rim[wrap(i + 1, rim.length)];
+      const prev = /** @type {MeshVertex} */ (rim[wrap(i - 1, rim.length)]);
+      const next = /** @type {MeshVertex} */ (rim[wrap(i + 1, rim.length)]);
       if (prev.air <= 0.5 || next.air <= 0.5) continue;
       if (!support[i]){
         clear.push(i);
@@ -542,21 +548,21 @@ export class RingMesh {
     const visited = new Array(rim.length).fill(false);
     for (let i = 0; i < rim.length; i++){
       if (visited[i]) continue;
-      if (rim[i].air > 0.5 || support[i]){
+      if ((/** @type {MeshVertex} */ (rim[i])).air > 0.5 || support[i]){
         visited[i] = true;
         continue;
       }
       let lenRun = 0;
       let j = i;
-      while (!visited[j] && rim[j].air <= 0.5 && !support[j]){
+      while (!visited[j] && (/** @type {MeshVertex} */ (rim[j])).air <= 0.5 && !support[j]){
         visited[j] = true;
         lenRun++;
         j = wrap(j + 1, rim.length);
       }
       const start = i;
       const end = wrap(j - 1, rim.length);
-      const before = rim[wrap(start - 1, rim.length)];
-      const after = rim[wrap(end + 1, rim.length)];
+      const before = /** @type {MeshVertex} */ (rim[wrap(start - 1, rim.length)]);
+      const after = /** @type {MeshVertex} */ (rim[wrap(end + 1, rim.length)]);
       if (before.air > 0.5 && after.air > 0.5){
         for (let k = 0; k < lenRun; k++){
           clear.push(wrap(start + k, rim.length));
@@ -565,7 +571,7 @@ export class RingMesh {
     }
 
     for (const i of clear){
-      rim[i].air = 1;
+      /** @type {MeshVertex} */ (rim[i]).air = 1;
     }
   }
 
@@ -636,9 +642,9 @@ export class RingMesh {
     const lerp = this._fogAlphaLerp;
 
     for (let idx = start; idx < end; idx++){
-      const tri = this._triList[idx];
-      const cx = c[idx * 2];
-      const cy = c[idx * 2 + 1];
+      const tri = /** @type {MeshTri} */ (this._triList[idx]);
+      const cx = /** @type {number} */ (c[idx * 2]);
+      const cy = /** @type {number} */ (c[idx * 2 + 1]);
       const m01x = (tri[0].x + tri[1].x) * 0.5;
       const m01y = (tri[0].y + tri[1].y) * 0.5;
       const m12x = (tri[1].x + tri[2].x) * 0.5;
@@ -653,12 +659,13 @@ export class RingMesh {
         || pointVisible(m12x, m12y)
         || pointVisible(m20x, m20y);
 
+      const holdNow = /** @type {number} */ (this._fogHold[idx]);
       if (visibleNow){
         this._fogHold[idx] = this._fogHoldFrames;
-      } else if (this._fogHold[idx] > 0){
-        this._fogHold[idx]--;
+      } else if (holdNow > 0){
+        this._fogHold[idx] = holdNow - 1;
       }
-      if (this._fogHold[idx] > 0){
+      if ((/** @type {number} */ (this._fogHold[idx])) > 0){
         this._fogVisible[idx] = 1;
         this._fogSeen[idx] = 1;
       }
@@ -670,7 +677,7 @@ export class RingMesh {
         this._fogAlpha[base + 2] = 0;
       } else {
         const target = this._fogSeen[idx] ? this._fogSeenAlpha : this._fogUnseenAlpha;
-        const a0 = this._fogAlpha[base];
+        const a0 = /** @type {number} */ (this._fogAlpha[base]);
         const next = a0 + (target - a0) * lerp;
         this._fogAlpha[base] = next;
         this._fogAlpha[base + 1] = next;
@@ -717,12 +724,14 @@ export class RingMesh {
     if (idx === undefined) return 0;
     const a = tri[0], b = tri[1], c = tri[2];
     const det = (b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y);
-    if (Math.abs(det) < 1e-6) return this._fogAlpha[idx * 3];
+    if (Math.abs(det) < 1e-6) return /** @type {number} */ (this._fogAlpha[idx * 3]);
     const l1 = ((b.y - c.y) * (x - c.x) + (c.x - b.x) * (y - c.y)) / det;
     const l2 = ((c.y - a.y) * (x - c.x) + (a.x - c.x) * (y - c.y)) / det;
     const l3 = 1 - l1 - l2;
     const base = idx * 3;
-    return this._fogAlpha[base] * l1 + this._fogAlpha[base + 1] * l2 + this._fogAlpha[base + 2] * l3;
+    return (/** @type {number} */ (this._fogAlpha[base])) * l1
+      + (/** @type {number} */ (this._fogAlpha[base + 1])) * l2
+      + (/** @type {number} */ (this._fogAlpha[base + 2])) * l3;
   }
 
   /**

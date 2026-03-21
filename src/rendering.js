@@ -23,6 +23,22 @@ import {
 /** @typedef {import("./planet.js").Planet} Planet */
 /** @typedef {import("./types.d.js").Enemy} Enemy */
 /** @typedef {{x:number,y:number,type:import("./types.d.js").EnemyType,vx?:number,vy?:number}} EnemyRender */
+/** @typedef {[number, number]} Vec2 */
+/** @typedef {[number, number, number]} Rgb */
+/** @typedef {[number, number, number, number]} Rgba */
+/** @typedef {{a:Vec2,b:Vec2,c:Vec2,col:Rgba,outline?:boolean}} ColoredTri */
+
+/**
+ * @template T
+ * @param {T|null|undefined} value
+ * @returns {T}
+ */
+function expectDefined(value){
+  if (value == null){
+    throw new Error("Expected value to be defined");
+  }
+  return value;
+}
 
 /**
  * @param {WebGL2RenderingContext} gl
@@ -69,7 +85,7 @@ function toHalfFloatArray(src){
   const out = new Uint16Array(src.length);
   const view = new DataView(new ArrayBuffer(4));
   for (let i = 0; i < src.length; i++){
-    const f = src[i];
+    const f = expectDefined(src[i]);
     if (isNaN(f)){
       out[i] = 0x7e00;
       continue;
@@ -141,6 +157,12 @@ function createTexture(gl, w, h, internalFormat, format, type, data, minFilter=g
   return tex;
 }
 
+/**
+ * @param {WebGL2RenderingContext} gl
+ * @param {number} type
+ * @param {ArrayBufferView|null} data
+ * @returns {ArrayBufferView|null}
+ */
 function ensureTexData(gl, type, data){
   if (type === gl.HALF_FLOAT && data && data instanceof Float32Array){
     return toHalfFloatArray(data);
@@ -148,6 +170,12 @@ function ensureTexData(gl, type, data){
   return data;
 }
 
+/**
+ * @param {Float32Array} src
+ * @param {number} srcSize
+ * @param {number} dstSize
+ * @returns {Float32Array}
+ */
 function resampleGrid(src, srcSize, dstSize){
   if (srcSize === dstSize){
     return src;
@@ -167,8 +195,8 @@ function resampleGrid(src, srcSize, dstSize){
     const i10 = y0 * srcSize + x1;
     const i01 = y1 * srcSize + x0;
     const i11 = y1 * srcSize + x1;
-    const a = src[i00] * (1 - fx) + src[i10] * fx;
-    const b = src[i01] * (1 - fx) + src[i11] * fx;
+    const a = expectDefined(src[i00]) * (1 - fx) + expectDefined(src[i10]) * fx;
+    const b = expectDefined(src[i01]) * (1 - fx) + expectDefined(src[i11]) * fx;
     out[j * dstSize + i] = a * (1 - fy) + b * fy;
   }
   return out;
@@ -299,7 +327,9 @@ function pushTriangleOutline(pos, col, ax, ay, bx, by, cx, cy, r, g, b, a){
  * @returns {number}
  */
 function triAirAtWorld(tri, x, y){
-  const a = tri[0], b = tri[1], c = tri[2];
+  const a = expectDefined(tri[0]);
+  const b = expectDefined(tri[1]);
+  const c = expectDefined(tri[2]);
   const det = (b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y);
   if (Math.abs(det) < 1e-6){
     return (a.air + b.air + c.air) / 3;
@@ -334,7 +364,11 @@ function pushUniquePoint(out, x, y){
 function triIsoSegment(tri, threshold = 0.5){
   /** @type {Array<[number, number]>} */
   const pts = [];
-  const edges = [[tri[0], tri[1]], [tri[1], tri[2]], [tri[2], tri[0]]];
+  const a = expectDefined(tri[0]);
+  const b = expectDefined(tri[1]);
+  const c = expectDefined(tri[2]);
+  /** @type {Array<[{x:number,y:number,air:number}, {x:number,y:number,air:number}]>} */
+  const edges = [[a, b], [b, c], [c, a]];
   const eps = 1e-6;
   for (const [a, b] of edges){
     const va = a.air;
@@ -361,14 +395,20 @@ function triIsoSegment(tri, threshold = 0.5){
     }
   }
   if (pts.length < 2) return null;
-  if (pts.length === 2) return [pts[0], pts[1]];
+  if (pts.length === 2){
+    const p0 = expectDefined(pts[0]);
+    const p1 = expectDefined(pts[1]);
+    return [p0, p1];
+  }
   let iBest = 0;
   let jBest = 1;
   let bestD2 = -1;
   for (let i = 0; i < pts.length; i++){
     for (let j = i + 1; j < pts.length; j++){
-      const dx = pts[j][0] - pts[i][0];
-      const dy = pts[j][1] - pts[i][1];
+      const pi = expectDefined(pts[i]);
+      const pj = expectDefined(pts[j]);
+      const dx = pj[0] - pi[0];
+      const dy = pj[1] - pi[1];
       const d2 = dx * dx + dy * dy;
       if (d2 > bestD2){
         bestD2 = d2;
@@ -377,7 +417,7 @@ function triIsoSegment(tri, threshold = 0.5){
       }
     }
   }
-  return [pts[iBest], pts[jBest]];
+  return [expectDefined(pts[iBest]), expectDefined(pts[jBest])];
 }
 
 /**
@@ -393,12 +433,12 @@ function buildTriangleWireframe(triPositions){
   const r = 0.96, g = 0.97, b = 1.0, a = 0.33;
   for (let i = 0; i < triCount; i++){
     const i0 = i * 6;
-    const ax = triPositions[i0];
-    const ay = triPositions[i0 + 1];
-    const bx = triPositions[i0 + 2];
-    const by = triPositions[i0 + 3];
-    const cx = triPositions[i0 + 4];
-    const cy = triPositions[i0 + 5];
+    const ax = expectDefined(triPositions[i0]);
+    const ay = expectDefined(triPositions[i0 + 1]);
+    const bx = expectDefined(triPositions[i0 + 2]);
+    const by = expectDefined(triPositions[i0 + 3]);
+    const cx = expectDefined(triPositions[i0 + 4]);
+    const cy = expectDefined(triPositions[i0 + 5]);
 
     positions[pi++] = ax; positions[pi++] = ay;
     positions[pi++] = bx; positions[pi++] = by;
@@ -432,9 +472,13 @@ function buildTriangleWireframe(triPositions){
 function pushDiamondOutline(pos, col, x, y, size, r, g, b, a){
   const up = size;
   const right = size;
+  /** @type {Vec2} */
   const top = [x, y + up];
+  /** @type {Vec2} */
   const rightP = [x + right, y];
+  /** @type {Vec2} */
   const bot = [x, y - up];
+  /** @type {Vec2} */
   const left = [x - right, y];
   pushLine(pos, col, top[0], top[1], rightP[0], rightP[1], r, g, b, a);
   pushLine(pos, col, rightP[0], rightP[1], bot[0], bot[1], r, g, b, a);
@@ -517,14 +561,15 @@ function pushSquare(pos, col, x, y, size, r, g, b, a){
  * @returns {number}
  */
 function pushHexOutline(pos, col, x, y, radius, rot, r, g, b, a){
+  /** @type {Array<[number, number]>} */
   const pts = [];
   for (let i = 0; i < 6; i++){
     const ang = rot + (i / 6) * Math.PI * 2;
     pts.push([x + Math.cos(ang) * radius, y + Math.sin(ang) * radius]);
   }
   for (let i = 0; i < 6; i++){
-    const p0 = pts[i];
-    const p1 = pts[(i + 1) % 6];
+    const p0 = expectDefined(pts[i]);
+    const p1 = expectDefined(pts[(i + 1) % 6]);
     pushLine(pos, col, p0[0], p0[1], p1[0], p1[1], r, g, b, a);
   }
   return 12;
@@ -545,14 +590,15 @@ function pushHexOutline(pos, col, x, y, radius, rot, r, g, b, a){
  * @returns {number}
  */
 function pushPolyFan(pos, col, x, y, radius, sides, rot, r, g, b, a){
+  /** @type {Array<[number, number]>} */
   const pts = [];
   for (let i = 0; i < sides; i++){
     const ang = rot + (i / sides) * Math.PI * 2;
     pts.push([x + Math.cos(ang) * radius, y + Math.sin(ang) * radius]);
   }
   for (let i = 0; i < sides; i++){
-    const p0 = pts[i];
-    const p1 = pts[(i + 1) % sides];
+    const p0 = expectDefined(pts[i]);
+    const p1 = expectDefined(pts[(i + 1) % sides]);
     pushTri(pos, col, x, y, p0[0], p0[1], p1[0], p1[1], r, g, b, a);
   }
   return sides;
@@ -612,14 +658,47 @@ function pushMiner(pos, col, x, y, jumpCycle, r, g, b, scale, skipHelmet = false
   const s = scale ?? 1;
   const ox = x + upx * jumpOffset;
   const oy = y + upy * jumpOffset;
+  /**
+   * @param {number} lx
+   * @param {number} ly
+   * @returns {[number, number]}
+   */
   const toWorld = (lx, ly) => [ox + tx * lx + upx * ly, oy + ty * lx + upy * ly];
   let triCount = 0;
+  /**
+   * @param {number} v
+   * @returns {number}
+   */
   const darken = (v) => Math.max(0, Math.min(1, v * 0.55));
   /** @type {Array<{a:[number,number],b:[number,number],c:[number,number],col:[number,number,number],outline:boolean}>} */
   const tris = [];
+  /**
+   * @param {number} ax
+   * @param {number} ay
+   * @param {number} bx
+   * @param {number} by
+   * @param {number} cx
+   * @param {number} cy
+   * @param {number} cr
+   * @param {number} cg
+   * @param {number} cb
+   * @param {boolean} [outline]
+   * @returns {void}
+   */
   const emitTri = (ax, ay, bx, by, cx, cy, cr, cg, cb, outline = true) => {
     tris.push({ a: [ax, ay], b: [bx, by], c: [cx, cy], col: [cr, cg, cb], outline });
   };
+  /**
+   * @param {number} lx0
+   * @param {number} ly0
+   * @param {number} lx1
+   * @param {number} ly1
+   * @param {number} [qr]
+   * @param {number} [qg]
+   * @param {number} [qb]
+   * @param {boolean} [outline]
+   * @returns {void}
+   */
   const quad = (lx0, ly0, lx1, ly1, qr = r, qg = g, qb = b, outline = true) => {
     const [ax, ay] = toWorld(lx0, ly0);
     const [bx, by] = toWorld(lx1, ly0);
@@ -634,6 +713,10 @@ function pushMiner(pos, col, x, y, jumpCycle, r, g, b, scale, skipHelmet = false
   const legBaseY = 0.08 * s;
   const legTipY = -0.08 * s;
   const legCenterOffset = 0.055 * s;
+  /**
+   * @param {number} cx
+   * @returns {void}
+   */
   const legTri = (cx) => {
     const [aX, aY] = toWorld(cx - legHalfW, legBaseY);
     const [bX, bY] = toWorld(cx + legHalfW, legBaseY);
@@ -759,20 +842,45 @@ function pushEnemyShape(pos, col, enemy, baseColor, scale, alpha, useGradient, o
   const r = baseColor[0];
   const g = baseColor[1];
   const b = baseColor[2];
+  /** @type {Rgba} */
   const bright = [Math.min(1, r + 0.3), Math.min(1, g + 0.3), Math.min(1, b + 0.3), alpha];
+  /** @type {Rgba} */
   const dark = [r * 0.55, g * 0.55, b * 0.55, alpha];
+  /** @type {Rgba} */
   const mid = [r * 0.85, g * 0.85, b * 0.85, alpha];
+  /**
+   * @param {number} lx
+   * @param {number} ly
+   * @returns {[number, number]}
+   */
   const toWorld = (lx, ly) => [x + tx * lx + upx * ly, y + ty * lx + upy * ly];
+  /**
+   * @param {number} v
+   * @returns {number}
+   */
   const clamp01 = (v) => Math.max(0, Math.min(1, v));
+  /**
+   * @param {number} ly
+   * @returns {[number,number,number,number]}
+   */
   const colorFor = (ly) => {
     const t = clamp01((ly / (scale || 1)) * 0.5 + 0.5);
-    return /** @type {[number,number,number,number]} */ ([
+    return [
       dark[0] + (bright[0] - dark[0]) * t,
       dark[1] + (bright[1] - dark[1]) * t,
       dark[2] + (bright[2] - dark[2]) * t,
       alpha,
-    ]);
+    ];
   };
+  /**
+   * @param {number} ax
+   * @param {number} ay
+   * @param {number} bx
+   * @param {number} by
+   * @param {number} cx
+   * @param {number} cy
+   * @returns {void}
+   */
   const tri = (ax, ay, bx, by, cx, cy) => {
     if (outlineExpand > 0){
       const cxm = (ax + bx + cx) / 3;
@@ -820,6 +928,10 @@ function pushEnemyShape(pos, col, enemy, baseColor, scale, alpha, useGradient, o
     const halfW = 0.75 * s * ds;
     const halfH = 1.05 * s * ds;
     const cxOff = halfW * 0.5;
+    /**
+     * @param {number} cx
+     * @returns {void}
+     */
     const diamond = (cx) => {
       tri(cx, halfH, cx + halfW, 0, cx, -halfH);
       tri(cx, -halfH, cx - halfW, 0, cx, halfH);
@@ -1056,15 +1168,26 @@ function drawFrameImpl(renderer, state, planet){
   }
 
   const shipRot = Number.isFinite(state.ship.renderAngle)
-    ? state.ship.renderAngle
+    ? Number(state.ship.renderAngle)
     : getDropshipWorldRotation(state.ship.x, state.ship.y);
+  /**
+   * @param {number} c
+   * @returns {number}
+   */
   const lighten = (c) => Math.min(1, c + 0.3);
+  /** @type {Rgb} */
   const rockPoint = [1.0, 0.55, 0.12];
-  const airPoint = [lighten(airLight[0]), lighten(airLight[1]), lighten(airLight[2])];
+  /** @type {Rgb} */
+  const airPoint = [
+    lighten(expectDefined(airLight[0])),
+    lighten(expectDefined(airLight[1])),
+    lighten(expectDefined(airLight[2])),
+  ];
   const now = performance.now() * 0.001;
   const invertT = Math.max(0, state.ship.invertT || 0);
   const invertPulse = invertT > 0 ? (0.55 + 0.45 * Math.sin(now * 8)) : 0;
   const invertMix = invertT > 0 ? Math.min(0.65, 0.25 + 0.35 * invertPulse) : 0;
+  /** @type {Rgb} */
   const invertTint = (planetCfg && planetCfg.id === "molten")
     ? [1.0, 0.48, 0.16]
     : [0.72, 0.25, 0.9];
@@ -1073,13 +1196,21 @@ function drawFrameImpl(renderer, state, planet){
   const damageNorm = hitCooldownT > 0 ? Math.min(1, hitCooldownT / hitCooldownMax) : 0;
   const damagePulse = damageNorm > 0 ? (0.5 + 0.5 * Math.sin(now * 22)) : 0;
   const damageMix = damageNorm > 0 ? ((0.18 + 0.42 * damagePulse) * damageNorm) : 0;
+  /** @type {Rgb} */
   const damageTint = [1.0, 0.12, 0.12];
   const lowHullPulse = (state.ship.state !== "crashed" && state.ship.hpCur === 1)
     // Slower critical cycle with a narrow peak so red is a quick flash.
     ? Math.pow(Math.max(0, Math.sin(now * 4.2)), 7)
     : 0;
   const lowHullMix = lowHullPulse > 0 ? (0.48 * lowHullPulse) : 0;
+  /** @type {Rgb} */
   const lowHullTint = [1.0, 0.14, 0.14];
+  /**
+   * @param {number} cr
+   * @param {number} cg
+   * @param {number} cb
+   * @returns {Rgb}
+   */
   const applyTint = (cr, cg, cb) => {
     let outR = cr;
     let outG = cg;
@@ -1101,28 +1232,58 @@ function drawFrameImpl(renderer, state, planet){
     }
     return [outR, outG, outB];
   };
+  /**
+   * @param {number} lx
+   * @param {number} ly
+   * @returns {Vec2}
+   */
   const toShipWorldLocal = (lx, ly) => {
-    const [wx, wy] = rot2(lx, ly, shipRot);
+    const rotated = rot2(lx, ly, shipRot);
+    const wx = expectDefined(rotated[0]);
+    const wy = expectDefined(rotated[1]);
     return [state.ship.x + wx, state.ship.y + wy];
   };
   // Normalized ship-local coords: x,y in [-0.5..0.5], liftN in ship heights.
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @param {number} [liftN]
+   * @returns {Vec2}
+   */
   const L = (x, y, liftN = 0) => {
     return toShipWorldLocal(x * shipWWorld, (y + liftN) * shipHWorld);
   };
   const shipOutlineSize = 1/16;
-  /** @type {Array<{a:[number,number],b:[number,number],c:[number,number],col:[number,number,number,number],outline?:boolean}>} */
+  /** @type {ColoredTri[]} */
   const shipTris = [];
-  /** @type {Array<{a:[number,number],b:[number,number],c:[number,number],col:[number,number,number,number],outline?:boolean}>} */
+  /** @type {ColoredTri[]} */
   const gunTris = [];
-  /** @type {Array<{a:[number,number],b:[number,number],c:[number,number],col:[number,number,number,number],outline?:boolean}>} */
+  /** @type {ColoredTri[]} */
   const windowTris = [];
   const upLen = Math.hypot(state.ship.x, state.ship.y) || 1;
   const upx = state.ship.x / upLen;
   const upy = state.ship.y / upLen;
   const topY = (cargoTopN + bodyLiftN) * shipHWorld;
   const bottomY = (cargoBottomN + bodyLiftN) * shipHWorld;
+  /** @type {Rgb} */
   const silverTop = [0.85, 0.87, 0.9];
+  /** @type {Rgb} */
   const silverBottom = [0.55, 0.58, 0.62];
+  /**
+   * @param {ColoredTri[]} list
+   * @param {number} ax
+   * @param {number} ay
+   * @param {number} bx
+   * @param {number} by
+   * @param {number} cx
+   * @param {number} cy
+   * @param {number} cr
+   * @param {number} cg
+   * @param {number} cb
+   * @param {number} [ca]
+   * @param {boolean} [outline]
+   * @returns {void}
+   */
   const addTri = (list, ax, ay, bx, by, cx, cy, cr, cg, cb, ca = 1, outline = true) => {
     const tinted = applyTint(cr, cg, cb);
     list.push({
@@ -1133,6 +1294,18 @@ function drawFrameImpl(renderer, state, planet){
       outline,
     });
   };
+  /**
+   * @param {ColoredTri[]} list
+   * @param {number} ax
+   * @param {number} ay
+   * @param {number} bx
+   * @param {number} by
+   * @param {number} cx
+   * @param {number} cy
+   * @param {number} [ly]
+   * @param {boolean} [outline]
+   * @returns {void}
+   */
   const addShipTri = (list, ax, ay, bx, by, cx, cy, ly, outline = true) => {
     const mx = (ax + bx + cx) / 3;
     const my = (ay + by + cy) / 3;
@@ -1147,7 +1320,9 @@ function drawFrameImpl(renderer, state, planet){
    * @param {{x:number,y:number,scale?:number,padNx?:number,padNy?:number}} p
    */
   const drawTurretPadProp = (p) => {
+    /** @type {number|undefined} */
     let ux;
+    /** @type {number|undefined} */
     let uy;
     if (typeof p.padNx === "number" && typeof p.padNy === "number"){
       const nlen = Math.hypot(p.padNx, p.padNy) || 1;
@@ -1160,7 +1335,9 @@ function drawFrameImpl(renderer, state, planet){
         uy = normal.ny;
       }
     }
+    /** @type {number|undefined} */
     let tx;
+    /** @type {number|undefined} */
     let ty;
     if (ux !== undefined && uy !== undefined){
       tx = -uy;
@@ -1176,9 +1353,20 @@ function drawFrameImpl(renderer, state, planet){
     const halfW = 0.55 * s;
     const halfH = 0.12 * s;
     const sink = halfH + 0.02 * s;
-    const cx = p.x - ux * sink;
-    const cy = p.y - uy * sink;
-    const toWorld = (x, y, lx, ly) => [x + tx * lx + ux * ly, y + ty * lx + uy * ly];
+    const nx = expectDefined(ux);
+    const ny = expectDefined(uy);
+    const tangentX = expectDefined(tx);
+    const tangentY = expectDefined(ty);
+    const cx = p.x - nx * sink;
+    const cy = p.y - ny * sink;
+    /**
+     * @param {number} x
+     * @param {number} y
+     * @param {number} lx
+     * @param {number} ly
+     * @returns {Vec2}
+     */
+    const toWorld = (x, y, lx, ly) => [x + tangentX * lx + nx * ly, y + tangentY * lx + ny * ly];
     const a0 = toWorld(cx, cy, -halfW, -halfH);
     const a1 = toWorld(cx, cy, halfW, -halfH);
     const a2 = toWorld(cx, cy, halfW, halfH);
@@ -1252,9 +1440,13 @@ function drawFrameImpl(renderer, state, planet){
       const backCy = gmy - diry * mountOffset;
       const frontCx = backCx + dirx * gunLen;
       const frontCy = backCy + diry * gunLen;
+      /** @type {Vec2} */
       const backL = [backCx + px * gunHalfW, backCy + py * gunHalfW];
+      /** @type {Vec2} */
       const backR = [backCx - px * gunHalfW, backCy - py * gunHalfW];
+      /** @type {Vec2} */
       const frontL = [frontCx + px * gunHalfW, frontCy + py * gunHalfW];
+      /** @type {Vec2} */
       const frontR = [frontCx - px * gunHalfW, frontCy - py * gunHalfW];
       addShipTri(gunTris, backL[0], backL[1], backR[0], backR[1], frontR[0], frontR[1], undefined, true);
       addShipTri(gunTris, backL[0], backL[1], frontR[0], frontR[1], frontL[0], frontL[1], undefined, true);
@@ -1353,10 +1545,15 @@ function drawFrameImpl(renderer, state, planet){
     const s3 = Math.sin(m.angle);
     const points = m.renderPoints || m.points;
     const tris = m.renderTris || m.tris;
+    /**
+     * @param {[number, number, number]} tri
+     * @param {boolean} isWall
+     * @returns {void}
+     */
     const drawTri = (tri, isWall) => {
-      const a = points[tri[0]];
-      const b = points[tri[1]];
-      const d = points[tri[2]];
+      const a = expectDefined(points[tri[0]]);
+      const b = expectDefined(points[tri[1]]);
+      const d = expectDefined(points[tri[2]]);
       const ax = m.x + c * a.x - s3 * a.y;
       const ay = m.y + s3 * a.x + c * a.y;
       const bx = m.x + c * b.x - s3 * b.y;
@@ -1370,24 +1567,29 @@ function drawFrameImpl(renderer, state, planet){
       }
       triVerts += 3;
     };
+    /**
+     * @param {[number, number, number]} tri
+     * @param {number} idx
+     * @returns {boolean}
+     */
     const triIsWall = (tri, idx) => {
       if (m.triAir && idx < m.triAir.length){
-        return m.triAir[idx] <= 0.5;
+        return expectDefined(m.triAir[idx]) <= 0.5;
       }
-      const a = points[tri[0]];
-      const b = points[tri[1]];
-      const d = points[tri[2]];
+      const a = expectDefined(points[tri[0]]);
+      const b = expectDefined(points[tri[1]]);
+      const d = expectDefined(points[tri[2]]);
       const aAir = ("air" in a) ? a.air : 1;
       const bAir = ("air" in b) ? b.air : 1;
       const cAir = ("air" in d) ? d.air : 1;
       return (aAir + bAir + cAir) / 3 <= 0.5;
     };
     for (let i = 0; i < tris.length; i++){
-      const tri = tris[i];
+      const tri = /** @type {[number, number, number]} */ (expectDefined(tris[i]));
       if (!triIsWall(tri, i)) drawTri(tri, false);
     }
     for (let i = 0; i < tris.length; i++){
-      const tri = tris[i];
+      const tri = /** @type {[number, number, number]} */ (expectDefined(tris[i]));
       if (triIsWall(tri, i)) drawTri(tri, true);
     }
 
@@ -1558,7 +1760,8 @@ function drawFrameImpl(renderer, state, planet){
   if (iceShardParticles && iceShardParticles.length){
     for (const p of iceShardParticles){
       if (state.fogEnabled && !planet.fogSeenAt(p.x, p.y)) continue;
-      const lifeN = (p.maxLife && p.maxLife > 0) ? Math.max(0, Math.min(1, p.life / p.maxLife)) : 1;
+      const life = p.life ?? 0;
+      const lifeN = (p.maxLife && p.maxLife > 0) ? Math.max(0, Math.min(1, life / p.maxLife)) : 1;
       const progress = 1 - lifeN;
       const vlen = Math.hypot(p.vx || 0, p.vy || 0) || 1;
       const ux = (p.vx || 0) / vlen;
@@ -1582,7 +1785,8 @@ function drawFrameImpl(renderer, state, planet){
   if (splashParticles && splashParticles.length){
     for (const p of splashParticles){
       if (state.fogEnabled && !planet.fogSeenAt(p.x, p.y)) continue;
-      const lifeN = (p.maxLife && p.maxLife > 0) ? Math.max(0, Math.min(1, p.life / p.maxLife)) : 1;
+      const life = p.life ?? 0;
+      const lifeN = (p.maxLife && p.maxLife > 0) ? Math.max(0, Math.min(1, life / p.maxLife)) : 1;
       const vlen = Math.hypot(p.vx || 0, p.vy || 0);
       let ux = 1;
       let uy = 0;
@@ -1635,6 +1839,11 @@ function drawFrameImpl(renderer, state, planet){
 
   const props = planet.props;
   if (props && props.length){
+    /**
+     * @param {number} x
+     * @param {number} y
+     * @returns {{ux:number,uy:number,tx:number,ty:number}}
+     */
     const basisAt = (x, y) => {
       const len = Math.hypot(x, y) || 1;
       const ux = x / len;
@@ -1643,6 +1852,17 @@ function drawFrameImpl(renderer, state, planet){
       const ty = ux;
       return { ux, uy, tx, ty };
     };
+    /**
+     * @param {number} x
+     * @param {number} y
+     * @param {number} tx
+     * @param {number} ty
+     * @param {number} ux
+     * @param {number} uy
+     * @param {number} lx
+     * @param {number} ly
+     * @returns {Vec2}
+     */
     const toWorld = (x, y, tx, ty, ux, uy, lx, ly) => {
       return [x + tx * lx + ux * ly, y + ty * lx + uy * ly];
     };
@@ -1842,7 +2062,9 @@ function drawFrameImpl(renderer, state, planet){
         const halfL = (typeof p.halfLength === "number" && p.halfLength > 0) ? p.halfLength : (0.9 * s);
         const halfW = (typeof p.halfWidth === "number" && p.halfWidth > 0) ? p.halfWidth : (0.12 * s);
         const locked = !!p.locked;
+        /** @type {Rgb} */
         const bodyCol = locked ? [0.28, 0.31, 0.38] : [0.78, 0.38, 0.20];
+        /** @type {Rgb} */
         const coreCol = locked ? [0.14, 0.17, 0.22] : [1.0, 0.68, 0.32];
         const a0 = toWorld(p.x, p.y, tx, ty, ux, uy, -halfW, -halfL);
         const a1 = toWorld(p.x, p.y, tx, ty, ux, uy, halfW, -halfL);
@@ -1914,6 +2136,12 @@ function drawFrameImpl(renderer, state, planet){
         const factoryHitMix = factoryHitNorm > 0
           ? ((0.24 + 0.5 * factoryHitPulse) * factoryHitNorm)
           : 0;
+        /**
+         * @param {number} r
+         * @param {number} g
+         * @param {number} b
+         * @returns {Rgb}
+         */
         const tintFactory = (r, g, b) => {
           if (factoryHitMix <= 0) return [r, g, b];
           return [
@@ -1958,10 +2186,14 @@ function drawFrameImpl(renderer, state, planet){
   // Base world triangles end here.
   triVerts = pos.length / 2;
 
+  /**
+   * @param {{x:number,y:number,life?:number,maxLife?:number,radius?:number}} ex
+   * @returns {void}
+   */
   const pushCrawlerExplosionShards = (ex) => {
     if (!visibleHostileNow(ex.x, ex.y)) return;
     const maxLife = Math.max(0.001, ex.maxLife ?? 0.5);
-    const t = Math.max(0, Math.min(1, ex.life / maxLife));
+    const t = Math.max(0, Math.min(1, (ex.life ?? 0) / maxLife));
     const baseRadius = ex.radius ?? 0.8;
     const alpha = 0.85 * t;
     const burstN = 6;
@@ -2051,10 +2283,18 @@ function drawFrameImpl(renderer, state, planet){
     const b1y = -uy * len * 0.45 + py * spread;
     const b2x = -ux * len * 0.45 - px * spread;
     const b2y = -uy * len * 0.45 - py * spread;
-    const [lx, ly] = rot2(0, lift, shipRot);
-    const [tx, ty] = rot2(tipx + posUx * offset, tipy + posUy * offset, shipRot);
-    const [p1x, p1y] = rot2(b1x + posUx * offset, b1y + posUy * offset, shipRot);
-    const [p2x, p2y] = rot2(b2x + posUx * offset, b2y + posUy * offset, shipRot);
+    const liftRot = rot2(0, lift, shipRot);
+    const lx = expectDefined(liftRot[0]);
+    const ly = expectDefined(liftRot[1]);
+    const tipRot = rot2(tipx + posUx * offset, tipy + posUy * offset, shipRot);
+    const tx = expectDefined(tipRot[0]);
+    const ty = expectDefined(tipRot[1]);
+    const p1Rot = rot2(b1x + posUx * offset, b1y + posUy * offset, shipRot);
+    const p1x = expectDefined(p1Rot[0]);
+    const p1y = expectDefined(p1Rot[1]);
+    const p2Rot = rot2(b2x + posUx * offset, b2y + posUy * offset, shipRot);
+    const p2x = expectDefined(p2Rot[0]);
+    const p2y = expectDefined(p2Rot[1]);
     const a = 0.35 + 0.65 * p;
     pushLine(pos, col, state.ship.x + p1x + lx, state.ship.y + p1y + ly, state.ship.x + tx + lx, state.ship.y + ty + ly, r, g, b, a);
     pushLine(pos, col, state.ship.x + p2x + lx, state.ship.y + p2y + ly, state.ship.x + tx + lx, state.ship.y + ty + ly, r, g, b, a);
@@ -2156,10 +2396,11 @@ function drawFrameImpl(renderer, state, planet){
 
         /** @type (x: number, y: number) => boolean */
         const isInsideMothership = (x, y) => {
-          x -= state.mothership.x;
-          y -= state.mothership.y;
-          const rotCos = Math.cos(state.mothership.angle);
-          const rotSin = Math.sin(state.mothership.angle);
+          const mothership = expectDefined(state.mothership);
+          x -= mothership.x;
+          y -= mothership.y;
+          const rotCos = Math.cos(mothership.angle);
+          const rotSin = Math.sin(mothership.angle);
           const xLocal = x * rotCos + y *  rotSin;
           const yLocal = x * rotSin + y * -rotCos;
           // Hard-coding the dimensions of the mothership in its local coordinate
@@ -2176,8 +2417,9 @@ function drawFrameImpl(renderer, state, planet){
         let vy = state.ship.vy;
 
         if (insideMothership){
-          vx -= state.mothership.vx;
-          vy -= state.mothership.vy;
+          const mothership = expectDefined(state.mothership);
+          vx -= mothership.vx;
+          vy -= mothership.vy;
         }
 
         const vscale = vScaleStopping(planet, state.ship.x, state.ship.y, vx, vy, thrustMax + inertialDriveThrust);
@@ -2239,6 +2481,7 @@ function drawFrameImpl(renderer, state, planet){
       }
     }
 
+    /** @type {Rgb} */
     const tc = [1.0, 0.55, 0.15];
     const thrusterPower = getDropshipThrusterPowers(state.input || {});
     const manualThrustersActive = (
@@ -2365,9 +2608,9 @@ function drawFrameImpl(renderer, state, planet){
       const t = Math.max(0, Math.min(1, ex.life / 0.8));
       const r = (ex.radius ?? 1.0) * (0.4 + (1 - t) * 0.9);
       const alpha = 0.9 * t;
-      const er = Number.isFinite(ex.cr) ? ex.cr : 1.0;
-      const eg = Number.isFinite(ex.cg) ? ex.cg : 0.9;
-      const eb = Number.isFinite(ex.cb) ? ex.cb : 0.4;
+      const er = Number.isFinite(ex.cr) ? Number(ex.cr) : 1.0;
+      const eg = Number.isFinite(ex.cg) ? Number(ex.cg) : 0.9;
+      const eb = Number.isFinite(ex.cb) ? Number(ex.cb) : 0.4;
       const seg = 18;
       for (let i = 0; i < seg; i++){
         const a0 = (i / seg) * Math.PI * 2;
@@ -2381,8 +2624,8 @@ function drawFrameImpl(renderer, state, planet){
         pushLine(pos, col, x0, y0, x1, y1, er, eg, eb, alpha);
         lineVerts += 2;
       }
-      pushLine(pos, col, ex.x - r * 0.6, ex.y, ex.x + r * 0.6, ex.y, Math.min(1, er), Math.min(1, eg + 0.05), Math.min(1, eb + 0.08), 0.7 * alpha);
-      pushLine(pos, col, ex.x, ex.y - r * 0.6, ex.x, ex.y + r * 0.6, Math.min(1, er), Math.min(1, eg + 0.05), Math.min(1, eb + 0.08), 0.7 * alpha);
+      pushLine(pos, col, ex.x - r * 0.6, ex.y, ex.x + r * 0.6, ex.y, Math.min(1, er), Math.min(1, expectDefined(eg) + 0.05), Math.min(1, expectDefined(eb) + 0.08), 0.7 * alpha);
+      pushLine(pos, col, ex.x, ex.y - r * 0.6, ex.x, ex.y + r * 0.6, Math.min(1, er), Math.min(1, expectDefined(eg) + 0.05), Math.min(1, expectDefined(eb) + 0.08), 0.7 * alpha);
       lineVerts += 4;
     }
   }
@@ -2397,6 +2640,11 @@ function drawFrameImpl(renderer, state, planet){
       pushHexOutline(pos, col, p.x, p.y, 0.28 * s, rot, 0.60, 0.62, 0.66, 0.78);
       lineVerts += 12;
     }
+    /**
+     * @param {number} x
+     * @param {number} y
+     * @returns {{ux:number,uy:number,tx:number,ty:number}}
+     */
     const basisAt = (x, y) => {
       const len = Math.hypot(x, y) || 1;
       const ux = x / len;
@@ -2405,6 +2653,17 @@ function drawFrameImpl(renderer, state, planet){
       const ty = ux;
       return { ux, uy, tx, ty };
     };
+    /**
+     * @param {number} x
+     * @param {number} y
+     * @param {number} tx
+     * @param {number} ty
+     * @param {number} ux
+     * @param {number} uy
+     * @param {number} lx
+     * @param {number} ly
+     * @returns {Vec2}
+     */
     const toWorld = (x, y, tx, ty, ux, uy, lx, ly) => {
       return [x + tx * lx + ux * ly, y + ty * lx + uy * ly];
     };
@@ -2446,7 +2705,8 @@ function drawFrameImpl(renderer, state, planet){
   if (bubbleParticles && bubbleParticles.length){
     for (const p of bubbleParticles){
       if (state.fogEnabled && !planet.fogSeenAt(p.x, p.y)) continue;
-      const lifeN = (p.maxLife && p.maxLife > 0) ? Math.max(0, Math.min(1, p.life / p.maxLife)) : 1;
+      const life = p.life ?? 0;
+      const lifeN = (p.maxLife && p.maxLife > 0) ? Math.max(0, Math.min(1, life / p.maxLife)) : 1;
       const radius = (p.size || 0.08) * (1 + (1 - lifeN) * 0.35);
       const alpha = 0.30 + 0.58 * lifeN;
       pushHexOutline(pos, col, p.x, p.y, radius, p.rot || 0, 0.80, 0.95, 1.0, alpha);
@@ -2454,21 +2714,21 @@ function drawFrameImpl(renderer, state, planet){
     }
   }
   if (state.debugMinerGuidePath && state.ship && state.ship.state === "landed" && state.ship.guidePath && state.ship.guidePath.path && state.ship.guidePath.path.length > 0){
-    const path = state.ship.guidePath.path;
-    for (let i = 1; i < path.length; ++i){
-      const p0 = path[i - 1];
-      const p1 = path[i];
-      pushLine(pos, col, p0.x, p0.y, p1.x, p1.y, 1.0, 0.9, 0.1, 0.85);
-      lineVerts += 2;
-    }
-    if (state.debugMinerPathToMiner && state.debugMinerPathToMiner.length > 1){
-      const minerPath = state.debugMinerPathToMiner;
-      for (let i = 1; i < minerPath.length; i++){
-        const p0 = minerPath[i - 1];
-        const p1 = minerPath[i];
-        pushLine(pos, col, p0.x, p0.y, p1.x, p1.y, 0.2, 0.95, 0.25, 0.98);
+      const path = state.ship.guidePath.path;
+      for (let i = 1; i < path.length; ++i){
+        const p0 = expectDefined(path[i - 1]);
+        const p1 = expectDefined(path[i]);
+        pushLine(pos, col, p0.x, p0.y, p1.x, p1.y, 1.0, 0.9, 0.1, 0.85);
         lineVerts += 2;
       }
+    if (state.debugMinerPathToMiner && state.debugMinerPathToMiner.length > 1){
+        const minerPath = state.debugMinerPathToMiner;
+        for (let i = 1; i < minerPath.length; i++){
+          const p0 = expectDefined(minerPath[i - 1]);
+          const p1 = expectDefined(minerPath[i]);
+          pushLine(pos, col, p0.x, p0.y, p1.x, p1.y, 0.2, 0.95, 0.25, 0.98);
+          lineVerts += 2;
+        }
     }
     const idxRaw = Math.max(0, Math.min(path.length - 1, Number(state.ship.guidePath.indexClosest) || 0));
     let pShip = null;
@@ -2481,8 +2741,8 @@ function drawFrameImpl(renderer, state, planet){
         i0 = path.length - 2;
         u = 1;
       }
-      const p0 = path[Math.max(0, i0)];
-      const p1 = path[Math.min(path.length - 1, i0 + 1)];
+      const p0 = expectDefined(path[Math.max(0, i0)]);
+      const p1 = expectDefined(path[Math.min(path.length - 1, i0 + 1)]);
       pShip = {
         x: p0.x + (p1.x - p0.x) * u,
         y: p0.y + (p1.y - p0.y) * u,
@@ -2501,6 +2761,11 @@ function drawFrameImpl(renderer, state, planet){
   const landingDbg = state.ship._landingDebug || null;
   /** @type {Array<{x:number,y:number,air:boolean,av:number}>} */
   const debugCollisionSeeds = [];
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @returns {void}
+   */
   const addDebugSeed = (x, y) => {
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
     for (const s of debugCollisionSeeds){
@@ -2515,29 +2780,33 @@ function drawFrameImpl(renderer, state, planet){
     }
   }
   if (landingDbg){
-    addDebugSeed(landingDbg.impactX, landingDbg.impactY);
-    addDebugSeed(landingDbg.supportX, landingDbg.supportY);
+    if (Number.isFinite(landingDbg.impactX) && Number.isFinite(landingDbg.impactY)){
+      addDebugSeed(Number(landingDbg.impactX), Number(landingDbg.impactY));
+    }
+    if (Number.isFinite(landingDbg.supportX) && Number.isFinite(landingDbg.supportY)){
+      addDebugSeed(Number(landingDbg.supportX), Number(landingDbg.supportY));
+    }
   }
 
   if ((state.debugCollisions || state.debugCollisionContours) && state.ship){
     // Draw active ship collider outline from sampled hull points.
     if (dbgSamples && dbgSamples.length >= 4){
       let nHull = dbgSamples.length;
-      const last = dbgSamples[dbgSamples.length - 1];
+      const last = expectDefined(dbgSamples[dbgSamples.length - 1]);
       if (Math.hypot(last[0] - state.ship.x, last[1] - state.ship.y) < 1e-5){
         nHull = Math.max(0, nHull - 1);
       }
       if (nHull >= 3){
         for (let i = 0; i < nHull; i++){
-          const a = dbgSamples[i];
-          const b = dbgSamples[(i + 1) % nHull];
+          const a = expectDefined(dbgSamples[i]);
+          const b = expectDefined(dbgSamples[(i + 1) % nHull]);
           pushLine(pos, col, a[0], a[1], b[0], b[1], 0.2, 0.95, 1.0, 0.7);
           lineVerts += 2;
         }
       } else {
         const cx = state.ship.x;
         const cy = state.ship.y;
-        const r = Number.isFinite(state.ship._shipRadius) ? state.ship._shipRadius : 0;
+        const r = Number.isFinite(state.ship._shipRadius) ? Number(state.ship._shipRadius) : 0;
         if (Number.isFinite(cx) && Number.isFinite(cy) && r > 0){
           const segs = 28;
           for (let i = 0; i < segs; i++){
@@ -2555,7 +2824,7 @@ function drawFrameImpl(renderer, state, planet){
     } else {
       const cx = state.ship.x;
       const cy = state.ship.y;
-      const r = Number.isFinite(state.ship._shipRadius) ? state.ship._shipRadius : 0;
+      const r = Number.isFinite(state.ship._shipRadius) ? Number(state.ship._shipRadius) : 0;
       if (Number.isFinite(cx) && Number.isFinite(cy) && r > 0){
         const segs = 28;
         for (let i = 0; i < segs; i++){
@@ -2581,6 +2850,11 @@ function drawFrameImpl(renderer, state, planet){
     }
   }
 
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @returns {Array<{x:number,y:number,air:number}>|null}
+   */
   const findTriAtOrNear = (x, y) => {
     if (!planet.radial || typeof planet.radial.findTriAtWorld !== "function") return null;
     let tri = planet.radial.findTriAtWorld(x, y);
@@ -2590,6 +2864,7 @@ function drawFrameImpl(renderer, state, planet){
     const uy = y / r;
     const tx = -uy;
     const ty = ux;
+    /** @type {Vec2[]} */
     const dirs = [[ux, uy], [-ux, -uy], [tx, ty], [-tx, -ty]];
     const probe = [0.02, 0.05, 0.1, 0.18];
     for (const d of probe){
@@ -2627,7 +2902,9 @@ function drawFrameImpl(renderer, state, planet){
     }
 
     for (const tri of testedTris){
-      const a = tri[0], b = tri[1], c = tri[2];
+      const a = expectDefined(tri[0]);
+      const b = expectDefined(tri[1]);
+      const c = expectDefined(tri[2]);
       pushTriangleOutline(pos, col, a.x, a.y, b.x, b.y, c.x, c.y, 0.25, 0.65, 1.0, 0.25);
       lineVerts += 6;
       const seg = triIsoSegment(tri, 0.5);
@@ -2649,7 +2926,7 @@ function drawFrameImpl(renderer, state, planet){
       let nearest = null;
       let nearestD2 = Infinity;
       for (let i = 0; i < boundaryEdges.length; i++){
-        const edge = boundaryEdges[i];
+        const edge = expectDefined(boundaryEdges[i]);
         const cp = closestPointOnSegment(edge.ax, edge.ay, edge.bx, edge.by, lp.x, lp.y);
         if (cp.d2 < nearestD2){
           nearestD2 = cp.d2;
@@ -2780,7 +3057,9 @@ function drawFrameImpl(renderer, state, planet){
     col.push(1.0, 0.95, 0.2, 1.0);
     pointVerts += 1;
     if (c.tri){
-      const a = c.tri[0], b = c.tri[1], d = c.tri[2];
+      const a = expectDefined(c.tri[0]);
+      const b = expectDefined(c.tri[1]);
+      const d = expectDefined(c.tri[2]);
       pushLine(pos, col, a.x, a.y, b.x, b.y, 1.0, 0.4, 0.2, 0.8);
       pushLine(pos, col, b.x, b.y, d.x, d.y, 1.0, 0.4, 0.2, 0.8);
       pushLine(pos, col, d.x, d.y, a.x, a.y, 1.0, 0.4, 0.2, 0.8);
@@ -2796,14 +3075,14 @@ function drawFrameImpl(renderer, state, planet){
     const ix = landingDbg.impactX;
     const iy = landingDbg.impactY;
     if (Number.isFinite(ix) && Number.isFinite(iy)){
-      pos.push(ix, iy);
+      pos.push(Number(ix), Number(iy));
       col.push(1.0, 0.55, 0.1, 1.0);
       pointVerts += 1;
     }
     const sx = landingDbg.supportX;
     const sy = landingDbg.supportY;
     if (Number.isFinite(sx) && Number.isFinite(sy)){
-      pos.push(sx, sy);
+      pos.push(Number(sx), Number(sy));
       col.push(0.2, 1.0, 1.0, 1.0);
       pointVerts += 1;
     }

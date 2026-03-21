@@ -426,9 +426,11 @@ export class HelpPopup {
       if (e.target === this.root) this.close();
     });
 
+    /** @param {KeyboardEvent} e */
     this._onKeyDownBound = (e) => this._onKeyDown(e);
     this._gamepadHelpHeld = false;
     this._lastGamepadPollMs = performance.now();
+    /** @param {number} ts */
     this._pollGamepadBound = (ts) => this._pollGamepadToggle(ts);
     window.addEventListener("keydown", this._onKeyDownBound, true);
     document.body.appendChild(this.root);
@@ -539,8 +541,8 @@ export class HelpPopup {
       const lt = this._gamepadButtonValue(pad, 6);
       const dpadDown = this._gamepadButtonValue(pad, 13);
       const dpadUp = this._gamepadButtonValue(pad, 12);
-      const leftY = this._gamepadAxisValue(pad.axes && pad.axes.length > 1 ? pad.axes[1] : 0);
-      const rightY = this._gamepadAxisValue(pad.axes && pad.axes.length > 3 ? pad.axes[3] : 0);
+      const leftY = this._gamepadAxisValue((pad.axes && pad.axes.length > 1 ? pad.axes[1] : 0) ?? 0);
+      const rightY = this._gamepadAxisValue((pad.axes && pad.axes.length > 3 ? pad.axes[3] : 0) ?? 0);
       down = Math.max(down, rt, dpadDown, Math.max(0, leftY), Math.max(0, rightY));
       up = Math.max(up, lt, dpadUp, Math.max(0, -leftY), Math.max(0, -rightY));
     }

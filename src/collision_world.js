@@ -276,6 +276,11 @@ export function firstBodyCollisionOnSegment(collision, pointsAt, x0, y0, x1, y1,
   return null;
 }
 
+/**
+ * @param {import("./planet.js").Planet} planet
+ * @param {()=>import("./mothership.js").Mothership|null} getMothership
+ * @returns {import("./types.d.js").CollisionQuery}
+ */
 export function createCollisionRouter(planet, getMothership){
   /**
    * Collision-focused sampling of planet terrain only (no mothership blending).
@@ -339,17 +344,41 @@ export function createCollisionRouter(planet, getMothership){
     return { samples, hit, hitSource };
   }
 
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @returns {number}
+   */
+  function airValueAtWorld(x, y){
+    return sampleAtWorld(x, y).air;
+  }
+
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @returns {{x:number,y:number}}
+   */
+  function gravityAt(x, y){
+    return planet.gravityAt(x, y);
+  }
+
+  /**
+   * @param {Array<[number, number]>} points
+   * @returns {boolean}
+   */
+  function collidesAtPoints(points){
+    for (const [x, y] of points){
+      if (sampleAtWorld(x, y).air <= 0.5) return true;
+    }
+    return false;
+  }
+
   return {
-    airValueAtWorld: (x, y) => sampleAtWorld(x, y).air,
-    planetAirValueAtWorld: (x, y) => planetAirValueAtWorld(x, y),
-    gravityAt: (x, y) => planet.gravityAt(x, y),
+    airValueAtWorld,
+    planetAirValueAtWorld,
+    gravityAt,
     sampleAtWorld,
-    collidesAtPoints: (points) => {
-      for (const [x, y] of points){
-        if (sampleAtWorld(x, y).air <= 0.5) return true;
-      }
-      return false;
-    },
+    collidesAtPoints,
     sampleCollisionPoints,
   };
 }

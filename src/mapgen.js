@@ -39,6 +39,7 @@ export class MapGen {
     /** @type {{G:number,cell:number,worldMin:number,worldMax:number,worldSize:number,R2:number,inside:Uint8Array,idx:(i:number,j:number)=>number,toWorld:(i:number,j:number)=>Vec2,toGrid:(x:number,y:number)=>[number,number]}} */
     this.grid = { G, cell, worldMin, worldMax, worldSize, R2, inside, idx, toWorld, toGrid };
 
+    /** @type {Vec2[]} */
     this._dirs4 = [[1,0],[-1,0],[0,1],[0,-1]];
     /** @type {Vec2[]} */
     this._dirs8 = [];
@@ -70,7 +71,7 @@ export class MapGen {
    * @param {Uint8Array} field
    * @param {number} i
    * @param {number} j
-   * @param {number[][]} dirs
+   * @param {Vec2[]} dirs
    * @returns {number}
    */
   _countN(field, i, j, dirs){
@@ -158,7 +159,9 @@ export class MapGen {
     }
 
     while (qh<qt){
-      const x=qx[qh], y=qy[qh]; qh++;
+      const x = /** @type {number} */ (qx[qh]);
+      const y = /** @type {number} */ (qy[qh]);
+      qh++;
       for (const [dx,dy] of this._dirs4){
         const xx=x+dx, yy=y+dy;
         if (xx<0||xx>=G||yy<0||yy>=G) continue;
@@ -211,7 +214,7 @@ export class MapGen {
       for (let k=0;k<G*G;k++){
         if (!inside[k]) { air[k]=0; continue; }
         ins++;
-        const v = this._caveNoise[k] > mid ? 1 : 0;
+        const v = /** @type {number} */ (this._caveNoise[k]) > mid ? 1 : 0;
         air[k]=v; a+=v;
       }
       const frac = a/ins;
@@ -240,7 +243,7 @@ export class MapGen {
       const r = Math.hypot(x,y) / p.RMAX;
       let mid = 1.0 - Math.abs(r - 0.60) / 0.60;
       mid = Math.max(0, Math.min(1, mid));
-      if (this._veinNoise[k] > p.VEIN_THRESH && mid > CFG.VEIN_MID_MIN) veins[k]=1;
+      if (/** @type {number} */ (this._veinNoise[k]) > p.VEIN_THRESH && mid > CFG.VEIN_MID_MIN) veins[k]=1;
     }
     veins = this._dilate(veins, p.VEIN_DILATE);
     for (let k=0;k<G*G;k++){
@@ -313,8 +316,8 @@ export class MapGen {
       const k=idx(i,j);
       if (!inside[k]) continue;
       const [x,y] = toWorld(i,j);
-      const xw = x + p.WARP_A*this._wx[k];
-      const yw = y + p.WARP_A*this._wy[k];
+      const xw = x + p.WARP_A * /** @type {number} */ (this._wx[k]);
+      const yw = y + p.WARP_A * /** @type {number} */ (this._wy[k]);
 
       const chambers = 0.5 + 0.5*this.noise.fbm(xw*p.BASE_F*0.8, yw*p.BASE_F*0.8, 4, 0.55, 2.0);
       const corridors= this.noise.ridged(xw*p.BASE_F*1.35, yw*p.BASE_F*1.35, 4, 0.55, 2.05);
@@ -561,7 +564,7 @@ function normalizeMapWorld(world, gridSize, fallbackSeed){
   return {
     seed: (world && Number.isFinite(world.seed)) ? +world.seed : +fallbackSeed,
     air,
-    entrances: Array.isArray(world && world.entrances) ? world.entrances.map((p) => [p[0], p[1]]) : [],
+    entrances: Array.isArray(world?.entrances) ? world.entrances.map((p) => [p[0], p[1]]) : [],
     finalAir: (world && Number.isFinite(world.finalAir)) ? +world.finalAir : 0,
   };
 }

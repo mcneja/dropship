@@ -366,8 +366,10 @@ function decodePlanetRuntimeState(state){
  * @returns {void}
  */
 function applyObjectState(target, source){
-  for (const key of Object.keys(source)){
-    target[key] = cloneSaveData(source[key]);
+  const targetObj = /** @type {Record<string, any>} */ (target);
+  const sourceObj = /** @type {Record<string, any>} */ (source);
+  for (const key of Object.keys(sourceObj)){
+    targetObj[key] = cloneSaveData(sourceObj[key]);
   }
 }
 
@@ -382,9 +384,11 @@ function cloneSaveData(value){
   if (Array.isArray(value)){
     return value.map((v) => cloneSaveData(v));
   }
+  const valueObj = /** @type {Record<string, any>} */ (value);
+  /** @type {Record<string, any>} */
   const out = {};
-  for (const key of Object.keys(value)){
-    const v = value[key];
+  for (const key of Object.keys(valueObj)){
+    const v = valueObj[key];
     if (typeof v === "function" || v === undefined) continue;
     out[key] = cloneSaveData(v);
   }
@@ -402,7 +406,7 @@ function uint8ToBase64(value){
     const slice = value.subarray(i, i + chunk);
     let part = "";
     for (let j = 0; j < slice.length; j++){
-      part += String.fromCharCode(slice[j]);
+      part += String.fromCharCode(/** @type {number} */ (slice[j]));
     }
     binary += part;
   }

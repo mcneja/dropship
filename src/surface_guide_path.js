@@ -13,6 +13,18 @@ import { GAME } from "./config.js";
 const contourCache = new WeakMap();
 
 /**
+ * @template T
+ * @param {T|null|undefined} value
+ * @returns {T}
+ */
+function expectDefined(value){
+  if (value == null){
+    throw new Error("Expected value to be defined");
+  }
+  return value;
+}
+
+/**
  * @param {any} mesh
  * @returns {Map<number, GuideContour>}
  */
@@ -64,8 +76,8 @@ export function closestPathIndex(path, qx, qy){
   let bestD2 = Infinity;
   let bestIndex = null;
   for (let i = 1; i < path.length; i++){
-    const p0 = path[i - 1];
-    const p1 = path[i];
+    const p0 = expectDefined(path[i - 1]);
+    const p1 = expectDefined(path[i]);
     const dx = p1.x - p0.x;
     const dy = p1.y - p0.y;
     const den = dx * dx + dy * dy;
@@ -106,6 +118,11 @@ export function ensureSurfaceGuideContour(mesh, threshold = 0.5){
   const nodeOfPoint = new Map();
   const segmentKeys = new Set();
 
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @returns {string}
+   */
   const pointKey = (x, y) => `${Math.round(x * 1000)}:${Math.round(y * 1000)}`;
 
   /**
@@ -200,8 +217,8 @@ export function ensureSurfaceGuideContour(mesh, threshold = 0.5){
     segmentKeys.add(segKey);
     const iSeg = segments.length;
     segments.push({ a: ia, b: ib, len, slope, dotUp, rMid });
-    neighbors[ia].push({ to: ib, len, seg: iSeg });
-    neighbors[ib].push({ to: ia, len, seg: iSeg });
+    expectDefined(neighbors[ia]).push({ to: ib, len, seg: iSeg });
+    expectDefined(neighbors[ib]).push({ to: ia, len, seg: iSeg });
   };
 
   const triList = mesh._triList || [];
@@ -210,22 +227,22 @@ export function ensureSurfaceGuideContour(mesh, threshold = 0.5){
     const crossed = [];
     const edges = [[tri[0], tri[1]], [tri[1], tri[2]], [tri[2], tri[0]]];
     for (const edge of edges){
-      const a = edge[0];
-      const b = edge[1];
+      const a = expectDefined(edge[0]);
+      const b = expectDefined(edge[1]);
       const aboveA = a.air > threshold;
       const aboveB = b.air > threshold;
       if (aboveA === aboveB) continue;
       crossed.push(getCrossNode(a, b));
     }
     if (crossed.length !== 2) continue;
-    addSegment(crossed[0], crossed[1]);
+    addSegment(expectDefined(crossed[0]), expectDefined(crossed[1]));
   }
 
   const outer = mesh.rings && mesh.rings.length ? mesh.rings[mesh.rings.length - 1] : null;
   if (outer && outer.length > 1){
     for (let i = 0; i < outer.length; i++){
-      const v0 = outer[i];
-      const v1 = outer[(i + 1) % outer.length];
+      const v0 = expectDefined(outer[i]);
+      const v1 = expectDefined(outer[(i + 1) % outer.length]);
       const rock0 = v0.air <= threshold;
       const rock1 = v1.air <= threshold;
       if (!rock0 && !rock1) continue;
@@ -275,7 +292,7 @@ export function buildSurfaceGuidePath(mesh, x, y, maxDistance){
     const out = new Uint8Array(segments.length);
     const outerBandInner = rAnchor - outerSlack;
     for (let i = 0; i < segments.length; i++){
-      const s = segments[i];
+      const s = expectDefined(segments[i]);
       if (!(s.dotUp >= minDotUp && s.slope <= maxSlope)){
         out[i] = 0;
         continue;
@@ -301,9 +318,9 @@ export function buildSurfaceGuidePath(mesh, x, y, maxDistance){
     let dBest = Infinity;
     for (let i = 0; i < segments.length; i++){
       if (!mask[i]) continue;
-      const s = segments[i];
-      const a = nodes[s.a];
-      const b = nodes[s.b];
+      const s = expectDefined(segments[i]);
+      const a = expectDefined(nodes[s.a]);
+      const b = expectDefined(nodes[s.b]);
       const dx = b.x - a.x;
       const dy = b.y - a.y;
       const den = dx * dx + dy * dy;
@@ -349,7 +366,7 @@ export function buildSurfaceGuidePath(mesh, x, y, maxDistance){
     return null;
   }
 
-  const start = segments[bestSeg];
+  const start = expectDefined(segments[bestSeg]);
   const maxLen = Math.max(0.15, Number.isFinite(maxDistance) ? maxDistance : 4.0);
 
   /**
@@ -362,7 +379,7 @@ export function buildSurfaceGuidePath(mesh, x, y, maxDistance){
   const pickNextNode = (nodeIdx, prevIdx, fromX, fromY) => {
     const list = neighbors[nodeIdx];
     if (!list || !list.length) return -1;
-    const node = nodes[nodeIdx];
+    const node = expectDefined(nodes[nodeIdx]);
     const inDx = node.x - fromX;
     const inDy = node.y - fromY;
     const inLen = Math.hypot(inDx, inDy);
@@ -371,7 +388,7 @@ export function buildSurfaceGuidePath(mesh, x, y, maxDistance){
     for (const e of list){
       if (e.to === prevIdx) continue;
       if (!segAllowed[e.seg]) continue;
-      const n = nodes[e.to];
+      const n = expectDefined(nodes[e.to]);
       const outDx = n.x - node.x;
       const outDy = n.y - node.y;
       const outLen = Math.hypot(outDx, outDy);
@@ -404,7 +421,7 @@ export function buildSurfaceGuidePath(mesh, x, y, maxDistance){
     let prevIdx = prevNode;
 
     while (remaining > 1e-6){
-      const node = nodes[nodeIdx];
+      const node = expectDefined(nodes[nodeIdx]);
       const dx = node.x - fromX;
       const dy = node.y - fromY;
       const dist = Math.hypot(dx, dy);
@@ -434,6 +451,10 @@ export function buildSurfaceGuidePath(mesh, x, y, maxDistance){
 
   /** @type {Array<Point>} */
   const path = [];
+  /**
+   * @param {Point} p
+   * @returns {void}
+   */
   const pushUnique = (p) => {
     const last = path.length ? path[path.length - 1] : null;
     if (!last || Math.hypot(last.x - p.x, last.y - p.y) > 1e-4){
@@ -464,8 +485,8 @@ export function indexPathFromPos(path, distMax, x, y, rHint = null, rTol = Infin
   let distClosestSqr = Infinity;
   let indexPath = null;
   for (let i = 1; i < path.length; ++i){
-    const pos0 = path[i - 1];
-    const pos1 = path[i];
+    const pos0 = expectDefined(path[i - 1]);
+    const pos1 = expectDefined(path[i]);
     if (rHint !== null && Number.isFinite(rHint) && Number.isFinite(rTol)){
       const r0 = Math.hypot(pos0.x, pos0.y);
       const r1 = Math.hypot(pos1.x, pos1.y);
@@ -504,7 +525,8 @@ export function posFromPathIndex(path, indexPath){
     return { x: 0, y: 0 };
   }
   if (path.length === 1){
-    return { x: path[0].x, y: path[0].y };
+    const only = expectDefined(path[0]);
+    return { x: only.x, y: only.y };
   }
   indexPath = Math.max(0, Math.min(path.length - 1, indexPath));
   let iSeg = Math.floor(indexPath);
@@ -513,10 +535,12 @@ export function posFromPathIndex(path, indexPath){
     iSeg -= 1;
     uSeg += 1;
   }
-  const x0 = path[iSeg].x;
-  const y0 = path[iSeg].y;
-  const x1 = path[iSeg + 1].x;
-  const y1 = path[iSeg + 1].y;
+  const start = expectDefined(path[iSeg]);
+  const end = expectDefined(path[iSeg + 1]);
+  const x0 = start.x;
+  const y0 = start.y;
+  const x1 = end.x;
+  const y1 = end.y;
   return {
     x: x0 + (x1 - x0) * uSeg,
     y: y0 + (y1 - y0) * uSeg,
@@ -540,8 +564,10 @@ export function moveAlongPathPositive(path, indexPath, distRemaining, indexPathM
   let uSeg = indexPath - iSeg;
 
   while (iSeg >= 0 && iSeg + 1 < path.length){
-    const dSegX = path[iSeg + 1].x - path[iSeg].x;
-    const dSegY = path[iSeg + 1].y - path[iSeg].y;
+    const a = expectDefined(path[iSeg]);
+    const b = expectDefined(path[iSeg + 1]);
+    const dSegX = b.x - a.x;
+    const dSegY = b.y - a.y;
     const distSeg = Math.hypot(dSegX, dSegY);
     if (distSeg < 1e-10){
       indexPath = iSeg + 1;
@@ -591,8 +617,10 @@ export function moveAlongPathNegative(path, indexPath, distRemaining, indexPathM
   }
 
   while (iSeg >= 0 && iSeg + 1 < path.length){
-    const dSegX = path[iSeg + 1].x - path[iSeg].x;
-    const dSegY = path[iSeg + 1].y - path[iSeg].y;
+    const a = expectDefined(path[iSeg]);
+    const b = expectDefined(path[iSeg + 1]);
+    const dSegX = b.x - a.x;
+    const dSegY = b.y - a.y;
     const distSeg = Math.hypot(dSegX, dSegY);
     if (distSeg < 1e-10){
       indexPath = iSeg;
@@ -634,6 +662,10 @@ export function extractPathSegment(path, indexA, indexB){
   const forward = indexA <= indexB;
   /** @type {Array<Point>} */
   const out = [];
+  /**
+   * @param {Point} p
+   * @returns {void}
+   */
   const pushUnique = (p) => {
     const last = out.length ? out[out.length - 1] : null;
     if (!last || Math.hypot(last.x - p.x, last.y - p.y) > 1e-4){
@@ -644,7 +676,7 @@ export function extractPathSegment(path, indexA, indexB){
   const iMin = Math.max(0, Math.ceil(lo));
   const iMax = Math.min(path.length - 1, Math.floor(hi));
   for (let i = iMin; i <= iMax; i++){
-    pushUnique(path[i]);
+    pushUnique(expectDefined(path[i]));
   }
   pushUnique(posFromPathIndex(path, hi));
   if (!forward) out.reverse();

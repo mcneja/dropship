@@ -4,6 +4,10 @@ import { mulberry32 } from "./rng.js";
 import { GAME } from "./config.js";
 import { lineOfSightAir } from "./navigation.js";
 
+/** @typedef {{x:number,y:number,r:number,i:number,navPadded?:boolean}} RadialNode */
+/** @typedef {{to:number}} NavEdgeRef */
+/** @typedef {{n:RadialNode,rockNeighbor:RadialNode,nx:number,ny:number}} WallAttachCandidate */
+
 /**
  * Feature routing for planet-specific hazards and props.
  * Loop should delegate to Planet, which delegates here.
@@ -42,10 +46,13 @@ function placeMoltenVents(planet, props){
   if (target <= 0) return;
 
   for (let i = props.length - 1; i >= 0; i--){
-    if (props[i].type === "vent") props.splice(i, 1);
+    const prop = /** @type {PlanetProp} */ (props[i]);
+    if (prop.type === "vent") props.splice(i, 1);
   }
 
+  /** @type {RadialNode[]} */
   const nodes = planet.radialGraph.nodes;
+  /** @type {NavEdgeRef[][]} */
   const neighbors = planet.radialGraph.neighbors;
   const air = planet.airNodesBitmap;
   const moltenOuter = params.MOLTEN_RING_OUTER || 0;
@@ -62,30 +69,29 @@ function placeMoltenVents(planet, props){
     reservations.push({ x: p.x, y: p.y, r: baseReserve });
   }
 
-  /** @type {Array<{n:{x:number,y:number,r:number,i:number},rockNeighbor:{x:number,y:number,r:number,i:number}|null,nx:number,ny:number}>} */
+  /** @type {WallAttachCandidate[]} */
   const candidates = [];
   for (let i = 0; i < nodes.length; i++){
     if (!air[i]) continue;
-    const n = nodes[i];
+    const n = /** @type {RadialNode} */ (nodes[i]);
     const r = Math.hypot(n.x, n.y);
     if (r < rMin || r > rMax) continue;
     if (!isFarFromReservations(n.x, n.y, minDist, reservations)) continue;
-    const neigh = neighbors[i] || [];
+    const neigh = /** @type {NavEdgeRef[]} */ (neighbors[i] || []);
     let airCount = 0;
+    /** @type {RadialNode|null} */
     let rockNeighbor = null;
     let rockDist2 = Infinity;
     for (const e of neigh){
       if (air[e.to]) airCount++;
       else {
-        const nb = nodes[e.to];
-        if (nb){
-          const dx = n.x - nb.x;
-          const dy = n.y - nb.y;
-          const d2 = dx * dx + dy * dy;
-          if (d2 < rockDist2){
-            rockDist2 = d2;
-            rockNeighbor = nb;
-          }
+        const nb = /** @type {RadialNode} */ (nodes[e.to]);
+        const dx = n.x - nb.x;
+        const dy = n.y - nb.y;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < rockDist2){
+          rockDist2 = d2;
+          rockNeighbor = nb;
         }
       }
     }
@@ -95,18 +101,18 @@ function placeMoltenVents(planet, props){
     const nlen = Math.hypot(dxr, dyr) || 1;
     const nx = dxr / nlen;
     const ny = dyr / nlen;
-    candidates.push({ n, rockNeighbor, nx, ny });
+    candidates.push({ n, rockNeighbor: /** @type {RadialNode} */ (rockNeighbor), nx, ny });
   }
 
   const rand = mulberry32((planet.getSeed() + 991) | 0);
   for (let i = candidates.length - 1; i > 0; i--){
     const j = Math.floor(rand() * (i + 1));
-    const tmp = candidates[i];
-    candidates[i] = candidates[j];
+    const tmp = /** @type {WallAttachCandidate} */ (candidates[i]);
+    candidates[i] = /** @type {WallAttachCandidate} */ (candidates[j]);
     candidates[j] = tmp;
   }
 
-  /** @type {Array<{n:{x:number,y:number,r:number,i:number},rockNeighbor:{x:number,y:number,r:number,i:number}|null,nx:number,ny:number}>} */
+  /** @type {WallAttachCandidate[]} */
   const picked = [];
   for (const c of candidates){
     const n = c.n;
@@ -126,7 +132,6 @@ function placeMoltenVents(planet, props){
 
   const recess = 0.08;
   for (const entry of picked){
-    if (!entry.rockNeighbor) continue;
     const n = entry.n;
     const rn = entry.rockNeighbor;
     const nx = entry.nx;
@@ -163,10 +168,13 @@ function placeIceShards(planet, props){
   if (!params) return;
 
   for (let i = props.length - 1; i >= 0; i--){
-    if (props[i].type === "ice_shard") props.splice(i, 1);
+    const prop = /** @type {PlanetProp} */ (props[i]);
+    if (prop.type === "ice_shard") props.splice(i, 1);
   }
 
+  /** @type {RadialNode[]} */
   const nodes = planet.radialGraph.nodes;
+  /** @type {NavEdgeRef[][]} */
   const neighbors = planet.radialGraph.neighbors;
   const air = planet.airNodesBitmap;
   const surfaceBand = (cfg && cfg.defaults && typeof cfg.defaults.SURFACE_BAND === "number") ? cfg.defaults.SURFACE_BAND : 0;
@@ -182,21 +190,21 @@ function placeIceShards(planet, props){
     reservations.push({ x: p.x, y: p.y, r: 0.35 });
   }
 
-  /** @type {Array<{n:{x:number,y:number,r:number,i:number},rockNeighbor:{x:number,y:number,r:number,i:number}|null,nx:number,ny:number}>} */
+  /** @type {WallAttachCandidate[]} */
   const candidates = [];
   for (let i = 0; i < nodes.length; i++){
     if (!air[i]) continue;
-    const n = nodes[i];
+    const n = /** @type {RadialNode} */ (nodes[i]);
     const r = Math.hypot(n.x, n.y);
     if (r > rMax) continue;
     if (!isFarFromReservations(n.x, n.y, minDist, reservations)) continue;
-    const neigh = neighbors[i] || [];
+    const neigh = /** @type {NavEdgeRef[]} */ (neighbors[i] || []);
+    /** @type {RadialNode|null} */
     let rockNeighbor = null;
     let rockDist2 = Infinity;
     for (const e of neigh){
       if (air[e.to]) continue;
-      const nb = nodes[e.to];
-      if (!nb) continue;
+      const nb = /** @type {RadialNode} */ (nodes[e.to]);
       const dx = n.x - nb.x;
       const dy = n.y - nb.y;
       const d2 = dx * dx + dy * dy;
@@ -212,19 +220,19 @@ function placeIceShards(planet, props){
     const nlen = Math.hypot(dxr, dyr) || 1;
     const nx = dxr / nlen;
     const ny = dyr / nlen;
-    candidates.push({ n, rockNeighbor, nx, ny });
+    candidates.push({ n, rockNeighbor: /** @type {RadialNode} */ (rockNeighbor), nx, ny });
   }
 
   const rand = mulberry32((planet.getSeed() + 7331) | 0);
   for (let i = candidates.length - 1; i > 0; i--){
     const j = Math.floor(rand() * (i + 1));
-    const tmp = candidates[i];
-    candidates[i] = candidates[j];
+    const tmp = /** @type {WallAttachCandidate} */ (candidates[i]);
+    candidates[i] = /** @type {WallAttachCandidate} */ (candidates[j]);
     candidates[j] = tmp;
   }
 
   const target = Math.max(70, Math.min(270, Math.floor(candidates.length * 0.525)));
-  /** @type {Array<{n:{x:number,y:number,r:number,i:number},rockNeighbor:{x:number,y:number,r:number,i:number}|null,nx:number,ny:number}>} */
+  /** @type {WallAttachCandidate[]} */
   const picked = [];
   for (const c of candidates){
     const n = c.n;
@@ -244,7 +252,6 @@ function placeIceShards(planet, props){
 
   const recess = 0.06;
   for (const entry of picked){
-    if (!entry.rockNeighbor) continue;
     const n = entry.n;
     const rn = entry.rockNeighbor;
     const nx = entry.nx;
@@ -281,10 +288,13 @@ function placeMushrooms(planet, props){
   if (!params) return;
 
   for (let i = props.length - 1; i >= 0; i--){
-    if (props[i].type === "mushroom") props.splice(i, 1);
+    const prop = /** @type {PlanetProp} */ (props[i]);
+    if (prop.type === "mushroom") props.splice(i, 1);
   }
 
+  /** @type {RadialNode[]} */
   const nodes = planet.radialGraph.nodes;
+  /** @type {NavEdgeRef[][]} */
   const neighbors = planet.radialGraph.neighbors;
   const air = planet.airNodesBitmap;
   const surfaceBand = (cfg.defaults && typeof cfg.defaults.SURFACE_BAND === "number") ? cfg.defaults.SURFACE_BAND : 0;
@@ -299,21 +309,21 @@ function placeMushrooms(planet, props){
     reservations.push({ x: p.x, y: p.y, r: 0.45 });
   }
 
-  /** @type {Array<{n:{x:number,y:number,r:number,i:number},rockNeighbor:{x:number,y:number,r:number,i:number}|null,nx:number,ny:number}>} */
+  /** @type {WallAttachCandidate[]} */
   const candidates = [];
   for (let i = 0; i < nodes.length; i++){
     if (!air[i]) continue;
-    const n = nodes[i];
+    const n = /** @type {RadialNode} */ (nodes[i]);
     const r = Math.hypot(n.x, n.y);
     if (r > rMax) continue;
     if (!isFarFromReservations(n.x, n.y, minDist, reservations)) continue;
-    const neigh = neighbors[i] || [];
+    const neigh = /** @type {NavEdgeRef[]} */ (neighbors[i] || []);
+    /** @type {RadialNode|null} */
     let rockNeighbor = null;
     let rockDist2 = Infinity;
     for (const e of neigh){
       if (air[e.to]) continue;
-      const nb = nodes[e.to];
-      if (!nb) continue;
+      const nb = /** @type {RadialNode} */ (nodes[e.to]);
       const dx = n.x - nb.x;
       const dy = n.y - nb.y;
       const d2 = dx * dx + dy * dy;
@@ -328,19 +338,19 @@ function placeMushrooms(planet, props){
     const nlen = Math.hypot(dxr, dyr) || 1;
     const nx = dxr / nlen;
     const ny = dyr / nlen;
-    candidates.push({ n, rockNeighbor, nx, ny });
+    candidates.push({ n, rockNeighbor: /** @type {RadialNode} */ (rockNeighbor), nx, ny });
   }
 
   const rand = mulberry32((planet.getSeed() + 3313) | 0);
   for (let i = candidates.length - 1; i > 0; i--){
     const j = Math.floor(rand() * (i + 1));
-    const tmp = candidates[i];
-    candidates[i] = candidates[j];
+    const tmp = /** @type {WallAttachCandidate} */ (candidates[i]);
+    candidates[i] = /** @type {WallAttachCandidate} */ (candidates[j]);
     candidates[j] = tmp;
   }
 
   const target = Math.max(30, Math.min(120, Math.floor(candidates.length * 0.18)));
-  /** @type {Array<{n:{x:number,y:number,r:number,i:number},rockNeighbor:{x:number,y:number,r:number,i:number}|null,nx:number,ny:number}>} */
+  /** @type {WallAttachCandidate[]} */
   const picked = [];
   for (const c of candidates){
     const n = c.n;
@@ -360,7 +370,6 @@ function placeMushrooms(planet, props){
 
   const recess = 0.04;
   for (const entry of picked){
-    if (!entry.rockNeighbor) continue;
     const n = entry.n;
     const rn = entry.rockNeighbor;
     const nx = entry.nx;
@@ -396,6 +405,18 @@ function pruneMoltenVentsAgainstPoints(planet, props, points){
   if (!cfg || cfg.id !== "molten") return 0;
   if (!props || !props.length) return 0;
   if (!points || !points.length) return 0;
+  /**
+   * @param {number} vx
+   * @param {number} vy
+   * @param {number} nx
+   * @param {number} ny
+   * @param {number} px
+   * @param {number} py
+   * @param {number} maxDist
+   * @param {number} cosLimit
+   * @param {number} maxSide
+   * @returns {boolean}
+   */
   const inFront = (vx, vy, nx, ny, px, py, maxDist, cosLimit, maxSide) => {
     const dx = px - vx;
     const dy = py - vy;
@@ -409,7 +430,7 @@ function pruneMoltenVentsAgainstPoints(planet, props, points){
   };
   let removed = 0;
   for (let i = props.length - 1; i >= 0; i--){
-    const p = props[i];
+    const p = /** @type {PlanetProp} */ (props[i]);
     if (p.type !== "vent" || p.dead) continue;
     const nx = (typeof p.nx === "number") ? p.nx : 0;
     const ny = (typeof p.ny === "number") ? p.ny : 0;
@@ -443,7 +464,9 @@ function collectWaterBubbleSources(planet, target){
   const params = planet.getPlanetParams ? planet.getPlanetParams() : null;
   if (!params || target <= 0) return [];
   if (!planet.radialGraph || !planet.radialGraph.nodes || !planet.radialGraph.neighbors) return [];
+  /** @type {RadialNode[]} */
   const nodes = planet.radialGraph.nodes;
+  /** @type {NavEdgeRef[][]} */
   const neighbors = planet.radialGraph.neighbors;
   const air = planet.airNodesBitmap || null;
   if (!air || air.length !== nodes.length) return [];
@@ -457,16 +480,16 @@ function collectWaterBubbleSources(planet, target){
   const candidates = [];
   for (let i = 0; i < nodes.length; i++){
     if (!air[i]) continue;
-    const n = nodes[i];
+    const n = /** @type {RadialNode} */ (nodes[i]);
     const r = Math.hypot(n.x, n.y);
     if (r < rMin || r > mediumR) continue;
-    const neigh = neighbors[i] || [];
+    const neigh = /** @type {NavEdgeRef[]} */ (neighbors[i] || []);
+    /** @type {RadialNode|null} */
     let rockNeighbor = null;
     let rockDist2 = Infinity;
     for (const e of neigh){
       if (air[e.to]) continue;
-      const nb = nodes[e.to];
-      if (!nb) continue;
+      const nb = /** @type {RadialNode} */ (nodes[e.to]);
       const dx = n.x - nb.x;
       const dy = n.y - nb.y;
       const d2 = dx * dx + dy * dy;
@@ -507,8 +530,8 @@ function collectWaterBubbleSources(planet, target){
   const rand = mulberry32((planet.getSeed() + 14011) | 0);
   for (let i = candidates.length - 1; i > 0; i--){
     const j = Math.floor(rand() * (i + 1));
-    const tmp = candidates[i];
-    candidates[i] = candidates[j];
+    const tmp = /** @type {{x:number,y:number,nx:number,ny:number}} */ (candidates[i]);
+    candidates[i] = /** @type {{x:number,y:number,nx:number,ny:number}} */ (candidates[j]);
     candidates[j] = tmp;
   }
 
@@ -827,7 +850,7 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
     if (graph && graph.nodes && air && air.length === graph.nodes.length){
       for (let i = 0; i < graph.nodes.length; i++){
         if (!air[i]) continue;
-        const n = graph.nodes[i];
+        const n = /** @type {RadialNode} */ (graph.nodes[i]);
         if (pointInVentPlume(p, n.x, n.y, 0.08)){
           nodes.push(i);
         }
@@ -1206,14 +1229,14 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
     const coreR2 = coreR * coreR;
     if (state.enemies){
       for (let i = state.enemies.length - 1; i >= 0; i--){
-        const e = state.enemies[i];
+        const e = /** @type {{x:number,y:number,hp:number,hitT?:number,stunT?:number}} */ (state.enemies[i]);
         const r2 = e.x * e.x + e.y * e.y;
         if (r2 <= coreR2) e.hp = 0;
       }
     }
     if (state.miners){
       for (let i = state.miners.length - 1; i >= 0; i--){
-        const m = state.miners[i];
+        const m = /** @type {import("./types.d.js").Miner} */ (state.miners[i]);
         const r2 = m.x * m.x + m.y * m.y;
         if (r2 <= coreR2){
           state.miners.splice(i, 1);
@@ -1255,7 +1278,7 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
     if (!lava.length) return;
     const hitR2 = tuning.lava.radius * tuning.lava.radius;
     for (let i = lava.length - 1; i >= 0; i--){
-      const p = lava[i];
+      const p = /** @type {{x:number,y:number,vx:number,vy:number,life:number}} */ (lava[i]);
       const { x: gx, y: gy } = planet.gravityAt(p.x, p.y);
       p.vx += gx * dt;
       p.vy += gy * dt;
@@ -1278,7 +1301,7 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
       let hit = false;
       if (state.enemies){
         for (let j = state.enemies.length - 1; j >= 0; j--){
-          const e = state.enemies[j];
+          const e = /** @type {{x:number,y:number,hp:number,hitT?:number,stunT?:number}} */ (state.enemies[j]);
           const dx = e.x - p.x;
           const dy = e.y - p.y;
           if (dx * dx + dy * dy <= hitR2){
@@ -1292,7 +1315,7 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
       if (hit) continue;
       if (state.miners){
         for (let j = state.miners.length - 1; j >= 0; j--){
-          const m = state.miners[j];
+          const m = /** @type {import("./types.d.js").Miner} */ (state.miners[j]);
           const dx = m.x - p.x;
           const dy = m.y - p.y;
           if (dx * dx + dy * dy <= hitR2){
@@ -1315,7 +1338,7 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
     if (!mush.length) return;
     const hitR2 = tuning.mushroom.radius * tuning.mushroom.radius;
     for (let i = mush.length - 1; i >= 0; i--){
-      const p = mush[i];
+      const p = /** @type {{x:number,y:number,vx:number,vy:number,life:number}} */ (mush[i]);
       const xPrev = p.x;
       const yPrev = p.y;
       const sporeDrag = -0.25;
@@ -1370,7 +1393,7 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
       }
       if (!state.enemies) continue;
       for (let j = state.enemies.length - 1; j >= 0; j--){
-        const e = state.enemies[j];
+        const e = /** @type {{x:number,y:number,hp:number,hitT?:number,stunT?:number}} */ (state.enemies[j]);
         const dx = e.x - p.x;
         const dy = e.y - p.y;
         if (dx * dx + dy * dy <= hitR2){
@@ -1391,7 +1414,7 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
     if (!ice.length) return;
     const hitR2 = tuning.iceShard.radius * tuning.iceShard.radius;
     for (let i = ice.length - 1; i >= 0; i--){
-      const p = ice[i];
+      const p = /** @type {{x:number,y:number,vx:number,vy:number,life:number}} */ (ice[i]);
       const xPrev = p.x;
       const yPrev = p.y;
       p.x += p.vx * dt;
@@ -1416,7 +1439,7 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
       let hit = false;
       if (state.enemies){
         for (let j = state.enemies.length - 1; j >= 0; j--){
-          const e = state.enemies[j];
+          const e = /** @type {{x:number,y:number,hp:number,hitT?:number,stunT?:number}} */ (state.enemies[j]);
           const dx = e.x - p.x;
           const dy = e.y - p.y;
           if (dx * dx + dy * dy <= hitR2){
@@ -1430,7 +1453,7 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
       if (hit) continue;
       if (state.miners){
         for (let j = state.miners.length - 1; j >= 0; j--){
-          const m = state.miners[j];
+          const m = /** @type {import("./types.d.js").Miner} */ (state.miners[j]);
           const dx = m.x - p.x;
           const dy = m.y - p.y;
           if (dx * dx + dy * dy <= hitR2){
@@ -1486,6 +1509,13 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
     if (!isWater) return;
     const bubbles = particles.bubbles;
     const splashes = particles.splashes;
+    /**
+     * @param {number} x
+     * @param {number} y
+     * @param {number} baseUpX
+     * @param {number} baseUpY
+     * @returns {void}
+     */
     const spawnBubble = (x, y, baseUpX, baseUpY) => {
       if (waterRadius > 0 && Math.hypot(x, y) > waterRadius + 0.02) return;
       if (planet.airValueAtWorld(x, y) <= 0.5) return;
@@ -1510,6 +1540,16 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
         spin: (Math.random() * 2 - 1) * 1.6,
       });
     };
+    /**
+     * @param {number} x
+     * @param {number} y
+     * @param {number} baseUpX
+     * @param {number} baseUpY
+     * @param {number} [baseVx=0]
+     * @param {number} [baseVy=0]
+     * @param {number} [impactSpeed=0]
+     * @returns {void}
+     */
     const spawnSplash = (x, y, baseUpX, baseUpY, baseVx = 0, baseVy = 0, impactSpeed = 0) => {
       const t = Math.random() * 2 - 1;
       const tx = -baseUpY;
@@ -1626,7 +1666,7 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
 
     if (bubbles.length){
       for (let i = bubbles.length - 1; i >= 0; i--){
-        const p = bubbles[i];
+        const p = /** @type {{x:number,y:number,vx:number,vy:number,life:number,maxLife:number,size:number,rot:number,spin:number}} */ (bubbles[i]);
         const r = Math.hypot(p.x, p.y) || 1;
         const upx = p.x / r;
         const upy = p.y / r;
@@ -1653,7 +1693,7 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
 
     if (splashes.length){
       for (let i = splashes.length - 1; i >= 0; i--){
-        const p = splashes[i];
+        const p = /** @type {{x:number,y:number,vx:number,vy:number,life:number,maxLife:number,size:number,rot:number,cr:number,cg:number,cb:number}} */ (splashes[i]);
         const { x: gx, y: gy } = planet.gravityAt(p.x, p.y);
         p.vx += gx * dt * 0.55;
         p.vy += gy * dt * 0.55;
@@ -1686,6 +1726,7 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
       if (!enemyVentMaskActive || !enemyVentNavMask) return planet.airNodesBitmap;
       return enemyVentNavMask;
     },
+    /** @param {{enemies:Array<{x:number,y:number}>, miners:Array<{x:number,y:number}>}} state */
     reconcile: (state) => {
       if (ventsPruned) return;
       if (!state) return;
@@ -1705,6 +1746,10 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
       ventsPruned = true;
       rebuildEnemyVentNavMask();
     },
+    /**
+     * @param {number} dt
+     * @param {FeatureUpdateState} state
+     */
     update: (dt, state) => {
       updateCoreHeat(dt, state);
       updateVents(dt);
@@ -1939,6 +1984,10 @@ export function createIceShardHazard(props){
    * @param {PlanetProp} p
    */
   const isAliveShard = (p) => p.type === "ice_shard" && !p.dead && !(typeof p.hp === "number" && p.hp <= 0);
+  /**
+   * @param {PlanetProp} prop
+   * @returns {{x:number,y:number,scale:number,nx:number,ny:number}|null}
+   */
   const burstProp = (prop) => {
     if (!isAliveShard(prop)) return null;
     prop.dead = true;
@@ -2019,13 +2068,28 @@ export function createIceShardHazard(props){
  * }}
  */
 export function createRidgeSpikeHazard(props){
+  /**
+   * @param {PlanetProp} p
+   * @returns {boolean}
+   */
   const isAlive = (p) => (p.type === "ridge_spike" || p.type === "stalactite") && !p.dead && !(typeof p.hp === "number" && p.hp <= 0);
+  /**
+   * @param {PlanetProp} prop
+   * @returns {{x:number,y:number,scale:number}|null}
+   */
   const burstProp = (prop) => {
     if (!isAlive(prop)) return null;
     prop.dead = true;
     prop.hp = 0;
     return { x: prop.x, y: prop.y, scale: prop.scale || 1 };
   };
+  /**
+   * @param {PlanetProp} p
+   * @param {number} x
+   * @param {number} y
+   * @param {number} radius
+   * @returns {boolean}
+   */
   const overlapsSpike = (p, x, y, radius) => {
     const s = p.scale || 1;
     // Fallback radial overlap keeps spike hits reliable even if surface normals are noisy.
@@ -2106,7 +2170,15 @@ export function createRidgeSpikeHazard(props){
  * }}
  */
 export function createMushroomHazard(props){
+  /**
+   * @param {PlanetProp} p
+   * @returns {boolean}
+   */
   const isAlive = (p) => p.type === "mushroom" && !p.dead && !(typeof p.hp === "number" && p.hp <= 0);
+  /**
+   * @param {PlanetProp} prop
+   * @returns {{x:number,y:number,scale:number}|null}
+   */
   const burstProp = (prop) => {
     if (!isAlive(prop)) return null;
     prop.dead = true;

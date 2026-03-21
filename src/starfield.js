@@ -34,6 +34,7 @@ export function buildStarfieldMesh(seed, opts = {}){
   const color = new Float32Array(triVerts * 3);
 
   let p = 0;
+  /** @type {Array<[number, number, number]>} */
   const palettes = [
     [1.0, 1.0, 1.0],   // white
     [1.0, 0.92, 0.78], // yellow
@@ -69,7 +70,7 @@ export function buildStarfieldMesh(seed, opts = {}){
     positions[p + 5] = y + cy;
 
     const base = p / 2;
-    const palette = palettes[Math.floor(rand() * palettes.length)];
+    const palette = /** @type {[number, number, number]} */ (palettes[Math.floor(rand() * palettes.length)]);
     const mixToWhite = 0.55 + rand() * 0.35;
     const cr = palette[0] * (1 - mixToWhite) + mixToWhite;
     const cg = palette[1] * (1 - mixToWhite) + mixToWhite;

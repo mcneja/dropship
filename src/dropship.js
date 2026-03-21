@@ -126,7 +126,11 @@ function convexHull(points){
   /** @type {Array<[number,number]>} */
   const lower = [];
   for (const p of sorted){
-    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0){
+    while (lower.length >= 2 && cross(
+      /** @type {[number, number]} */ (lower[lower.length - 2]),
+      /** @type {[number, number]} */ (lower[lower.length - 1]),
+      p
+    ) <= 0){
       lower.pop();
     }
     lower.push(p);
@@ -134,8 +138,12 @@ function convexHull(points){
   /** @type {Array<[number,number]>} */
   const upper = [];
   for (let i = sorted.length - 1; i >= 0; i--){
-    const p = sorted[i];
-    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0){
+    const p = /** @type {[number, number]} */ (sorted[i]);
+    while (upper.length >= 2 && cross(
+      /** @type {[number, number]} */ (upper[upper.length - 2]),
+      /** @type {[number, number]} */ (upper[upper.length - 1]),
+      p
+    ) <= 0){
       upper.pop();
     }
     upper.push(p);
@@ -249,8 +257,8 @@ export function buildDropshipWorldConvexHullSampleSet(localConvexHull, x, y, edg
   const pointMetaByPoint = [];
   const n = verts.length;
   for (let i = 0; i < n; i++){
-    const a = verts[i];
-    const b = verts[(i + 1) % n];
+    const a = /** @type {[number, number]} */ (verts[i]);
+    const b = /** @type {[number, number]} */ (verts[(i + 1) % n]);
     const dx = b[0] - a[0];
     const dy = b[1] - a[1];
     const edgeLen = Math.hypot(dx, dy);
@@ -291,6 +299,15 @@ export function pointDistanceToDropshipWorldConvexHull(localConvexHull, px, py, 
     return Math.max(0, Math.hypot(dx, dy) - fallbackRadius);
   }
 
+  /**
+   * @param {number} qx
+   * @param {number} qy
+   * @param {number} ax
+   * @param {number} ay
+   * @param {number} bx
+   * @param {number} by
+   * @returns {number}
+   */
   const distPointToSegment = (qx, qy, ax, ay, bx, by) => {
     const dx = bx - ax;
     const dy = by - ay;
@@ -303,16 +320,18 @@ export function pointDistanceToDropshipWorldConvexHull(localConvexHull, px, py, 
 
   let best = Infinity;
   for (let i = 0; i < verts.length; i++){
-    const a = verts[i];
-    const b = verts[(i + 1) % verts.length];
+    const a = /** @type {[number, number]} */ (verts[i]);
+    const b = /** @type {[number, number]} */ (verts[(i + 1) % verts.length]);
     const d = distPointToSegment(px, py, a[0], a[1], b[0], b[1]);
     if (d < best) best = d;
   }
 
   let inside = false;
   for (let i = 0, j = verts.length - 1; i < verts.length; j = i++){
-    const xi = verts[i][0], yi = verts[i][1];
-    const xj = verts[j][0], yj = verts[j][1];
+    const vi = /** @type {[number, number]} */ (verts[i]);
+    const vj = /** @type {[number, number]} */ (verts[j]);
+    const xi = vi[0], yi = vi[1];
+    const xj = vj[0], yj = vj[1];
     const intersects = ((yi > py) !== (yj > py))
       && (px < ((xj - xi) * (py - yi)) / ((yj - yi) || 1e-6) + xi);
     if (intersects) inside = !inside;

@@ -2,6 +2,7 @@
 
 import { mulberry32 } from "./rng.js";
 
+/** @type {Array<[number, number]>} */
 const grad2 = [
   [ 1, 1], [-1, 1], [ 1,-1], [-1,-1],
   [ 1, 0], [-1, 0], [ 1, 0], [-1, 0],
@@ -19,11 +20,13 @@ function buildPerm(seed){
   const r = mulberry32(seed);
   for (let i = 255; i > 0; i--){
     const j = (r() * (i + 1)) | 0;
-    const tmp = p[i]; p[i] = p[j]; p[j] = tmp;
+    const tmp = /** @type {number} */ (p[i]);
+    p[i] = /** @type {number} */ (p[j]);
+    p[j] = tmp;
   }
 
   const perm = new Uint8Array(512);
-  for (let i = 0; i < 512; i++) perm[i] = p[i & 255];
+  for (let i = 0; i < 512; i++) perm[i] = /** @type {number} */ (p[i & 255]);
   return perm;
 }
 
@@ -74,24 +77,24 @@ export class Noise {
 
     let t0 = 0.5 - x0*x0 - y0*y0;
     if (t0 > 0) {
-      const gi0 = this._perm[ii + this._perm[jj]] % 12;
-      const g = grad2[gi0];
+      const gi0 = /** @type {number} */ (this._perm[ii + /** @type {number} */ (this._perm[jj])]) % 12;
+      const g = /** @type {[number, number]} */ (grad2[gi0]);
       t0 *= t0;
       n0 = t0 * t0 * (g[0]*x0 + g[1]*y0);
     }
 
     let t1 = 0.5 - x1*x1 - y1*y1;
     if (t1 > 0) {
-      const gi1 = this._perm[ii + i1 + this._perm[jj + j1]] % 12;
-      const g = grad2[gi1];
+      const gi1 = /** @type {number} */ (this._perm[ii + i1 + /** @type {number} */ (this._perm[jj + j1])]) % 12;
+      const g = /** @type {[number, number]} */ (grad2[gi1]);
       t1 *= t1;
       n1 = t1 * t1 * (g[0]*x1 + g[1]*y1);
     }
 
     let t2 = 0.5 - x2*x2 - y2*y2;
     if (t2 > 0) {
-      const gi2 = this._perm[ii + 1 + this._perm[jj + 1]] % 12;
-      const g = grad2[gi2];
+      const gi2 = /** @type {number} */ (this._perm[ii + 1 + /** @type {number} */ (this._perm[jj + 1])]) % 12;
+      const g = /** @type {[number, number]} */ (grad2[gi2]);
       t2 *= t2;
       n2 = t2 * t2 * (g[0]*x2 + g[1]*y2);
     }

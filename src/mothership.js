@@ -72,16 +72,22 @@ export class Mothership {
     /** @type {Map<string, number>} */
     const vertIndex = new Map();
 
+    /**
+     * @param {number} x
+     * @param {number} y
+     * @returns {string}
+     */
     const keyOf = (x, y) => `${x.toFixed(5)},${y.toFixed(5)}`;
     for (let row = 0; row < rows; row++){
       for (let col = 0; col < cols; col++){
-      const rowMask = map[row];
+      const rowMask = /** @type {string} */ (map[row]);
       const colMask = rowMask ? (rowMask.length - 1 - col) : -1;
       const ch = (rowMask && colMask >= 0 && colMask < rowMask.length) ? rowMask[colMask] : "O";
       if (ch === "#" || ch === " ") continue;
       const air = (ch === "X" || ch === "x") ? 0 : 1;
       const parityCol = (colMask >= 0) ? colMask : col;
       const verts = triangleVerticesForCell(col, parityCol, row, spacing * this.scale);
+        /** @type {number[]} */
         const triIdx = [];
         for (const v of verts){
           const key = keyOf(v.x, v.y);
@@ -93,11 +99,15 @@ export class Mothership {
             vertAirCount.push(0);
             vertIndex.set(key, idx);
           }
-          vertAirSum[idx] += air;
-          vertAirCount[idx] += 1;
+          vertAirSum[idx] = (vertAirSum[idx] || 0) + air;
+          vertAirCount[idx] = (vertAirCount[idx] || 0) + 1;
           triIdx.push(idx);
         }
-        tris.push([triIdx[0], triIdx[1], triIdx[2]]);
+        tris.push([
+          /** @type {number} */ (triIdx[0]),
+          /** @type {number} */ (triIdx[1]),
+          /** @type {number} */ (triIdx[2]),
+        ]);
         triAir.push(air);
       }
     }
@@ -114,11 +124,11 @@ export class Mothership {
     const cy = (minY + maxY) * 0.5;
     let maxR2 = 0;
     for (let i = 0; i < points.length; i++){
-      const p = points[i];
+      const p = /** @type {MothershipPoint} */ (points[i]);
       p.x -= cx;
       p.y -= cy;
-      const count = vertAirCount[i] || 1;
-      p.air = vertAirSum[i] / count;
+      const count = /** @type {number} */ (vertAirCount[i]) || 1;
+      p.air = (/** @type {number} */ (vertAirSum[i]) || 0) / count;
       const r2 = p.x * p.x + p.y * p.y;
       if (r2 > maxR2) maxR2 = r2;
     }
@@ -223,12 +233,12 @@ function mothershipAirAtLocal(mothership, lx, ly){
   let hit = false;
   let maxAir = -Infinity;
   for (let i = 0; i < tris.length; i++){
-    const tri = tris[i];
-    const a = points[tri[0]];
-    const b = points[tri[1]];
-    const c = points[tri[2]];
+    const tri = /** @type {[number, number, number]} */ (tris[i]);
+    const a = /** @type {MothershipPoint} */ (points[tri[0]]);
+    const b = /** @type {MothershipPoint} */ (points[tri[1]]);
+    const c = /** @type {MothershipPoint} */ (points[tri[2]]);
     if (!pointInTri(lx, ly, a.x, a.y, b.x, b.y, c.x, c.y)) continue;
-    const air = Number.isFinite(triAir[i]) ? triAir[i] : 1;
+    const air = Number.isFinite(triAir[i]) ? /** @type {number} */ (triAir[i]) : 1;
     if (!hit || air > maxAir){
       maxAir = air;
       hit = true;
@@ -275,6 +285,12 @@ export function mothershipCollisionSample(mothership, x, y){
   return { air: v, source: "mothership" };
 }
 
+/**
+ * @param {Mothership} mothership
+ * @param {number} x
+ * @param {number} y
+ * @returns {{nx:number,ny:number,isFloor:boolean}|null}
+ */
 export function mothershipCollisionInfo(mothership, x, y){
   const dx = x - mothership.x;
   const dy = y - mothership.y;
@@ -307,6 +323,11 @@ export function mothershipCollisionInfo(mothership, x, y){
   // boundary contrast near this contact sample.
   const probeOut = Math.max(0.03, baseEps * 0.9);
   const probeIn = Math.max(0.02, baseEps * 0.7);
+  /**
+   * @param {number} sx
+   * @param {number} sy
+   * @returns {number}
+   */
   const scoreDir = (sx, sy) => {
     const front = mothershipAirAtLocalGrid(mothership, lx + sx * probeOut, ly + sy * probeOut);
     const back = mothershipAirAtLocalGrid(mothership, lx - sx * probeIn, ly - sy * probeIn);
@@ -350,10 +371,10 @@ function mothershipAirAtLocalGrid(mothership, lx, ly){
   const tx = fx - ix;
   const ty = fy - iy;
   const idx = iy * size + ix;
-  const v00 = grid[idx];
-  const v10 = grid[idx + 1];
-  const v01 = grid[idx + size];
-  const v11 = grid[idx + size + 1];
+  const v00 = /** @type {number} */ (grid[idx]);
+  const v10 = /** @type {number} */ (grid[idx + 1]);
+  const v01 = /** @type {number} */ (grid[idx + size]);
+  const v11 = /** @type {number} */ (grid[idx + size + 1]);
   const vx0 = v00 + (v10 - v00) * tx;
   const vx1 = v01 + (v11 - v01) * tx;
   return vx0 + (vx1 - vx0) * ty;
