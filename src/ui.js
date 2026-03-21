@@ -112,6 +112,7 @@ function layoutHeatMeter(el){
   const objective = /** @type {HTMLElement|null} */ (document.getElementById("objective-label"));
   const planet = /** @type {HTMLElement|null} */ (document.getElementById("planet-label"));
   const shipStatus = /** @type {HTMLElement|null} */ (document.getElementById("ship-status-label"));
+  const signalMeter = /** @type {HTMLElement|null} */ (document.getElementById("signal-meter"));
 
   // Default placement: bottom center.
   el.style.left = "50%";
@@ -140,8 +141,13 @@ function layoutHeatMeter(el){
   const stillOverlaps = labels.some((r) => rectsOverlap(liftedRect, r, pad));
   if (!stillOverlaps) return;
 
-  // Fallback on very small screens: place below top-left ship status zone.
-  const topY = shipStatus ? Math.round(shipStatus.getBoundingClientRect().bottom + pad) : minViewportInset;
+  // Fallback on very small screens: place below the active top HUD stack.
+  const topAnchors = [shipStatus, signalMeter]
+    .filter((node) => !!node && /** @type {HTMLElement} */ (node).style.display !== "none")
+    .map((node) => /** @type {HTMLElement} */ (node).getBoundingClientRect().bottom);
+  const topY = topAnchors.length
+    ? Math.round(Math.max(...topAnchors) + pad)
+    : minViewportInset;
   const maxTop = Math.max(minViewportInset, Math.round(vH - liftedRect.height - minViewportInset));
   el.style.top = `${Math.min(maxTop, Math.max(minViewportInset, topY))}px`;
   el.style.bottom = "auto";
