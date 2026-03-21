@@ -258,6 +258,7 @@
  * @property {boolean} [touchStart]
  * @property {"respawnShip"|"restartGame"|"upgrade"|"nextLevel"|"viewMap"|"exitMap"|null} [touchStartMode]
  * @property {boolean} [showGameplayIndicators]
+ * @property {boolean} [showVisibleOuterRingEntities]
  */
 
 /**

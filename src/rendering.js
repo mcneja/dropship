@@ -1093,9 +1093,31 @@ function drawFrameImpl(renderer, state, planet){
    * @param {number} y
    * @returns {boolean}
    */
-  const visibleHostileNow = (x, y) => {
+  const outerRingRadius = planet.radial && planet.radial.rings && planet.radial.rings.length
+    ? (planet.radial.rings.length - 1)
+    : rMax;
+  const outerRingEntityBand = Math.max(1.1, Math.min(2.0, outerRingRadius * 0.035));
+
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @returns {boolean}
+   */
+  const visibleEntityNow = (x, y) => {
     if (!state.fogEnabled) return true;
-    return planet.fogSeenAt(x, y);
+    if (planet.fogSeenAt(x, y)) return true;
+    if (!state.showVisibleOuterRingEntities) return false;
+    if (!planet.fogVisibleAt(x, y)) return false;
+    return Math.hypot(x, y) >= outerRingRadius - outerRingEntityBand;
+  };
+
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @returns {boolean}
+   */
+  const visibleHostileNow = (x, y) => {
+    return visibleEntityNow(x, y);
   };
 
   const { shipHWorld, shipWWorld } = getDropshipRenderSize(game);
@@ -1627,7 +1649,7 @@ function drawFrameImpl(renderer, state, planet){
       for (const p of levelProps){
         if (p.type !== "turret_pad") continue;
         if (p.dead || (typeof p.hp === "number" && p.hp <= 0)) continue;
-        if (state.fogEnabled && !planet.fogSeenAt(p.x, p.y)) continue;
+        if (!visibleEntityNow(p.x, p.y)) continue;
         drawTurretPadProp(p);
       }
     }
@@ -1697,14 +1719,14 @@ function drawFrameImpl(renderer, state, planet){
 
   if (state.miners && state.miners.length){
     for (const miner of state.miners){
-      if (state.fogEnabled && !planet.fogSeenAt(miner.x, miner.y)) continue;
+      if (!visibleEntityNow(miner.x, miner.y)) continue;
       const [r, g, b] = minerColor(miner.type);
       triVerts += pushMiner(pos, col, miner.x, miner.y, miner.jumpCycle, r, g, b, game.MINER_SCALE, false, 1/16) * 3;
     }
   }
 
   for (const healthPickup of state.healthPickups){
-    if (state.fogEnabled && !planet.fogSeenAt(healthPickup.x, healthPickup.y)) continue;
+    if (!visibleEntityNow(healthPickup.x, healthPickup.y)) continue;
     triVerts += pushHealthPickup(pos, col, healthPickup.x, healthPickup.y, healthPickup.life);
   }
 
@@ -1722,7 +1744,7 @@ function drawFrameImpl(renderer, state, planet){
   if (state.playerShots && state.playerShots.length){
     const size = 0.11;
     for (const s of state.playerShots){
-      if (state.fogEnabled && !planet.fogSeenAt(s.x, s.y)) continue;
+      if (!visibleEntityNow(s.x, s.y)) continue;
       pushDiamond(pos, col, s.x, s.y, size, 0.95, 0.95, 0.95, 0.95);
       triVerts += 6;
     }
@@ -1731,7 +1753,7 @@ function drawFrameImpl(renderer, state, planet){
   if (state.playerBombs && state.playerBombs.length){
     const size = 0.13;
     for (const b of state.playerBombs){
-      if (state.fogEnabled && !planet.fogSeenAt(b.x, b.y)) continue;
+      if (!visibleEntityNow(b.x, b.y)) continue;
       pushSquare(pos, col, b.x, b.y, size, 1.0, 0.7, 0.2, 0.95);
       triVerts += 6;
     }
@@ -1742,7 +1764,7 @@ function drawFrameImpl(renderer, state, planet){
   if (lavaParticles && lavaParticles.length){
     const size = 0.10;
     for (const p of lavaParticles){
-      if (state.fogEnabled && !planet.fogSeenAt(p.x, p.y)) continue;
+      if (!visibleEntityNow(p.x, p.y)) continue;
       pushDiamond(pos, col, p.x, p.y, size, 1.0, 0.25, 0.15, 0.95);
       triVerts += 6;
     }
@@ -1751,7 +1773,7 @@ function drawFrameImpl(renderer, state, planet){
   if (mushroomParticles && mushroomParticles.length){
     const size = 0.12;
     for (const p of mushroomParticles){
-      if (state.fogEnabled && !planet.fogSeenAt(p.x, p.y)) continue;
+      if (!visibleEntityNow(p.x, p.y)) continue;
       pushDiamond(pos, col, p.x, p.y, size, 0.95, 0.45, 0.75, 0.95);
       triVerts += 6;
     }
@@ -1759,7 +1781,7 @@ function drawFrameImpl(renderer, state, planet){
   const iceShardParticles = featureParticles ? featureParticles.iceShard : null;
   if (iceShardParticles && iceShardParticles.length){
     for (const p of iceShardParticles){
-      if (state.fogEnabled && !planet.fogSeenAt(p.x, p.y)) continue;
+      if (!visibleEntityNow(p.x, p.y)) continue;
       const life = p.life ?? 0;
       const lifeN = (p.maxLife && p.maxLife > 0) ? Math.max(0, Math.min(1, life / p.maxLife)) : 1;
       const progress = 1 - lifeN;
@@ -1784,7 +1806,7 @@ function drawFrameImpl(renderer, state, planet){
   const splashParticles = featureParticles ? featureParticles.splashes : null;
   if (splashParticles && splashParticles.length){
     for (const p of splashParticles){
-      if (state.fogEnabled && !planet.fogSeenAt(p.x, p.y)) continue;
+      if (!visibleEntityNow(p.x, p.y)) continue;
       const life = p.life ?? 0;
       const lifeN = (p.maxLife && p.maxLife > 0) ? Math.max(0, Math.min(1, life / p.maxLife)) : 1;
       const vlen = Math.hypot(p.vx || 0, p.vy || 0);
@@ -1868,7 +1890,7 @@ function drawFrameImpl(renderer, state, planet){
     };
     for (const p of props){
       if (p.dead || (typeof p.hp === "number" && p.hp <= 0)) continue;
-      if (state.fogEnabled && !planet.fogSeenAt(p.x, p.y)) continue;
+      if (!visibleEntityNow(p.x, p.y)) continue;
       if (p.type === "bubble_hex") continue;
       const rot = (p.rot || 0) + (p.rotSpeed ? p.rotSpeed * now : 0);
       const s = p.scale || 1;
@@ -2634,7 +2656,7 @@ function drawFrameImpl(renderer, state, planet){
     for (const p of props){
       if (p.dead || (typeof p.hp === "number" && p.hp <= 0)) continue;
       if (p.type !== "bubble_hex") continue;
-      if (state.fogEnabled && !planet.fogSeenAt(p.x, p.y)) continue;
+      if (!visibleEntityNow(p.x, p.y)) continue;
       const rot = (p.rot || 0) + (p.rotSpeed ? p.rotSpeed * now : 0);
       const s = p.scale || 1;
       pushHexOutline(pos, col, p.x, p.y, 0.28 * s, rot, 0.60, 0.62, 0.66, 0.78);
@@ -2670,7 +2692,7 @@ function drawFrameImpl(renderer, state, planet){
     for (const p of props){
       if (p.dead || (typeof p.hp === "number" && p.hp <= 0)) continue;
       if (p.type !== "ridge_spike" && p.type !== "stalactite" && p.type !== "ice_shard") continue;
-      if (state.fogEnabled && !planet.fogSeenAt(p.x, p.y)) continue;
+      if (!visibleEntityNow(p.x, p.y)) continue;
       let ux, uy, tx, ty;
       if (typeof p.nx === "number" && typeof p.ny === "number"){
         const nlen = Math.hypot(p.nx, p.ny) || 1;
@@ -2704,7 +2726,7 @@ function drawFrameImpl(renderer, state, planet){
   const bubbleParticles = featureParticles ? featureParticles.bubbles : null;
   if (bubbleParticles && bubbleParticles.length){
     for (const p of bubbleParticles){
-      if (state.fogEnabled && !planet.fogSeenAt(p.x, p.y)) continue;
+      if (!visibleEntityNow(p.x, p.y)) continue;
       const life = p.life ?? 0;
       const lifeN = (p.maxLife && p.maxLife > 0) ? Math.max(0, Math.min(1, life / p.maxLife)) : 1;
       const radius = (p.size || 0.08) * (1 + (1 - lifeN) * 0.35);

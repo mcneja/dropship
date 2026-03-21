@@ -188,6 +188,7 @@ export class RingMesh {
     this._fogVisible = new Uint8Array(total);
     this._fogSeen = new Uint8Array(total);
     this._fogHold = new Uint8Array(total);
+    this._fogAlpha.fill(this._fogUnseenAlpha);
     const triIndexOf = new Map();
     let idx = 0;
     for (const band of this.bandTris){
@@ -686,6 +687,25 @@ export class RingMesh {
     }
 
     this._fogCursor = end >= count ? 0 : end;
+  }
+
+  /**
+   * Evaluate fog visibility for the full mesh in one pass.
+   * @param {number} shipX
+   * @param {number} shipY
+   * @returns {Float32Array}
+   */
+  primeFog(shipX, shipY){
+    if (!this._fogVisible || !this._fogVisible.length){
+      return this._fogAlpha;
+    }
+    const start = this._fogCursor | 0;
+    let first = true;
+    while (first || this._fogCursor !== start){
+      this.updateFog(shipX, shipY);
+      first = false;
+    }
+    return this._fogAlpha;
   }
 
   /**

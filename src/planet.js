@@ -3005,6 +3005,20 @@ export class Planet {
   }
 
   /**
+   * Evaluate fog for the entire current mesh and push it to the renderer.
+   * @param {{updateFog:(fog:Float32Array)=>void}} renderer
+   * @param {number} shipX
+   * @param {number} shipY
+   * @returns {void}
+   */
+  primeRenderFog(renderer, shipX, shipY){
+    const fog = this.radial && typeof this.radial.primeFog === "function"
+      ? this.radial.primeFog(shipX, shipY)
+      : this.updateFogForRender(shipX, shipY);
+    if (fog) renderer.updateFog(fog);
+  }
+
+  /**
    * Evaluate gravitational acceleration at a position relative to the planet
    * @param {number} x
    * @param {number} y

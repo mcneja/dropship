@@ -2663,6 +2663,7 @@ export class GameLoop {
           mothership: this.mothership,
           view: this._autoViewState(),
         });
+        this.planet.primeRenderFog(this.renderer, this.ship.x, this.ship.y);
       }
       return;
     }
@@ -3951,7 +3952,8 @@ export class GameLoop {
         this._devJumpToLevel(this.level - 1);
       }
     } else if (!transitionActive && inputState.nextLevel){
-      this._devJumpToLevel(this.level + 1);
+      const nextSeed = this.planet.getSeed() + 1;
+      this._startJumpdriveTransition(nextSeed, this.level + 1);
     }
     if (inputState.toggleDebug){
       this.debugCollisions = !this.debugCollisions;
@@ -4281,8 +4283,11 @@ export class GameLoop {
     }
 
     const gameOver = !transitionActive && this.ship.state === "crashed";
+    const transitionFogOrigin = transitionActive ? this.jumpdriveTransition.fogOrigin(this.ship) : null;
     if (!transitionActive){
       this.planet.syncRenderFog(this.renderer, this.ship.x, this.ship.y);
+    } else if (transitionFogOrigin){
+      this.planet.syncRenderFog(this.renderer, transitionFogOrigin.x, transitionFogOrigin.y);
     }
     /** @type {RenderState} */
     let renderState = {

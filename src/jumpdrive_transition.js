@@ -636,10 +636,26 @@ export class JumpdriveTransition {
     );
     const view = this._currentView(state.view);
     nextState.view = view;
+    nextState.showVisibleOuterRingEntities = this.phase === PHASE_REVEAL || this.phase === PHASE_FOCUS;
     if (this.visualMothership){
       nextState.mothership = /** @type {import("./mothership.js").Mothership} */ ({ ...this.visualMothership });
     }
     return nextState;
+  }
+
+  /**
+   * @param {{x:number,y:number}} fallbackShip
+   * @returns {{x:number,y:number}|null}
+   */
+  fogOrigin(fallbackShip){
+    if (!this.active) return null;
+    if (this.phase !== PHASE_REVEAL && this.phase !== PHASE_FOCUS) return null;
+    const ship = shipDockPoseForMothership(
+      this.hiddenShip || fallbackShip,
+      this.visualMothership || null
+    );
+    if (!ship) return null;
+    return { x: ship.x, y: ship.y };
   }
 
   /**
