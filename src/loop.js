@@ -4412,10 +4412,12 @@ export class GameLoop {
     for (const m of this.miners){
       const dx = m.x - this.ship.x;
       const dy = m.y - this.ship.y;
-      signalStrength += 1 / Math.max(1, Math.sqrt(dx*dx + dy*dy));
+      signalStrength += 1 / Math.max(1, dx*dx + dy*dy);
     }
-    signalStrength *= 10;
-    return Math.min(10, Math.ceil(signalStrength));
+    if (signalStrength > 0){
+      signalStrength = Math.floor(10 + Math.log2(signalStrength));
+    }
+    return signalStrength;
   }
 
   /**
