@@ -4086,15 +4086,18 @@ export class GameLoop {
       const hullDistBody = this._shipConvexHullDistance(miner.x, miner.y, this.ship.x, this.ship.y);
       const hullDistFeet = this._shipConvexHullDistance(footX, footY, this.ship.x, this.ship.y);
       const hullDist = Math.min(hullDistHead, hullDistBody, hullDistFeet);
+      const boardAcceptRadius = Math.max(GAME.MINER_BOARD_RADIUS, GAME.SHIP_SCALE * 0.28);
       const minerLocalBody = this._shipLocalPoint(miner.x, miner.y, this.ship.x, this.ship.y);
+      const minerLocalHead = this._shipLocalPoint(headX, headY, this.ship.x, this.ship.y);
       const centerDist = Math.min(
         Math.hypot(headX - this.ship.x, headY - this.ship.y),
         Math.hypot(miner.x - this.ship.x, miner.y - this.ship.y),
         Math.hypot(footX - this.ship.x, footY - this.ship.y),
       );
-      const boardNearShip = centerDist <= (this._shipRadius() + GAME.MINER_BOARD_RADIUS);
-      const boardPastCenterLine = minerLocalBody.y >= 0;
-      if (landed && hullDist <= GAME.MINER_BOARD_RADIUS && boardNearShip && boardPastCenterLine){
+      const boardNearShip = centerDist <= (shipRadius + boardAcceptRadius);
+      const boardPastCenterLine = Math.max(minerLocalBody.y, minerLocalHead.y) >= -(GAME.SHIP_SCALE * 0.08);
+      const boardAtTarget = !!(boardTarget && Math.hypot(miner.x - boardTarget.x, miner.y - boardTarget.y) <= Math.max(boardAcceptRadius, GAME.SHIP_SCALE * 0.18));
+      if (landed && hullDist <= boardAcceptRadius && boardNearShip && (boardPastCenterLine || boardAtTarget)){
         if (miner.type === "miner"){
           ++this.ship.dropshipMiners;
         } else if (miner.type === "pilot"){
