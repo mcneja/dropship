@@ -636,7 +636,7 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
       heatHit: 14,
       stunTime: 0.9,
       ventContactHeatRise: 24,
-      unsafeReach: 4.8,
+      unsafeReach: 2.0,
       unsafeBaseWidth: 0.34,
       unsafeWidthGrow: 0.18,
       enemyAvoidAfterLaunchGrace: 1.0,
@@ -1114,12 +1114,9 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
     if (props && props.length){
       for (const p of props){
         if (p.type !== "vent" || p.dead) continue;
-        const plumeHit = ventIsEmitting(p) && pointInVentPlume(p, x, y, radius);
         const sourceHit = pointInVentBody(p, x, y, radius);
-        if (!plumeHit && !sourceHit) continue;
-        if (sourceHit){
-          triggerVentShot(p);
-        }
+        if (!sourceHit) continue;
+        triggerVentShot(p);
         hit = true;
         break;
       }
@@ -1166,9 +1163,8 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
       let triggeredVent = false;
       for (const p of props){
         if (p.type !== "vent" || p.dead) continue;
-        const plumeHit = ventIsEmitting(p) && pointInVentPlume(p, x, y, ventRadius);
         const sourceHit = pointInVentBody(p, x, y, ventRadius);
-        if (!plumeHit && !sourceHit) continue;
+        if (!sourceHit) continue;
         triggerVentBomb(p);
         triggeredVent = true;
       }
