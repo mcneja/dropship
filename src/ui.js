@@ -8,6 +8,44 @@ const MOTHERSHIP_DASHBOARD_STYLE_ID = "mothership-dashboard-style";
 const dashboardStateByRoot = new WeakMap();
 const planetPreviewCacheByCanvas = new WeakMap();
 
+/** @typedef {[number,number,number]} RgbTriplet */
+/**
+ * @typedef {Object} PlanetPreviewPlanet
+ * @property {(x:number,y:number)=>number} airValueAtWorld
+ * @property {(x:number,y:number)=>number} [shadeAtWorld]
+ * @property {(x:number,y:number)=>boolean} [fogSeenAt]
+ * @property {(x:number,y:number)=>number} [fogAlphaAtWorld]
+ * @property {()=>number} [getSeed]
+ */
+/**
+ * @typedef {Object} PlanetPreviewPalette
+ * @property {RgbTriplet} rockDark
+ * @property {RgbTriplet} rockLight
+ * @property {RgbTriplet} airDark
+ * @property {RgbTriplet} airLight
+ * @property {RgbTriplet} surfaceRockDark
+ * @property {RgbTriplet} surfaceRockLight
+ * @property {number} surfaceBand
+ */
+/**
+ * @typedef {Object} PlanetPreview
+ * @property {PlanetPreviewPlanet} planet
+ * @property {PlanetPreviewPalette|null} [palette]
+ * @property {number} worldRadius
+ * @property {number} surfaceRadius
+ * @property {boolean} fogEnabled
+ * @property {number} [rotation]
+ */
+/**
+ * @typedef {Object} NullablePlanetPreview
+ * @property {PlanetPreviewPlanet|null} planet
+ * @property {PlanetPreviewPalette|null} [palette]
+ * @property {number} worldRadius
+ * @property {number} surfaceRadius
+ * @property {boolean} fogEnabled
+ * @property {number} [rotation]
+ */
+
 /**
  * @param {HTMLElement} hud
  * @param {{fps:number,state:string,speed:number,verts:number,air:number,miners:number,minersDead:number,level:number,debug:boolean,minerCandidates:number,shipHp:number,bombs:number,landingDebug?:{source?:string,reason?:string,dotUp?:number,slope?:number,landSlope?:number,vn?:number,vt?:number,speed?:number,airFront?:number,airBack?:number,landable?:boolean,landed?:boolean,support?:boolean,supportDist?:number,contactsCount?:number,bestDotUpAny?:number,bestDotUpUnder?:number,impactPoint?:number,supportPoint?:number,impactT?:number,supportT?:number,impactX?:number,impactY?:number,supportX?:number,supportY?:number,supportTriOuterCount?:number,supportTriAirMin?:number,supportTriAirMax?:number,supportTriRMin?:number,supportTriRMax?:number}|null,inputType:("keyboard"|"mouse"|"touch"|"gamepad"|null|undefined),frameStats?:{sampleCount:number,avgMs:number,avgFps:number,p50Ms:number,p95Ms:number,p99Ms:number,low1Fps:number,over16_7:number,over25:number,over33_3:number,maxMs:number}|null,benchState?:string|null,perfFlags?:readonly string[]|null}} stats
@@ -145,28 +183,7 @@ export function updateHeatMeter(el, heat, show, flashing){
  *   missionMeta?:string,
  *   planetLabel?:string,
  *   planetNote?:string,
- *   planetPreview?:{
- *     planet:{
- *       airValueAtWorld:(x:number,y:number)=>number,
- *       shadeAtWorld?:(x:number,y:number)=>number,
- *       fogSeenAt?:(x:number,y:number)=>boolean,
- *       fogAlphaAtWorld?:(x:number,y:number)=>number,
- *       getSeed?:()=>number,
- *     }|null,
- *     palette?:{
- *       rockDark:[number,number,number],
- *       rockLight:[number,number,number],
- *       airDark:[number,number,number],
- *       airLight:[number,number,number],
- *       surfaceRockDark:[number,number,number],
- *       surfaceRockLight:[number,number,number],
- *       surfaceBand:number,
- *     }|null,
- *     worldRadius:number,
- *     surfaceRadius:number,
- *     fogEnabled:boolean,
- *     rotation?:number,
- *   }|null,
+ *   planetPreview?:NullablePlanetPreview|null,
  * }} stats
  * @returns {void}
  */
@@ -218,7 +235,7 @@ export function updateMothershipDashboard(root, stats){
   setTextIfChanged(state.planetNote, stats.planetNote || "");
 
   if (stats.planetPreview && stats.planetPreview.planet){
-    drawPlanetPreview(state.planetCanvas, stats.planetPreview);
+    drawPlanetPreview(state.planetCanvas, /** @type {PlanetPreview} */ (stats.planetPreview));
   } else {
     clearPlanetPreview(state.planetCanvas);
   }
@@ -829,55 +846,29 @@ function rectsOverlap(a, b, margin){
 
 /**
  * @param {HTMLCanvasElement} canvas
- * @param {{
- *   planet:{
- *     airValueAtWorld:(x:number,y:number)=>number,
- *     shadeAtWorld?:(x:number,y:number)=>number,
- *     fogSeenAt?:(x:number,y:number)=>boolean,
- *     fogAlphaAtWorld?:(x:number,y:number)=>number,
- *     getSeed?:()=>number,
- *   },
- *   palette?:{
- *     rockDark:[number,number,number],
- *     rockLight:[number,number,number],
- *     airDark:[number,number,number],
- *     airLight:[number,number,number],
- *     surfaceRockDark:[number,number,number],
- *     surfaceRockLight:[number,number,number],
- *     surfaceBand:number,
- *   }|null,
- *   worldRadius:number,
- *   surfaceRadius:number,
- *   fogEnabled:boolean,
- *   rotation?:number,
- * }} preview
+ * @param {PlanetPreview} preview
  * @returns {void}
  */
 function drawPlanetPreview(canvas, preview){
   const wrap = canvas.parentElement instanceof HTMLElement ? canvas.parentElement : null;
   const wrapWidthCss = wrap ? wrap.clientWidth : (canvas.clientWidth || 220);
   const widthCss = Math.max(120, Math.round(wrapWidthCss || 220));
-  let sideCss = widthCss;
-  if (wrap){
-    const style = window.getComputedStyle(wrap);
-    const gap = Number.parseFloat(style.rowGap || style.gap || "0");
-    let otherHeight = 0;
-    for (const child of wrap.children){
-      if (child === canvas) continue;
-      if (!(child instanceof HTMLElement)) continue;
-      otherHeight += child.getBoundingClientRect().height;
-    }
-    const totalGap = Math.max(0, wrap.children.length - 1) * (Number.isFinite(gap) ? gap : 0);
-    const availableHeightCss = Math.max(96, wrap.clientHeight - otherHeight - totalGap);
-    sideCss = Math.max(96, Math.min(widthCss, availableHeightCss));
-  }
-  sideCss = Math.max(84, sideCss * 0.88);
+  const compactPreview = window.matchMedia("(max-width: 960px), (max-height: 760px)").matches;
+  const canvasStyle = window.getComputedStyle(canvas);
+  const maxHeightCss = Number.parseFloat(canvasStyle.maxHeight || "");
+  const sizeLimitCss = Number.isFinite(maxHeightCss) && maxHeightCss > 0
+    ? maxHeightCss
+    : (compactPreview ? 104 : 420);
+  // Keep the preview modest on compact layouts, but make it roughly 2x larger
+  // on roomy screens where the dashboard has enough space for a more legible scan.
+  const targetSideCss = compactPreview ? 84 : 168;
+  const sideCss = Math.max(84, Math.min(widthCss, sizeLimitCss, targetSideCss));
   canvas.style.width = `${Math.round(sideCss)}px`;
   canvas.style.height = `${Math.round(sideCss)}px`;
   const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
-  const side = Math.max(96, Math.min(320, Math.round(sideCss * dpr)));
+  const side = Math.max(96, Math.min(compactPreview ? 256 : 512, Math.round(sideCss * dpr)));
   const seed = preview.planet && typeof preview.planet.getSeed === "function" ? preview.planet.getSeed() : 0;
-  const rotation = Number.isFinite(preview.rotation) ? preview.rotation : 0;
+  const rotation = (typeof preview.rotation === "number" && Number.isFinite(preview.rotation)) ? preview.rotation : 0;
   const rasterKey = `${seed}:${side}:${preview.worldRadius.toFixed(2)}:${preview.surfaceRadius.toFixed(2)}:${preview.fogEnabled ? 1 : 0}`;
   const drawKey = `${rasterKey}:${rotation.toFixed(4)}`;
   if (canvas.width !== side || canvas.height !== side){
@@ -926,28 +917,7 @@ function drawPlanetPreview(canvas, preview){
 
 /**
  * @param {HTMLCanvasElement} canvas
- * @param {{
- *   planet:{
- *     airValueAtWorld:(x:number,y:number)=>number,
- *     shadeAtWorld?:(x:number,y:number)=>number,
- *     fogSeenAt?:(x:number,y:number)=>boolean,
- *     fogAlphaAtWorld?:(x:number,y:number)=>number,
- *     getSeed?:()=>number,
- *   },
- *   palette?:{
- *     rockDark:[number,number,number],
- *     rockLight:[number,number,number],
- *     airDark:[number,number,number],
- *     airLight:[number,number,number],
- *     surfaceRockDark:[number,number,number],
- *     surfaceRockLight:[number,number,number],
- *     surfaceBand:number,
- *   }|null,
- *   worldRadius:number,
- *   surfaceRadius:number,
- *   fogEnabled:boolean,
- *   rotation?:number,
- * }} preview
+ * @param {PlanetPreview} preview
  * @param {number} side
  * @returns {void}
  */
@@ -963,8 +933,9 @@ function renderPlanetPreviewRaster(canvas, preview, side){
   const frameRadius = renderRadius * 1.08;
   const center = side * 0.5;
   const pxToWorld = (frameRadius * 2) / side;
+  /** @type {RgbTriplet} */
   const fogColor = Array.isArray(GAME.FOG_COLOR) && GAME.FOG_COLOR.length >= 3
-    ? GAME.FOG_COLOR
+    ? /** @type {RgbTriplet} */ (GAME.FOG_COLOR)
     : [0.1, 0.1, 0.1];
 
   for (let y = 0; y < side; y++){
@@ -1035,25 +1006,23 @@ function ensurePlanetPreviewCache(canvas){
  * @param {number} r
  * @param {number} air
  * @param {number} shade
- * @param {{
- *   rockDark:[number,number,number],
- *   rockLight:[number,number,number],
- *   airDark:[number,number,number],
- *   airLight:[number,number,number],
- *   surfaceRockDark:[number,number,number],
- *   surfaceRockLight:[number,number,number],
- *   surfaceBand:number,
- * }|null} palette
+ * @param {PlanetPreviewPalette|null} palette
  * @param {number} surfaceRadius
- * @returns {[number,number,number]}
+ * @returns {RgbTriplet}
  */
 function samplePlanetPreviewColor(r, air, shade, palette, surfaceRadius){
   const t = clamp01(shade);
+  /** @type {RgbTriplet} */
   const rockDark = palette ? palette.rockDark : [0.17, 0.18, 0.21];
+  /** @type {RgbTriplet} */
   const rockLight = palette ? palette.rockLight : [0.42, 0.44, 0.50];
+  /** @type {RgbTriplet} */
   const airDark = palette ? palette.airDark : [0.16, 0.17, 0.20];
+  /** @type {RgbTriplet} */
   const airLight = palette ? palette.airLight : [0.25, 0.28, 0.34];
+  /** @type {RgbTriplet} */
   const surfaceDark = palette ? palette.surfaceRockDark : rockDark;
+  /** @type {RgbTriplet} */
   const surfaceLight = palette ? palette.surfaceRockLight : rockLight;
   const surfaceBand = palette && typeof palette.surfaceBand === "number" ? Math.max(0, palette.surfaceBand) : 0;
   const useSurface = surfaceBand > 0 && r > (surfaceRadius - surfaceBand * surfaceRadius);
@@ -1067,10 +1036,10 @@ function samplePlanetPreviewColor(r, air, shade, palette, surfaceRadius){
 }
 
 /**
- * @param {[number,number,number]} a
- * @param {[number,number,number]} b
+ * @param {RgbTriplet} a
+ * @param {RgbTriplet} b
  * @param {number} t
- * @returns {[number,number,number]}
+ * @returns {RgbTriplet}
  */
 function mixColor(a, b, t){
   return [
