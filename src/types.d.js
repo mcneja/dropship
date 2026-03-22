@@ -134,6 +134,7 @@
  * 
  * @property {number} hpMax
  * @property {number} bombsMax
+ * @property {number} bombStrength
  * @property {number} thrust
  * @property {number} inertialDrive
  * @property {number} gunPower

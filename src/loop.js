@@ -204,6 +204,7 @@ export class GameLoop {
 
       hpMax: GAME.SHIP_STARTING_MAX_HP,
       bombsMax: GAME.SHIP_STARTING_MAX_BOMBS,
+      bombStrength: GAME.SHIP_STARTING_BOMB_STRENGTH,
       thrust: GAME.SHIP_STARTING_THRUST,
       inertialDrive: GAME.SHIP_STARTING_INERTIAL_DRIVE,
       gunPower: GAME.SHIP_STARTING_GUN_POWER,
@@ -1060,6 +1061,7 @@ export class GameLoop {
     if (this.ship.dropshipPilots > 0) cargoParts.push(`${this.ship.dropshipPilots}P`);
     if (this.ship.dropshipEngineers > 0) cargoParts.push(`${this.ship.dropshipEngineers}E`);
     const systems = [];
+    if (this.ship.bombStrength > GAME.SHIP_STARTING_BOMB_STRENGTH) systems.push(`Bomb +${this.ship.bombStrength - GAME.SHIP_STARTING_BOMB_STRENGTH}`);
     if (this.ship.thrust > GAME.SHIP_STARTING_THRUST) systems.push(`Thrust +${this.ship.thrust - GAME.SHIP_STARTING_THRUST}`);
     if (this.ship.inertialDrive > GAME.SHIP_STARTING_INERTIAL_DRIVE) systems.push(`Drive +${this.ship.inertialDrive - GAME.SHIP_STARTING_INERTIAL_DRIVE}`);
     if (this.ship.gunPower > GAME.SHIP_STARTING_GUN_POWER) systems.push(`Gun +${this.ship.gunPower - GAME.SHIP_STARTING_GUN_POWER}`);
@@ -1853,9 +1855,32 @@ export class GameLoop {
   _applyBombImpact(x, y){
     const cfg = this.planet ? this.planet.getPlanetConfig() : null;
     if (cfg && cfg.flags && cfg.flags.disableTerrainDestruction) return;
-    const result = this.planet.destroyRockRadialNodesInRange(x, y, this.TERRAIN_NODE_IMPACT_RANGE, 1);
+    const result = this.planet.destroyRockRadialNodesInRange(
+      x,
+      y,
+      this._playerBombTerrainImpactRange(),
+      this._playerBombTerrainNodeLimit()
+    );
     if (!result) return;
     this._emitTerrainDestructionFragments(result, x, y);
+  }
+
+  /**
+   * @returns {number}
+   */
+  _playerBombTerrainImpactRange(){
+    if (this.ship.bombStrength >= 2) return 1.8;
+    if (this.ship.bombStrength >= 1) return 1.5;
+    return this.TERRAIN_NODE_IMPACT_RANGE;
+  }
+
+  /**
+   * @returns {number}
+   */
+  _playerBombTerrainNodeLimit(){
+    if (this.ship.bombStrength >= 2) return 3;
+    if (this.ship.bombStrength >= 1) return 2;
+    return 1;
   }
 
   /**
@@ -2934,6 +2959,7 @@ export class GameLoop {
       this.ship.hpCur = GAME.SHIP_STARTING_MAX_HP;
       this.ship.bombsMax = GAME.SHIP_STARTING_MAX_BOMBS;
       this.ship.bombsCur = GAME.SHIP_STARTING_MAX_BOMBS;
+      this.ship.bombStrength = GAME.SHIP_STARTING_BOMB_STRENGTH;
       this.ship.thrust = GAME.SHIP_STARTING_THRUST;
       this.ship.inertialDrive = GAME.SHIP_STARTING_INERTIAL_DRIVE;
       this.ship.gunPower = GAME.SHIP_STARTING_GUN_POWER;
@@ -5772,6 +5798,9 @@ export class GameLoop {
     const perksAvailable = [];
     perksAvailable.push("hpMax");
     perksAvailable.push("bombsMax");
+    if (this.ship.bombStrength < 2){
+      perksAvailable.push("bombStrength");
+    }
     if (this.ship.thrust < 3){
       perksAvailable.push("thrust");
     }
@@ -5812,6 +5841,7 @@ export class GameLoop {
   _perkChoiceText(perk){
     if (perk === "hpMax") return "Reinforced hull: +1 max HP";
     if (perk === "bombsMax") return "Expanded payload bay: +1 max bomb";
+    if (perk === "bombStrength") return "Heavy charges: bombs breach more rock";
     if (perk === "thrust") return "Engine tune-up: +10% thrust power";
     if (perk === "inertialDrive") return "Inertial drive: +10% corrective thrust";
     if (perk === "gunPower") return "Firepower: +1 HP damage";
@@ -5844,6 +5874,8 @@ export class GameLoop {
     } else if (perk === "bombsMax"){
       ++this.ship.bombsMax;
       this.ship.bombsCur = this.ship.bombsMax;
+    } else if (perk === "bombStrength"){
+      this.ship.bombStrength = Math.min(2, this.ship.bombStrength + 1);
     } else if (perk === "thrust"){
       ++this.ship.thrust;
     } else if (perk === "inertialDrive"){
