@@ -3956,6 +3956,8 @@ export class GameLoop {
     if (this.ship.state !== "flying"){
       this._setThrustLoopActive(false);
     }
+    // Keep camera/render orientation aligned with the pose after physics/collision resolution.
+    this._updateShipRenderAngle(dt);
     const gunOrigin = this._shipGunPivotWorld();
     const aimWorldShoot = this._toWorldFromAim(aimShoot || aim);
     const aimWorldBomb = this._toWorldFromAim(aimBomb || aimShoot || aim);
