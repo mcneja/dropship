@@ -2,8 +2,10 @@
 
 import { GAME } from "./config.js";
 
-const STORAGE_KEY = "dropship.save.v1";
 export const SAVE_SCHEMA_VERSION = 1;
+const STORAGE_KEY_BASE = "dropship.save";
+const STORAGE_KEY = `${STORAGE_KEY_BASE}.v${SAVE_SCHEMA_VERSION}`;
+const LEGACY_STORAGE_KEYS = [STORAGE_KEY_BASE];
 
 /** @typedef {{createSaveSnapshot:()=>any, restoreFromSaveSnapshot:(snapshot:any)=>boolean}} SaveLoop */
 
@@ -15,6 +17,7 @@ export const SAVE_SCHEMA_VERSION = 1;
 export function saveGameToStorage(loop){
   if (!loop || typeof loop.createSaveSnapshot !== "function") return false;
   try {
+    purgeUnversionedLegacySaves();
     const snapshot = loop.createSaveSnapshot();
     if (!isSnapshotPersistable(snapshot)){
       localStorage.removeItem(STORAGE_KEY);
@@ -36,6 +39,7 @@ export function saveGameToStorage(loop){
 export function loadGameFromStorage(loop){
   if (!loop || typeof loop.restoreFromSaveSnapshot !== "function") return false;
   try {
+    purgeUnversionedLegacySaves();
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return false;
     const snapshot = JSON.parse(raw);
@@ -81,6 +85,9 @@ export function installExitSaveHandlers(loop){
 export function clearSavedGame(){
   try {
     localStorage.removeItem(STORAGE_KEY);
+    for (const key of LEGACY_STORAGE_KEYS){
+      localStorage.removeItem(key);
+    }
     return true;
   } catch (err){
     console.warn("[Save] clear failed", err);
@@ -489,11 +496,42 @@ function clampRange(value, min, max, fallback){
 }
 
 /**
+ * Delete legacy save entries that predate snapshot versioning.
+ * @returns {void}
+ */
+function purgeUnversionedLegacySaves(){
+  for (const key of LEGACY_STORAGE_KEYS){
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const snapshot = JSON.parse(raw);
+      if (!hasSnapshotVersion(snapshot)){
+        localStorage.removeItem(key);
+      }
+    } catch {
+      localStorage.removeItem(key);
+    }
+  }
+}
+
+/**
+ * @param {any} snapshot
+ * @returns {boolean}
+ */
+function hasSnapshotVersion(snapshot){
+  return !!snapshot
+    && typeof snapshot === "object"
+    && Number.isFinite(snapshot.version)
+    && (snapshot.version | 0) > 0;
+}
+
+/**
  * @param {any} snapshot
  * @returns {boolean}
  */
 function isSnapshotPersistable(snapshot){
   if (!snapshot || typeof snapshot !== "object") return false;
+  if (!hasSnapshotVersion(snapshot)) return false;
   const level = snapshot.level | 0;
   const ship = snapshot.ship || null;
   const hardGameOver = !!(ship && ship.state === "crashed" && ((ship.mothershipPilots | 0) <= 0));

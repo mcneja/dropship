@@ -58,6 +58,8 @@ const COMBAT_RETRIGGER_COOLDOWN_MS = 18000;
 const THRUST_LOOP_GAIN = 0.25;
 const THRUST_LOOP_FADE_IN_MS = 90;
 const THRUST_LOOP_FADE_OUT_MS = 320;
+const AUDIO_SETTINGS_VERSION = 1;
+const AUDIO_SETTINGS_STORAGE_KEY = `dropship.audio.v${AUDIO_SETTINGS_VERSION}`;
 
 const MAX_PENDING_SFX = 24;
 const DEFAULT_SFX_POOL_SIZE = 3;
@@ -129,11 +131,12 @@ export class BackgroundMusic {
    */
   constructor(opts){
     const volume = opts && typeof opts.volume === "number" ? opts.volume : 0.35;
-    this.musicVolume = Math.max(0, Math.min(1, volume));
+    const persisted = loadAudioSettings();
+    this.musicVolume = clampUnit(persisted ? persisted.musicVolume : volume);
 
     this.enabled = true;
     this.sfxEnabled = true;
-    this.sfxMasterVolume = 0.7;
+    this.sfxMasterVolume = clampUnit(persisted ? persisted.sfxMasterVolume : 0.7);
     this.combatMusicEnabled = true;
     /** @type {AudioContext|null} */
     this.webAudioCtx = null;
@@ -951,6 +954,7 @@ export class BackgroundMusic {
       this.victoryAudio.volume = 0;
       this.audio.volume = this.enabled ? this.musicVolume : 0;
     }
+    this._persistSettings();
     return nextPercent;
   }
 
@@ -968,6 +972,7 @@ export class BackgroundMusic {
       : Math.max(0, (Math.ceil(currentPercent / stepPercent) - 1) * stepPercent);
     this.sfxMasterVolume = nextPercent / 100;
     this._syncThrustLoopPlayback();
+    this._persistSettings();
     return nextPercent;
   }
 
@@ -997,4 +1002,75 @@ export class BackgroundMusic {
     this._switchToAmbient(!!withFade);
     this.nextCombatEligibleAt = performance.now() + this._randomCombatDelayMs();
   }
+
+  /**
+   * @returns {void}
+   */
+  _persistSettings(){
+    saveAudioSettings({
+      version: AUDIO_SETTINGS_VERSION,
+      musicVolume: this.musicVolume,
+      sfxMasterVolume: this.sfxMasterVolume,
+    });
+  }
+}
+
+/**
+ * @param {{version:number,musicVolume:number,sfxMasterVolume:number}} settings
+ * @returns {void}
+ */
+function saveAudioSettings(settings){
+  try {
+    localStorage.setItem(AUDIO_SETTINGS_STORAGE_KEY, JSON.stringify({
+      version: AUDIO_SETTINGS_VERSION,
+      musicVolume: clampUnit(settings.musicVolume),
+      sfxMasterVolume: clampUnit(settings.sfxMasterVolume),
+    }));
+  } catch (_err){
+    // Ignore storage failures; audio settings are best-effort.
+  }
+}
+
+/**
+ * @returns {{version:number,musicVolume:number,sfxMasterVolume:number}|null}
+ */
+function loadAudioSettings(){
+  try {
+    const raw = localStorage.getItem(AUDIO_SETTINGS_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") {
+      localStorage.removeItem(AUDIO_SETTINGS_STORAGE_KEY);
+      return null;
+    }
+    if ((parsed.version | 0) !== AUDIO_SETTINGS_VERSION){
+      localStorage.removeItem(AUDIO_SETTINGS_STORAGE_KEY);
+      return null;
+    }
+    if (!Number.isFinite(parsed.musicVolume) || !Number.isFinite(parsed.sfxMasterVolume)){
+      localStorage.removeItem(AUDIO_SETTINGS_STORAGE_KEY);
+      return null;
+    }
+    return {
+      version: AUDIO_SETTINGS_VERSION,
+      musicVolume: clampUnit(parsed.musicVolume),
+      sfxMasterVolume: clampUnit(parsed.sfxMasterVolume),
+    };
+  } catch (_err){
+    try {
+      localStorage.removeItem(AUDIO_SETTINGS_STORAGE_KEY);
+    } catch {
+      // Ignore cleanup failures.
+    }
+    return null;
+  }
+}
+
+/**
+ * @param {number} value
+ * @returns {number}
+ */
+function clampUnit(value){
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(1, value));
 }
