@@ -67,6 +67,7 @@ const EMPTY_FEATURE_PARTICLES = Object.freeze({
   bubbles: [],
   splashes: [],
 });
+const CRAWLER_BOMB_DEATH_SFX_DELAY_MS = 45;
 
 /**
  * Fade atmosphere density from full strength at/below the surface to zero above the configured height.
@@ -1066,7 +1067,28 @@ export class GameLoop {
     if (!enemy || enemy.type !== "crawler"){
       return;
     }
+    this._playCrawlerDeathSfx(info && info.destroyedBy ? info.destroyedBy : "unknown");
     this._applyCrawlerDeathBlast(enemy, info && info.destroyedBy ? info.destroyedBy : "unknown");
+  }
+
+  /**
+   * @param {import("./types.d.js").FragmentDestroyedBy} destroyedBy
+   * @returns {void}
+   */
+  _playCrawlerDeathSfx(destroyedBy){
+    const opts = {
+      volume: destroyedBy === "bomb" ? 0.58 : 0.72,
+      rate: destroyedBy === "bomb"
+        ? 0.88 + Math.random() * 0.08
+        : 0.92 + Math.random() * 0.12,
+    };
+    if (destroyedBy === "bomb"){
+      setTimeout(() => {
+        this._playSfx("bomb_explosion", opts);
+      }, CRAWLER_BOMB_DEATH_SFX_DELAY_MS);
+      return;
+    }
+    this._playSfx("bomb_explosion", opts);
   }
 
   /**
