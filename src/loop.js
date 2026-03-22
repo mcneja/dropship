@@ -5032,15 +5032,14 @@ export class GameLoop {
    * @returns {number}
    */
   _signalStrength(){
-    let signalStrength = 0;
+    let dMin = Infinity;
     for (const m of this.miners){
       const dx = m.x - this.ship.x;
       const dy = m.y - this.ship.y;
-      signalStrength += 1 / Math.max(1, dx*dx + dy*dy);
+      const d = Math.hypot(dx, dy);
+      dMin = Math.min(dMin, d);
     }
-    if (signalStrength > 0){
-      signalStrength = Math.min(10, Math.ceil(10 + Math.log2(signalStrength)));
-    }
+    const signalStrength = Math.ceil(Math.max(0, 10 - dMin));
     return signalStrength;
   }
 
