@@ -136,6 +136,7 @@ export class BackgroundMusic {
 
     this.enabled = true;
     this.sfxEnabled = true;
+    this.playbackBypassed = false;
     this.sfxMasterVolume = clampUnit(persisted ? persisted.sfxMasterVolume : 0.7);
     this.combatMusicEnabled = true;
     /** @type {AudioContext|null} */
@@ -220,8 +221,10 @@ export class BackgroundMusic {
       this._initWebAudioContext();
       this._preloadWebAudioSfx();
       this._playModeIfEnabled();
-      this._primeSfx();
-      this._flushPendingSfx();
+      if (!this.playbackBypassed){
+        this._primeSfx();
+        this._flushPendingSfx();
+      }
       this._syncThrustLoopPlayback();
     };
 
@@ -337,6 +340,21 @@ export class BackgroundMusic {
         reject(err);
       }
     });
+  }
+
+  /**
+   * @param {boolean} suspended
+   * @returns {void}
+   */
+  _setWebAudioSuspended(suspended){
+    const ctx = this.webAudioCtx;
+    if (!ctx) return;
+    const target = suspended ? "suspended" : "running";
+    if (ctx.state === target) return;
+    const maybePromise = suspended ? ctx.suspend() : ctx.resume();
+    if (maybePromise && typeof maybePromise.then === "function"){
+      maybePromise.catch(() => {});
+    }
   }
 
   /**
@@ -486,7 +504,7 @@ export class BackgroundMusic {
    * @returns {void}
    */
   _playAmbientIfEnabled(){
-    if (!this.enabled || !this.audioUnlocked || document.hidden) return;
+    if (this.playbackBypassed || !this.enabled || !this.audioUnlocked || document.hidden) return;
     this._playAudio(this.audio);
   }
 
@@ -494,7 +512,7 @@ export class BackgroundMusic {
    * @returns {void}
    */
   _playCombatIfEnabled(){
-    if (!this.enabled || !this.audioUnlocked || document.hidden) return;
+    if (this.playbackBypassed || !this.enabled || !this.audioUnlocked || document.hidden) return;
     this._playAudio(this.combatAudio);
   }
 
@@ -502,7 +520,7 @@ export class BackgroundMusic {
    * @returns {void}
    */
   _playVictoryIfEnabled(){
-    if (!this.enabled || !this.audioUnlocked || document.hidden) return;
+    if (this.playbackBypassed || !this.enabled || !this.audioUnlocked || document.hidden) return;
     this._playAudio(this.victoryAudio);
   }
 
@@ -510,7 +528,7 @@ export class BackgroundMusic {
    * @returns {void}
    */
   _playModeIfEnabled(){
-    if (!this.enabled || !this.audioUnlocked || document.hidden) return;
+    if (this.playbackBypassed || !this.enabled || !this.audioUnlocked || document.hidden) return;
     if (this.mode === "combat"){
       this._playCombatIfEnabled();
     } else if (this.mode === "victory"){
@@ -527,6 +545,25 @@ export class BackgroundMusic {
     this.audio.pause();
     this.combatAudio.pause();
     this.victoryAudio.pause();
+  }
+
+  /**
+   * @returns {void}
+   */
+  _stopAllSfxPlayback(){
+    this.sfxPools.forEach((pool) => {
+      for (const voice of pool.voices){
+        voice.pause();
+        voice.currentTime = 0;
+      }
+    });
+    if (this.thrustLoopAudio){
+      this._cancelFade(this.thrustLoopAudio);
+      this.thrustLoopAudio.pause();
+      this.thrustLoopAudio.currentTime = 0;
+      this.thrustLoopAudio.volume = 0;
+    }
+    this.thrustLoopAudible = false;
   }
 
   /**
@@ -752,7 +789,7 @@ export class BackgroundMusic {
    */
   _syncThrustLoopPlayback(){
     if (!this.thrustLoopAudio) return;
-    const shouldPlay = this.sfxEnabled && this.thrustLoopRequested && !document.hidden;
+    const shouldPlay = !this.playbackBypassed && this.sfxEnabled && this.thrustLoopRequested && !document.hidden;
     const targetVolume = Math.max(0, Math.min(1, this.sfxMasterVolume * THRUST_LOOP_GAIN));
     if (shouldPlay === this.thrustLoopAudible){
       if (shouldPlay){
@@ -796,6 +833,7 @@ export class BackgroundMusic {
    * @returns {void}
    */
   _primeSfx(){
+    if (this.playbackBypassed) return;
     if (this.sfxPrimed) return;
     this.sfxPrimed = true;
     this.sfxPools.forEach((pool) => {
@@ -860,6 +898,10 @@ export class BackgroundMusic {
    * @returns {void}
    */
   _flushPendingSfx(){
+    if (this.playbackBypassed){
+      this.pendingSfx.length = 0;
+      return;
+    }
     if (!this.pendingSfx.length) return;
     const queued = this.pendingSfx.slice();
     this.pendingSfx.length = 0;
@@ -875,6 +917,7 @@ export class BackgroundMusic {
    * @returns {boolean}
    */
   playSfx(id, opts){
+    if (this.playbackBypassed) return false;
     if (!this.sfxEnabled) return false;
     if (!this.audioUnlocked){
       this._queuePendingSfx(id, opts);
@@ -988,6 +1031,35 @@ export class BackgroundMusic {
     }
     this._syncThrustLoopPlayback();
     return !this.enabled;
+  }
+
+  /**
+   * @param {boolean} bypassed
+   * @returns {boolean}
+   */
+  setPlaybackBypassed(bypassed){
+    const next = !!bypassed;
+    if (next === this.playbackBypassed) return this.playbackBypassed;
+    this.playbackBypassed = next;
+    if (this.playbackBypassed){
+      this._setWebAudioSuspended(true);
+      this._cancelAllFades();
+      this._pauseAllMusic();
+      this.pendingSfx.length = 0;
+      this._stopAllSfxPlayback();
+      return this.playbackBypassed;
+    }
+    this._setWebAudioSuspended(false);
+    this._playModeIfEnabled();
+    this._syncThrustLoopPlayback();
+    return this.playbackBypassed;
+  }
+
+  /**
+   * @returns {boolean}
+   */
+  isPlaybackBypassed(){
+    return this.playbackBypassed;
   }
 
   /**

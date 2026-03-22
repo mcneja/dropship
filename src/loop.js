@@ -113,7 +113,7 @@ export class GameLoop {
    * @param {import("./rendering.js").Renderer} deps.renderer
    * @param {import("./input.js").Input} deps.input
    * @param {Ui} deps.ui
-   * @param {{toggleMuted?:()=>boolean,toggleCombatMusicEnabled?:()=>boolean,stepMusicVolume?:(direction:number)=>number,stepSfxVolume?:(direction:number)=>number,setCombatActive?:(active:boolean)=>boolean,triggerCombatImmediate?:()=>boolean,triggerVictoryMusic?:()=>boolean,returnToAmbient?:(withFade?:boolean)=>void,playSfx?:(id:string,opts?:{volume?:number,rate?:number})=>boolean,setThrustLoopActive?:(active:boolean)=>boolean}|null|undefined} [deps.audio]
+   * @param {{toggleMuted?:()=>boolean,toggleCombatMusicEnabled?:()=>boolean,stepMusicVolume?:(direction:number)=>number,stepSfxVolume?:(direction:number)=>number,setCombatActive?:(active:boolean)=>boolean,triggerCombatImmediate?:()=>boolean,triggerVictoryMusic?:()=>boolean,returnToAmbient?:(withFade?:boolean)=>void,playSfx?:(id:string,opts?:{volume?:number,rate?:number})=>boolean,setThrustLoopActive?:(active:boolean)=>boolean,isPlaybackBypassed?:()=>boolean,setPlaybackBypassed?:(bypassed:boolean)=>boolean}|null|undefined} [deps.audio]
    * @param {HTMLCanvasElement} deps.canvas
    * @param {HTMLCanvasElement|null|undefined} deps.overlay
    * @param {HTMLElement} deps.hud
@@ -1171,8 +1171,16 @@ export class GameLoop {
    * @returns {void}
    */
   _playSfx(id, opts){
+    if (this._audioPlaybackBypassed()) return;
     if (!this.audio || typeof this.audio.playSfx !== "function") return;
     this.audio.playSfx(id, opts);
+  }
+
+  /**
+   * @returns {boolean}
+   */
+  _audioPlaybackBypassed(){
+    return !!(this.audio && typeof this.audio.isPlaybackBypassed === "function" && this.audio.isPlaybackBypassed());
   }
 
   /**
@@ -1190,6 +1198,12 @@ export class GameLoop {
    * @returns {void}
    */
   _setThrustLoopActive(active){
+    if (this._audioPlaybackBypassed()){
+      if (!active && this.audio && typeof this.audio.setThrustLoopActive === "function"){
+        this.audio.setThrustLoopActive(false);
+      }
+      return;
+    }
     if (!this.audio || typeof this.audio.setThrustLoopActive !== "function") return;
     this.audio.setThrustLoopActive(active);
   }
@@ -1199,6 +1213,12 @@ export class GameLoop {
    * @returns {void}
    */
   _setCombatActive(active){
+    if (this._audioPlaybackBypassed()){
+      if (!active && this.audio && typeof this.audio.setCombatActive === "function"){
+        this.audio.setCombatActive(false);
+      }
+      return;
+    }
     if (!this.audio || typeof this.audio.setCombatActive !== "function") return;
     this.audio.setCombatActive(active);
   }
@@ -1219,6 +1239,7 @@ export class GameLoop {
   _triggerCombatImmediate(){
     if (this.ship.state === "crashed") return;
     if (this._objectiveComplete()) return;
+    if (this._audioPlaybackBypassed()) return;
     if (!this.audio || typeof this.audio.triggerCombatImmediate !== "function") return;
     this.audio.triggerCombatImmediate();
   }
@@ -1227,6 +1248,7 @@ export class GameLoop {
    * @returns {void}
    */
   _triggerVictoryMusic(){
+    if (this._audioPlaybackBypassed()) return;
     if (!this.audio || typeof this.audio.triggerVictoryMusic !== "function") return;
     this.audio.triggerVictoryMusic();
   }
