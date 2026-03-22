@@ -172,7 +172,7 @@ function r(min, max){ return { min, max }; }
 export const PLANET_CONFIGS = [
   {
     id: "barren_pickup",
-    label: "Barren Perimeter",
+    label: "Deadrock Frontier",
     enemyCountBase: 0,
     enemyCountPerLevel: 0,
     enemyCountCap: 0,
@@ -183,7 +183,7 @@ export const PLANET_CONFIGS = [
     minerCountCap: 5,
     platformCount: 5,
     enemyAllow: [],
-    notes: "Solid interior, external topography only, miner pickup.",
+    notes: "A shell-world of knife ridges and clean vacuum. Touch down, grab the stranded crew, and burn back to orbit.",
     flags: { noCaves: true, barrenPerimeter: true },
     defaults: {
       ROCK_DARK: [0.20, 0.20, 0.22],
@@ -241,7 +241,7 @@ export const PLANET_CONFIGS = [
   },
   {
     id: "barren_clear",
-    label: "Ominous Rock",
+    label: "Turret Grave",
     enemyCountBase: 5,
     enemyCountPerLevel: 0,
     enemyCountCap: 5,
@@ -252,7 +252,7 @@ export const PLANET_CONFIGS = [
     minerCountCap: 5,
     platformCount: 10,
     enemyAllow: ["turret"],
-    notes: "Solid interior, external topography only, clear turrets; optional miner rescue.",
+    notes: "A hard gray shell bristling with old gun nests. Sweep the emplacements and snatch any survivors you can.",
     flags: { noCaves: true, barrenPerimeter: true },
     defaults: {
       ROCK_DARK: [0.20, 0.20, 0.22],
@@ -310,7 +310,7 @@ export const PLANET_CONFIGS = [
   },
   {
     id: "no_caves",
-    label: "Barren Ridge",
+    label: "Thunder Mesa",
     enemyCountBase: 5,
     enemyCountPerLevel: 5,
     enemyCountCap: 30,
@@ -321,7 +321,7 @@ export const PLANET_CONFIGS = [
     minerCountCap: 30,
     platformCount: 10,
     enemyAllow: ["hunter", "ranger", "crawler"],
-    notes: "Solid interior with strong hills/valleys and no cave networks.",
+    notes: "All badlands, no tunnels. Fast passes, brutal slopes, and nowhere to hide when the shooting starts.",
     flags: { noCaves: true },
     defaults: {
       ROCK_DARK: [0.40, 0.26, 0.16],
@@ -379,7 +379,7 @@ export const PLANET_CONFIGS = [
   },
   {
     id: "molten",
-    label: "Molten Core",
+    label: "Hellforge",
     enemyCountBase: 5,
     enemyCountPerLevel: 5,
     enemyCountCap: 30,
@@ -390,7 +390,7 @@ export const PLANET_CONFIGS = [
     minerCountCap: 30,
     platformCount: 12,
     enemyAllow: ["hunter", "ranger", "crawler", "turret"],
-    notes: "Heat hazard in inner radius.",
+    notes: "The planet's heart is an open furnace. Skim the crust, dodge the heat, and never linger near the glow.",
     flags: { disableTerrainDestruction: true },
     defaults: {
       ROCK_DARK: [0.38, 0.12, 0.10],
@@ -448,7 +448,7 @@ export const PLANET_CONFIGS = [
   },
   {
     id: "ice",
-    label: "Ice World",
+    label: "Shatterice",
     enemyCountBase: 5,
     enemyCountPerLevel: 5,
     enemyCountCap: 30,
@@ -459,7 +459,7 @@ export const PLANET_CONFIGS = [
     minerCountCap: 30,
     platformCount: 10,
     enemyAllow: ["hunter", "ranger", "crawler"],
-    notes: "Slippery landings; icy crust.",
+    notes: "Blue-white crust, dead traction, and caves cold enough to bite through the hull. Every landing is a controlled slide.",
     defaults: {
       ROCK_DARK: [0.32, 0.40, 0.55],
       ROCK_LIGHT: [0.68, 0.80, 0.92],
@@ -516,7 +516,7 @@ export const PLANET_CONFIGS = [
   },
   {
     id: "gaia",
-    label: "Gaia",
+    label: "Eden Bite",
     enemyCountBase: 5,
     enemyCountPerLevel: 5,
     enemyCountCap: 30,
@@ -527,7 +527,7 @@ export const PLANET_CONFIGS = [
     minerCountCap: 30,
     platformCount: 10,
     enemyAllow: ["hunter", "ranger", "crawler", "orbitingTurret"],
-    notes: "Lush surface; slightly denser interior.",
+    notes: "Green from orbit, hungry up close. Thick growth, heavy rock, and trouble tucked under every bright canopy.",
     defaults: {
       ROCK_DARK: [0.30, 0.20, 0.12],
       ROCK_LIGHT: [0.52, 0.34, 0.20],
@@ -590,7 +590,7 @@ export const PLANET_CONFIGS = [
   },
   {
     id: "water",
-    label: "Water World",
+    label: "Drownstar",
     enemyCountBase: 5,
     enemyCountPerLevel: 5,
     enemyCountCap: 30,
@@ -601,7 +601,7 @@ export const PLANET_CONFIGS = [
     minerCountCap: 30,
     platformCount: 10,
     enemyAllow: ["hunter", "ranger", "crawler"],
-    notes: "High-drag buoyant control and deep-water cave visuals.",
+    notes: "A flooded sinkhole world that flies like syrup. Buoyancy helps until the deep caverns start pulling you under.",
     defaults: {
       ROCK_DARK: [0.30, 0.32, 0.34],
       ROCK_LIGHT: [0.56, 0.58, 0.62],
@@ -658,7 +658,7 @@ export const PLANET_CONFIGS = [
   },
   {
     id: "cavern",
-    label: "Cavern",
+    label: "Black Echo",
     enemyCountBase: 5,
     enemyCountPerLevel: 5,
     enemyCountCap: 30,
@@ -669,7 +669,7 @@ export const PLANET_CONFIGS = [
     minerCountCap: 30,
     platformCount: 10,
     enemyAllow: ["hunter", "ranger", "crawler", "turret"],
-    notes: "Baseline cave world.",
+    notes: "The classic deathball: cavern mouths, ambush tunnels, and rescue runs that turn into running gunfights.",
     defaults: {
       ROCK_DARK: [0.3725, 0.2275, 0.125],
       ROCK_LIGHT: [0.541, 0.337, 0.192],
@@ -726,7 +726,7 @@ export const PLANET_CONFIGS = [
   },
   {
     id: "mechanized",
-    label: "Mechanized",
+    label: "Iron Hive",
     enemyCountBase: 5,
     enemyCountPerLevel: 5,
     enemyCountCap: 30,
@@ -739,7 +739,7 @@ export const PLANET_CONFIGS = [
     enemyAllow: ["hunter", "ranger", "turret", "orbitingTurret"],
     factorySpawnCooldownMin: 6.5,
     factorySpawnCooldownMax: 10.5,
-    notes: "Industrial look with destroyable factories and blocked gates.",
+    notes: "Factory citadels have chained this rock in steel. Blast the line, crack the gates, and leave the assembly floor burning.",
     flags: { disableTerrainDestruction: true },
     defaults: {
       ROCK_DARK: [0.20, 0.20, 0.22],

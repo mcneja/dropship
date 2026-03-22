@@ -1,6 +1,6 @@
 ﻿// @ts-check
 
-import { CFG, TOUCH_UI } from "./config.js";
+import { CFG, TOUCH_UI, TOUCH_START_PROMPT } from "./config.js";
 import { PERF_FLAGS, getEffectiveDevicePixelRatio } from "./perf.js";
 import {
   DROPSHIP_MODEL,
@@ -3486,9 +3486,9 @@ function drawFrameImpl(renderer, state, planet){
     const w = canvas.width;
     const h = canvas.height;
     const minDim = Math.max(1, Math.min(w, h));
-    const centerX = TOUCH_UI.start.x * w;
-    const centerY = (1 - TOUCH_UI.start.y) * h;
-    const radius = TOUCH_UI.start.r * minDim;
+    const centerX = TOUCH_START_PROMPT.x * w;
+    const centerY = TOUCH_START_PROMPT.y * h;
+    const radius = TOUCH_START_PROMPT.r * minDim;
     const touchStartMode = (typeof state.touchStartMode === "string") ? state.touchStartMode : "play";
 
     let ringR = 0.62;

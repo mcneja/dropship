@@ -128,6 +128,8 @@ export function createLoopSaveSnapshot(loop){
     minersDead: loop.minersDead | 0,
     minerTarget: loop.minerTarget | 0,
     minerCandidates: loop.minerCandidates | 0,
+    levelStats: cloneSaveData(loop.levelStats),
+    overallStats: cloneSaveData(loop.overallStats),
 
     enemies: {
       enemies: cloneSaveData(loop.enemies.enemies),
@@ -222,6 +224,15 @@ export function restoreLoopFromSaveSnapshot(loop, snapshot){
     loop.minersDead = clampNonNegativeInt(snapshot.minersDead, 0);
     loop.minerTarget = clampNonNegativeInt(snapshot.minerTarget, loop.minersRemaining + loop.minersDead);
     loop.minerCandidates = clampNonNegativeInt(snapshot.minerCandidates, loop.miners.length);
+    const makeRunStats = (typeof loop._createRunStats === "function")
+      ? loop._createRunStats.bind(loop)
+      : (() => ({}));
+    loop.levelStats = Object.assign(makeRunStats(), (snapshot.levelStats && typeof snapshot.levelStats === "object")
+      ? cloneSaveData(snapshot.levelStats)
+      : {});
+    loop.overallStats = Object.assign(makeRunStats(), (snapshot.overallStats && typeof snapshot.overallStats === "object")
+      ? cloneSaveData(snapshot.overallStats)
+      : {});
 
     const enemies = snapshot.enemies || {};
     loop.enemies.enemies = Array.isArray(enemies.enemies) ? cloneSaveData(enemies.enemies) : [];

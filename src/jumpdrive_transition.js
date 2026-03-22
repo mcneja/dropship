@@ -731,7 +731,6 @@ export class JumpdriveTransition {
     }
     this._drawMothershipThrusters(ctx, w, h, dpr, view);
     if ((this.phase === PHASE_JUMPDRIVE || this.phase === PHASE_WAIT_APPLY) && !this.pendingPreparedLevel){
-      this._drawLoadingText(ctx, w, h, dpr);
     }
     return true;
   }

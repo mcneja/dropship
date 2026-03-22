@@ -117,6 +117,7 @@ export class GameLoop {
    * @param {HTMLCanvasElement} deps.canvas
    * @param {HTMLCanvasElement|null|undefined} deps.overlay
    * @param {HTMLElement} deps.hud
+   * @param {HTMLElement} [deps.dashboard]
    * @param {HTMLElement} [deps.planetLabel]
    * @param {HTMLElement} [deps.objectiveLabel]
    * @param {HTMLElement} [deps.shipStatusLabel]
@@ -124,7 +125,7 @@ export class GameLoop {
    * @param {HTMLElement} [deps.heatMeter]
    * @param {HelpPopup} [deps.helpPopup]
    */
-  constructor({ renderer, input, ui, audio, canvas, hud, overlay, planetLabel, objectiveLabel, shipStatusLabel, signalMeter, heatMeter, helpPopup }){
+  constructor({ renderer, input, ui, audio, canvas, hud, dashboard, overlay, planetLabel, objectiveLabel, shipStatusLabel, signalMeter, heatMeter, helpPopup }){
     this.level = BENCH_CONFIG.enabled ? BENCH_CONFIG.level : 1;
     // const seed = CFG.seed;
     const seed = BENCH_CONFIG.enabled ? BENCH_CONFIG.seed : performance.now();
@@ -140,6 +141,7 @@ export class GameLoop {
     this.audio = audio || null;
     this.canvas = canvas;
     this.hud = hud;
+    this.dashboard = dashboard || null;
     this.planetLabel = planetLabel || null;
     this.objectiveLabel = objectiveLabel || null;
     this.shipStatusLabel = shipStatusLabel || null;
@@ -262,6 +264,8 @@ export class GameLoop {
     this.minersDead = 0;
     this.minerTarget = 0;
     this.minerCandidates = 0;
+    this.levelStats = this._createRunStats();
+    this.overallStats = this._createRunStats();
     /** @type {import("./types.d.js").CollisionQuery} */
     this.collision = createCollisionRouter(this.planet, () => this.mothership);
     this.objective = this._buildObjective(planetConfig, this.level);
@@ -298,6 +302,7 @@ export class GameLoop {
         this._handleEnemyDestroyed(enemy, info);
       },
     });
+    this._setHostileBudget(this.enemies.enemies.length);
     /** @type {Array<HealthPickup>} */
     this.healthPickups = [];
     this._initializeClearObjectiveTracking();
@@ -384,6 +389,10 @@ export class GameLoop {
     this.COMBAT_THREAT_HOLD_MS = 12000;
     this.OBJECTIVE_COMPLETE_SFX_DELAY_MS = 1000;
     this.combatThreatUntilMs = 0;
+    this._dashboardDirty = true;
+    this._dashboardWasOpen = false;
+    this._dashboardLastStatusText = "";
+    this._dashboardLastPreviewRotation = NaN;
 
     /** @type {{
      *   onExplosion:(info:{x:number,y:number,life:number,radius:number})=>void,
@@ -431,7 +440,7 @@ export class GameLoop {
       },
       onMinerKilled: () => {
         this.minersRemaining = Math.max(0, this.minersRemaining - 1);
-        this.minersDead++;
+        this._registerMinerLoss(1);
       },
     };
     this.planetView = false;
@@ -785,15 +794,307 @@ export class GameLoop {
       return `Objective: Clear enemies ${done}${target ? `/${target}` : ""}`;
     }
     if (this.objective.type === "destroy_factories"){
-      return "Object: Destroy factories";
+      const remaining = this._remainingFactoryTargets();
+      const target = Math.max(this.objective.target || 0, remaining);
+      const done = target ? Math.max(0, target - remaining) : 0;
+      return `Objective: Destroy factories ${done}${target ? `/${target}` : ""}${target ? ` (${remaining} remaining)` : ""}`;
     }
     if (this.objective.type === "extract"){
-      const remaining = this.minersRemaining;
       const target = this.objective.target || 0;
-      const rescued = target ? Math.max(0, target - remaining) : 0;
-      return `Objective: Extract miners ${rescued}${target ? `/${target}` : ""} (dead ${this.minersDead})`;
+      const rescued = Math.max(0, this.levelStats.rescued || 0);
+      const lost = Math.max(0, this.minersDead || 0);
+      const extractable = target ? Math.max(0, target - lost) : rescued;
+      const rescuedShown = target ? Math.min(rescued, extractable) : rescued;
+      return `Objective: Extract miners ${rescuedShown}${target ? `/${extractable}` : ""}${lost ? ` (lost ${lost})` : ""}`;
     }
     return `Objective: ${this.objective.type}`;
+  }
+
+  /**
+   * @returns {{rescued:number,enemiesDestroyed:number,minersLost:number,dropshipsLost:number,hostiles:number,docks:number,shotsFired:number,bombsFired:number,factoriesDestroyed:number}}
+   */
+  _createRunStats(){
+    return {
+      rescued: 0,
+      enemiesDestroyed: 0,
+      minersLost: 0,
+      dropshipsLost: 0,
+      hostiles: 0,
+      docks: 0,
+      shotsFired: 0,
+      bombsFired: 0,
+      factoriesDestroyed: 0,
+    };
+  }
+
+  /**
+   * @returns {void}
+   */
+  _resetLevelStats(){
+    this.levelStats = this._createRunStats();
+    this._markDashboardDirty();
+  }
+
+  /**
+   * @returns {void}
+   */
+  _markDashboardDirty(){
+    this._dashboardDirty = true;
+  }
+
+  /**
+   * @param {number} count
+   * @returns {void}
+   */
+  _recordRescue(count){
+    const n = Math.max(0, count | 0);
+    if (!n) return;
+    this.levelStats.rescued += n;
+    this.overallStats.rescued += n;
+    this._markDashboardDirty();
+  }
+
+  /**
+   * @param {number} count
+   * @returns {void}
+   */
+  _recordEnemyDestroyed(count = 1){
+    const n = Math.max(0, count | 0);
+    if (!n) return;
+    this.levelStats.enemiesDestroyed += n;
+    this.overallStats.enemiesDestroyed += n;
+    this._markDashboardDirty();
+  }
+
+  /**
+   * @param {number} count
+   * @returns {void}
+   */
+  _recordFactoryDestroyed(count = 1){
+    const n = Math.max(0, count | 0);
+    if (!n) return;
+    this.levelStats.factoriesDestroyed += n;
+    this.overallStats.factoriesDestroyed += n;
+    this._markDashboardDirty();
+  }
+
+  /**
+   * @param {number} count
+   * @returns {void}
+   */
+  _registerMinerLoss(count = 1){
+    const n = Math.max(0, count | 0);
+    if (!n) return;
+    this.minersDead += n;
+    this.levelStats.minersLost += n;
+    this.overallStats.minersLost += n;
+    this._markDashboardDirty();
+  }
+
+  /**
+   * @param {number} count
+   * @returns {void}
+   */
+  _recordDropshipLoss(count = 1){
+    const n = Math.max(0, count | 0);
+    if (!n) return;
+    this.levelStats.dropshipsLost += n;
+    this.overallStats.dropshipsLost += n;
+    this._markDashboardDirty();
+  }
+
+  /**
+   * @param {number} count
+   * @returns {void}
+   */
+  _setHostileBudget(count){
+    const n = Math.max(0, count | 0);
+    this.levelStats.hostiles = n;
+    this.overallStats.hostiles += n;
+    this._markDashboardDirty();
+  }
+
+  /**
+   * @param {number} count
+   * @returns {void}
+   */
+  _recordDock(count = 1){
+    const n = Math.max(0, count | 0);
+    if (!n) return;
+    this.levelStats.docks += n;
+    this.overallStats.docks += n;
+    this._markDashboardDirty();
+  }
+
+  /**
+   * @param {number} count
+   * @returns {void}
+   */
+  _recordShotsFired(count = 1){
+    const n = Math.max(0, count | 0);
+    if (!n) return;
+    this.levelStats.shotsFired += n;
+    this.overallStats.shotsFired += n;
+    this._markDashboardDirty();
+  }
+
+  /**
+   * @param {number} count
+   * @returns {void}
+   */
+  _recordBombsFired(count = 1){
+    const n = Math.max(0, count | 0);
+    if (!n) return;
+    this.levelStats.bombsFired += n;
+    this.overallStats.bombsFired += n;
+    this._markDashboardDirty();
+  }
+
+  /**
+   * @returns {string}
+   */
+  _dashboardMissionMeta(){
+    const cfg = this.planet && this.planet.getPlanetConfig ? this.planet.getPlanetConfig() : null;
+    if (this._runEnded()){
+      return cfg ? `Final Report | Level ${this.level} | ${cfg.label}` : `Final Report | Level ${this.level}`;
+    }
+    return cfg ? `Level ${this.level} | ${cfg.label}` : `Level ${this.level}`;
+  }
+
+  /**
+   * @param {PlanetConfig|null|undefined} cfg
+   * @returns {string}
+   */
+  _dashboardPlanetDescription(cfg){
+    if (!cfg) return "";
+    switch (cfg.id){
+      case "barren_pickup":
+        return "Airless shell-world with knife ridges, bright rock faces, and wide exposed approaches.";
+      case "barren_clear":
+        return "Hard gray badlands with old fortifications, sparse cover, and long clear sightlines.";
+      case "molten":
+        return "A furnace crust wrapped around an exposed molten interior with violent heat gradients.";
+      case "ice":
+        return "Blue-white ice crust, low traction, cold caverns, and long sliding landings.";
+      case "gaia":
+        return "Dense surface growth over heavy rock, with rich color, layered canopy, and hidden voids.";
+      case "water":
+        return "Flooded sinkhole world with drag-heavy air, buoyant shallows, and deep water chambers.";
+      case "cavern":
+        return "Classic cave world with ambush tunnels, broken chambers, and jagged interior routes.";
+      case "mechanized":
+        return "Industrial rock chained in steel, with factory structures and a rigid fortified shell.";
+      default:
+        return cfg.label || "";
+    }
+  }
+
+  /**
+   * @returns {string}
+   */
+  _dashboardMissionBody(){
+    if (this._runEnded()){
+      return "The run is over. Review the level and total columns for the final tally before starting again.";
+    }
+    let fluff = "Keep the mothership in sight, stay disciplined on approach, and leave the orbit cleaner than you found it.";
+    if (this.objective && this.objective.type === "extract"){
+      fluff = "The window is narrow. Touch down fast, pull the survivors out, and get them back upstairs before the locals regroup.";
+    } else if (this.objective && this.objective.type === "clear"){
+      fluff = "This one calls for a hard sweep. Burn down every hostile contact you can find, then lift out before the debris settles.";
+    } else if (this.objective && this.objective.type === "destroy_factories"){
+      fluff = "Industrial resistance is dug in deep. Crack the production line, keep pressure on the surface, and deny them time to rebuild.";
+    } else if (this.objective && this.objective.type === "destroy_core"){
+      fluff = "The core is unstable and the whole world knows it. Cut the tethers, trigger the collapse, and run for open sky.";
+    }
+    return fluff;
+  }
+
+  /**
+   * @param {"keyboard"|"mouse"|"touch"|"gamepad"|null|undefined} inputType
+   * @param {number} now
+   * @returns {string}
+   */
+  _dashboardMissionStatus(inputType, now){
+    if (this._runEnded()){
+      return this._objectivePromptText(inputType) || "Game over.";
+    }
+    if (this._objectiveComplete()){
+      return this._dashboardMissionCompleteText();
+    }
+    if (now < this.statusCueUntil && this.statusCueText){
+      return this.statusCueText;
+    }
+    return this._objectivePromptText(inputType) || "";
+  }
+
+  /**
+   * @returns {string}
+   */
+  _dashboardMissionCompleteText(){
+    if (this.objective && this.objective.type === "destroy_core"){
+      return this.coreMeltdownActive
+        ? "Mission complete. Core collapse confirmed. Break orbit and return to the mothership."
+        : "Mission complete. Core defenses are down. Return to the mothership.";
+    }
+    if (this.objective && this.objective.type === "destroy_factories"){
+      return "Mission complete. Factory production has been silenced. Return to the mothership.";
+    }
+    if (this.objective && this.objective.type === "clear"){
+      return "Mission complete. Local hostile resistance has been cleared. Return to the mothership.";
+    }
+    return "Mission complete. Survivors are accounted for. Return to the mothership.";
+  }
+
+  /**
+   * @returns {Array<{label:string,value:string}>}
+   */
+  _dashboardShipRows(){
+    const cargoParts = [];
+    if (this.ship.dropshipMiners > 0) cargoParts.push(`${this.ship.dropshipMiners}M`);
+    if (this.ship.dropshipPilots > 0) cargoParts.push(`${this.ship.dropshipPilots}P`);
+    if (this.ship.dropshipEngineers > 0) cargoParts.push(`${this.ship.dropshipEngineers}E`);
+    const systems = [];
+    if (this.ship.thrust > GAME.SHIP_STARTING_THRUST) systems.push(`Thrust +${this.ship.thrust - GAME.SHIP_STARTING_THRUST}`);
+    if (this.ship.inertialDrive > GAME.SHIP_STARTING_INERTIAL_DRIVE) systems.push(`Drive +${this.ship.inertialDrive - GAME.SHIP_STARTING_INERTIAL_DRIVE}`);
+    if (this.ship.gunPower > GAME.SHIP_STARTING_GUN_POWER) systems.push(`Gun +${this.ship.gunPower - GAME.SHIP_STARTING_GUN_POWER}`);
+    return [
+      { label: "Hull", value: `${this.ship.hpCur}/${this.ship.hpMax}` },
+      { label: "Bombs", value: `${this.ship.bombsCur}/${this.ship.bombsMax}` },
+      { label: "Cargo", value: cargoParts.length ? cargoParts.join("  ") : "Clear" },
+      {
+        label: "Systems",
+        value: systems.length ? systems.join("  ") : "Baseline",
+      },
+      {
+        label: "Gear",
+        value: [this.ship.rescueeDetector ? "Detector" : "", this.ship.planetScanner ? "Scanner" : "", this.ship.bounceShots ? "Bouncer" : ""]
+          .filter(Boolean)
+          .join("  ") || "Standard",
+      },
+    ];
+  }
+
+  /**
+   * @returns {Array<{label:string,level:string,total:string}>}
+   */
+  _dashboardStatsRows(){
+    return [
+      { label: "Rescues", level: String(this.levelStats.rescued), total: String(this.overallStats.rescued) },
+      { label: "Miners Lost", level: String(this.levelStats.minersLost), total: String(this.overallStats.minersLost) },
+      { label: "Dropships Lost", level: String(this.levelStats.dropshipsLost), total: String(this.overallStats.dropshipsLost) },
+      { label: "Hostile Kills", level: String(this.levelStats.enemiesDestroyed), total: String(this.overallStats.enemiesDestroyed) },
+      { label: "Hostiles", level: String(this.levelStats.hostiles), total: String(this.overallStats.hostiles) },
+      { label: "Docks", level: String(this.levelStats.docks), total: String(this.overallStats.docks) },
+      { label: "Shots Fired", level: String(this.levelStats.shotsFired), total: String(this.overallStats.shotsFired) },
+      { label: "Bombs Fired", level: String(this.levelStats.bombsFired), total: String(this.overallStats.bombsFired) },
+    ];
+  }
+
+  /**
+   * @returns {boolean}
+   */
+  _runEnded(){
+    return this.ship.state === "crashed" && this.ship.mothershipPilots <= 0;
   }
 
 
@@ -896,6 +1197,7 @@ export class GameLoop {
     this._playSfx("ship_crash", { volume: 0.9 });
     this.lastAimWorld = null;
     this.lastAimScreen = null;
+    this._recordDropshipLoss(1);
     const pieces = 10;
     for (let i = 0; i < pieces; i++){
       const ang = Math.random() * Math.PI * 2;
@@ -910,10 +1212,8 @@ export class GameLoop {
         life: 2.5 + Math.random() * 1.5,
       });
     }
+    this._registerMinerLoss(this.ship.dropshipMiners + this.ship.dropshipPilots + this.ship.dropshipEngineers);
     this._spawnShipDestructionFragments(destroyedBy);
-    this.minersDead += this.ship.dropshipMiners;
-    this.minersDead += this.ship.dropshipPilots;
-    this.minersDead += this.ship.dropshipEngineers;
     this.ship.dropshipMiners = 0;
     this.ship.dropshipPilots = 0;
     this.ship.dropshipEngineers = 0;
@@ -1046,6 +1346,7 @@ export class GameLoop {
    * @returns {void}
    */
   _handleEnemyDestroyed(enemy, info){
+    this._recordEnemyDestroyed(1);
     this._playSfx("enemy_destroyed", { volume: 0.8 });
 
     // Spawn a health pickup if there are none and the player is low on health
@@ -1191,6 +1492,7 @@ export class GameLoop {
   _showStatusCue(text, duration = 1.5){
     this.statusCueText = text || "";
     this.statusCueUntil = performance.now() + Math.max(0.1, duration) * 1000;
+    this._markDashboardDirty();
   }
 
   /**
@@ -1911,7 +2213,7 @@ export class GameLoop {
     this._spawnFallenMiner(miner, mode, impact);
     this.miners.splice(index, 1);
     this.minersRemaining = Math.max(0, this.minersRemaining - 1);
-    this.minersDead++;
+    this._registerMinerLoss(1);
   }
 
   /**
@@ -1952,6 +2254,7 @@ export class GameLoop {
    */
   _destroyFactoryProp(p){
     if (!p || p.dead) return;
+    this._recordFactoryDestroyed(1);
     p.hp = 0;
     p.dead = true;
     const s = p.scale || 1;
@@ -2395,6 +2698,8 @@ export class GameLoop {
     this.minersRemaining = this.miners.length;
     const missed = Math.max(0, count - this.miners.length);
     this.minersDead = missed;
+    this.levelStats.minersLost = missed;
+    this.overallStats.minersLost += missed;
     this.minerTarget = count;
   }
 
@@ -2537,6 +2842,11 @@ export class GameLoop {
     if (this.planet.props && this.planet.props.length){
       console.log("[Level] props sample", this.planet.props.slice(0, 3).map((p) => ({ type: p.type, x: p.x, y: p.y, dead: !!p.dead })));
     }
+    if (this.level === 1){
+      this.overallStats = this._createRunStats();
+    }
+    this._resetLevelStats();
+    this._setHostileBudget(this.enemies.enemies.length);
     this._initializeClearObjectiveTracking();
     this.coreMeltdownActive = false;
     this.coreMeltdownT = 0;
@@ -2588,6 +2898,7 @@ export class GameLoop {
     if (previousLevel !== this.level){
       this.levelAdvanceReady = false;
     }
+    this._markDashboardDirty();
   }
 
   /**
@@ -2864,7 +3175,7 @@ export class GameLoop {
       if (!res.ok){
         this.miners.splice(i, 1);
         this.minersRemaining = Math.max(0, this.minersRemaining - 1);
-        this.minersDead++;
+        this._registerMinerLoss(1);
         continue;
       }
       m.x = res.x;
@@ -3794,6 +4105,7 @@ export class GameLoop {
             vy: vy,
             life: this.PLAYER_SHOT_LIFE,
           });
+          this._recordShotsFired(1);
           this.playerShotCooldown = this.PLAYER_SHOT_INTERVAL;
           this._playSfx("ship_laser", {
             volume: 0.1,
@@ -3829,6 +4141,7 @@ export class GameLoop {
             vy: vy,
             life: this.PLAYER_BOMB_LIFE,
           });
+          this._recordBombsFired(1);
           this._playSfx("bomb_launch", {
             volume: 0.55,
             rate: 0.96 + Math.random() * 0.08,
@@ -3951,15 +4264,15 @@ export class GameLoop {
           continue;
         }
       }
-      for (let j = this.enemies.enemies.length - 1; j >= 0; j--){
-        const e = /** @type {import("./types.d.js").Enemy} */ (this.enemies.enemies[j]);
-        if (e.hp <= 0) continue;
-        const dx = e.x - s.x;
-        const dy = e.y - s.y;
-        if (dx * dx + dy * dy <= this.PLAYER_SHOT_RADIUS * this.PLAYER_SHOT_RADIUS){
-          e.hp -= this.ship.gunPower;
-          if (e.hp > 0){
-            this._applyEnemyHitFeedback(e);
+        for (let j = this.enemies.enemies.length - 1; j >= 0; j--){
+          const e = /** @type {import("./types.d.js").Enemy} */ (this.enemies.enemies[j]);
+          if (e.hp <= 0) continue;
+          const dx = e.x - s.x;
+          const dy = e.y - s.y;
+          if (dx * dx + dy * dy <= this.PLAYER_SHOT_RADIUS * this.PLAYER_SHOT_RADIUS){
+            e.hp -= this.ship.gunPower;
+            if (e.hp > 0){
+              this._applyEnemyHitFeedback(e);
           }
           this._spawnWeaponImpactFragments("shot", s.x, s.y, s.vx, s.vy);
           this.playerShots.splice(i, 1);
@@ -4448,9 +4761,16 @@ export class GameLoop {
     this.lastTime = now;
     this._recordFrameTiming(now, frameMs);
     const transitionActive = this.jumpdriveTransition.isActive();
+    const dockedNow = this._isDockedWithMothership();
     const touchStartActionMode = transitionActive ? null : this._touchStartActionMode();
     const touchStartPromptActive = touchStartActionMode !== null;
     this.input.setTouchStartPromptActive(touchStartPromptActive);
+    if (this.input && typeof this.input.setTouchDocked === "function"){
+      this.input.setTouchDocked(!transitionActive && dockedNow);
+    }
+    if (this.input && typeof this.input.setTouchPerkChoiceActive === "function"){
+      this.input.setTouchPerkChoiceActive(this.pendingPerkChoice !== null);
+    }
     this.input.setGameOver(!transitionActive && this.ship.state === "crashed");
     if (this.input && typeof this.input.setDebugCommandsEnabled === "function"){
       this.input.setDebugCommandsEnabled(this.devHudVisible);
@@ -4520,8 +4840,10 @@ export class GameLoop {
         this._devJumpToLevel(this.level - 1);
       }
     } else if (!transitionActive && inputState.nextLevel){
-      const nextSeed = this.planet.getSeed() + 1;
-      this._startJumpdriveTransition(nextSeed, this.level + 1);
+      if (this.planet){
+        const nextSeed = this.planet.getSeed() + 1;
+        this._startJumpdriveTransition(nextSeed, this.level + 1);
+      }
     }
     if (inputState.toggleDebug){
       this.debugCollisions = !this.debugCollisions;
@@ -4850,14 +5172,19 @@ export class GameLoop {
       this.fpsTime = now;
     }
 
-    const gameOver = !transitionActive && this.ship.state === "crashed";
+    const titleShowing = !this.startTitleSeen && this.startTitleAlpha > 0;
+    const runEnded = !transitionActive && this._runEnded();
+    const hudVisible = this.devHudVisible && !runEnded;
+    this.hud.style.display = hudVisible ? "block" : "none";
     const transitionFogOrigin = transitionActive ? this.jumpdriveTransition.fogOrigin(this.ship) : null;
     const fogSyncEnabled = !PERF_FLAGS.disableFogSync;
     const dynamicOverlayEnabled = !PERF_FLAGS.disableDynamicOverlay;
-    if (fogSyncEnabled && !transitionActive){
-      this.planet.syncRenderFog(this.renderer, this.ship.x, this.ship.y);
-    } else if (fogSyncEnabled && transitionFogOrigin){
-      this.planet.syncRenderFog(this.renderer, transitionFogOrigin.x, transitionFogOrigin.y);
+    if (this.planet && this.renderer){
+      if (fogSyncEnabled && !transitionActive){
+        this.planet.syncRenderFog(this.renderer, this.ship.x, this.ship.y);
+      } else if (fogSyncEnabled && transitionFogOrigin){
+        this.planet.syncRenderFog(this.renderer, transitionFogOrigin.x, transitionFogOrigin.y);
+      }
     }
     /** @type {RenderState} */
     let renderState = {
@@ -4893,10 +5220,10 @@ export class GameLoop {
       playerBombs: dynamicOverlayEnabled ? this.playerBombs : EMPTY_RENDER_ARRAY,
       featureParticles: dynamicOverlayEnabled ? this.planet.getFeatureParticles() : EMPTY_FEATURE_PARTICLES,
       entityExplosions: dynamicOverlayEnabled ? this.entityExplosions : EMPTY_RENDER_ARRAY,
-      aimWorld: gameOver ? null : this.lastAimWorld,
-      aimOrigin: gameOver ? null : this._shipGunPivotWorld(),
+      aimWorld: this.ship.state === "crashed" ? null : this.lastAimWorld,
+      aimOrigin: this.ship.state === "crashed" ? null : this._shipGunPivotWorld(),
       planetPalette: this._planetPalette(),
-      touchUi: gameOver ? null : inputState.touchUi,
+      touchUi: this.ship.state === "crashed" ? null : inputState.touchUi,
       touchStart: inputState.inputType === "touch" && touchStartPromptActive,
       touchStartMode: inputState.inputType === "touch" ? touchStartActionMode : null,
     };
@@ -4943,7 +5270,7 @@ export class GameLoop {
       });
     }
 
-    if (this.devHudVisible){
+    if (hudVisible){
       this.ui.updateHud(this.hud, {
         fps: this.fps,
         state: this.ship.state,
@@ -4964,17 +5291,80 @@ export class GameLoop {
         perfFlags: this.perfFlags,
       });
     }
+    const dashboardOpen = !transitionActive
+      && !this.planetView
+      && (this.hasLaunchedPlayerShip || runEnded)
+      && (this._isDockedWithMothership() || runEnded);
+    if (this.dashboard && this.ui.updateMothershipDashboard){
+      if (dashboardOpen){
+        const missionStatusBase = this._dashboardMissionStatus(inputState.inputType, now);
+        const missionStatus = inputState.inputType === "gamepad"
+          ? [missionStatusBase, "Right stick scrolls both panels."].filter(Boolean).join(" ")
+          : missionStatusBase;
+        const previewRotation = renderState.view.angle;
+        const lastPreviewRotation = this._dashboardLastPreviewRotation;
+        const previewRotationDelta = Number.isFinite(lastPreviewRotation)
+          ? Math.abs(Math.atan2(
+            Math.sin(previewRotation - lastPreviewRotation),
+            Math.cos(previewRotation - lastPreviewRotation)
+          ))
+          : Infinity;
+        if (
+          this._dashboardDirty
+          || !this._dashboardWasOpen
+          || missionStatus !== this._dashboardLastStatusText
+          || previewRotationDelta > 0.005
+        ){
+          const cfg = this.planet && this.planet.getPlanetConfig ? this.planet.getPlanetConfig() : null;
+          this.ui.updateMothershipDashboard(this.dashboard, {
+            open: true,
+            shipRows: this._dashboardShipRows(),
+            statsRows: this._dashboardStatsRows(),
+            missionMeta: this._dashboardMissionMeta(),
+            missionTitle: this._objectiveText().replace(/^Objective:\s*/, ""),
+            missionBody: this._dashboardMissionBody(),
+            missionStatus,
+            planetLabel: cfg ? cfg.label : `Level ${this.level}`,
+            planetNote: this._dashboardPlanetDescription(cfg),
+            planetPreview: {
+              planet: this.planet,
+              palette: this._planetPalette(),
+              worldRadius: this.planetParams.RMAX,
+              surfaceRadius: this.planetParams.RMAX,
+              fogEnabled: this.fogEnabled,
+              rotation: previewRotation,
+            },
+          });
+          this._dashboardDirty = false;
+          this._dashboardLastStatusText = missionStatus;
+          this._dashboardLastPreviewRotation = previewRotation;
+        }
+        const dashboardScrollY = inputState.dashboardScroll && Number.isFinite(inputState.dashboardScroll.y)
+          ? inputState.dashboardScroll.y
+          : 0;
+        if (Math.abs(dashboardScrollY) > 0.01 && this.ui.scrollMothershipDashboard){
+          this.ui.scrollMothershipDashboard(this.dashboard, dashboardScrollY * 720 * dt);
+        }
+        this._dashboardWasOpen = true;
+      } else {
+        if (this._dashboardWasOpen){
+          this.ui.updateMothershipDashboard(this.dashboard, { open: false, shipRows: [], statsRows: [], missionTitle: "", missionBody: "", missionStatus: "" });
+          this._dashboardLastStatusText = "";
+          this._dashboardLastPreviewRotation = NaN;
+        }
+        this._dashboardWasOpen = false;
+      }
+    }
     const heat = this.ship.heat || 0;
-    const showHeat = !transitionActive && this._heatMechanicsActive();
+    const showHeat = !hudVisible && !titleShowing && !transitionActive && !dashboardOpen && this._heatMechanicsActive();
     const heating = showHeat && (heat > this.lastHeat + 0.1);
     this.lastHeat = heat;
     if (this.heatMeter && this.ui.updateHeatMeter){
       this.ui.updateHeatMeter(this.heatMeter, heat, showHeat, heating);
     }
-    const titleShowing = !this.startTitleSeen && this.startTitleAlpha > 0;
     if (this.planetLabel){
-      this.planetLabel.style.visibility = (titleShowing || transitionActive) ? "hidden" : "visible";
-      if (!titleShowing && !transitionActive && this.ui.updatePlanetLabel){
+      this.planetLabel.style.visibility = (titleShowing || transitionActive || dashboardOpen) ? "hidden" : "visible";
+      if (!titleShowing && !transitionActive && !dashboardOpen && this.ui.updatePlanetLabel){
         const cfg = this.planet.getPlanetConfig();
         const label = cfg ? cfg.label : "";
         const prefix = `Level ${this.level}: `;
@@ -4983,6 +5373,7 @@ export class GameLoop {
     }
     if (this.objectiveLabel){
       this.objectiveLabel.style.visibility = transitionActive ? "hidden" : "visible";
+      this.objectiveLabel.classList.toggle("objective-centered", !!dashboardOpen);
       const abandonHoldActive = !!inputState.abandonHoldActive;
       const abandonHoldRemainingMs = (typeof inputState.abandonHoldRemainingMs === "number")
         ? inputState.abandonHoldRemainingMs
@@ -5011,8 +5402,8 @@ export class GameLoop {
       }
     }
     if (this.shipStatusLabel){
-      this.shipStatusLabel.style.visibility = (titleShowing || transitionActive) ? "hidden" : "visible";
-      if (!titleShowing && !transitionActive && this.ui.updateShipStatusLabel){
+      this.shipStatusLabel.style.visibility = (titleShowing || transitionActive || dashboardOpen) ? "hidden" : "visible";
+      if (!titleShowing && !transitionActive && !dashboardOpen && this.ui.updateShipStatusLabel){
         this.ui.updateShipStatusLabel(this.shipStatusLabel, {
           shipHp: this.ship.hpCur,
           shipHpMax: this.ship.hpMax,
@@ -5022,7 +5413,7 @@ export class GameLoop {
       }
     }
     if (this.signalMeter && this.ui.updateSignalMeter){
-      this.ui.updateSignalMeter(this.signalMeter, this._signalStrength(), !titleShowing && !transitionActive);
+      this.ui.updateSignalMeter(this.signalMeter, this._signalStrength(), !hudVisible && !titleShowing && !transitionActive && !dashboardOpen);
     }
 
     requestAnimationFrame(() => this._frame());
@@ -5231,6 +5622,8 @@ export class GameLoop {
     const r = Math.hypot(this.ship.x, this.ship.y);
     const upx = this.ship.x / r;
     const upy = this.ship.y / r;
+    const hullRestored = Math.max(0, this.ship.hpMax - this.ship.hpCur);
+    const bombsRestored = Math.max(0, this.ship.bombsMax - this.ship.bombsCur);
     /** @param {string} msg */
     const addPopup = (msg) => {
       this.popups.push({
@@ -5256,9 +5649,14 @@ export class GameLoop {
     addGroupPopup("pilot", this.ship.dropshipPilots);
     addGroupPopup("engineer", this.ship.dropshipEngineers);
     addGroupPopup("miner", this.ship.dropshipMiners);
-    addGroupPopup("hull", this.ship.hpMax - this.ship.hpCur);
-    addGroupPopup("bomb", this.ship.bombsMax - this.ship.bombsCur);
+    addGroupPopup("hull", hullRestored);
+    addGroupPopup("bomb", bombsRestored);
 
+    const rescued = this.ship.dropshipMiners + this.ship.dropshipPilots + this.ship.dropshipEngineers;
+    this._recordRescue(rescued);
+    if (this.hasLaunchedPlayerShip && (rescued > 0 || hullRestored > 0 || bombsRestored > 0)){
+      this._recordDock(1);
+    }
     this.ship.mothershipMiners += this.ship.dropshipMiners;
     this.ship.mothershipPilots += this.ship.dropshipPilots;
     this.ship.mothershipEngineers += this.ship.dropshipEngineers;
@@ -5267,6 +5665,7 @@ export class GameLoop {
     this.ship.dropshipEngineers = 0;
     this.ship.hpCur = this.ship.hpMax;
     this.ship.bombsCur = this.ship.bombsMax;
+    this._markDashboardDirty();
   }
 
   /**
@@ -5343,6 +5742,7 @@ export class GameLoop {
     const perkChoices = this._pickPerkChoices(perksAvailable);
     this.pendingPerkChoice = perkChoices.map((perk) => {return { perk: perk, text: this._perkChoiceText(perk)};});
     --this.ship.mothershipEngineers;
+    this._markDashboardDirty();
   }
 
   /**
@@ -5369,6 +5769,7 @@ export class GameLoop {
     } else if (perk === "bounceShots"){
       this.ship.bounceShots = true;
     }
+    this._markDashboardDirty();
   }
 
   /**
@@ -5382,6 +5783,7 @@ export class GameLoop {
     if (pendingPerkChoice && i < pendingPerkChoice.length){
       this._applyPerk((/** @type {{perk:string}} */ (pendingPerkChoice[i])).perk);
       this.pendingPerkChoice = null;
+      this._markDashboardDirty();
     }
   }
 
@@ -5575,47 +5977,47 @@ export class GameLoop {
     }
 
     if (this.pendingPerkChoice){
-      const panelW = Math.min(w * 0.92, 900 * dpr);
-      const panelH = Math.min(h * 0.52, 380 * dpr);
+      const panelW = Math.min(w * 0.94, 940 * dpr);
       const x = (w - panelW) * 0.5;
-      const y = (h - panelH) * 0.5;
-
-      const panelGrad = ctx.createLinearGradient(0, y, 0, y + panelH);
-      panelGrad.addColorStop(0, "rgba(14, 16, 28, 0.96)");
-      panelGrad.addColorStop(1, "rgba(8, 10, 18, 0.96)");
-      ctx.globalAlpha = 0.9;
-      ctx.fillStyle = panelGrad;
-      ctx.fillRect(x, y, panelW, panelH);
-      ctx.globalAlpha = 1;
-      ctx.strokeStyle = "rgba(255, 215, 110, 0.95)";
-      ctx.lineWidth = Math.max(1, Math.round(2 * dpr));
-      ctx.strokeRect(x, y, panelW, panelH);
-      const lineY = y + panelH * 0.30;
-      const linePad = panelW * 0.12;
-      ctx.strokeStyle = "rgba(120, 210, 255, 0.55)";
-      ctx.lineWidth = Math.max(1, Math.round(1.25 * dpr));
-      ctx.beginPath();
-      ctx.moveTo(x + linePad, lineY);
-      ctx.lineTo(x + panelW - linePad, lineY);
-      ctx.stroke();
-
+      const titleY = h * 0.30;
+      const cardY = h * 0.38;
+      const cardGap = Math.max(18 * dpr, panelW * 0.035);
+      const cardW = (panelW - cardGap) * 0.5;
+      const cardH = Math.min(h * 0.28, 210 * dpr);
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillStyle = "rgba(255, 240, 190, 1)";
       const fontFamily = "\"Science Gothic\", ui-sans-serif, system-ui, sans-serif";
       const titlePx = fitCanvasFontPx(ctx, "Choose an Upgrade", 700, Math.round(24 * dpr), Math.round(14 * dpr), panelW * 0.84, fontFamily);
       ctx.font = `700 ${titlePx}px ${fontFamily}`;
-      ctx.fillText("Choose an Upgrade", x + panelW * 0.5, y + panelH * 0.18);
+      ctx.fillText("Choose an Upgrade", x + panelW * 0.5, titleY);
 
       const left = this.pendingPerkChoice[0];
       const right = this.pendingPerkChoice[1];
-      const bodyPx = Math.max(Math.round(12 * dpr), Math.round(panelW * 0.017));
-      const lineHeight = Math.max(Math.round(15 * dpr), Math.round(bodyPx * 1.24));
-      ctx.font = `600 ${bodyPx}px ${fontFamily}`;
-      ctx.fillStyle = "rgba(200, 235, 255, 1)";
-      drawCenteredWrappedText(ctx, `[LEFT] ${left ? left.text : ""}`, x + panelW * 0.5, y + panelH * 0.40, panelW * 0.84, lineHeight, 2);
-      ctx.fillStyle = "rgba(255, 214, 180, 1)";
-      drawCenteredWrappedText(ctx, `[RIGHT] ${right ? right.text : ""}`, x + panelW * 0.5, y + panelH * 0.64, panelW * 0.84, lineHeight, 2);
+      const bodyPx = Math.max(Math.round(12 * dpr), Math.round(cardW * 0.06));
+      const lineHeight = Math.max(Math.round(15 * dpr), Math.round(bodyPx * 1.26));
+      const cardTitlePx = Math.max(Math.round(11 * dpr), Math.round(bodyPx * 0.92));
+      /** @param {number} cardX @param {string} heading @param {string} text @param {string} accent */
+      const drawPerkCard = (cardX, heading, text, accent) => {
+        const grad = ctx.createLinearGradient(0, cardY, 0, cardY + cardH);
+        grad.addColorStop(0, "rgba(14, 16, 28, 0.96)");
+        grad.addColorStop(1, "rgba(8, 10, 18, 0.96)");
+        ctx.globalAlpha = 0.92;
+        ctx.fillStyle = grad;
+        ctx.fillRect(cardX, cardY, cardW, cardH);
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = accent;
+        ctx.lineWidth = Math.max(1, Math.round(2 * dpr));
+        ctx.strokeRect(cardX, cardY, cardW, cardH);
+        ctx.font = `700 ${cardTitlePx}px ${fontFamily}`;
+        ctx.fillStyle = "rgba(255, 240, 190, 1)";
+        ctx.fillText(heading, cardX + cardW * 0.5, cardY + cardH * 0.18);
+        ctx.font = `600 ${bodyPx}px ${fontFamily}`;
+        ctx.fillStyle = "rgba(220, 236, 255, 1)";
+        drawCenteredWrappedText(ctx, text, cardX + cardW * 0.5, cardY + cardH * 0.56, cardW * 0.82, lineHeight, 3);
+      };
+      drawPerkCard(x, "LEFT", left ? left.text : "", "rgba(120, 210, 255, 0.95)");
+      drawPerkCard(x + cardW + cardGap, "RIGHT", right ? right.text : "", "rgba(255, 214, 180, 0.95)");
     }
 
     if (showStartTitle){

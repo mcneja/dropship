@@ -331,6 +331,11 @@ function ensureHelpStyles(){
       touch-action: manipulation;
     }
     #help-touch-toggle.help-touch-visible { display: grid; }
+    body.help-touch-visible.touch-docked-visible #help-touch-toggle {
+      left: calc(50% + 12px);
+      top: auto;
+      bottom: max(calc(env(safe-area-inset-bottom) + 16px), 9dvh);
+    }
     #touch-restart-toggle {
       position: fixed;
       left: calc(max(8px, env(safe-area-inset-left)) + 40px);
@@ -354,6 +359,11 @@ function ensureHelpStyles(){
     }
     body.help-touch-visible #touch-restart-toggle { display: grid; }
     body.help-touch-visible #touch-restart-toggle.touch-restart-disabled { display: none; }
+    body.help-touch-visible.touch-docked-visible #touch-restart-toggle {
+      left: calc(50% + 58px);
+      top: auto;
+      bottom: max(calc(env(safe-area-inset-bottom) + 16px), 9dvh);
+    }
     #touch-restart-toggle.touch-restart-holding {
       border-color: rgba(255, 98, 70, 1);
       background:

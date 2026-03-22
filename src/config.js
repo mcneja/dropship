@@ -149,3 +149,9 @@ export const TOUCH_UI = Object.freeze({
   aimRadius: 0.09,
   activationScale: 1.4,
 });
+
+export const TOUCH_START_PROMPT = Object.freeze({
+  x: 0.5,
+  y: 0.82,
+  r: 0.11,
+});

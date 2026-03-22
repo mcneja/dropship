@@ -3,13 +3,50 @@
 /** @typedef {import("./types.d.js").Point} Point */
 /** @typedef {import("./types.d.js").InputState} InputState */
 
-import { TOUCH_UI, GAME } from "./config.js";
+import { TOUCH_UI, TOUCH_START_PROMPT, GAME } from "./config.js";
 
 const KEY_LEFT = new Set(["ArrowLeft", "a", "A"]);
 const KEY_RIGHT = new Set(["ArrowRight", "d", "D"]);
 const KEY_THRUST = new Set([" ", "Space", "ArrowUp", "w", "W"]);
 const KEY_DOWN = new Set(["ArrowDown", "s", "S"]);
 const KEY_RESET = new Set(["r", "R"]);
+const TOUCH_PERK_CHOICE_TOP = 0.24;
+const TOUCH_PERK_CHOICE_BOTTOM = 0.76;
+
+function ensureTouchDockStyles(){
+  if (typeof document === "undefined" || document.getElementById("touch-dock-style")) return;
+  const style = document.createElement("style");
+  style.id = "touch-dock-style";
+  style.textContent = `
+    #touch-launch-toggle {
+      position: fixed;
+      left: calc(50% - 58px);
+      bottom: max(calc(env(safe-area-inset-bottom) + 16px), 9dvh);
+      width: 42px;
+      height: 42px;
+      border-radius: 999px;
+      border: 1px solid rgba(120, 230, 255, 0.98);
+      background: rgba(10, 18, 28, 0.9);
+      color: rgba(220, 245, 255, 1);
+      display: none;
+      place-items: center;
+      z-index: 45;
+      font: 800 21px/1 "Science Gothic", ui-sans-serif, system-ui, sans-serif;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.7);
+      box-shadow: 0 3px 12px rgba(0,0,0,0.35);
+      padding: 0;
+      pointer-events: auto;
+      touch-action: manipulation;
+    }
+    #touch-launch-toggle.touch-launch-visible { display: grid; }
+    #touch-launch-toggle.touch-launch-holding {
+      background: rgba(32, 78, 104, 0.96);
+      border-color: rgba(168, 242, 255, 1);
+      box-shadow: 0 0 16px rgba(96, 220, 255, 0.35);
+    }
+  `;
+  document.head.appendChild(style);
+}
 
 export class Input {
   /**
@@ -34,7 +71,7 @@ export class Input {
     /** @type {{id:number|null,downAt:number,triggered:boolean}} */
     this.touchRestartControl = { id: null, downAt: 0, triggered: false };
 
-    /** @type {{regen:boolean,toggleDebug:boolean,toggleDevHud:boolean,toggleFrameStep:boolean,togglePlanetView:boolean,toggleRingVertices:boolean,togglePlanetTriangles:boolean,toggleCollisionContours:boolean,toggleMinerGuidePath:boolean,toggleFog:boolean,toggleMusic:boolean,toggleCombatMusic:boolean,musicVolumeUp:boolean,musicVolumeDown:boolean,sfxVolumeUp:boolean,sfxVolumeDown:boolean,copyScreenshot:boolean,copyScreenshotClean:boolean,copyScreenshotCleanTitle:boolean,reset:boolean,abandonRun:boolean,nextLevel:boolean,prevLevel:boolean,promptLevelJump:boolean,zoomReset:boolean,shoot:boolean,bomb:boolean,rescueAll:boolean,killAllEnemies:boolean,removeEntities:boolean,spawnEnemyType:"1"|"2"|"3"|"4"|"5"|null}} */
+    /** @type {{regen:boolean,toggleDebug:boolean,toggleDevHud:boolean,toggleFrameStep:boolean,togglePlanetView:boolean,toggleRingVertices:boolean,togglePlanetTriangles:boolean,toggleCollisionContours:boolean,toggleMinerGuidePath:boolean,toggleFog:boolean,toggleMusic:boolean,toggleCombatMusic:boolean,musicVolumeUp:boolean,musicVolumeDown:boolean,sfxVolumeUp:boolean,sfxVolumeDown:boolean,copyScreenshot:boolean,copyScreenshotClean:boolean,copyScreenshotCleanTitle:boolean,reset:boolean,abandonRun:boolean,nextLevel:boolean,prevLevel:boolean,promptLevelJump:boolean,zoomReset:boolean,shoot:boolean,bomb:boolean,rescueAll:boolean,killAllEnemies:boolean,removeEntities:boolean,perkLeft:boolean,perkRight:boolean,spawnEnemyType:"1"|"2"|"3"|"4"|"5"|null}} */
     this.oneshot = {
       regen: false,
       toggleDebug: false,
@@ -66,6 +103,8 @@ export class Input {
       rescueAll: false,
       killAllEnemies: false,
       removeEntities: false,
+      perkLeft: false,
+      perkRight: false,
       spawnEnemyType: null,
     };
     /** @type {boolean} */
@@ -110,7 +149,16 @@ export class Input {
     this.debugCommandsEnabled = false;
     /** @type {HTMLButtonElement|null} */
     this.touchRestartButton = null;
+    /** @type {HTMLButtonElement|null} */
+    this.touchLaunchButton = null;
+    /** @type {number|null} */
+    this.touchLaunchPointerId = null;
+    /** @type {boolean} */
+    this.touchDocked = false;
+    /** @type {boolean} */
+    this.touchPerkChoiceActive = false;
 
+    ensureTouchDockStyles();
     window.addEventListener("keydown", (e) => this._onKeyDown(e), { passive: false });
     window.addEventListener("keyup", (e) => this._onKeyUp(e), { passive: false });
 
@@ -178,6 +226,7 @@ export class Input {
       this.startControl.downAt = 0;
       this.startControl.triggered = false;
       this._clearTouchRestartControl();
+      this._clearTouchLaunchControl();
       this.mouseShootHeld = false;
       this.prevPadShoot = false;
       this.prevPadBomb = false;
@@ -200,6 +249,7 @@ export class Input {
       this.abandonHoldSource = null;
       this.abandonHoldStartMs = 0;
       this.abandonHoldTriggered = false;
+      this._updateTouchDockButtonVisual();
     }
   }
 
@@ -237,6 +287,7 @@ export class Input {
     this.startControl.downAt = 0;
     this.startControl.triggered = false;
     this._clearTouchRestartControl();
+    this._clearTouchLaunchControl();
     this.mouseShootHeld = false;
     this.prevPadShoot = false;
     this.prevPadBomb = false;
@@ -246,6 +297,7 @@ export class Input {
     this.abandonHoldStartMs = 0;
     this.abandonHoldTriggered = false;
     this._resetOneShotFlags();
+    this._updateTouchDockButtonVisual();
   }
 
   /**
@@ -254,6 +306,26 @@ export class Input {
    */
   setTouchStartPromptActive(active){
     this.touchStartPromptActive = !!active;
+  }
+
+  /**
+   * @param {boolean} docked
+   * @returns {void}
+   */
+  setTouchDocked(docked){
+    this.touchDocked = !!docked;
+    if (!this.touchDocked){
+      this._clearTouchLaunchControl();
+    }
+    this._updateTouchDockButtonVisual();
+  }
+
+  /**
+   * @param {boolean} active
+   * @returns {void}
+   */
+  setTouchPerkChoiceActive(active){
+    this.touchPerkChoiceActive = !!active;
   }
 
   /**
@@ -320,6 +392,52 @@ export class Input {
   }
 
   /**
+   * @returns {HTMLButtonElement|null}
+   */
+  _ensureTouchLaunchButton(){
+    if (typeof document === "undefined" || !document.body) return null;
+    const existing = document.getElementById("touch-launch-toggle");
+    if (existing && existing.parentElement){
+      existing.parentElement.removeChild(existing);
+    }
+    const button = document.createElement("button");
+    button.id = "touch-launch-toggle";
+    button.type = "button";
+    button.setAttribute("aria-label", "Launch from mothership");
+    button.textContent = "^";
+    button.addEventListener("pointerdown", (e) => {
+      if (this.modalOpen) return;
+      if (e.pointerType !== "touch") return;
+      if (!this.touchDocked || this.gameOver) return;
+      e.preventDefault();
+      e.stopPropagation();
+      this.lastInputType = "touch";
+      this.touchLaunchPointerId = e.pointerId;
+      if (button.setPointerCapture){
+        try {
+          button.setPointerCapture(e.pointerId);
+        } catch (_err){
+          // Ignore pointer capture failures on older/mobile browsers.
+        }
+      }
+      this._updateTouchDockButtonVisual();
+    });
+    /** @param {PointerEvent} e */
+    const finish = (e) => {
+      if (e.pointerType !== "touch") return;
+      if (this.touchLaunchPointerId !== e.pointerId) return;
+      e.preventDefault();
+      e.stopPropagation();
+      this._clearTouchLaunchControl();
+    };
+    button.addEventListener("pointerup", finish);
+    button.addEventListener("pointercancel", finish);
+    button.addEventListener("contextmenu", (e) => e.preventDefault());
+    document.body.appendChild(button);
+    return button;
+  }
+
+  /**
    * @returns {void}
    */
   _clearTouchRestartControl(){
@@ -327,6 +445,14 @@ export class Input {
     this.touchRestartControl.downAt = 0;
     this.touchRestartControl.triggered = false;
     this._updateTouchRestartButtonVisual(performance.now());
+  }
+
+  /**
+   * @returns {void}
+   */
+  _clearTouchLaunchControl(){
+    this.touchLaunchPointerId = null;
+    this._updateTouchDockButtonVisual();
   }
 
   /**
@@ -342,6 +468,20 @@ export class Input {
     this.touchRestartButton.classList.toggle("touch-restart-disabled", disabled);
     this.touchRestartButton.classList.toggle("touch-restart-holding", holding);
     this.touchRestartButton.style.setProperty("--restart-hold-progress", `${(holdProgress * 100).toFixed(1)}%`);
+  }
+
+  /**
+   * @returns {void}
+   */
+  _updateTouchDockButtonVisual(){
+    const showDocked = !!(this.touchDocked && this.lastInputType === "touch" && !this.modalOpen && !this.gameOver);
+    if (this.touchLaunchButton){
+      this.touchLaunchButton.classList.toggle("touch-launch-visible", showDocked);
+      this.touchLaunchButton.classList.toggle("touch-launch-holding", this.touchLaunchPointerId !== null);
+    }
+    if (typeof document !== "undefined" && document.body){
+      document.body.classList.toggle("touch-docked-visible", showDocked);
+    }
   }
 
   /** @returns {void} */
@@ -559,13 +699,21 @@ export class Input {
     this.lastInputType = "touch";
     const p = this._pointerPos(e);
     this.canvas.setPointerCapture(e.pointerId);
-    if (this.touchStartPromptActive && this._inCircle(p, TOUCH_UI.start, TOUCH_UI.start.r)){
+    if (this.touchStartPromptActive && this._inCircle(p, TOUCH_START_PROMPT, TOUCH_START_PROMPT.r)){
       this.startControl.id = e.pointerId;
       this.startControl.downAt = performance.now();
       this.startControl.triggered = false;
       return;
     }
+    if (this.touchPerkChoiceActive && p.y >= TOUCH_PERK_CHOICE_TOP && p.y <= TOUCH_PERK_CHOICE_BOTTOM){
+      if (p.x < 0.5) this.oneshot.perkLeft = true;
+      else this.oneshot.perkRight = true;
+      return;
+    }
     if (this.gameOver){
+      return;
+    }
+    if (this.touchDocked){
       return;
     }
     if (this.leftControl.id === null && this._inCircle(p, TOUCH_UI.left, TOUCH_UI.left.r * TOUCH_UI.activationScale)){
@@ -773,14 +921,26 @@ export class Input {
   }
 
   /**
-   * @returns {{stickThrust:Point,left:boolean,right:boolean,thrust:boolean,down:boolean,aim:Point|null,shoot:boolean,bomb:boolean,reset:boolean,abandonRun:boolean}}
+   * @returns {{stickThrust:Point,dashboardScroll:Point,left:boolean,right:boolean,thrust:boolean,down:boolean,aim:Point|null,shoot:boolean,bomb:boolean,reset:boolean,abandonRun:boolean}}
    */
   _gamepadState(){
     const pads = navigator.getGamepads ? (navigator.getGamepads() || []) : [];
     let hasConnectedPad = false;
 
-    /** @type {{stickThrust:Point,left:boolean,right:boolean,thrust:boolean,down:boolean,aim:Point|null,shoot:boolean,bomb:boolean,reset:boolean,abandonRun:boolean}} */
-    let inputCombined = { stickThrust:{x:0, y:0}, left:false, right:false, thrust:false, down:false, aim:null, shoot:false, bomb:false, reset:false, abandonRun:false };
+    /** @type {{stickThrust:Point,dashboardScroll:Point,left:boolean,right:boolean,thrust:boolean,down:boolean,aim:Point|null,shoot:boolean,bomb:boolean,reset:boolean,abandonRun:boolean}} */
+    let inputCombined = {
+      stickThrust:{x:0, y:0},
+      dashboardScroll:{x:0, y:0},
+      left:false,
+      right:false,
+      thrust:false,
+      down:false,
+      aim:null,
+      shoot:false,
+      bomb:false,
+      reset:false,
+      abandonRun:false,
+    };
 
     for (const pad of pads) {
       if (!pad || pad.connected === false) continue;
@@ -792,6 +952,9 @@ export class Input {
       const ax2 = (pad.axes && pad.axes.length > 2 ? pad.axes[2] : 0) ?? 0;
       const ax3 = (pad.axes && pad.axes.length > 3 ? pad.axes[3] : 0) ?? 0;
       const alen = Math.hypot(ax2, ax3);
+      const scrollX = Math.abs(ax2) > dead ? (Math.abs(ax2) - dead) / (1 - dead) * Math.sign(ax2) : 0;
+      const scrollY = Math.abs(ax3) > dead ? (Math.abs(ax3) - dead) / (1 - dead) * Math.sign(ax3) : 0;
+      const dashboardScroll = { x: scrollX, y: scrollY };
 
       const thrustLen = Math.hypot(ax0, ax1);
       let thrustLenAdjusted = (thrustLen - dead) / (1 - dead);
@@ -843,6 +1006,12 @@ export class Input {
       inputCombined.bomb = inputCombined.bomb || bomb;
       inputCombined.reset = inputCombined.reset || reset;
       inputCombined.abandonRun = inputCombined.abandonRun || abandonRun;
+      if (
+        Math.hypot(dashboardScroll.x, dashboardScroll.y)
+        > Math.hypot(inputCombined.dashboardScroll.x, inputCombined.dashboardScroll.y)
+      ){
+        inputCombined.dashboardScroll = dashboardScroll;
+      }
       if (aim) {
         const ax = aim.x - 0.5;
         const ay = aim.y - 0.5;
@@ -853,8 +1022,19 @@ export class Input {
       }
     }
 
-    if (inputCombined.left || inputCombined.right || inputCombined.thrust || inputCombined.down || inputCombined.shoot || inputCombined.bomb || inputCombined.reset || inputCombined.abandonRun ||
-        (inputCombined.stickThrust.x*inputCombined.stickThrust.x + inputCombined.stickThrust.y*inputCombined.stickThrust.y) > 0) {
+    if (
+      inputCombined.left
+      || inputCombined.right
+      || inputCombined.thrust
+      || inputCombined.down
+      || inputCombined.shoot
+      || inputCombined.bomb
+      || inputCombined.reset
+      || inputCombined.abandonRun
+      || inputCombined.aim
+      || (inputCombined.stickThrust.x*inputCombined.stickThrust.x + inputCombined.stickThrust.y*inputCombined.stickThrust.y) > 0
+      || (inputCombined.dashboardScroll.x*inputCombined.dashboardScroll.x + inputCombined.dashboardScroll.y*inputCombined.dashboardScroll.y) > 0
+    ) {
       this.lastInputType = "gamepad";
     } else if (!hasConnectedPad && this.lastInputType === "gamepad"){
       // Avoid stale gamepad hints/behavior after disconnect.
@@ -874,6 +1054,10 @@ export class Input {
     if (!this.touchRestartButton){
       this.touchRestartButton = this._ensureTouchRestartButton();
     }
+    if (!this.touchLaunchButton){
+      this.touchLaunchButton = this._ensureTouchLaunchButton();
+    }
+    this._updateTouchDockButtonVisual();
     if (this.modalOpen){
       const state = {
         stickThrust: { x: 0, y: 0 },
@@ -924,6 +1108,7 @@ export class Input {
         aimBombTo: null,
         touchUi: null,
         touchUiVisible: false,
+        dashboardScroll: { x: 0, y: 0 },
         zoomDelta: 0,
         inputType: this.lastInputType,
       };
@@ -951,7 +1136,7 @@ export class Input {
 
     let left = keyState.left || t.left || g.left;
     let right = keyState.right || t.right || g.right;
-    let thrust = keyState.thrust || t.thrust || g.thrust;
+    let thrust = keyState.thrust || t.thrust || g.thrust || this.touchLaunchPointerId !== null;
     let down = keyState.down || t.down || g.down;
     let stickThrust = g.stickThrust;
     const touchStickMag = Math.hypot(t.stickThrust.x, t.stickThrust.y);
@@ -997,7 +1182,9 @@ export class Input {
       ? Math.max(0, this.HOLD_ABANDON_MS - (now - this.abandonHoldStartMs))
       : 0;
     this._updateTouchRestartButtonVisual(now);
-    const touchUiVisible = !this.gameOver && this.lastInputType === "touch";
+    left = left || this.oneshot.perkLeft;
+    right = right || this.oneshot.perkRight;
+    const touchUiVisible = !this.gameOver && this.lastInputType === "touch" && !this.touchDocked;
     const touchUi = touchUiVisible ? {
       leftCenter: this._touchControlCenter(this.leftControl, TOUCH_UI.left),
       laserCenter: this._touchControlCenter(this.laserControl, TOUCH_UI.laser),
@@ -1093,6 +1280,7 @@ export class Input {
       aimBombTo,
       touchUi,
       touchUiVisible,
+      dashboardScroll: g.dashboardScroll,
       zoomDelta: this.zoomDelta,
       stepFrame: this.justPressed.has(" ") || this.justPressed.has("Space"),
       inputType: this.lastInputType,
@@ -1138,6 +1326,8 @@ export class Input {
     this.oneshot.rescueAll = false;
     this.oneshot.killAllEnemies = false;
     this.oneshot.removeEntities = false;
+    this.oneshot.perkLeft = false;
+    this.oneshot.perkRight = false;
     this.oneshot.spawnEnemyType = null;
     this.zoomDelta = 0;
     this.bombReleaseFrom = null;

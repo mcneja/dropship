@@ -2877,6 +2877,15 @@ export class Planet {
   }
 
   /**
+   * @param {number} x
+   * @param {number} y
+   * @returns {number}
+   */
+  shadeAtWorld(x, y){
+    return this.radial.shadeAtWorld(x, y);
+  }
+
+  /**
    * Find closest point on world
    * Note: Does not work very far from the surface
    * @param {number} x

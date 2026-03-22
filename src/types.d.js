@@ -103,7 +103,7 @@
  */
 
 /**
- * @typedef {{updateHud:(hud:HTMLElement, stats:HudStats)=>void, updatePlanetLabel?:(el:HTMLElement, label:string)=>void, updateObjectiveLabel?:(el:HTMLElement, text:string)=>void, updateShipStatusLabel?:(el:HTMLElement, stats:{shipHp:number,shipHpMax:number,bombs:number,bombsMax:number})=>void, updateSignalMeter?:(el:HTMLElement, signalStrength:number, show:boolean)=>void, updateHeatMeter?:(el:HTMLElement, heat:number, show:boolean, flashing:boolean)=>void}} Ui
+ * @typedef {{updateHud:(hud:HTMLElement, stats:HudStats)=>void, updatePlanetLabel?:(el:HTMLElement, label:string)=>void, updateObjectiveLabel?:(el:HTMLElement, text:string)=>void, updateShipStatusLabel?:(el:HTMLElement, stats:{shipHp:number,shipHpMax:number,bombs:number,bombsMax:number})=>void, updateSignalMeter?:(el:HTMLElement, signalStrength:number, show:boolean)=>void, updateHeatMeter?:(el:HTMLElement, heat:number, show:boolean, flashing:boolean)=>void, updateMothershipDashboard?:(el:HTMLElement, stats:any)=>void, scrollMothershipDashboard?:(el:HTMLElement, deltaY:number)=>void}} Ui
  */
 
 /**
@@ -387,6 +387,7 @@
  * @property {Point|null} [aimBombTo]
  * @property {{leftCenter:Point,laserCenter:Point,bombCenter:Point,leftTouch:Point|null,laserTouch:Point|null,bombTouch:Point|null}|null} [touchUi]
  * @property {boolean} [touchUiVisible]
+ * @property {Point} [dashboardScroll]
  * @property {number} [zoomDelta]
  * @property {boolean} [stepFrame]
  * @property {"keyboard"|"mouse"|"touch"|"gamepad"|null} [inputType]

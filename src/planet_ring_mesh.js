@@ -313,6 +313,31 @@ export class RingMesh {
   }
 
   /**
+   * Sample terrain shade at world position using the same noise field as the terrain mesh.
+   * @param {number} x
+   * @param {number} y
+   * @returns {number}
+   */
+  shadeAtWorld(x, y){
+    const tri = this.findTriAtWorld(x, y);
+    if (!tri){
+      return this._shadeNoiseAtWorld(x, y);
+    }
+    const a = tri[0], b = tri[1], c = tri[2];
+    const det = (b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y);
+    if (Math.abs(det) < 1e-6){
+      return this._shadeNoiseAtWorld(x, y);
+    }
+    const l1 = ((b.y - c.y) * (x - c.x) + (c.x - b.x) * (y - c.y)) / det;
+    const l2 = ((c.y - a.y) * (x - c.x) + (a.x - c.x) * (y - c.y)) / det;
+    const l3 = 1 - l1 - l2;
+    const sa = this._shadeNoiseAtWorld(a.x, a.y);
+    const sb = this._shadeNoiseAtWorld(b.x, b.y);
+    const sc = this._shadeNoiseAtWorld(c.x, c.y);
+    return sa * l1 + sb * l2 + sc * l3;
+  }
+
+  /**
    * Collision-focused air sampling.
    * Uses the same terrain field as rendering so visible terrain remains collidable.
    * @param {number} x
@@ -358,6 +383,19 @@ export class RingMesh {
       return n ? n.air : 1;
     }
     return this._airValueInTri(x, y, tri);
+  }
+
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @returns {number}
+   */
+  _shadeNoiseAtWorld(x, y){
+    const noise = this._map && this._map.noise;
+    const n = noise && typeof noise.fbm === "function"
+      ? noise.fbm(x * 0.16, y * 0.16, 2, 0.6, 2.0)
+      : 0;
+    return Math.max(0, Math.min(1, 0.5 + 0.5 * n));
   }
 
   /**
