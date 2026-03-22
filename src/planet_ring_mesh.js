@@ -199,6 +199,7 @@ export class RingMesh {
       }
     }
     this._triIndexOf = triIndexOf;
+    this._markOuterFogBandSeen();
 
     const vertIdOf = new Map();
     let vid = 0;
@@ -766,6 +767,26 @@ export class RingMesh {
     const idx = this._triIndexOf.get(tri);
     if (idx === undefined) return true;
     return !!this._fogSeen[idx];
+  }
+
+  /**
+   * Seed the outermost mesh band as explored after level generation.
+   * This does not mark it currently visible.
+   * @returns {void}
+   */
+  _markOuterFogBandSeen(){
+    if (!this._triIndexOf || !this.bandTris || !this.bandTris.length) return;
+    const outerBand = this.bandTris[this.bandTris.length - 1];
+    if (!outerBand || !outerBand.length) return;
+    for (const tri of outerBand){
+      const idx = this._triIndexOf.get(tri);
+      if (idx === undefined) continue;
+      this._fogSeen[idx] = 1;
+      const base = idx * 3;
+      this._fogAlpha[base] = this._fogSeenAlpha;
+      this._fogAlpha[base + 1] = this._fogSeenAlpha;
+      this._fogAlpha[base + 2] = this._fogSeenAlpha;
+    }
   }
 
   /**
