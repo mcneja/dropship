@@ -1338,8 +1338,9 @@ export class GameLoop {
    * @returns {number}
    */
   _aimWorldDistance(screenFrac){
-    const s = GAME.PLANETSIDE_ZOOM / (this.planetParams.RMAX + this.planetParams.PAD);
-    return (2 * screenFrac) / s;
+    const viewState = this._viewState();
+    const radius = Math.max(1e-4, viewState.radius);
+    return 2 * screenFrac * radius;
   }
 
   /**
@@ -1685,6 +1686,8 @@ export class GameLoop {
    *  cg?:number,
    *  cb?:number,
    *  alpha?:number,
+   *  normalX?:number,
+   *  normalY?:number,
    * }} [opts]
    * @returns {void}
    */
@@ -1703,15 +1706,36 @@ export class GameLoop {
     const cg = (opts && typeof opts.cg === "number") ? opts.cg : undefined;
     const cb = (opts && typeof opts.cb === "number") ? opts.cb : undefined;
     const alpha = (opts && typeof opts.alpha === "number") ? opts.alpha : undefined;
+    const normalX = (opts && typeof opts.normalX === "number") ? opts.normalX : 0;
+    const normalY = (opts && typeof opts.normalY === "number") ? opts.normalY : 0;
+    const normalLen = Math.hypot(normalX, normalY);
+    const useHemisphere = normalLen > 1e-5;
+    const nx = useHemisphere ? normalX / normalLen : 0;
+    const ny = useHemisphere ? normalY / normalLen : 0;
+    let burstBaseVx = baseVx;
+    let burstBaseVy = baseVy;
+    if (useHemisphere){
+      const baseNormal = burstBaseVx * nx + burstBaseVy * ny;
+      if (baseNormal < 0){
+        burstBaseVx -= 2 * baseNormal * nx;
+        burstBaseVy -= 2 * baseNormal * ny;
+      }
+    }
     for (let i = 0; i < pieces; i++){
       const ang = Math.random() * Math.PI * 2;
+      let dirX = Math.cos(ang);
+      let dirY = Math.sin(ang);
+      if (useHemisphere && dirX * nx + dirY * ny < 0){
+        dirX = -dirX;
+        dirY = -dirY;
+      }
       const sp = speedMin + Math.random() * speedMax;
       const life = lifeMin + Math.random() * lifeMax;
       this.debris.push(/** @type {import("./types.d.js").Debris} */ ({
-        x: x + Math.cos(ang) * offset,
-        y: y + Math.sin(ang) * offset,
-        vx: baseVx + Math.cos(ang) * sp,
-        vy: baseVy + Math.sin(ang) * sp,
+        x: x + dirX * offset,
+        y: y + dirY * offset,
+        vx: burstBaseVx + dirX * sp,
+        vy: burstBaseVy + dirY * sp,
         a: Math.random() * Math.PI * 2,
         w: (Math.random() - 0.5) * spin,
         life,
@@ -1731,9 +1755,10 @@ export class GameLoop {
    * @param {number} y
    * @param {number} [baseVx]
    * @param {number} [baseVy]
+   * @param {{normalX?:number,normalY?:number}|null} [impact]
    * @returns {void}
    */
-  _spawnWeaponImpactFragments(kind, x, y, baseVx = 0, baseVy = 0){
+  _spawnWeaponImpactFragments(kind, x, y, baseVx = 0, baseVy = 0, impact = null){
     if (kind === "bomb"){
       this._spawnDebrisBurst(x, y, {
         pieces: 12,
@@ -1753,7 +1778,26 @@ export class GameLoop {
       });
       return;
     }
-    this._spawnDebrisBurst(x, y, {
+    const normalX = impact && typeof impact.normalX === "number" ? impact.normalX : undefined;
+    const normalY = impact && typeof impact.normalY === "number" ? impact.normalY : undefined;
+    this._spawnDebrisBurst(x, y, /** @type {{
+      *  pieces?:number,
+      *  speedMin?:number,
+      *  speedMax?:number,
+      *  lifeMin?:number,
+      *  lifeMax?:number,
+      *  offset?:number,
+      *  spin?:number,
+      *  baseVx?:number,
+      *  baseVy?:number,
+      *  size?:number,
+      *  cr?:number,
+      *  cg?:number,
+      *  cb?:number,
+      *  alpha?:number,
+      *  normalX?:number,
+      *  normalY?:number,
+      * }} */ ({
       pieces: 6,
       speedMin: 0.4,
       speedMax: 0.9,
@@ -1768,7 +1812,9 @@ export class GameLoop {
       cg: 0.96,
       cb: 0.96,
       alpha: 0.92,
-    });
+      normalX,
+      normalY,
+    }));
   }
 
   /**
@@ -3853,11 +3899,11 @@ export class GameLoop {
         continue;
       }
       if (this.collision.airValueAtWorld(s.x, s.y) <= 0.5){
+        const crossing = this.planet.terrainCrossing(
+          { x: prevX, y: prevY },
+          { x: s.x, y: s.y }
+        );
         if (this.ship.bounceShots){
-          const crossing = this.planet.terrainCrossing(
-            { x: prevX, y: prevY },
-            { x: s.x, y: s.y }
-          );
           if (crossing){
             const { nx, ny } = crossing;
             const vNormal = nx * s.vx + ny * s.vy;
@@ -3870,7 +3916,16 @@ export class GameLoop {
             }
           }
         }
-        this._spawnWeaponImpactFragments("shot", s.x, s.y, s.vx, s.vy);
+        const impactX = crossing ? crossing.x + crossing.nx * 0.02 : s.x;
+        const impactY = crossing ? crossing.y + crossing.ny * 0.02 : s.y;
+        this._spawnWeaponImpactFragments(
+          "shot",
+          impactX,
+          impactY,
+          s.vx,
+          s.vy,
+          crossing ? { normalX: crossing.nx, normalY: crossing.ny } : null
+        );
         this.playerShots.splice(i, 1);
         continue;
       }
