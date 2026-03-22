@@ -329,7 +329,7 @@
  * @property {{x:number,y:number}|null} aimWorld
  * @property {{x:number,y:number}|null} [aimOrigin]
  * @property {{rockDark:[number,number,number],rockLight:[number,number,number],airDark:[number,number,number],airLight:[number,number,number],surfaceRockDark:[number,number,number],surfaceRockLight:[number,number,number],surfaceBand:number}|null|undefined} [planetPalette]
- * @property {{leftTouch:{x:number,y:number}|null,laserTouch:{x:number,y:number}|null,bombTouch:{x:number,y:number}|null}|null|undefined} touchUi
+ * @property {{leftCenter:{x:number,y:number},laserCenter:{x:number,y:number},bombCenter:{x:number,y:number},leftTouch:{x:number,y:number}|null,laserTouch:{x:number,y:number}|null,bombTouch:{x:number,y:number}|null}|null|undefined} touchUi
  * @property {boolean} [touchStart]
  * @property {"respawnShip"|"restartGame"|"upgrade"|"nextLevel"|"viewMap"|"exitMap"|null} [touchStartMode]
  * @property {boolean} [showGameplayIndicators]
@@ -385,7 +385,7 @@
  * @property {Point|null} [aimShootTo]
  * @property {Point|null} [aimBombFrom]
  * @property {Point|null} [aimBombTo]
- * @property {{leftTouch:Point|null,laserTouch:Point|null,bombTouch:Point|null}|null} [touchUi]
+ * @property {{leftCenter:Point,laserCenter:Point,bombCenter:Point,leftTouch:Point|null,laserTouch:Point|null,bombTouch:Point|null}|null} [touchUi]
  * @property {boolean} [touchUiVisible]
  * @property {number} [zoomDelta]
  * @property {boolean} [stepFrame]

@@ -23,12 +23,12 @@ export class Input {
     /** @type {Set<string>} */
     this.justPressed = new Set();
 
-    /** @type {{id:number|null,pos:Point|null,start:Point|null}} */
-    this.leftControl = { id: null, pos: null, start: null };
-    /** @type {{id:number|null,pos:Point|null,start:Point|null}} */
-    this.laserControl = { id: null, pos: null, start: null };
-    /** @type {{id:number|null,pos:Point|null,start:Point|null}} */
-    this.bombControl = { id: null, pos: null, start: null };
+    /** @type {{id:number|null,pos:Point|null,start:Point|null,center:Point|null}} */
+    this.leftControl = { id: null, pos: null, start: null, center: null };
+    /** @type {{id:number|null,pos:Point|null,start:Point|null,center:Point|null}} */
+    this.laserControl = { id: null, pos: null, start: null, center: null };
+    /** @type {{id:number|null,pos:Point|null,start:Point|null,center:Point|null}} */
+    this.bombControl = { id: null, pos: null, start: null, center: null };
     /** @type {{id:number|null,downAt:number,triggered:boolean}} */
     this.startControl = { id: null, downAt: 0, triggered: false };
     /** @type {{id:number|null,downAt:number,triggered:boolean}} */
@@ -165,12 +165,15 @@ export class Input {
       this.leftControl.id = null;
       this.leftControl.pos = null;
       this.leftControl.start = null;
+      this.leftControl.center = null;
       this.laserControl.id = null;
       this.laserControl.pos = null;
       this.laserControl.start = null;
+      this.laserControl.center = null;
       this.bombControl.id = null;
       this.bombControl.pos = null;
       this.bombControl.start = null;
+      this.bombControl.center = null;
       this.startControl.id = null;
       this.startControl.downAt = 0;
       this.startControl.triggered = false;
@@ -221,12 +224,15 @@ export class Input {
     this.leftControl.id = null;
     this.leftControl.pos = null;
     this.leftControl.start = null;
+    this.leftControl.center = null;
     this.laserControl.id = null;
     this.laserControl.pos = null;
     this.laserControl.start = null;
+    this.laserControl.center = null;
     this.bombControl.id = null;
     this.bombControl.pos = null;
     this.bombControl.start = null;
+    this.bombControl.center = null;
     this.startControl.id = null;
     this.startControl.downAt = 0;
     this.startControl.triggered = false;
@@ -444,9 +450,11 @@ export class Input {
    */
   _pointerPos(e){
     const rect = this.canvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / Math.max(1, rect.width);
+    const y = (e.clientY - rect.top) / Math.max(1, rect.height);
     return {
-      x: (e.clientX - rect.left) / Math.max(1, rect.width),
-      y: (e.clientY - rect.top) / Math.max(1, rect.height),
+      x: Math.max(0, Math.min(1, x)),
+      y: Math.max(0, Math.min(1, y)),
     };
   }
 
@@ -484,6 +492,41 @@ export class Input {
     const dx = Math.abs(p.x - c.x);
     const dy = Math.abs(p.y - c.y);
     return Math.max(dx, dy) <= r;
+  }
+
+  /**
+   * @param {{id:number|null,pos:Point|null,start:Point|null,center:Point|null}} control
+   * @param {number} pointerId
+   * @param {Point} p
+   * @returns {void}
+   */
+  _captureTouchControl(control, pointerId, p){
+    control.id = pointerId;
+    control.pos = p;
+    control.start = p;
+    control.center = { x: p.x, y: p.y };
+  }
+
+  /**
+   * @param {{id:number|null,pos:Point|null,start:Point|null,center:Point|null}} control
+   * @returns {void}
+   */
+  _releaseTouchControl(control){
+    control.id = null;
+    control.pos = null;
+    control.start = null;
+    control.center = null;
+  }
+
+  /**
+   * @param {{id:number|null,pos:Point|null,start:Point|null,center:Point|null}|null|undefined} control
+   * @param {Point} fallback
+   * @returns {Point}
+   */
+  _touchControlCenter(control, fallback){
+    const center = control?.center;
+    if (center) return center;
+    return fallback;
   }
 
   /**
@@ -525,18 +568,12 @@ export class Input {
     if (this.gameOver){
       return;
     }
-    if (this.leftControl.id === null && this._inCircle(p, TOUCH_UI.left, TOUCH_UI.left.r)){
-      this.leftControl.id = e.pointerId;
-      this.leftControl.pos = p;
-      this.leftControl.start = p;
-    } else if (this.laserControl.id === null && this._inDiamond(p, TOUCH_UI.laser, TOUCH_UI.laser.r)){
-      this.laserControl.id = e.pointerId;
-      this.laserControl.pos = p;
-      this.laserControl.start = p;
-    } else if (this.bombControl.id === null && this._inSquare(p, TOUCH_UI.bomb, TOUCH_UI.bomb.r)){
-      this.bombControl.id = e.pointerId;
-      this.bombControl.pos = p;
-      this.bombControl.start = p;
+    if (this.leftControl.id === null && this._inCircle(p, TOUCH_UI.left, TOUCH_UI.left.r * TOUCH_UI.activationScale)){
+      this._captureTouchControl(this.leftControl, e.pointerId, p);
+    } else if (this.laserControl.id === null && this._inDiamond(p, TOUCH_UI.laser, TOUCH_UI.laser.r * TOUCH_UI.activationScale)){
+      this._captureTouchControl(this.laserControl, e.pointerId, p);
+    } else if (this.bombControl.id === null && this._inSquare(p, TOUCH_UI.bomb, TOUCH_UI.bomb.r * TOUCH_UI.activationScale)){
+      this._captureTouchControl(this.bombControl, e.pointerId, p);
     }
   }
 
@@ -609,29 +646,24 @@ export class Input {
       return;
     }
     if (this.leftControl.id === e.pointerId){
-      this.leftControl.id = null;
-      this.leftControl.pos = null;
-      this.leftControl.start = null;
+      this._releaseTouchControl(this.leftControl);
     } else if (this.laserControl.id === e.pointerId){
-      this.laserControl.id = null;
-      this.laserControl.pos = null;
-      this.laserControl.start = null;
+      this._releaseTouchControl(this.laserControl);
     } else if (this.bombControl.id === e.pointerId){
       const start = this.bombControl.start;
       const pos = this.bombControl.pos;
+      const center = this._touchControlCenter(this.bombControl, TOUCH_UI.bomb);
       if (start && pos){
         const dx = pos.x - start.x;
         const dy = pos.y - start.y;
         const moved = Math.hypot(dx, dy);
         if (moved >= TOUCH_UI.dead){
           this.oneshot.bomb = true;
-          this.bombReleaseFrom = { x: TOUCH_UI.bomb.x, y: TOUCH_UI.bomb.y };
+          this.bombReleaseFrom = { x: center.x, y: center.y };
           this.bombReleaseTo = { x: pos.x, y: pos.y };
         }
       }
-      this.bombControl.id = null;
-      this.bombControl.pos = null;
-      this.bombControl.start = null;
+      this._releaseTouchControl(this.bombControl);
     }
   }
 
@@ -674,6 +706,9 @@ export class Input {
     let thrust = false;
     let down = false;
     let stickThrust = { x: 0, y: 0 };
+    const leftCenter = this._touchControlCenter(this.leftControl, TOUCH_UI.left);
+    const laserCenter = this._touchControlCenter(this.laserControl, TOUCH_UI.laser);
+    const bombCenter = this._touchControlCenter(this.bombControl, TOUCH_UI.bomb);
 
     this.aimTouchShoot = null;
     this.aimTouchBomb = null;
@@ -683,8 +718,8 @@ export class Input {
     this.aimTouchBombTo = null;
     const dead = TOUCH_UI.dead;
     if (this.leftControl.id !== null && this.leftControl.pos){
-      const dx = this.leftControl.pos.x - TOUCH_UI.left.x;
-      const dy = this.leftControl.pos.y - TOUCH_UI.left.y;
+      const dx = this.leftControl.pos.x - leftCenter.x;
+      const dy = this.leftControl.pos.y - leftCenter.y;
       if (dx < -dead) left = true;
       if (dx > dead) right = true;
       if (dy < -dead) thrust = true;
@@ -702,7 +737,7 @@ export class Input {
     }
 
     /**
-     * @param {{id:number|null,pos:Point|null,start:Point|null}|null|undefined} control
+     * @param {{id:number|null,pos:Point|null,start:Point|null,center:Point|null}|null|undefined} control
      * @param {Point} center
      */
     const aimFromControl = (control, center) => {
@@ -723,14 +758,14 @@ export class Input {
       return { x: 0.5, y: 0.5 - radius };
     };
 
-    this.aimTouchShoot = aimFromControl(this.laserControl, TOUCH_UI.laser);
-    this.aimTouchBomb = aimFromControl(this.bombControl, TOUCH_UI.bomb);
+    this.aimTouchShoot = aimFromControl(this.laserControl, laserCenter);
+    this.aimTouchBomb = aimFromControl(this.bombControl, bombCenter);
     if (this.laserControl.id !== null && this.laserControl.pos && this.aimTouchShoot){
-      this.aimTouchShootFrom = { x: TOUCH_UI.laser.x, y: TOUCH_UI.laser.y };
+      this.aimTouchShootFrom = { x: laserCenter.x, y: laserCenter.y };
       this.aimTouchShootTo = { x: this.laserControl.pos.x, y: this.laserControl.pos.y };
     }
     if (this.bombControl.id !== null && this.bombControl.pos && this.aimTouchBomb){
-      this.aimTouchBombFrom = { x: TOUCH_UI.bomb.x, y: TOUCH_UI.bomb.y };
+      this.aimTouchBombFrom = { x: bombCenter.x, y: bombCenter.y };
       this.aimTouchBombTo = { x: this.bombControl.pos.x, y: this.bombControl.pos.y };
     }
 
@@ -964,6 +999,9 @@ export class Input {
     this._updateTouchRestartButtonVisual(now);
     const touchUiVisible = !this.gameOver && this.lastInputType === "touch";
     const touchUi = touchUiVisible ? {
+      leftCenter: this._touchControlCenter(this.leftControl, TOUCH_UI.left),
+      laserCenter: this._touchControlCenter(this.laserControl, TOUCH_UI.laser),
+      bombCenter: this._touchControlCenter(this.bombControl, TOUCH_UI.bomb),
       leftTouch: this.leftControl.pos,
       laserTouch: this.laserControl.pos,
       bombTouch: this.bombControl.pos,

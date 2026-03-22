@@ -141,10 +141,11 @@ export const GAME = Object.freeze({
 });
 
 export const TOUCH_UI = Object.freeze({
-  left: { x: 0.13, y: 0.72, r: 0.13 },
-  laser: { x: 0.87, y: 0.72, r: 0.12 },
+  left: { x: 0.13, y: 0.67, r: 0.13 },
+  laser: { x: 0.87, y: 0.67, r: 0.12 },
   bomb: { x: 0.87, y: 0.30, r: 0.11 },
   start: { x: 0.13, y: 0.30, r: 0.13 },
   dead: 0.04,
   aimRadius: 0.09,
+  activationScale: 1.4,
 });

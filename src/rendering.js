@@ -3402,30 +3402,60 @@ function drawFrameImpl(renderer, state, planet){
       return { x: nx * w, y: (1 - ny) * h };
     };
 
-    const left = toPx(TOUCH_UI.left.x, TOUCH_UI.left.y);
+    /**
+     * Clamp the visible touch knob/button travel so the control behaves like a stick.
+     * @param {{x:number,y:number}} center
+     * @param {{x:number,y:number}|null|undefined} touch
+     * @param {number} maxOffset
+     */
+    const toClampedPx = (center, touch, maxOffset) => {
+      const base = toPx(center.x, center.y);
+      if (!touch){
+        return base;
+      }
+      const touchPx = toPx(touch.x, touch.y);
+      let dx = touchPx.x - base.x;
+      let dy = touchPx.y - base.y;
+      const len = Math.hypot(dx, dy);
+      if (len > maxOffset && len > 1e-4){
+        const scale = maxOffset / len;
+        dx *= scale;
+        dy *= scale;
+      }
+      return { x: base.x + dx, y: base.y + dy };
+    };
+
+    const leftCenter = state.touchUi.leftCenter || TOUCH_UI.left;
+    const laserCenter = state.touchUi.laserCenter || TOUCH_UI.laser;
+    const bombCenter = state.touchUi.bombCenter || TOUCH_UI.bomb;
+
+    const left = toPx(leftCenter.x, leftCenter.y);
     const leftRadius = TOUCH_UI.left.r * minDim;
 
-    const laser = toPx(TOUCH_UI.laser.x, TOUCH_UI.laser.y);
+    const laser = toPx(laserCenter.x, laserCenter.y);
     const laserSize = TOUCH_UI.laser.r * minDim;
     pushDiamondOutline(linePos, lineCol, laser.x, laser.y, laserSize, 0.95, 0.95, 0.95, 0.9);
 
-    const bomb = toPx(TOUCH_UI.bomb.x, TOUCH_UI.bomb.y);
+    const bomb = toPx(bombCenter.x, bombCenter.y);
     const bombSize = TOUCH_UI.bomb.r * minDim;
     pushSquareOutline(linePos, lineCol, bomb.x, bomb.y, bombSize, 1.0, 0.75, 0.2, 0.9);
 
     pushCircle(linePos, lineCol, left.x, left.y, leftRadius, 1.0, 0.55, 0.15, 0.9, 64);
 
     if (state.touchUi.leftTouch){
-      const touch = toPx(state.touchUi.leftTouch.x, state.touchUi.leftTouch.y);
-      pushCircle(linePos, lineCol, touch.x, touch.y, leftRadius * 0.35, 1.0, 0.2, 0.2, 0.9, 24);
+      const touch = toClampedPx(leftCenter, state.touchUi.leftTouch, leftRadius * 0.65);
+      pushLine(linePos, lineCol, left.x, left.y, touch.x, touch.y, 1.0, 0.4, 0.15, 0.9);
+      pushCircle(linePos, lineCol, touch.x, touch.y, leftRadius * 0.42, 1.0, 0.82, 0.3, 0.95, 32);
     }
     if (state.touchUi.laserTouch){
-      const touch = toPx(state.touchUi.laserTouch.x, state.touchUi.laserTouch.y);
-      pushCircle(linePos, lineCol, touch.x, touch.y, leftRadius * 0.35, 1.0, 0.2, 0.2, 0.9, 24);
+      const touch = toClampedPx(laserCenter, state.touchUi.laserTouch, laserSize * 0.75);
+      pushLine(linePos, lineCol, laser.x, laser.y, touch.x, touch.y, 0.95, 0.95, 0.95, 0.85);
+      pushDiamondOutline(linePos, lineCol, touch.x, touch.y, laserSize * 0.68, 0.95, 0.95, 0.95, 0.98);
     }
     if (state.touchUi.bombTouch){
-      const touch = toPx(state.touchUi.bombTouch.x, state.touchUi.bombTouch.y);
-      pushCircle(linePos, lineCol, touch.x, touch.y, leftRadius * 0.35, 1.0, 0.2, 0.2, 0.9, 24);
+      const touch = toClampedPx(bombCenter, state.touchUi.bombTouch, bombSize * 0.75);
+      pushLine(linePos, lineCol, bomb.x, bomb.y, touch.x, touch.y, 1.0, 0.75, 0.2, 0.9);
+      pushSquareOutline(linePos, lineCol, touch.x, touch.y, bombSize * 0.68, 1.0, 0.82, 0.3, 0.98);
     }
 
     const uiLine = linePos.length / 2;
@@ -3505,10 +3535,11 @@ function drawFrameImpl(renderer, state, planet){
         pushLine(linePos, lineCol, centerX - xr, centerY + xr, centerX + xr, centerY - xr, iconR, iconG, iconB, iconA);
       }
     } else {
-      const triLeft = centerX - radius * 0.28;
-      const triRight = centerX + radius * 0.40;
-      const triTop = centerY + radius * 0.40;
-      const triBottom = centerY - radius * 0.40;
+      const restartTriScale = (touchStartMode === "restartGame") ? 0.84 : 1.0;
+      const triLeft = centerX - radius * 0.28 * restartTriScale;
+      const triRight = centerX + radius * 0.40 * restartTriScale;
+      const triTop = centerY + radius * 0.40 * restartTriScale;
+      const triBottom = centerY - radius * 0.40 * restartTriScale;
       pushTriangleOutline(linePos, lineCol, triLeft, triTop, triRight, centerY, triLeft, triBottom, iconR, iconG, iconB, iconA);
       if (touchStartMode === "respawnShip"){
         const d = radius * 0.16;
@@ -3517,13 +3548,19 @@ function drawFrameImpl(renderer, state, planet){
         pushLine(linePos, lineCol, px - d, py, px + d, py, iconR, iconG, iconB, iconA);
         pushLine(linePos, lineCol, px, py - d, px, py + d, iconR, iconG, iconB, iconA);
       } else if (touchStartMode === "restartGame"){
-        // Distinct restart glyph: circular ring with arrow head.
-        pushCircle(linePos, lineCol, centerX, centerY, radius * 0.43, iconR, iconG, iconB, iconA, 40);
-        const ahx = centerX + radius * 0.33;
-        const ahy = centerY - radius * 0.20;
-        const d = radius * 0.11;
-        pushLine(linePos, lineCol, ahx - d, ahy, ahx + d, ahy, iconR, iconG, iconB, iconA);
-        pushLine(linePos, lineCol, ahx + d, ahy, ahx, ahy + d, iconR, iconG, iconB, iconA);
+        const triMidLeftY = (triTop + triBottom) * 0.5;
+        const spiralStartX = triLeft - radius * 0.04;
+        const spiralStartY = triBottom - radius * 0.16;
+        const spiralLowerRightX = triRight;
+        const spiralLowerRightY = centerY - radius * 0.08;
+        const spiralTopX = triLeft + radius * 0.10;
+        const spiralTopY = triTop;
+        const spiralMidLeftX = triLeft - radius * 0.26;
+        const spiralMidLeftY = triMidLeftY;
+        pushLine(linePos, lineCol, spiralStartX, spiralStartY, spiralLowerRightX, spiralLowerRightY, iconR, iconG, iconB, iconA);
+        pushLine(linePos, lineCol, spiralLowerRightX, spiralLowerRightY, spiralTopX, spiralTopY, iconR, iconG, iconB, iconA);
+        pushLine(linePos, lineCol, spiralTopX, spiralTopY, spiralMidLeftX, spiralMidLeftY, iconR, iconG, iconB, iconA);
+        pushLine(linePos, lineCol, spiralMidLeftX, spiralMidLeftY, triLeft, triMidLeftY, iconR, iconG, iconB, iconA);
       }
     }
 
