@@ -403,11 +403,18 @@ export class Enemies {
         tx = res.x;
         ty = res.y;
       }
-      const info = planet.normalAtWorld(tx, ty);
+      const info = (typeof planet._upAlignedNormalAtWorld === "function")
+        ? planet._upAlignedNormalAtWorld(tx, ty)
+        : planet.normalAtWorld(tx, ty);
       if (info){
-        const lift = 0.18;
+        const lift = GAME.ENEMY_SCALE * 0.8;
         tx += info.nx * lift;
         ty += info.ny * lift;
+      } else {
+        const len = Math.hypot(tx, ty) || 1;
+        const lift = GAME.ENEMY_SCALE * 0.8;
+        tx += (tx / len) * lift;
+        ty += (ty / len) * lift;
       }
       this.enemies.push({ type: "turret", x: tx, y: ty, vx: 0, vy: 0, hp: 1, shotCooldown: Math.random(), modeCooldown: 0, iNodeGoal: null });
     }
