@@ -1629,6 +1629,10 @@ function drawFrameImpl(renderer, state, planet){
     {
       const rotCos = Math.cos(state.mothership.angle);
       const rotSin = Math.sin(state.mothership.angle);
+      // Cabin occupants should stay aligned to the mothership floor even while
+      // the jumpdrive pitches the ship away from its orbital frame.
+      const minerUpX = rotSin;
+      const minerUpY = -rotCos;
       const minerLocalRangeX = 3.5;
       const minerLocalCenterX = 0.25;
       const minerLocalY = 0.8;
@@ -1648,7 +1652,20 @@ function drawFrameImpl(renderer, state, planet){
           (i < (numPilotsVisible + numEngineersVisible)) ? "engineer" :
           "miner";
         const [r, g, b] = minerColor(minerType);
-        triVerts += pushMiner(pos, col, minerWorldX, minerWorldY, 0, r, g, b, game.MINER_SCALE, false, 1/16) * 3;
+        triVerts += pushMiner(
+          pos,
+          col,
+          minerWorldX,
+          minerWorldY,
+          0,
+          r,
+          g,
+          b,
+          game.MINER_SCALE,
+          false,
+          1/16,
+          { upx: minerUpX, upy: minerUpY }
+        ) * 3;
         x += minerLocalStepX;
       }
     }
