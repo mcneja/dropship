@@ -11,6 +11,7 @@ import {
 } from "./dropship.js";
 import { buildStarfieldMesh } from "./starfield.js";
 import { dijkstraMap, findPathAStar, nearestRadialNode } from "./navigation.js";
+import { fragmentBaseColor } from "./fragment_fx.js";
 import {
   closestPointOnSegment,
   getMothershipBoundaryEdges,
@@ -38,6 +39,19 @@ function expectDefined(value){
     throw new Error("Expected value to be defined");
   }
   return value;
+}
+
+/**
+ * @param {[number,number,number]} base
+ * @param {number} boost
+ * @returns {[number,number,number]}
+ */
+function brightenColor(base, boost){
+  return [
+    Math.min(1, base[0] + (1 - base[0]) * boost),
+    Math.min(1, base[1] + (1 - base[1]) * boost),
+    Math.min(1, base[2] + (1 - base[2]) * boost),
+  ];
 }
 
 /**
@@ -646,16 +660,23 @@ function pushCircle(pos, col, x, y, radius, r, g, b, a, seg = 24){
  * @param {number} scale
  * @param {boolean} [skipHelmet]
  * @param {number} [outlineExpand]
+ * @param {{upx?:number,upy?:number,deformX?:number,deformY?:number,alpha?:number}|null} [opts]
  * @returns {number}
  */
-function pushMiner(pos, col, x, y, jumpCycle, r, g, b, scale, skipHelmet = false, outlineExpand = 0){
+function pushMiner(pos, col, x, y, jumpCycle, r, g, b, scale, skipHelmet = false, outlineExpand = 0, opts = null){
   const len = Math.hypot(x, y) || 1;
-  const upx = x / len;
-  const upy = y / len;
+  const upLen = (opts && Number.isFinite(opts.upx) && Number.isFinite(opts.upy))
+    ? (Math.hypot(Number(opts.upx), Number(opts.upy)) || 1)
+    : len;
+  const upx = (opts && Number.isFinite(opts.upx)) ? Number(opts.upx) / upLen : x / len;
+  const upy = (opts && Number.isFinite(opts.upy)) ? Number(opts.upy) / upLen : y / len;
   const jumpOffset = 0.5 * jumpCycle * (1 - jumpCycle);
   const tx = -upy;
   const ty = upx;
   const s = scale ?? 1;
+  const deformX = (opts && Number.isFinite(opts.deformX)) ? Number(opts.deformX) : 1;
+  const deformY = (opts && Number.isFinite(opts.deformY)) ? Number(opts.deformY) : 1;
+  const alpha = (opts && Number.isFinite(opts.alpha)) ? Math.max(0, Math.min(1, Number(opts.alpha))) : 1;
   const ox = x + upx * jumpOffset;
   const oy = y + upy * jumpOffset;
   /**
@@ -663,7 +684,7 @@ function pushMiner(pos, col, x, y, jumpCycle, r, g, b, scale, skipHelmet = false
    * @param {number} ly
    * @returns {[number, number]}
    */
-  const toWorld = (lx, ly) => [ox + tx * lx + upx * ly, oy + ty * lx + upy * ly];
+  const toWorld = (lx, ly) => [ox + tx * lx * deformX + upx * ly * deformY, oy + ty * lx * deformX + upy * ly * deformY];
   let triCount = 0;
   /**
    * @param {number} v
@@ -783,13 +804,13 @@ function pushMiner(pos, col, x, y, jumpCycle, r, g, b, scale, skipHelmet = false
           const sby = cym + (by - cym) * scaleO;
           const scx = cxm + (cx - cxm) * scaleO;
           const scy = cym + (cy - cym) * scaleO;
-          pushTri(pos, col, sax, say, sbx, sby, scx, scy, darken(t.col[0]), darken(t.col[1]), darken(t.col[2]), 1);
+          pushTri(pos, col, sax, say, sbx, sby, scx, scy, darken(t.col[0]), darken(t.col[1]), darken(t.col[2]), alpha);
           triCount += 1;
         }
       }
     }
     for (const t of tris){
-      pushTri(pos, col, t.a[0], t.a[1], t.b[0], t.b[1], t.c[0], t.c[1], t.col[0], t.col[1], t.col[2], 1);
+      pushTri(pos, col, t.a[0], t.a[1], t.b[0], t.b[1], t.c[0], t.c[1], t.col[0], t.col[1], t.col[2], alpha);
       triCount += 1;
     }
   }
@@ -1524,17 +1545,7 @@ function drawFrameImpl(renderer, state, planet){
       if (!visibleHostileNow(enemy.x, enemy.y)) continue;
       /** @type {EnemyRender} */
       const enemyRender = enemy;
-      /** @type {[number,number,number]} */
-      let base;
-      if (enemy.type === "hunter"){
-        base = [0.92, 0.25, 0.2];
-      } else if (enemy.type === "ranger"){
-        base = [0.2, 0.75, 0.95];
-      } else if (enemy.type === "crawler") {
-        base = [0.95, 0.55, 0.2];
-      } else {
-        base = [0.5, 0.125, 1.0];
-      }
+      const base = fragmentBaseColor(enemy.type);
       const moltenStun = !!(planetCfg && planetCfg.id === "molten" && enemy.stunT && enemy.stunT > 0);
       const bodyBase = moltenStun
         ? /** @type {[number,number,number]} */ ([0.92, 0.34, 0.08])
@@ -1722,6 +1733,49 @@ function drawFrameImpl(renderer, state, planet){
       if (!visibleEntityNow(miner.x, miner.y)) continue;
       const [r, g, b] = minerColor(miner.type);
       triVerts += pushMiner(pos, col, miner.x, miner.y, miner.jumpCycle, r, g, b, game.MINER_SCALE, false, 1/16) * 3;
+    }
+  }
+
+  if (state.fallenMiners && state.fallenMiners.length){
+    for (const miner of state.fallenMiners){
+      if (!visibleEntityNow(miner.x, miner.y)) continue;
+      const [r, g, b] = minerColor(miner.type);
+      const maxLife = Math.max(0.001, miner.maxLife || miner.life || 1);
+      const t = Math.max(0, Math.min(1, miner.life / maxLife));
+      const fadeT = Math.min(1, t / 0.22);
+      let upx = miner.upx;
+      let upy = miner.upy;
+      let deformX = 1;
+      let deformY = 1;
+      if (miner.mode === "shot"){
+        const progress = 1 - t;
+        const baseAng = Math.atan2(miner.upy, miner.upx);
+        const ang = baseAng + miner.leanDir * progress * Math.PI * 0.52;
+        const flattenT = Math.max(0, Math.min(1, (progress - 0.62) / 0.38));
+        upx = Math.cos(ang);
+        upy = Math.sin(ang);
+        deformX = 1 + 0.08 * flattenT;
+        deformY = 1 - 0.06 * flattenT;
+      } else {
+        upx = Math.cos(miner.rot);
+        upy = Math.sin(miner.rot);
+        deformX = 1.04;
+        deformY = 0.96;
+      }
+      triVerts += pushMiner(
+        pos,
+        col,
+        miner.x,
+        miner.y,
+        0,
+        r,
+        g,
+        b,
+        game.MINER_SCALE,
+        false,
+        1 / 16,
+        { upx, upy, deformX, deformY, alpha: fadeT }
+      ) * 3;
     }
   }
 
@@ -2270,10 +2324,90 @@ function drawFrameImpl(renderer, state, planet){
     }
   };
 
+  /**
+   * @param {import("./types.d.js").Debris} d
+   * @returns {void}
+   */
+  const pushFragmentShard = (d) => {
+    const ownerType = d.ownerType || "crawler";
+    const visible = (
+      ownerType === "dropship"
+      || ownerType === "miner"
+      || ownerType === "pilot"
+      || ownerType === "engineer"
+      || ownerType === "rock"
+    )
+      ? visibleEntityNow(d.x, d.y)
+      : visibleHostileNow(d.x, d.y);
+    if (!visible) return;
+    const maxLife = Math.max(0.001, d.maxLife ?? d.life ?? 1);
+    const t = Math.max(0, Math.min(1, d.life / maxLife));
+    const fadeT = Math.min(1, t / 0.22);
+    const base = (
+      Number.isFinite(d.cr) && Number.isFinite(d.cg) && Number.isFinite(d.cb)
+    )
+      ? /** @type {[number,number,number]} */ ([Number(d.cr), Number(d.cg), Number(d.cb)])
+      : fragmentBaseColor(ownerType);
+    const glow = brightenColor(base, 0.4);
+    const len = d.size ?? (0.16 * game.ENEMY_SCALE);
+    const sides = Number.isFinite(d.sides) ? Math.max(3, Math.floor(Number(d.sides))) : 0;
+    if (sides >= 5){
+      triVerts += pushPolyFan(pos, col, d.x, d.y, len, sides, d.a, base[0], base[1], base[2], 0.92 * fadeT) * 3;
+      triVerts += pushPolyFan(pos, col, d.x, d.y, len * 0.58, sides, d.a + 0.15, glow[0], glow[1], glow[2], 0.45 * fadeT) * 3;
+      return;
+    }
+    const stretch = d.stretch ?? 1.7;
+    const halfW = len * 0.42;
+    const ux = Math.cos(d.a);
+    const uy = Math.sin(d.a);
+    const tx = -uy;
+    const ty = ux;
+    const tipX = d.x + ux * len * stretch;
+    const tipY = d.y + uy * len * stretch;
+    const baseCx = d.x - ux * len * 0.6;
+    const baseCy = d.y - uy * len * 0.6;
+    pushTri(
+      pos,
+      col,
+      baseCx + tx * halfW,
+      baseCy + ty * halfW,
+      baseCx - tx * halfW,
+      baseCy - ty * halfW,
+      tipX,
+      tipY,
+      base[0],
+      base[1],
+      base[2],
+      0.92 * fadeT
+    );
+    triVerts += 3;
+    pushTri(
+      pos,
+      col,
+      d.x + ux * len * 0.1,
+      d.y + uy * len * 0.1,
+      baseCx + tx * (halfW * 0.45),
+      baseCy + ty * (halfW * 0.45),
+      baseCx - tx * (halfW * 0.45),
+      baseCy - ty * (halfW * 0.45),
+      glow[0],
+      glow[1],
+      glow[2],
+      0.55 * fadeT
+    );
+    triVerts += 3;
+  };
+
   if (state.explosions && state.explosions.length){
     for (const ex of state.explosions){
       if (ex.owner !== "crawler") continue;
       pushCrawlerExplosionShards(ex);
+    }
+  }
+
+  if (state.fragments && state.fragments.length){
+    for (const d of state.fragments){
+      pushFragmentShard(d);
     }
   }
 
@@ -2563,24 +2697,26 @@ function drawFrameImpl(renderer, state, planet){
 
   if (state.debris.length){
     for (const d of state.debris){
-      const len = shipHWorld * 0.18;
+      const maxLife = Math.max(0.001, d.maxLife ?? d.life ?? 1);
+      const t = Math.max(0, Math.min(1, d.life / maxLife));
+      const len = d.size ?? (shipHWorld * 0.18);
       const hx = Math.cos(d.a) * len;
       const hy = Math.sin(d.a) * len;
-      pushLine(pos, col, d.x - hx, d.y - hy, d.x + hx, d.y + hy, 0.9, 0.9, 0.9, 0.9);
+      pushLine(
+        pos,
+        col,
+        d.x - hx,
+        d.y - hy,
+        d.x + hx,
+        d.y + hy,
+        d.cr ?? 0.9,
+        d.cg ?? 0.9,
+        d.cb ?? 0.9,
+        (d.alpha ?? 0.9) * t
+      );
       lineVerts += 2;
     }
   }
-
-    if (state.enemyDebris && state.enemyDebris.length){
-      for (const d of state.enemyDebris){
-        if (!visibleHostileNow(d.x, d.y)) continue;
-        const len = 0.2 * game.ENEMY_SCALE;
-        const hx = Math.cos(d.a) * len;
-        const hy = Math.sin(d.a) * len;
-        pushLine(pos, col, d.x - hx, d.y - hy, d.x + hx, d.y + hy, 1.0, 0.5, 0.2, 0.9);
-        lineVerts += 2;
-      }
-    }
 
   if (state.explosions && state.explosions.length){
     for (const ex of state.explosions){

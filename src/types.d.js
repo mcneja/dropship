@@ -162,6 +162,23 @@
  */
 
 /**
+ * @typedef {Object} FallenMiner
+ * @property {number} x
+ * @property {number} y
+ * @property {number} vx
+ * @property {number} vy
+ * @property {number} life
+ * @property {number} maxLife
+ * @property {number} upx
+ * @property {number} upy
+ * @property {number} rot
+ * @property {number} spin
+ * @property {number} leanDir
+ * @property {"miner"|"pilot"|"engineer"} type
+ * @property {"shot"|"exploded"} mode
+ */
+
+/**
  * @typedef {Object} HealthPickup
  * @property {number} x
  * @property {number} y
@@ -170,6 +187,38 @@
 
 /**
  * @typedef {"hunter"|"ranger"|"crawler"|"turret"|"orbitingTurret"} EnemyType
+ */
+
+/**
+ * @typedef {EnemyType|"dropship"|"miner"|"pilot"|"engineer"|"rock"} FragmentOwnerType
+ */
+
+/**
+ * @typedef {"bullet"|"explosion"|"bomb"|"detonate"|"unknown"} FragmentDestroyedBy
+ */
+
+/**
+ * @typedef {Object} DestroyedTerrainNode
+ * @property {number} idx
+ * @property {number} x
+ * @property {number} y
+ * @property {number} [nx]
+ * @property {number} [ny]
+ */
+
+/**
+ * @typedef {Object} DetachedTerrainProp
+ * @property {string} type
+ * @property {number} x
+ * @property {number} y
+ * @property {number} scale
+ * @property {number|undefined} nx
+ * @property {number|undefined} ny
+ * @property {number|undefined} rot
+ */
+
+/**
+ * @typedef {[number,number,number,number,number]} StandablePoint
  */
 
 /**
@@ -216,6 +265,16 @@
  * @property {number} a
  * @property {number} w
  * @property {number} life
+ * @property {number} [maxLife]
+ * @property {FragmentOwnerType} [ownerType]
+ * @property {number} [size]
+ * @property {number} [stretch]
+ * @property {number} [cr]
+ * @property {number} [cg]
+ * @property {number} [cb]
+ * @property {number} [alpha]
+ * @property {number} [dragMul]
+ * @property {number} [sides]
  */
 
 /**
@@ -238,6 +297,7 @@
  * @property {number} fps
  * @property {number} finalAir
  * @property {Array<Miner>} miners
+ * @property {Array<FallenMiner>} [fallenMiners]
  * @property {number} minersRemaining
  * @property {number} level
  * @property {number} minersDead
@@ -246,7 +306,7 @@
  * @property {Array<{x:number,y:number,type:EnemyType,vx?:number,vy?:number,cooldown?:number,hp?:number,hitT?:number,stunT?:number,dir?:number,fuse?:number}>} enemies
  * @property {Array<{x:number,y:number,vx?:number,vy?:number,life?:number,owner:string}>} shots
  * @property {Array<{x:number,y:number,life:number,maxLife?:number,owner:string,radius?:number}>} explosions
- * @property {Array<{x:number,y:number,vx?:number,vy?:number,a:number,w?:number,life:number}>} enemyDebris
+ * @property {Array<Debris>} fragments
  * @property {Array<{x:number,y:number,vx?:number,vy?:number,life?:number}>} playerShots
  * @property {Array<{x:number,y:number,vx?:number,vy?:number,life?:number}>} playerBombs
  * @property {{iceShard:Array<{x:number,y:number,vx?:number,vy?:number,life?:number,maxLife?:number,size?:number}>,lava:Array<{x:number,y:number,vx?:number,vy?:number,life?:number}>,mushroom:Array<{x:number,y:number,vx?:number,vy?:number,life?:number}>,bubbles:Array<{x:number,y:number,vx?:number,vy?:number,life?:number,maxLife?:number,size?:number,rot?:number,spin?:number}>,splashes:Array<{x:number,y:number,vx?:number,vy?:number,life?:number,maxLife?:number,size?:number,rot?:number,cr?:number,cg?:number,cb?:number}>}} featureParticles

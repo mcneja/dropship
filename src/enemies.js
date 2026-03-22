@@ -4,15 +4,18 @@ import { mulberry32 } from "./rng.js";
 import { findPathAStar, lineOfSightAir } from "./navigation.js";
 import { collidesAtOffsets, isAir } from "./collision_world.js";
 import { GAME } from "./config.js";
+import { spawnFragmentBurst, updateFragmentDebris } from "./fragment_fx.js";
 
 /** @typedef {import("./types.d.js").Vec2} Vec2 */
 /** @typedef {import("./types.d.js").EnemyType} EnemyType */
+/** @typedef {import("./types.d.js").FragmentDestroyedBy} FragmentDestroyedBy */
 /** @typedef {import("./types.d.js").Enemy} Enemy */
 /** @typedef {import("./types.d.js").Ship} Ship */
 /** @typedef {import("./types.d.js").Shot} Shot */
 /** @typedef {import("./types.d.js").Explosion} Explosion */
 /** @typedef {import("./types.d.js").Debris} Debris */
 /** @typedef {{cooldown:number, shipNode:number, nodeGoal:number, navPadded:boolean}} PursuitState */
+/** @typedef {{cause:"hp"|"detonate", destroyedBy:FragmentDestroyedBy}} EnemyDestroyInfo */
 
 /**
  * @param {number} radius
@@ -69,7 +72,7 @@ export class Enemies {
    * @param {number} deps.level Current level index.
    * @param {number} deps.levelSeed Base seed for this level.
    * @param {(enemy:Enemy)=>void} [deps.onEnemyShot]
-   * @param {(enemy:Enemy, info?:{cause:"hp"|"detonate"})=>void} [deps.onEnemyDestroyed]
+   * @param {(enemy:Enemy, info?:EnemyDestroyInfo)=>void} [deps.onEnemyDestroyed]
    */
   constructor({ planet, collision, total, level, levelSeed, placement, orbitingTurretCount, onEnemyShot, onEnemyDestroyed }){
     this.planet = planet;
@@ -88,6 +91,8 @@ export class Enemies {
     this.debris = [];
     /** @type {WeakMap<Enemy, PursuitState>} */
     this._pursuitState = new WeakMap();
+    /** @type {WeakMap<Enemy, FragmentDestroyedBy>} */
+    this._deathBy = new WeakMap();
     /** @type {Uint8Array|null} */
     this._navMaskCacheBase = null;
     /** @type {Uint8Array|null} */
@@ -130,6 +135,17 @@ export class Enemies {
     this._navMaskCacheBase = null;
     this._navMaskCacheNavPadded = null;
     this._pursuitState = new WeakMap();
+    this._deathBy = new WeakMap();
+  }
+
+  /**
+   * @param {Enemy|null|undefined} enemy
+   * @param {FragmentDestroyedBy} destroyedBy
+   * @returns {void}
+   */
+  markEnemyDestroyedBy(enemy, destroyedBy){
+    if (!enemy) return;
+    this._deathBy.set(enemy, destroyedBy);
   }
 
   /**
@@ -418,23 +434,18 @@ export class Enemies {
     const { collision } = this;
     this._navMaskCacheBase = null;
     this._navMaskCacheNavPadded = null;
-    if (this.debris.length){
-      for (let i = this.debris.length - 1; i >= 0; i--){
-        const d = this.debris[i];
-        if (!d) continue;
-        const r = Math.hypot(d.x, d.y) || 1;
-        const {x: gx, y: gy} = collision.gravityAt(d.x, d.y);
-        d.vx += gx * dt;
-        d.vy += gy * dt;
-        d.vx *= Math.max(0, 1 - this.params.DRAG * dt);
-        d.vy *= Math.max(0, 1 - this.params.DRAG * dt);
-        d.x += d.vx * dt;
-        d.y += d.vy * dt;
-        d.a += d.w * dt;
-        d.life -= dt;
-        if (d.life <= 0) this.debris.splice(i, 1);
-      }
-    }
+    updateFragmentDebris(this.debris, {
+      gravityAt: (x, y) => collision.gravityAt(x, y),
+      dragCoeff: this.params.DRAG,
+      dt,
+      terrainCrossing: GAME.FRAGMENT_PLANET_COLLISION
+        ? (p1, p2) => this.planet.terrainCrossing(p1, p2)
+        : null,
+      terrainCollisionEnabled: GAME.FRAGMENT_PLANET_COLLISION,
+      restitution: Number.isFinite(this.params.BOUNCE_RESTITUTION)
+        ? Number(this.params.BOUNCE_RESTITUTION)
+        : GAME.BOUNCE_RESTITUTION,
+    });
     for (let i = this.shots.length - 1; i >= 0; i--){
       const s = this.shots[i];
       if (!s) continue;
@@ -465,12 +476,11 @@ export class Enemies {
         e.stunT = Math.max(0, e.stunT - dt);
       }
       if (e.hp <= 0){
-        this._notifyEnemyDestroyed(e, "hp");
-        this._spawnEnemyDebrisBurst(e, e.type === "crawler" ? 10 : 6);
+        const deathInfo = this._consumeEnemyDestroyInfo(e, "hp");
+        this._notifyEnemyDestroyed(e, deathInfo);
+        this._spawnEnemyDeathFragments(e, deathInfo.destroyedBy);
         if (e.type === "crawler"){
-          this._spawnCrawlerBlastVisual(e);
-        } else {
-          this.explosions.push({ x: e.x, y: e.y, life: 0.5, maxLife: 0.5, owner: e.type, radius: 0.8 });
+          this._spawnCrawlerBlastVisual(e, deathInfo.destroyedBy === "bomb" ? 2.0 : this._CRAWLER_BLAST_RADIUS);
         }
         this.enemies.splice(i, 1);
         continue;
@@ -485,8 +495,9 @@ export class Enemies {
         this._updateRanger(e, shipTarget, dt);
       } else if (e.type === "crawler"){
         if (!this._updateCrawler(e, shipTarget, dt)) {
-          this._notifyEnemyDestroyed(e, "detonate");
-          this._spawnEnemyDebrisBurst(e, 10);
+          const deathInfo = this._consumeEnemyDestroyInfo(e, "detonate", "detonate");
+          this._notifyEnemyDestroyed(e, deathInfo);
+          this._spawnEnemyDeathFragments(e, deathInfo.destroyedBy);
           this.enemies.splice(i, 1);
         }
       } else if (e.type === "turret"){
@@ -671,49 +682,54 @@ export class Enemies {
   }
 
   /**
-   * @param {Enemy} e
+   * @param {Enemy|null|undefined} e
    * @param {"hp"|"detonate"} cause
+   * @param {FragmentDestroyedBy} [fallbackDestroyedBy]
+   * @returns {EnemyDestroyInfo}
+   */
+  _consumeEnemyDestroyInfo(e, cause, fallbackDestroyedBy = "unknown"){
+    let destroyedBy = fallbackDestroyedBy;
+    if (e){
+      const marked = this._deathBy.get(e);
+      if (marked) destroyedBy = marked;
+      this._deathBy.delete(e);
+    }
+    return { cause, destroyedBy };
+  }
+
+  /**
+   * @param {Enemy} e
+   * @param {EnemyDestroyInfo} info
    * @returns {void}
    */
-  _notifyEnemyDestroyed(e, cause){
+  _notifyEnemyDestroyed(e, info){
     if (this.onEnemyDestroyed){
-      this.onEnemyDestroyed(e, { cause });
+      this.onEnemyDestroyed(e, info);
     }
   }
 
   /**
    * @param {Enemy} e
-   * @param {number} pieces
+   * @param {FragmentDestroyedBy} destroyedBy
    * @returns {void}
    */
-  _spawnEnemyDebrisBurst(e, pieces){
-    for (let k = 0; k < pieces; k++){
-      const ang = Math.random() * Math.PI * 2;
-      const sp = 1.0 + Math.random() * 2.0;
-      this.debris.push({
-        x: e.x + Math.cos(ang) * 0.08,
-        y: e.y + Math.sin(ang) * 0.08,
-        vx: e.vx + Math.cos(ang) * sp,
-        vy: e.vy + Math.sin(ang) * sp,
-        a: Math.random() * Math.PI * 2,
-        w: (Math.random() - 0.5) * 6,
-        life: 1.1 + Math.random() * 0.8,
-      });
-    }
+  _spawnEnemyDeathFragments(e, destroyedBy){
+    spawnFragmentBurst(this.debris, e, e.type, destroyedBy);
   }
 
   /**
    * @param {Enemy} e
+   * @param {number} [radius]
    * @returns {void}
    */
-  _spawnCrawlerBlastVisual(e){
+  _spawnCrawlerBlastVisual(e, radius = this._CRAWLER_BLAST_RADIUS){
     this.explosions.push({
       x: e.x,
       y: e.y,
       life: this._CRAWLER_BLAST_LIFE,
       maxLife: this._CRAWLER_BLAST_LIFE,
       owner: "crawler",
-      radius: this._CRAWLER_BLAST_RADIUS,
+      radius,
     });
   }
 

@@ -7,6 +7,7 @@ import { lineOfSightAir } from "./navigation.js";
 /** @typedef {{x:number,y:number,r:number,i:number,navPadded?:boolean}} RadialNode */
 /** @typedef {{to:number}} NavEdgeRef */
 /** @typedef {{n:RadialNode,rockNeighbor:RadialNode,nx:number,ny:number}} WallAttachCandidate */
+/** @typedef {import("./types.d.js").DetachedTerrainProp} DetachedTerrainProp */
 
 /**
  * Feature routing for planet-specific hazards and props.
@@ -271,7 +272,19 @@ function placeIceShards(planet, props){
     const by = hi.y - ny * recess;
     const rot = Math.atan2(ny, nx) - Math.PI * 0.5;
     const scale = 0.32 + rand() * 0.45;
-    props.push({ type: "ice_shard", x: bx, y: by, scale, rot, nx, ny, hp: 1 });
+    props.push({
+      type: "ice_shard",
+      x: bx,
+      y: by,
+      scale,
+      rot,
+      nx,
+      ny,
+      hp: 1,
+      supportX: hi.x,
+      supportY: hi.y,
+      supportNodeIndex: rn.i,
+    });
   }
 }
 
@@ -1758,6 +1771,29 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
       updateMushroomParticles(dt, state);
       updateWaterBubbles(dt, state);
     },
+    /**
+     * @param {DetachedTerrainProp[]} detachedProps
+     * @param {FeatureCallbacks} callbacks
+     */
+    emitDetachedPropBursts: (detachedProps, callbacks) => {
+      if (!detachedProps || !detachedProps.length) return;
+      for (const p of detachedProps){
+        if (!p) continue;
+        if (p.type === "ridge_spike" || p.type === "stalactite"){
+          emitRidgeSpikeBurst({ x: p.x, y: p.y, scale: p.scale || 1 }, callbacks, false);
+          continue;
+        }
+        if (p.type === "ice_shard"){
+          emitIceShardBurst({
+            x: p.x,
+            y: p.y,
+            scale: p.scale || 1,
+            nx: Number.isFinite(p.nx) ? /** @type {number} */ (p.nx) : 0,
+            ny: Number.isFinite(p.ny) ? /** @type {number} */ (p.ny) : 0,
+          }, callbacks);
+        }
+      }
+    },
     handleShipContact,
     handleShot,
     handleBomb,
@@ -1793,6 +1829,10 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
  * @property {number[]} [ventUnsafeNodes]
  * @property {number} [nx]
  * @property {number} [ny]
+ * @property {number} [supportX]
+ * @property {number} [supportY]
+ * @property {number} [supportNodeIndex]
+ * @property {number[]} [supportNodeIndices]
  * @property {number} [spawnT]
  * @property {number} [spawnCd]
  * @property {number} [propId]

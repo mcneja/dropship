@@ -7,6 +7,10 @@ import { CFG, GAME } from "./config.js";
 import { mulberry32 } from "./rng.js";
 import { buildPlanetMaterials, createIceShardHazard, createRidgeSpikeHazard, createMushroomHazard, createPlanetFeatures } from "./planet_features.js";
 
+/** @typedef {import("./types.d.js").DestroyedTerrainNode} DestroyedTerrainNode */
+/** @typedef {import("./types.d.js").DetachedTerrainProp} DetachedTerrainProp */
+/** @typedef {import("./types.d.js").StandablePoint} StandablePoint */
+
 /**
  * @param {import("./planet_config.js").PlanetConfig|null|undefined} cfg
  * @returns {{min:number,max:number}}
@@ -69,7 +73,7 @@ export class Planet {
     this.iceShardHazard = createIceShardHazard(this.props || []);
     this.ridgeSpikeHazard = createRidgeSpikeHazard(this.props || []);
     this.mushroomHazard = createMushroomHazard(this.props || []);
-    /** @type {Array<[number,number,number,number]>} */
+    /** @type {StandablePoint[]} */
     this._standablePoints = [];
     /** @type {Array<{x:number,y:number,r:number}>} */
     this._spawnReservations = [];
@@ -85,6 +89,7 @@ export class Planet {
     this._alignGaiaFlora();
     this._alignSurfaceDebris();
     this._alignCavernDebris();
+    this._refreshTerrainPropSupportNodes();
     this._alignMechanizedStructures();
     this._reserveSpawnPointsFromProps();
     if (!this._standablePoints || !this._standablePoints.length){
@@ -374,7 +379,7 @@ export class Planet {
    * @param {number} y
    * @param {number} range
    * @param {number} [maxTargets]
-   * @returns {Float32Array|undefined}
+   * @returns {{newAir:Float32Array|undefined,destroyedNodes:Array<{idx:number,x:number,y:number,nx?:number,ny?:number}>}|undefined}
    */
   destroyRockRadialNodesInRange(x, y, range, maxTargets = Infinity){
     const graph = this.radialGraph;
@@ -401,15 +406,74 @@ export class Planet {
     if (!candidates.length) return undefined;
     candidates.sort((a, b) => a.d2 - b.d2);
     let edited = false;
+    /** @type {Array<{idx:number,x:number,y:number,nx?:number,ny?:number}>} */
+    const destroyedNodes = [];
     for (let i = 0; i < candidates.length && i < limit; i++){
       const candidate = candidates[i];
       if (!candidate) continue;
       const node = nodes[candidate.idx];
       if (!node) continue;
-      edited = this.mapgen.setAirAtWorld(node.x, node.y, 1) || edited;
+      const normal = this.normalAtWorld(node.x, node.y);
+      const changed = this.mapgen.setAirAtWorld(node.x, node.y, 1);
+      edited = changed || edited;
+      if (!changed) continue;
+      if (normal){
+        destroyedNodes.push({ idx: candidate.idx, x: node.x, y: node.y, nx: normal.nx, ny: normal.ny });
+      } else {
+        destroyedNodes.push({ idx: candidate.idx, x: node.x, y: node.y });
+      }
     }
     if (!edited) return undefined;
-    return this._refreshAirAfterEdit();
+    return { newAir: this._refreshAirAfterEdit(), destroyedNodes };
+  }
+
+  /**
+   * Mark terrain-attached props whose support nodes were destroyed.
+   * @param {DestroyedTerrainNode[]} destroyedNodes
+   * @returns {DetachedTerrainProp[]}
+   */
+  destroyTerrainPropsAttachedToNodes(destroyedNodes){
+    if (!destroyedNodes || !destroyedNodes.length || !this.props || !this.props.length) return [];
+    /** @type {DetachedTerrainProp[]} */
+    const destroyedProps = [];
+    const destroyedNodeIndices = new Set(destroyedNodes.map((node) => node.idx));
+    for (const p of this.props){
+      if (!p || p.dead) continue;
+      if (p.type !== "tree" && p.type !== "boulder" && p.type !== "ridge_spike" && p.type !== "stalactite" && p.type !== "ice_shard") continue;
+      const scale = Math.max(0.2, p.scale || 1);
+      const supportIndices = Array.isArray(p.supportNodeIndices) && p.supportNodeIndices.length
+        ? p.supportNodeIndices
+        : (Number.isFinite(p.supportNodeIndex) ? [Number(p.supportNodeIndex)] : []);
+      if (!supportIndices.length) continue;
+      let detached = false;
+      for (const idx of supportIndices){
+        if (!destroyedNodeIndices.has(idx)) continue;
+        detached = true;
+        break;
+      }
+      if (!detached) continue;
+      p.dead = true;
+      destroyedProps.push({
+        type: p.type,
+        x: p.x,
+        y: p.y,
+        scale,
+        nx: p.nx,
+        ny: p.ny,
+        rot: p.rot,
+      });
+    }
+    return destroyedProps;
+  }
+
+  /**
+   * @param {DetachedTerrainProp[]} detachedProps
+   * @param {{onExplosion?:(info:{x:number,y:number,life:number,radius:number})=>void,onDebris?:(info:{x:number,y:number,vx:number,vy:number,a:number,w:number,life:number})=>void,onAreaDamage?:(x:number,y:number,radius:number)=>void,onShipDamage?:(x:number,y:number)=>void,onShipHeat?:(amount:number)=>void,onShipCrash?:(x:number,y:number)=>void,onShipConfuse?:(duration:number)=>void}|null|undefined} callbacks
+   * @returns {void}
+   */
+  emitDetachedTerrainPropBursts(detachedProps, callbacks){
+    if (!detachedProps || !detachedProps.length || !callbacks || !this.features || !this.features.emitDetachedPropBursts) return;
+    this.features.emitDetachedPropBursts(detachedProps, callbacks);
   }
 
   /**
@@ -497,7 +561,7 @@ export class Planet {
         return dot >= 0.98;
       });
       const pool = flatPoints.length ? flatPoints : (bandPoints.length ? bandPoints : standable);
-      /** @type {Array<[number,number,number,number]>} */
+      /** @type {Array<[number,number,number,number,number]>} */
       const shuffled = pool.slice();
       for (let i = shuffled.length - 1; i > 0; i--){
         const j = Math.floor(rand() * (i + 1));
@@ -505,7 +569,7 @@ export class Planet {
         shuffled[i] = expectDefined(shuffled[j]);
         shuffled[j] = tmp;
       }
-      /** @type {Array<[number,number]>} */
+      /** @type {Array<[number,number,number,number,number]>} */
       const points = [];
       for (const sp of shuffled){
         if (points.length >= trees.length) break;
@@ -521,7 +585,7 @@ export class Planet {
           }
         }
         if (!ok) continue;
-        points.push([x, y]);
+        points.push(sp);
       }
       for (let i = 0; i < trees.length; i++){
         const p = trees[i];
@@ -532,6 +596,9 @@ export class Planet {
         }
         const pt = points[i];
         if (!pt) continue;
+        p.supportX = pt[0];
+        p.supportY = pt[1];
+        p.supportNodeIndex = pt[4];
         p.x = pt[0];
         p.y = pt[1];
         const normal = this.normalAtWorld(p.x, p.y);
@@ -585,6 +652,9 @@ export class Planet {
         p.dead = true;
         continue;
       }
+      p.supportX = pt[0];
+      p.supportY = pt[1];
+      p.supportNodeIndex = this._findStandableSupportNodeIndex(pt[0], pt[1]);
       p.x = pt[0];
       p.y = pt[1];
       const info = this.normalAtWorld(p.x, p.y);
@@ -603,7 +673,7 @@ export class Planet {
    * @param {number} count
    * @param {number} seed
    * @param {number} minDist
-   * @returns {Array<{x:number,y:number,nx:number,ny:number}>}
+   * @returns {Array<{x:number,y:number,nx:number,ny:number,supportNodeIndex:number}>}
    */
   _sampleCaveAttachmentPoints(count, seed, minDist = 0.45){
     if (count <= 0) return [];
@@ -621,7 +691,7 @@ export class Planet {
     const surfaceR = this.planetParams.RMAX * (1 - surfaceBand);
     const rMin = Math.max(0.7, this.planetParams.RMAX * 0.12);
     const rMax = Math.max(rMin + 0.8, Math.min(this.planetParams.RMAX - 0.5, surfaceR - 0.25));
-    /** @type {Array<{x:number,y:number,nx:number,ny:number}>} */
+    /** @type {Array<{x:number,y:number,nx:number,ny:number,supportNodeIndex:number}>} */
     const candidates = [];
     for (let i = 0; i < nodes.length; i++){
       if (!air[i]) continue;
@@ -661,7 +731,7 @@ export class Planet {
           lo = { x: mx, y: my };
         }
       }
-      candidates.push({ x: hi.x, y: hi.y, nx, ny });
+      candidates.push({ x: hi.x, y: hi.y, nx, ny, supportNodeIndex: rockNeighbor.i });
     }
     const rand = mulberry32(seed);
     for (let i = candidates.length - 1; i > 0; i--){
@@ -670,7 +740,7 @@ export class Planet {
       candidates[i] = expectDefined(candidates[j]);
       candidates[j] = tmp;
     }
-    /** @type {Array<{x:number,y:number,nx:number,ny:number}>} */
+    /** @type {Array<{x:number,y:number,nx:number,ny:number,supportNodeIndex:number}>} */
     const picked = [];
     for (const c of candidates){
       let tooClose = false;
@@ -724,6 +794,9 @@ export class Planet {
       }
       p.nx = pt.nx;
       p.ny = pt.ny;
+      p.supportX = pt.x;
+      p.supportY = pt.y;
+      p.supportNodeIndex = pt.supportNodeIndex;
       p.rot = Math.atan2(pt.ny, pt.nx) - Math.PI * 0.5;
       const sink = sinkMul * (p.scale || 1);
       p.x = pt.x - pt.nx * sink;
@@ -2020,7 +2093,7 @@ export class Planet {
 
   /**
    * Precompute a dense set of standable surface points based on mesh vertices.
-   * @returns {Array<[number,number,number,number]>} [x,y,angle,r]
+   * @returns {StandablePoint[]} [x,y,angle,r,supportNodeIndex]
    */
   _buildStandablePoints(){
     const maxSlope = 0.28;
@@ -2028,7 +2101,7 @@ export class Planet {
     const eps = 0.18;
     const sideClearance = 0.25;
     const graph = this.radialGraph;
-    /** @type {Array<[number,number,number,number]>} */
+    /** @type {StandablePoint[]} */
     const points = [];
     if (!graph || !graph.nodes || !graph.nodes.length) return points;
     const passable = buildPassableMask(this.radial, graph, 0.5);
@@ -2064,17 +2137,121 @@ export class Planet {
       if (!this.isStandableAtWorld(px, py, maxSlope, clearance, eps, sideClearance)) continue;
       const ang = Math.atan2(py, px);
       const r = Math.hypot(px, py);
-      points.push([px, py, ang, r]);
+      points.push([px, py, ang, r, inner]);
     }
     return points;
   }
 
   /**
    * Cached standable points. Do not mutate.
-   * @returns {Array<[number,number,number,number]>} [x,y,angle,r]
+   * @returns {StandablePoint[]} [x,y,angle,r,supportNodeIndex]
    */
   getStandablePoints(){
     return this._standablePoints || [];
+  }
+
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @returns {number}
+   */
+  _findStandableSupportNodeIndex(x, y){
+    const points = this.getStandablePoints();
+    let bestIdx = -1;
+    let bestD2 = Infinity;
+    for (const p of points){
+      if (!p) continue;
+      const dx = p[0] - x;
+      const dy = p[1] - y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 >= bestD2) continue;
+      bestD2 = d2;
+      bestIdx = Number.isFinite(p[4]) ? Number(p[4]) : -1;
+      if (d2 <= 1e-10 && bestIdx >= 0) break;
+    }
+    return bestIdx;
+  }
+
+  /**
+   * @param {{type:string,scale?:number}} p
+   * @returns {number}
+   */
+  _terrainPropSupportRadius(p){
+    const scale = Math.max(0.2, p && p.scale ? p.scale : 1);
+    if (!p) return 0.28;
+    if (p.type === "tree") return Math.max(0.24, 0.18 + scale * 0.16);
+    if (p.type === "boulder") return Math.max(0.26, 0.18 + scale * 0.22);
+    if (p.type === "ridge_spike") return Math.max(0.24, 0.16 + scale * 0.18);
+    if (p.type === "stalactite") return Math.max(0.22, 0.15 + scale * 0.16);
+    if (p.type === "ice_shard") return Math.max(0.18, 0.12 + scale * 0.14);
+    return 0.28;
+  }
+
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @param {number} radius
+   * @param {number} [preferredIndex]
+   * @returns {number[]}
+   */
+  _collectRockSupportNodeIndices(x, y, radius, preferredIndex = -1){
+    const graph = this.radialGraph;
+    const nodes = graph && graph.nodes ? graph.nodes : null;
+    const air = this.airNodesBitmap;
+    if (!nodes || !air || air.length !== nodes.length) return [];
+    const radiusSq = Math.max(0.02, radius) * Math.max(0.02, radius);
+    /** @type {Array<{idx:number,d2:number}>} */
+    const hits = [];
+    for (let i = 0; i < nodes.length; i++){
+      if (air[i]) continue;
+      const node = nodes[i];
+      if (!node) continue;
+      const dx = node.x - x;
+      const dy = node.y - y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > radiusSq) continue;
+      hits.push({ idx: i, d2 });
+    }
+    hits.sort((a, b) => a.d2 - b.d2);
+    /** @type {number[]} */
+    const out = [];
+    const seen = new Set();
+    /** @param {number} idx */
+    const addIndex = (idx) => {
+      if (!Number.isFinite(idx) || idx < 0 || idx >= nodes.length) return;
+      if (air[idx] || seen.has(idx)) return;
+      seen.add(idx);
+      out.push(idx);
+    };
+    addIndex(preferredIndex);
+    for (const hit of hits){
+      addIndex(hit.idx);
+      if (out.length >= 8) break;
+    }
+    return out;
+  }
+
+  /**
+   * Rebuild support-node footprints for terrain-attached props after placement.
+   * @returns {void}
+   */
+  _refreshTerrainPropSupportNodes(){
+    if (!this.props || !this.props.length) return;
+    for (const p of this.props){
+      if (!p || p.dead) continue;
+      if (p.type !== "tree" && p.type !== "boulder" && p.type !== "ridge_spike" && p.type !== "stalactite" && p.type !== "ice_shard") continue;
+      const anchorX = Number.isFinite(p.supportX) ? Number(p.supportX) : p.x;
+      const anchorY = Number.isFinite(p.supportY) ? Number(p.supportY) : p.y;
+      const supportIndices = this._collectRockSupportNodeIndices(
+        anchorX,
+        anchorY,
+        this._terrainPropSupportRadius(p),
+        Number.isFinite(p.supportNodeIndex) ? Number(p.supportNodeIndex) : -1,
+      );
+      if (!supportIndices.length) continue;
+      p.supportNodeIndices = supportIndices;
+      p.supportNodeIndex = expectDefined(supportIndices[0]);
+    }
   }
 
   /**
@@ -2194,8 +2371,8 @@ export class Planet {
   }
 
   /**
-   * @param {Array<[number,number,number,number]>} points
-   * @returns {Array<[number,number,number,number]>}
+   * @param {StandablePoint[]} points
+   * @returns {StandablePoint[]}
    */
   _filterReachableStandable(points){
     if (!this._spawnReachableMask) return points;

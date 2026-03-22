@@ -28,6 +28,8 @@ import thrustUrl from "../gameaudio/engine_sound.mp3?url";
 //@ts-ignore
 import rescueUrl from "../gameaudio/key-176034.mp3?url";
 //@ts-ignore
+import minerDownUrl from "../gameaudio/lose sound 1_0_256k.mp3?url";
+//@ts-ignore
 import levelCompleteUrl from "../gameaudio/levelcompletesplash.mp3?url";
 //@ts-ignore
 import hazardHeatUrl from "../gameaudio/lava_256k.mp3?url";
@@ -69,6 +71,7 @@ const SFX_POOL_SIZE = {
 /** @type {Readonly<Record<string, number>>} */
 const SFX_MIN_INTERVAL_MS = {
   ship_laser: 70,
+  miner_down: 90,
 };
 const WEB_AUDIO_SFX_IDS = Object.freeze(["ship_laser", "enemy_fire"]);
 /** @type {Readonly<Record<string, number[]>>} */
@@ -84,6 +87,7 @@ const SFX_PLACEHOLDER_URLS = {
   ship_crash: crash256Url,
   enemy_fire: enemyFireUrl,
   enemy_destroyed: explosion256Url,
+  miner_down: minerDownUrl,
   miner_rescued: rescueUrl,
   objective_complete: levelCompleteUrl,
   ship_thrust_loop: thrustUrl,
@@ -103,12 +107,13 @@ export const SFX_IMPORTANT = Object.freeze([
   { id: "bomb_explosion", priority: 4, trigger: "GameLoop player bomb detonation path", placeholderFile: "audio/fx/qubodup-crash_256k.mp3" },
   { id: "enemy_destroyed", priority: 5, trigger: "GameLoop enemy HP reaches 0 and removed", placeholderFile: "audio/fx/8bit_gunloop_explosion_256k.mp3" },
   { id: "enemy_fire", priority: 6, trigger: "Enemies._shoot", placeholderFile: "audio/fx/ghost_256k.mp3" },
-  { id: "miner_rescued", priority: 7, trigger: "GameLoop miner boards ship", placeholderFile: "audio/fx/key-176034.mp3" },
-  { id: "objective_complete", priority: 8, trigger: "When objective transitions to complete", placeholderFile: "audio/fx/levelcompletesplash.mp3" },
-  { id: "ship_thrust_loop", priority: 9, trigger: "While ship thrust is active", placeholderFile: "audio/fx/engine_sound.mp3" },
-  { id: "heat_warning", priority: 10, trigger: "Heat meter warning state", placeholderFile: "audio/fx/lava_256k.mp3" },
-  { id: "water_splash", priority: 11, trigger: "GameLoop ship crosses water surface in/out", placeholderFile: "audio/fx/splash1_256k.mp3" },
-  { id: "dock_refuel", priority: 12, trigger: "Docked and refilling hp/bombs", placeholderFile: "(placeholder only, pick clip)" },
+  { id: "miner_down", priority: 7, trigger: "GameLoop miner death / fatal terrain displacement", placeholderFile: "audio/fx/lose sound 1_0_256k.mp3" },
+  { id: "miner_rescued", priority: 8, trigger: "GameLoop miner boards ship", placeholderFile: "audio/fx/key-176034.mp3" },
+  { id: "objective_complete", priority: 9, trigger: "When objective transitions to complete", placeholderFile: "audio/fx/levelcompletesplash.mp3" },
+  { id: "ship_thrust_loop", priority: 10, trigger: "While ship thrust is active", placeholderFile: "audio/fx/engine_sound.mp3" },
+  { id: "heat_warning", priority: 11, trigger: "Heat meter warning state", placeholderFile: "audio/fx/lava_256k.mp3" },
+  { id: "water_splash", priority: 12, trigger: "GameLoop ship crosses water surface in/out", placeholderFile: "audio/fx/splash1_256k.mp3" },
+  { id: "dock_refuel", priority: 13, trigger: "Docked and refilling hp/bombs", placeholderFile: "(placeholder only, pick clip)" },
 ]);
 
 /**

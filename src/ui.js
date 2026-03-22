@@ -6,10 +6,6 @@
  * @returns {void}
  */
 export function updateHud(hud, stats){
-  if (stats.state === "crashed"){
-    hud.textContent = "Game over";
-    return;
-  }
   const landingDbg = stats.landingDebug;
   const landingSuffix = landingDbg
     ? ` | landDbg src:${landingDbg.source || "-"} r:${landingDbg.reason || "-"} lu:${fmtN(landingDbg.dotUp)} sl:${fmtN(landingDbg.slope)}<=${fmtN(landingDbg.landSlope)} vn:${fmtN(landingDbg.vn)} vt:${fmtN(landingDbg.vt)} sp:${fmtN(landingDbg.speed)} af:${fmtN(landingDbg.airFront)} ab:${fmtN(landingDbg.airBack)} sup:${landingDbg.support ? 1 : 0}@${fmtN(landingDbg.supportDist)} ok:${landingDbg.landable ? 1 : 0}`

@@ -49,6 +49,7 @@ export const GAME = Object.freeze({
   SHIP_SCALE: 0.5,
   MINER_SCALE: 0.5,
   ENEMY_SCALE: 0.25,
+  FRAGMENT_PLANET_COLLISION: true,
   THRUST: 4.5,
   TURN_RATE: 2.4,
   DRAG: 0.12,

@@ -116,6 +116,7 @@ export function createLoopSaveSnapshot(loop){
     },
 
     miners: cloneSaveData(loop.miners),
+    fallenMiners: cloneSaveData(loop.fallenMiners),
     minersRemaining: loop.minersRemaining | 0,
     minersDead: loop.minersDead | 0,
     minerTarget: loop.minerTarget | 0,
@@ -130,6 +131,7 @@ export function createLoopSaveSnapshot(loop){
     playerShots: cloneSaveData(loop.playerShots),
     playerBombs: cloneSaveData(loop.playerBombs),
     debris: cloneSaveData(loop.debris),
+    fragments: cloneSaveData(loop.fragments),
     entityExplosions: cloneSaveData(loop.entityExplosions),
     popups: cloneSaveData(loop.popups),
     shipHitPopups: cloneSaveData(loop.shipHitPopups),
@@ -208,6 +210,7 @@ export function restoreLoopFromSaveSnapshot(loop, snapshot){
     }
 
     loop.miners = Array.isArray(snapshot.miners) ? cloneSaveData(snapshot.miners) : [];
+    loop.fallenMiners = Array.isArray(snapshot.fallenMiners) ? cloneSaveData(snapshot.fallenMiners) : [];
     loop.minersRemaining = clampNonNegativeInt(snapshot.minersRemaining, loop.miners.length);
     loop.minersDead = clampNonNegativeInt(snapshot.minersDead, 0);
     loop.minerTarget = clampNonNegativeInt(snapshot.minerTarget, loop.minersRemaining + loop.minersDead);
@@ -222,6 +225,7 @@ export function restoreLoopFromSaveSnapshot(loop, snapshot){
     loop.playerShots = Array.isArray(snapshot.playerShots) ? cloneSaveData(snapshot.playerShots) : [];
     loop.playerBombs = Array.isArray(snapshot.playerBombs) ? cloneSaveData(snapshot.playerBombs) : [];
     loop.debris = Array.isArray(snapshot.debris) ? cloneSaveData(snapshot.debris) : [];
+    loop.fragments = Array.isArray(snapshot.fragments) ? cloneSaveData(snapshot.fragments) : [];
     loop.entityExplosions = Array.isArray(snapshot.entityExplosions) ? cloneSaveData(snapshot.entityExplosions) : [];
     loop.popups = Array.isArray(snapshot.popups) ? cloneSaveData(snapshot.popups) : [];
     loop.shipHitPopups = Array.isArray(snapshot.shipHitPopups) ? cloneSaveData(snapshot.shipHitPopups) : [];

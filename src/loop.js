@@ -32,6 +32,7 @@ import { pickPlanetConfig, pickPlanetConfigById, resolveLevelProgression, resolv
 import { clearSavedGame, createLoopSaveSnapshot, restoreLoopFromSaveSnapshot } from "./save_state.js";
 import { copyGameplayScreenshotToClipboard, drawStartTitle } from "./screenshot.js";
 import { JumpdriveTransition } from "./jumpdrive_transition.js";
+import { spawnFragmentBurst, spawnTerrainHexFragments, spawnTerrainPropFragments, updateFragmentDebris } from "./fragment_fx.js";
 import {
   extractPathSegment,
   findGuidePathTargetIndex,
@@ -49,6 +50,8 @@ import { lerpAngleShortest, sweptShipVsMovingMothership } from "./collision_moth
 /** @typedef {import("./types.d.js").Miner} Miner */
 /** @typedef {import("./types.d.js").HealthPickup} HealthPickup */
 /** @typedef {import("./types.d.js").Ui} Ui */
+/** @typedef {import("./types.d.js").DestroyedTerrainNode} DestroyedTerrainNode */
+/** @typedef {import("./types.d.js").FragmentOwnerType} FragmentOwnerType */
 /** @typedef {import("./help_popup.js").HelpPopup} HelpPopup */
 /** @typedef {import("./planet_config.js").PlanetTypeId} PlanetTypeId */
 /** @typedef {import("./planet_config.js").PlanetConfig} PlanetConfig */
@@ -194,8 +197,12 @@ export class GameLoop {
       bounceShots: false,
     };
     this.mothership = mothership;
-    /** @type {Array<{x:number,y:number,vx:number,vy:number,a:number,w:number,life:number}>} */
+    /** @type {Array<import("./types.d.js").Debris>} */
     this.debris = [];
+    /** @type {Array<import("./types.d.js").Debris>} */
+    this.fragments = [];
+    /** @type {Array<import("./types.d.js").FallenMiner>} */
+    this.fallenMiners = [];
     /** @type {Array<{x:number,y:number,vx:number,vy:number,life:number}>} */
     this.playerShots = [];
     /** @type {Array<{x:number,y:number,vx:number,vy:number,life:number}>} */
@@ -223,13 +230,18 @@ export class GameLoop {
     this.PLAYER_BOMB_RADIUS = 0.35;
     this.PLAYER_BOMB_BLAST = 0.9;
     this.PLAYER_BOMB_DAMAGE = 1.2;
-    this.CRAWLER_DEATH_BLAST = 1.15;
+    this.CRAWLER_DEATH_BLAST = 1.0;
+    this.CRAWLER_BOMB_DEATH_BLAST = 2.0;
     this.CRAWLER_DEATH_DAMAGE = 1.0;
     this.CRAWLER_DEATH_FLASH_LIFE = 0.8;
     this.SHIP_HIT_BLAST = 0.55;
     this.ENEMY_HIT_BLAST = 0.35;
     this.NONLETHAL_HIT_FLASH_LIFE = 0.25;
     this.FACTORY_HIT_FLASH_T = 0.35;
+    this.MINER_SHOT_DEATH_LIFE = 1.1;
+    this.MINER_EXPLOSION_DEATH_LIFE = 1.45;
+    this.MINER_EXPLOSION_DEATH_SPEED_MIN = 0.5;
+    this.MINER_EXPLOSION_DEATH_SPEED_MAX = 1.1;
 
     /** @type {Miner[]} */
     this.miners = [];
@@ -269,8 +281,8 @@ export class GameLoop {
         this._markCombatThreat();
         this._triggerCombatImmediate();
       },
-      onEnemyDestroyed: (enemy) => {
-        this._handleEnemyDestroyed(enemy);
+      onEnemyDestroyed: (enemy, info) => {
+        this._handleEnemyDestroyed(enemy, info);
       },
     });
     /** @type {Array<HealthPickup>} */
@@ -324,7 +336,7 @@ export class GameLoop {
 
     /** @type {{
      *   onExplosion:(info:{x:number,y:number,life:number,radius:number})=>void,
-     *   onDebris:(info:{x:number,y:number,vx:number,vy:number,a:number,w:number,life:number})=>void,
+     *   onDebris:(info:{x:number,y:number,vx:number,vy:number,a:number,w:number,life:number,maxLife?:number,size?:number,cr?:number,cg?:number,cb?:number,alpha?:number})=>void,
      *   onAreaDamage:(x:number,y:number,radius:number)=>void,
      *   onShipDamage:(x:number,y:number)=>void,
      *   onShipHeat:(amount:number)=>void,
@@ -690,6 +702,8 @@ export class GameLoop {
     this.ship._samples = null;
     this.ship._landingDebug = null;
     this.debris.length = 0;
+    this.fragments.length = 0;
+    this.fallenMiners.length = 0;
     this.playerShots.length = 0;
     this.playerBombs.length = 0;
     this.entityExplosions.length = 0;
@@ -747,9 +761,10 @@ export class GameLoop {
   }
 
   /**
+   * @param {import("./types.d.js").FragmentDestroyedBy} [destroyedBy]
    * @returns {void}
    */
-  _triggerCrash(){
+  _triggerCrash(destroyedBy = "unknown"){
     if (this.ship.state === "crashed") return;
     this.ship.state = "crashed";
     this.ship.explodeT = 0;
@@ -773,6 +788,7 @@ export class GameLoop {
         life: 2.5 + Math.random() * 1.5,
       });
     }
+    this._spawnShipDestructionFragments(destroyedBy);
     this.minersDead += this.ship.dropshipMiners;
     this.minersDead += this.ship.dropshipPilots;
     this.minersDead += this.ship.dropshipEngineers;
@@ -784,9 +800,10 @@ export class GameLoop {
   /**
    * @param {number} x
    * @param {number} y
+   * @param {import("./types.d.js").FragmentDestroyedBy} [destroyedBy]
    * @returns {void}
    */
-  _damageShip(x, y){
+  _damageShip(x, y, destroyedBy = "unknown"){
     if (this.ship.state === "crashed") return;
     if (this.ship.hitCooldown > 0) return;
     this._markCombatThreat();
@@ -803,7 +820,55 @@ export class GameLoop {
       life: GAME.SHIP_HIT_POPUP_LIFE,
     });
     if (this.ship.hpCur <= 0){
-      this._triggerCrash();
+      this._triggerCrash(destroyedBy);
+    }
+  }
+
+  /**
+   * @param {import("./types.d.js").FragmentDestroyedBy} destroyedBy
+   * @returns {void}
+   */
+  _spawnShipDestructionFragments(destroyedBy){
+    const start = this.fragments.length;
+    spawnFragmentBurst(this.fragments, this.ship, "dropship", destroyedBy, { pieces: 6 });
+    /** @type {[number, number, number]} */
+    const shipSilverTop = [0.85, 0.87, 0.9];
+    /** @type {[number, number, number]} */
+    const shipSilverBottom = [0.55, 0.58, 0.62];
+    /** @type {[number, number, number]} */
+    const shipWindow = [0.05, 0.05, 0.05];
+    const created = this.fragments.slice(start);
+    for (let i = 0; i < created.length; i++){
+      const frag = created[i];
+      if (!frag) continue;
+      if (i === 0){
+        frag.cr = shipWindow[0];
+        frag.cg = shipWindow[1];
+        frag.cb = shipWindow[2];
+        continue;
+      }
+      const t = Math.max(0, Math.min(1, (i - 1) / Math.max(1, created.length - 2)));
+      frag.cr = shipSilverBottom[0] + (shipSilverTop[0] - shipSilverBottom[0]) * t;
+      frag.cg = shipSilverBottom[1] + (shipSilverTop[1] - shipSilverBottom[1]) * t;
+      frag.cb = shipSilverBottom[2] + (shipSilverTop[2] - shipSilverBottom[2]) * t;
+    }
+    /** @type {FragmentOwnerType[]} */
+    const cargo = [];
+    for (let i = 0; i < this.ship.dropshipMiners; i++) cargo.push("miner");
+    for (let i = 0; i < this.ship.dropshipPilots; i++) cargo.push("pilot");
+    for (let i = 0; i < this.ship.dropshipEngineers; i++) cargo.push("engineer");
+    const cargoCount = cargo.length;
+    for (let i = 0; i < cargoCount; i++){
+      const cargoType = cargo[i];
+      if (!cargoType) continue;
+      const ang = (i / Math.max(1, cargoCount)) * Math.PI * 2 + Math.random() * 0.35;
+      const radius = 0.18 + Math.random() * 0.12;
+      spawnFragmentBurst(this.fragments, {
+        x: this.ship.x + Math.cos(ang) * radius,
+        y: this.ship.y + Math.sin(ang) * radius,
+        vx: this.ship.vx,
+        vy: this.ship.vy,
+      }, cargoType, destroyedBy, { pieces: 1 });
     }
   }
 
@@ -855,9 +920,10 @@ export class GameLoop {
 
   /**
    * @param {{type?:string,x:number,y:number,vx?:number,vy?:number}} enemy
+   * @param {{cause?:"hp"|"detonate",destroyedBy?:import("./types.d.js").FragmentDestroyedBy}|null|undefined} [info]
    * @returns {void}
    */
-  _handleEnemyDestroyed(enemy){
+  _handleEnemyDestroyed(enemy, info){
     this._playSfx("enemy_destroyed", { volume: 0.8 });
 
     // Spawn a health pickup if there are none and the player is low on health
@@ -879,35 +945,26 @@ export class GameLoop {
     if (!enemy || enemy.type !== "crawler"){
       return;
     }
-    this._applyCrawlerDeathBlast(enemy);
+    this._applyCrawlerDeathBlast(enemy, info && info.destroyedBy ? info.destroyedBy : "unknown");
   }
 
   /**
    * @param {{x:number,y:number,vx?:number,vy?:number}} enemy
+   * @param {import("./types.d.js").FragmentDestroyedBy} destroyedBy
    * @returns {void}
    */
-  _applyCrawlerDeathBlast(enemy){
+  _applyCrawlerDeathBlast(enemy, destroyedBy){
     const x = enemy.x;
     const y = enemy.y;
+    const blastRadius = destroyedBy === "bomb" ? this.CRAWLER_BOMB_DEATH_BLAST : this.CRAWLER_DEATH_BLAST;
     this.entityExplosions.push({
       x,
       y,
       life: this.CRAWLER_DEATH_FLASH_LIFE,
-      radius: this.CRAWLER_DEATH_BLAST,
+      radius: blastRadius,
     });
-    this._spawnDebrisBurst(x, y, {
-      pieces: 10,
-      speedMin: 1.2,
-      speedMax: 2.2,
-      lifeMin: 0.75,
-      lifeMax: 0.65,
-      offset: 0.1,
-      spin: 7,
-      baseVx: enemy.vx || 0,
-      baseVy: enemy.vy || 0,
-    });
-    this._applyCrawlerBlastDamage(x, y, this.CRAWLER_DEATH_BLAST, enemy);
-    this._applyCrawlerTerrainImpact(x, y);
+    this._applyCrawlerBlastDamage(x, y, blastRadius, enemy, destroyedBy);
+    this._applyCrawlerTerrainImpact(x, y, blastRadius);
   }
 
   /**
@@ -915,10 +972,12 @@ export class GameLoop {
    * @param {number} y
    * @param {number} radius
    * @param {{x:number,y:number}|null|undefined} sourceEnemy
+   * @param {import("./types.d.js").FragmentDestroyedBy} [destroyedBy]
    * @returns {void}
    */
-  _applyCrawlerBlastDamage(x, y, radius, sourceEnemy){
+  _applyCrawlerBlastDamage(x, y, radius, sourceEnemy, destroyedBy = "unknown"){
     const r2 = radius * radius;
+    const collateralDestroyedBy = destroyedBy === "bomb" ? "bomb" : "detonate";
     for (let j = this.enemies.enemies.length - 1; j >= 0; j--){
       const e = this.enemies.enemies[j];
       if (!e || e === sourceEnemy || e.hp <= 0) continue;
@@ -926,6 +985,9 @@ export class GameLoop {
       const dy = e.y - y;
       if (dx * dx + dy * dy > r2) continue;
       e.hp = Math.max(0, e.hp - this.CRAWLER_DEATH_DAMAGE);
+      if (e.hp <= 0){
+        this.enemies.markEnemyDestroyedBy(e, collateralDestroyedBy);
+      }
       if (e.hp > 0){
         this._applyEnemyHitFeedback(e);
       }
@@ -935,13 +997,15 @@ export class GameLoop {
   /**
    * @param {number} x
    * @param {number} y
+   * @param {number} range
    * @returns {void}
    */
-  _applyCrawlerTerrainImpact(x, y){
+  _applyCrawlerTerrainImpact(x, y, range){
     const cfg = this.planet ? this.planet.getPlanetConfig() : null;
     if (cfg && cfg.flags && cfg.flags.disableTerrainDestruction) return;
-    const newAir = this.planet.destroyRockRadialNodesInRange(x, y, this.TERRAIN_NODE_IMPACT_RANGE);
-    if (newAir) this.renderer.updateAir(newAir);
+    const result = this.planet.destroyRockRadialNodesInRange(x, y, Math.max(this.TERRAIN_NODE_IMPACT_RANGE, range));
+    if (!result) return;
+    this._emitTerrainDestructionFragments(result, x, y);
   }
 
   /**
@@ -1314,8 +1378,27 @@ export class GameLoop {
   _applyBombImpact(x, y){
     const cfg = this.planet ? this.planet.getPlanetConfig() : null;
     if (cfg && cfg.flags && cfg.flags.disableTerrainDestruction) return;
-    const newAir = this.planet.destroyRockRadialNodesInRange(x, y, this.TERRAIN_NODE_IMPACT_RANGE, 1);
-    if (newAir) this.renderer.updateAir(newAir);
+    const result = this.planet.destroyRockRadialNodesInRange(x, y, this.TERRAIN_NODE_IMPACT_RANGE, 1);
+    if (!result) return;
+    this._emitTerrainDestructionFragments(result, x, y);
+  }
+
+  /**
+   * @param {{newAir:Float32Array|undefined,destroyedNodes:DestroyedTerrainNode[]}} result
+   * @param {number} x
+   * @param {number} y
+   * @returns {void}
+   */
+  _emitTerrainDestructionFragments(result, x, y){
+    if (result.newAir) this.renderer.updateAir(result.newAir);
+    if (!result.destroyedNodes || !result.destroyedNodes.length) return;
+    const palette = this._planetPalette();
+    spawnTerrainHexFragments(this.fragments, result.destroyedNodes, { x, y }, palette);
+    const destroyedProps = this.planet.destroyTerrainPropsAttachedToNodes(result.destroyedNodes);
+    if (destroyedProps.length){
+      this.planet.emitDetachedTerrainPropBursts(destroyedProps, this.featureCallbacks);
+      spawnTerrainPropFragments(this.fragments, destroyedProps, { x, y }, palette);
+    }
   }
 
   /**
@@ -1329,7 +1412,7 @@ export class GameLoop {
       const dx = this.ship.x - x;
       const dy = this.ship.y - y;
       if (dx * dx + dy * dy <= r2){
-        this._damageShip(x, y);
+        this._damageShip(x, y, "explosion");
       }
     }
     for (let j = this.enemies.enemies.length - 1; j >= 0; j--){
@@ -1338,6 +1421,7 @@ export class GameLoop {
       const dy = e.y - y;
       if (dx * dx + dy * dy <= r2){
         e.hp = 0;
+        this.enemies.markEnemyDestroyedBy(e, "bomb");
       }
     }
     for (let j = this.miners.length - 1; j >= 0; j--){
@@ -1345,9 +1429,7 @@ export class GameLoop {
       const dx = m.x - x;
       const dy = m.y - y;
       if (dx * dx + dy * dy <= r2){
-        this.miners.splice(j, 1);
-        this.minersRemaining = Math.max(0, this.minersRemaining - 1);
-        this.minersDead++;
+        this._killMinerAt(j, "exploded", { x, y });
       }
     }
     this._damageFactoriesAt(x, y, this.PLAYER_BOMB_DAMAGE, 999, true);
@@ -1366,7 +1448,7 @@ export class GameLoop {
       const dx = this.ship.x - x;
       const dy = this.ship.y - y;
       if (dx * dx + dy * dy <= r2){
-        this._damageShip(x, y);
+        this._damageShip(x, y, "explosion");
       }
     }
     for (let j = this.enemies.enemies.length - 1; j >= 0; j--){
@@ -1377,6 +1459,8 @@ export class GameLoop {
         e.hp = Math.max(0, e.hp - this.ship.gunPower);
         if (e.hp > 0){
           this._applyEnemyHitFeedback(e);
+        } else {
+          this.enemies.markEnemyDestroyedBy(e, "explosion");
         }
       }
     }
@@ -1385,9 +1469,7 @@ export class GameLoop {
       const dx = m.x - x;
       const dy = m.y - y;
       if (dx * dx + dy * dy <= r2){
-        this.miners.splice(j, 1);
-        this.minersRemaining = Math.max(0, this.minersRemaining - 1);
-        this.minersDead++;
+        this._killMinerAt(j, "exploded", { x, y });
       }
     }
   }
@@ -1433,6 +1515,11 @@ export class GameLoop {
    *  spin?:number,
    *  baseVx?:number,
    *  baseVy?:number,
+   *  size?:number,
+   *  cr?:number,
+   *  cg?:number,
+   *  cb?:number,
+   *  alpha?:number,
    * }} [opts]
    * @returns {void}
    */
@@ -1446,18 +1533,205 @@ export class GameLoop {
     const spin = (opts && typeof opts.spin === "number") ? opts.spin : 6;
     const baseVx = (opts && typeof opts.baseVx === "number") ? opts.baseVx : 0;
     const baseVy = (opts && typeof opts.baseVy === "number") ? opts.baseVy : 0;
+    const size = (opts && typeof opts.size === "number") ? opts.size : undefined;
+    const cr = (opts && typeof opts.cr === "number") ? opts.cr : undefined;
+    const cg = (opts && typeof opts.cg === "number") ? opts.cg : undefined;
+    const cb = (opts && typeof opts.cb === "number") ? opts.cb : undefined;
+    const alpha = (opts && typeof opts.alpha === "number") ? opts.alpha : undefined;
     for (let i = 0; i < pieces; i++){
       const ang = Math.random() * Math.PI * 2;
       const sp = speedMin + Math.random() * speedMax;
-      this.debris.push({
+      const life = lifeMin + Math.random() * lifeMax;
+      this.debris.push(/** @type {import("./types.d.js").Debris} */ ({
         x: x + Math.cos(ang) * offset,
         y: y + Math.sin(ang) * offset,
         vx: baseVx + Math.cos(ang) * sp,
         vy: baseVy + Math.sin(ang) * sp,
         a: Math.random() * Math.PI * 2,
         w: (Math.random() - 0.5) * spin,
-        life: lifeMin + Math.random() * lifeMax,
+        life,
+        maxLife: life,
+        size,
+        cr,
+        cg,
+        cb,
+        alpha,
+      }));
+    }
+  }
+
+  /**
+   * @param {"shot"|"bomb"} kind
+   * @param {number} x
+   * @param {number} y
+   * @param {number} [baseVx]
+   * @param {number} [baseVy]
+   * @returns {void}
+   */
+  _spawnWeaponImpactFragments(kind, x, y, baseVx = 0, baseVy = 0){
+    if (kind === "bomb"){
+      this._spawnDebrisBurst(x, y, {
+        pieces: 12,
+        speedMin: 0.95,
+        speedMax: 1.95,
+        lifeMin: 0.45,
+        lifeMax: 0.45,
+        offset: 0.12,
+        spin: 8,
+        baseVx: baseVx * 0.2,
+        baseVy: baseVy * 0.2,
+        size: 0.12,
+        cr: 1.0,
+        cg: 0.72,
+        cb: 0.2,
+        alpha: 0.95,
       });
+      return;
+    }
+    this._spawnDebrisBurst(x, y, {
+      pieces: 6,
+      speedMin: 0.4,
+      speedMax: 0.9,
+      lifeMin: 0.22,
+      lifeMax: 0.22,
+      offset: 0.04,
+      spin: 6,
+      baseVx: baseVx * 0.15,
+      baseVy: baseVy * 0.15,
+      size: 0.07,
+      cr: 0.96,
+      cg: 0.96,
+      cb: 0.96,
+      alpha: 0.92,
+    });
+  }
+
+  /**
+   * @param {Miner} miner
+   * @param {"shot"|"exploded"} mode
+   * @param {{x?:number,y?:number,vx?:number,vy?:number}|null|undefined} [impact]
+   * @returns {void}
+   */
+  _spawnFallenMiner(miner, mode, impact){
+    if (!miner) return;
+    const r = Math.hypot(miner.x, miner.y) || 1;
+    const upx = miner.x / r;
+    const upy = miner.y / r;
+    const tx = -upy;
+    const ty = upx;
+    if (mode === "exploded"){
+      let dirX = miner.x - (impact && Number.isFinite(impact.x) ? Number(impact.x) : miner.x - upx * 0.1);
+      let dirY = miner.y - (impact && Number.isFinite(impact.y) ? Number(impact.y) : miner.y - upy * 0.1);
+      let dirLen = Math.hypot(dirX, dirY);
+      if (dirLen <= 1e-4){
+        dirX = upx;
+        dirY = upy;
+        dirLen = 1;
+      }
+      dirX /= dirLen;
+      dirY /= dirLen;
+      const speed = this.MINER_EXPLOSION_DEATH_SPEED_MIN + Math.random() * (this.MINER_EXPLOSION_DEATH_SPEED_MAX - this.MINER_EXPLOSION_DEATH_SPEED_MIN);
+      const life = this.MINER_EXPLOSION_DEATH_LIFE + Math.random() * 0.35;
+      this.fallenMiners.push({
+        x: miner.x,
+        y: miner.y,
+        vx: dirX * speed + ((impact && impact.vx) || 0) * 0.16,
+        vy: dirY * speed + ((impact && impact.vy) || 0) * 0.16,
+        life,
+        maxLife: life,
+        upx,
+        upy,
+        rot: Math.atan2(dirY, dirX),
+        spin: (Math.random() < 0.5 ? -1 : 1) * (5.5 + Math.random() * 5.5),
+        leanDir: (Math.random() < 0.5 ? -1 : 1),
+        type: miner.type,
+        mode,
+      });
+      this._playSfx("miner_down", { volume: 0.42, rate: 0.68 + Math.random() * 0.08 });
+      return;
+    }
+    const tangential = ((impact && impact.vx) || 0) * tx + ((impact && impact.vy) || 0) * ty;
+    const leanDir = tangential < -1e-4 ? -1 : (tangential > 1e-4 ? 1 : (Math.random() < 0.5 ? -1 : 1));
+    let impactDirX = (impact && Number.isFinite(impact.vx)) ? Number(impact.vx) : 0;
+    let impactDirY = (impact && Number.isFinite(impact.vy)) ? Number(impact.vy) : 0;
+    let impactDirLen = Math.hypot(impactDirX, impactDirY);
+    if (impactDirLen <= 1e-4 && impact && Number.isFinite(impact.x) && Number.isFinite(impact.y)){
+      impactDirX = miner.x - Number(impact.x);
+      impactDirY = miner.y - Number(impact.y);
+      impactDirLen = Math.hypot(impactDirX, impactDirY);
+    }
+    if (impactDirLen <= 1e-4){
+      impactDirX = tx * leanDir;
+      impactDirY = ty * leanDir;
+      impactDirLen = 1;
+    }
+    impactDirX /= impactDirLen;
+    impactDirY /= impactDirLen;
+    const hitPush = 0.07 + Math.random() * 0.06;
+    const sidewaysSlide = 0.03 + Math.random() * 0.05;
+    const life = this.MINER_SHOT_DEATH_LIFE + Math.random() * 0.25;
+    this.fallenMiners.push({
+      x: miner.x,
+      y: miner.y,
+      vx: impactDirX * hitPush + tx * leanDir * sidewaysSlide,
+      vy: impactDirY * hitPush + ty * leanDir * sidewaysSlide,
+      life,
+      maxLife: life,
+      upx,
+      upy,
+      rot: Math.atan2(upy, upx),
+      spin: 0,
+      leanDir,
+      type: miner.type,
+      mode,
+    });
+    this._playSfx("miner_down", { volume: 0.35, rate: 0.78 + Math.random() * 0.08 });
+  }
+
+  /**
+   * @param {number} index
+   * @param {"shot"|"exploded"} mode
+   * @param {{x?:number,y?:number,vx?:number,vy?:number}|null|undefined} [impact]
+   * @returns {void}
+   */
+  _killMinerAt(index, mode, impact){
+    const miner = /** @type {Miner|undefined} */ (this.miners[index]);
+    if (!miner) return;
+    this._spawnFallenMiner(miner, mode, impact);
+    this.miners.splice(index, 1);
+    this.minersRemaining = Math.max(0, this.minersRemaining - 1);
+    this.minersDead++;
+  }
+
+  /**
+   * @param {number} dt
+   * @returns {void}
+   */
+  _updateFallenMiners(dt){
+    if (!this.fallenMiners.length) return;
+    const drag = Math.max(0, 1 - this.planetParams.DRAG * 0.8 * dt);
+    for (let i = this.fallenMiners.length - 1; i >= 0; i--){
+      const miner = this.fallenMiners[i];
+      if (!miner) continue;
+      if (miner.mode === "exploded"){
+        const g = this.planet.gravityAt(miner.x, miner.y);
+        miner.vx += g.x * dt;
+        miner.vy += g.y * dt;
+        miner.vx *= drag;
+        miner.vy *= drag;
+        miner.x += miner.vx * dt;
+        miner.y += miner.vy * dt;
+        miner.rot += miner.spin * dt;
+      } else {
+        miner.vx *= Math.max(0, 1 - 5.0 * dt);
+        miner.vy *= Math.max(0, 1 - 5.0 * dt);
+        miner.x += miner.vx * dt;
+        miner.y += miner.vy * dt;
+      }
+      miner.life -= dt;
+      if (miner.life <= 0){
+        this.fallenMiners.splice(i, 1);
+      }
     }
   }
 
@@ -2004,8 +2278,8 @@ export class GameLoop {
         this._markCombatThreat();
         this._triggerCombatImmediate();
       },
-      onEnemyDestroyed: (enemy) => {
-        this._handleEnemyDestroyed(enemy);
+      onEnemyDestroyed: (enemy, info) => {
+        this._handleEnemyDestroyed(enemy, info);
       },
     });
     return {
@@ -2480,6 +2754,28 @@ export class GameLoop {
     return {
       x: c * dx + s * dy,
       y: -s * dx + c * dy,
+    };
+  }
+
+  /**
+   * Convert ship-local coordinates to world coordinates.
+   * Local X is ship-right and local Y is ship-up.
+   * @param {number} lx
+   * @param {number} ly
+   * @param {number} shipX
+   * @param {number} shipY
+   * @returns {{x:number,y:number}}
+   */
+  _shipWorldPoint(lx, ly, shipX, shipY){
+    const camRot = -(Number.isFinite(this.ship.renderAngle)
+      ? /** @type {number} */ (this.ship.renderAngle)
+      : getDropshipWorldRotation(shipX, shipY));
+    const shipRot = -camRot;
+    const c = Math.cos(shipRot);
+    const s = Math.sin(shipRot);
+    return {
+      x: shipX + c * lx - s * ly,
+      y: shipY + s * lx + c * ly,
     };
   }
 
@@ -3387,6 +3683,7 @@ export class GameLoop {
         continue;
       }
       if (this.planet.handleFeatureShot(s.x, s.y, this.PLAYER_SHOT_RADIUS, this.featureCallbacks)){
+        this._spawnWeaponImpactFragments("shot", s.x, s.y, s.vx, s.vy);
         this.playerShots.splice(i, 1);
         continue;
       }
@@ -3408,6 +3705,7 @@ export class GameLoop {
             }
           }
         }
+        this._spawnWeaponImpactFragments("shot", s.x, s.y, s.vx, s.vy);
         this.playerShots.splice(i, 1);
         continue;
       }
@@ -3423,10 +3721,12 @@ export class GameLoop {
           }
         }
         if (blocked){
+          this._spawnWeaponImpactFragments("shot", s.x, s.y, s.vx, s.vy);
           this.playerShots.splice(i, 1);
           continue;
         }
         if (this._damageFactoryPropsAt(mechFactories, s.x, s.y, this.PLAYER_SHOT_RADIUS, 1, false)){
+          this._spawnWeaponImpactFragments("shot", s.x, s.y, s.vx, s.vy);
           this.playerShots.splice(i, 1);
           continue;
         }
@@ -3441,8 +3741,12 @@ export class GameLoop {
           if (e.hp > 0){
             this._applyEnemyHitFeedback(e);
           }
+          this._spawnWeaponImpactFragments("shot", s.x, s.y, s.vx, s.vy);
           this.playerShots.splice(i, 1);
-          if (e.hp <= 0) e.hp = 0;
+          if (e.hp <= 0){
+            e.hp = 0;
+            this.enemies.markEnemyDestroyedBy(e, "bullet");
+          }
           break;
         }
       }
@@ -3452,9 +3756,8 @@ export class GameLoop {
         const dx = m.x - s.x;
         const dy = m.y - s.y;
         if (dx * dx + dy * dy <= this.PLAYER_SHOT_RADIUS * this.PLAYER_SHOT_RADIUS){
-          this.miners.splice(j, 1);
-          this.minersRemaining = Math.max(0, this.minersRemaining - 1);
-          this.minersDead++;
+          this._spawnWeaponImpactFragments("shot", s.x, s.y, s.vx, s.vy);
+          this._killMinerAt(j, "shot", { x: s.x, y: s.y, vx: s.vx, vy: s.vy });
           this.playerShots.splice(i, 1);
           break;
         }
@@ -3496,8 +3799,8 @@ export class GameLoop {
             const dx = e.x - b.x;
             const dy = e.y - b.y;
             if (dx * dx + dy * dy <= this.PLAYER_BOMB_RADIUS * this.PLAYER_BOMB_RADIUS){
-              this.enemies.enemies.splice(j, 1);
-              this._playSfx("enemy_destroyed", { volume: 0.8 });
+              e.hp = 0;
+              this.enemies.markEnemyDestroyedBy(e, "bomb");
               hit = true;
               break;
             }
@@ -3508,9 +3811,7 @@ export class GameLoop {
               const dx = m.x - b.x;
               const dy = m.y - b.y;
               if (dx * dx + dy * dy <= this.PLAYER_BOMB_RADIUS * this.PLAYER_BOMB_RADIUS){
-                this.miners.splice(j, 1);
-                this.minersRemaining = Math.max(0, this.minersRemaining - 1);
-                this.minersDead++;
+                this._killMinerAt(j, "exploded", { x: b.x, y: b.y, vx: b.vx, vy: b.vy });
                 hit = true;
                 break;
               }
@@ -3519,6 +3820,7 @@ export class GameLoop {
         }
         if (hit){
           this.playerBombs.splice(i, 1);
+          this._spawnWeaponImpactFragments("bomb", b.x, b.y, b.vx, b.vy);
           this._applyBombImpact(b.x, b.y);
           this.planet.handleFeatureBomb(b.x, b.y, this.TERRAIN_IMPACT_RADIUS, this.PLAYER_BOMB_RADIUS, this.featureCallbacks);
           this._applyBombDamage(b.x, b.y);
@@ -3584,8 +3886,12 @@ export class GameLoop {
     }
     let minerPathDebugRecord = null;
     const pathRaiseAmount = 0.02;
+    const boardTargetLocalY = GAME.SHIP_SCALE * 0.12;
 
     const landed = this.ship.state === "landed";
+    const shipRadius = this._shipRadius();
+    const boardTarget = landed ? this._shipWorldPoint(0, boardTargetLocalY, this.ship.x, this.ship.y) : null;
+    const directBoardRange = shipRadius + Math.max(0.28, (GAME.MINER_GUIDE_ATTACH_RADIUS || 0) * 0.3);
     const guidePathIndexShip = (landed && guidePathUsable) ? findGuidePathTargetIndex(guidePath, this.ship.x, this.ship.y) : null;
 
     for (let i = this.miners.length - 1; i >= 0; i--){
@@ -3645,26 +3951,49 @@ export class GameLoop {
           miner.x += (dxAttach / dAttach) * step;
           miner.y += (dyAttach / dAttach) * step;
         } else {
-          if (/** @type {number} */ (indexPathMiner) < /** @type {number} */ (indexPathTarget)) {
+          const atBoardingSegment = Math.abs(/** @type {number} */ (indexPathMiner) - /** @type {number} */ (indexPathTarget)) <= 0.08;
+          if (!atBoardingSegment && /** @type {number} */ (indexPathMiner) < /** @type {number} */ (indexPathTarget)) {
             indexPathMiner = moveAlongPathPositive(activeGuidePath.path, /** @type {number} */ (indexPathMiner), distMax, /** @type {number} */ (indexPathTarget));
-          } else if (/** @type {number} */ (indexPathMiner) > /** @type {number} */ (indexPathTarget)) {
+          } else if (!atBoardingSegment && /** @type {number} */ (indexPathMiner) > /** @type {number} */ (indexPathTarget)) {
             indexPathMiner = moveAlongPathNegative(activeGuidePath.path, /** @type {number} */ (indexPathMiner), distMax, /** @type {number} */ (indexPathTarget));
             console.assert(indexPathMiner >= 0);
           }
 
-          const posNew = posFromPathIndex(activeGuidePath.path, /** @type {number} */ (indexPathMiner));
-          const rNew = Math.hypot(posNew.x, posNew.y);
-          const scalePos = 1 + pathRaiseAmount / rNew;
-          miner.x = posNew.x * scalePos;
-          miner.y = posNew.y * scalePos;
+          if (!atBoardingSegment){
+            const posNew = posFromPathIndex(activeGuidePath.path, /** @type {number} */ (indexPathMiner));
+            const rNew = Math.hypot(posNew.x, posNew.y);
+            const scalePos = 1 + pathRaiseAmount / rNew;
+            miner.x = posNew.x * scalePos;
+            miner.y = posNew.y * scalePos;
+          }
 
           // Final leg to ship center after reaching the on-surface target index.
-          if (Math.abs(/** @type {number} */ (indexPathMiner) - /** @type {number} */ (indexPathTarget)) <= 0.08){
-            const dxShip = this.ship.x - miner.x;
-            const dyShip = this.ship.y - miner.y;
+          if (atBoardingSegment){
+            const boardTargetNow = /** @type {{x:number,y:number}} */ (boardTarget);
+            const dxShip = boardTargetNow.x - miner.x;
+            const dyShip = boardTargetNow.y - miner.y;
             const dShip = Math.hypot(dxShip, dyShip);
             if (dShip > 1e-5){
               const stepShip = Math.min(distMax, dShip);
+              miner.x += (dxShip / dShip) * stepShip;
+              miner.y += (dyShip / dShip) * stepShip;
+            }
+          }
+        }
+      }
+
+      if (landed && miner.state !== "running" && boardTarget){
+        const bodyHullDist = this._shipConvexHullDistance(miner.x, miner.y, this.ship.x, this.ship.y);
+        const centerDistDirect = Math.hypot(miner.x - this.ship.x, miner.y - this.ship.y);
+        const nearShipForDirectBoard = centerDistDirect <= directBoardRange || bodyHullDist <= Math.max(0.18, GAME.MINER_BOARD_RADIUS * 2.5);
+        if (nearShipForDirectBoard){
+          const boardLineClear = bodyHullDist <= 0.05 || this._segmentPlanetAirClear(miner.x, miner.y, boardTarget.x, boardTarget.y, 0.02);
+          if (boardLineClear){
+            const dxShip = boardTarget.x - miner.x;
+            const dyShip = boardTarget.y - miner.y;
+            const dShip = Math.hypot(dxShip, dyShip);
+            if (dShip > 1e-5){
+              const stepShip = Math.min(GAME.MINER_RUN_SPEED * dt, dShip);
               miner.x += (dxShip / dShip) * stepShip;
               miner.y += (dyShip / dShip) * stepShip;
             }
@@ -3757,13 +4086,15 @@ export class GameLoop {
       const hullDistBody = this._shipConvexHullDistance(miner.x, miner.y, this.ship.x, this.ship.y);
       const hullDistFeet = this._shipConvexHullDistance(footX, footY, this.ship.x, this.ship.y);
       const hullDist = Math.min(hullDistHead, hullDistBody, hullDistFeet);
+      const minerLocalBody = this._shipLocalPoint(miner.x, miner.y, this.ship.x, this.ship.y);
       const centerDist = Math.min(
         Math.hypot(headX - this.ship.x, headY - this.ship.y),
         Math.hypot(miner.x - this.ship.x, miner.y - this.ship.y),
         Math.hypot(footX - this.ship.x, footY - this.ship.y),
       );
       const boardNearShip = centerDist <= (this._shipRadius() + GAME.MINER_BOARD_RADIUS);
-      if (landed && hullDist <= GAME.MINER_BOARD_RADIUS && boardNearShip){
+      const boardPastCenterLine = minerLocalBody.y >= 0;
+      if (landed && hullDist <= GAME.MINER_BOARD_RADIUS && boardNearShip && boardPastCenterLine){
         if (miner.type === "miner"){
           ++this.ship.dropshipMiners;
         } else if (miner.type === "pilot"){
@@ -3816,6 +4147,20 @@ export class GameLoop {
       }
     }
 
+    updateFragmentDebris(this.fragments, {
+      gravityAt: (x, y) => this.planet.gravityAt(x, y),
+      dragCoeff: this.planetParams.DRAG,
+      dt,
+      terrainCrossing: GAME.FRAGMENT_PLANET_COLLISION
+        ? (p1, p2) => this.planet.terrainCrossing(p1, p2)
+        : null,
+      terrainCollisionEnabled: GAME.FRAGMENT_PLANET_COLLISION,
+      restitution: Number.isFinite(this.planetParams.BOUNCE_RESTITUTION)
+        ? Number(this.planetParams.BOUNCE_RESTITUTION)
+        : GAME.BOUNCE_RESTITUTION,
+    });
+    this._updateFallenMiners(dt);
+
     if (this.debris.length){
       for (let i = this.debris.length - 1; i >= 0; i--){
         const d = /** @type {import("./types.d.js").Debris} */ (this.debris[i]);
@@ -3842,7 +4187,7 @@ export class GameLoop {
         const s = /** @type {import("./types.d.js").Shot} */ (this.enemies.shots[i]);
         if (this._enemyShotHitsShip(s, dt)){
           this.enemies.shots.splice(i, 1);
-          this._damageShip(s.x, s.y);
+          this._damageShip(s.x, s.y, "bullet");
           continue;
         }
       }
@@ -3855,7 +4200,7 @@ export class GameLoop {
         const dx = this.ship.x - ex.x;
         const dy = this.ship.y - ex.y;
         if (dx * dx + dy * dy <= r * r){
-          this._damageShip(ex.x, ex.y);
+          this._damageShip(ex.x, ex.y, "explosion");
           break;
         }
       }
@@ -4307,6 +4652,7 @@ export class GameLoop {
       fps: this.fps,
       finalAir: this.planet.getFinalAir(),
       miners: this.miners,
+      fallenMiners: this.fallenMiners,
       minersRemaining: this.minersRemaining,
       minerTarget: this.minerTarget,
       level: this.level,
@@ -4315,7 +4661,7 @@ export class GameLoop {
       enemies: this.enemies.enemies,
       shots: this.enemies.shots,
       explosions: this.enemies.explosions,
-      enemyDebris: this.enemies.debris,
+      fragments: this.fragments.concat(this.enemies.debris),
       playerShots: this.playerShots,
       playerBombs: this.playerBombs,
       featureParticles: this.planet.getFeatureParticles(),
