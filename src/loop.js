@@ -801,8 +801,11 @@ export class GameLoop {
     }
     if (this.objective.type === "extract"){
       const target = this.objective.target || 0;
-      const rescued = Math.max(0, this.levelStats.rescued || 0);
+      const remaining = Math.max(0, this.minersRemaining || 0);
       const lost = Math.max(0, this.minersDead || 0);
+      const rescued = target
+        ? Math.max(0, target - remaining - lost)
+        : Math.max(0, this.levelStats.rescued || 0);
       const extractable = target ? Math.max(0, target - lost) : rescued;
       const rescuedShown = target ? Math.min(rescued, extractable) : rescued;
       return `Objective: Extract miners ${rescuedShown}${target ? `/${extractable}` : ""}${lost ? ` (lost ${lost})` : ""}`;
