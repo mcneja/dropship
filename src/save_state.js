@@ -247,6 +247,7 @@ export function restoreLoopFromSaveSnapshot(loop, snapshot){
     loop.entityExplosions = Array.isArray(snapshot.entityExplosions) ? cloneSaveData(snapshot.entityExplosions) : [];
     loop.popups = Array.isArray(snapshot.popups) ? cloneSaveData(snapshot.popups) : [];
     loop.shipHitPopups = Array.isArray(snapshot.shipHitPopups) ? cloneSaveData(snapshot.shipHitPopups) : [];
+    loop.pickupAnimations = [];
 
     loop.objective = (snapshot.objective && typeof snapshot.objective === "object")
       ? cloneSaveData(snapshot.objective)

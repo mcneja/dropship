@@ -702,12 +702,28 @@ function pushMiner(pos, col, x, y, jumpCycle, r, g, b, scale, skipHelmet = false
  * @returns {number}
  */
 function pushHealthPickup(pos, col, x, y, life){
+  return pushHealthPickupFx(pos, col, x, y, life, 1, 1);
+}
+
+/**
+ * @param {number[]} pos
+ * @param {number[]} col
+ * @param {number} x
+ * @param {number} y
+ * @param {number} life
+ * @param {number} scale
+ * @param {number} alpha
+ * @returns {number}
+ */
+function pushHealthPickupFx(pos, col, x, y, life, scale, alpha){
   let s = 0.1 * (1.0 + 0.2 * Math.sin(8 * life));
   s *= Math.min(1.0, 16 * life);
+  s *= Math.max(0, scale);
   const x0 = x - s, x1 = x + s;
   const y0 = y - s, y1 = y + s;
-  pushTri(pos, col, x0, y0, x1, y0, x1, y1, 0, 1, 0, 1);
-  pushTri(pos, col, x0, y0, x1, y1, x0, y1, 0, 1, 0, 1);
+  const a = Math.max(0, Math.min(1, alpha));
+  pushTri(pos, col, x0, y0, x1, y0, x1, y1, 0, 1, 0, a);
+  pushTri(pos, col, x0, y0, x1, y1, x0, y1, 0, 1, 0, a);
   return 6;
 }
 
@@ -1679,6 +1695,36 @@ function drawFrameImpl(renderer, state, planet){
   for (const healthPickup of state.healthPickups){
     if (!visibleEntityNow(healthPickup.x, healthPickup.y)) continue;
     triVerts += pushHealthPickup(pos, col, healthPickup.x, healthPickup.y, healthPickup.life);
+  }
+
+  if (state.pickupAnimations && state.pickupAnimations.length){
+    for (const anim of state.pickupAnimations){
+      if (!visibleEntityNow(anim.x, anim.y)) continue;
+      const t = Math.max(0, Math.min(1, (anim.t || 0) / Math.max(0.001, anim.duration || 0.18)));
+      const ease = 1 - Math.pow(1 - t, 3);
+      const scale = 0.35 + (1 - ease) * 0.45;
+      const alpha = 0.85 - ease * 0.25;
+      if (anim.kind === "health"){
+        triVerts += pushHealthPickupFx(pos, col, anim.x, anim.y, 1 - t * 0.4, scale, alpha);
+      } else {
+        const [r, g, b] = minerColor(anim.kind);
+        triVerts += pushMiner(
+          pos,
+          col,
+          anim.x,
+          anim.y,
+          (1 - t) * 0.08,
+          r,
+          g,
+          b,
+          game.MINER_SCALE * scale,
+          false,
+          1 / 16,
+          { alpha, deformX: 1 - t * 0.12, deformY: 1 + t * 0.22 }
+        ) * 3;
+      }
+      triVerts += pushPolyFan(pos, col, anim.x, anim.y, 0.03 + (1 - t) * 0.05, 6, t * 3.2, 1.0, 1.0, 1.0, 0.16 * (1 - t));
+    }
   }
 
   if (state.shots && state.shots.length){

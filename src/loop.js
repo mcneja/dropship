@@ -228,6 +228,8 @@ export class GameLoop {
     this.popups = [];
     /** @type {Array<{x:number,y:number,vx:number,vy:number,life:number}>} */
     this.shipHitPopups = [];
+    /** @type {Array<import("./types.d.js").PickupAnimation>} */
+    this.pickupAnimations = [];
     /** @type {{x:number,y:number}|null} */
     this.lastAimWorld = null;
     /** @type {{x:number,y:number}|null} */
@@ -257,6 +259,7 @@ export class GameLoop {
     this.MINER_EXPLOSION_DEATH_LIFE = 1.45;
     this.MINER_EXPLOSION_DEATH_SPEED_MIN = 0.5;
     this.MINER_EXPLOSION_DEATH_SPEED_MAX = 1.1;
+    this.PICKUP_ANIMATION_DURATION = 0.18;
 
     /** @type {Miner[]} */
     this.miners = [];
@@ -1135,6 +1138,7 @@ export class GameLoop {
     this.entityExplosions.length = 0;
     this.popups.length = 0;
     this.shipHitPopups.length = 0;
+    this.pickupAnimations.length = 0;
     this.playerShotCooldown = 0;
     this.planet.clearFeatureParticles();
     this.lastAimWorld = null;
@@ -2220,6 +2224,54 @@ export class GameLoop {
   }
 
   /**
+   * @param {"miner"|"pilot"|"engineer"|"health"} kind
+   * @param {number} worldX
+   * @param {number} worldY
+   * @param {number} [toLocalX]
+   * @param {number} [toLocalY]
+   * @returns {void}
+   */
+  _spawnPickupAnimation(kind, worldX, worldY, toLocalX = 0, toLocalY = 0){
+    const local = this._shipLocalPoint(worldX, worldY, this.ship.x, this.ship.y);
+    this.pickupAnimations.push({
+      x: worldX,
+      y: worldY,
+      kind,
+      t: 0,
+      duration: this.PICKUP_ANIMATION_DURATION,
+      fromLocalX: local.x,
+      fromLocalY: local.y,
+      toLocalX,
+      toLocalY,
+    });
+  }
+
+  /**
+   * @param {number} dt
+   * @returns {void}
+   */
+  _updatePickupAnimations(dt){
+    if (!this.pickupAnimations.length) return;
+    const c1 = 1.70158;
+    const c3 = c1 + 1;
+    for (let i = this.pickupAnimations.length - 1; i >= 0; i--){
+      const anim = /** @type {import("./types.d.js").PickupAnimation} */ (this.pickupAnimations[i]);
+      anim.t += dt;
+      const raw = Math.max(0, Math.min(1, anim.t / Math.max(0.001, anim.duration || this.PICKUP_ANIMATION_DURATION)));
+      const u = raw - 1;
+      const eased = 1 + c3 * u * u * u + c1 * u * u;
+      const lx = anim.fromLocalX + (anim.toLocalX - anim.fromLocalX) * eased;
+      const ly = anim.fromLocalY + (anim.toLocalY - anim.fromLocalY) * eased;
+      const world = this._shipWorldPoint(lx, ly, this.ship.x, this.ship.y);
+      anim.x = world.x;
+      anim.y = world.y;
+      if (raw >= 1){
+        this.pickupAnimations.splice(i, 1);
+      }
+    }
+  }
+
+  /**
    * @param {number} dt
    * @returns {void}
    */
@@ -2865,6 +2917,7 @@ export class GameLoop {
       miners: this.miners,
     });
     this.popups.length = 0;
+    this.pickupAnimations.length = 0;
     this.planet.clearFeatureParticles();
 
     if (this.level === 1){
@@ -4384,6 +4437,7 @@ export class GameLoop {
       if (Math.hypot(pickup.x - this.ship.x, pickup.y - this.ship.y) < GAME.SHIP_SCALE){
         const prevHp = this.ship.hpCur;
         this.ship.hpCur = Math.min(this.ship.hpMax, this.ship.hpCur + 1);
+        this._spawnPickupAnimation("health", pickup.x, pickup.y, 0, 0);
         if (this.ship.hpCur > prevHp){
           const r = Math.hypot(pickup.x, pickup.y) || 1;
           const upx = pickup.x / r;
@@ -4410,6 +4464,8 @@ export class GameLoop {
         if (pickup.life <= 0) this.healthPickups.splice(i, 1);
       }
     }
+
+    this._updatePickupAnimations(dt);
 
     const guidepathMargin = Math.max(0.15, GAME.MINER_GUIDE_ATTACH_RADIUS || 0.75);
     const guidepathAttachTolerance = 0.12;
@@ -4636,6 +4692,7 @@ export class GameLoop {
       const boardPastCenterLine = Math.max(minerLocalBody.y, minerLocalHead.y) >= -(GAME.SHIP_SCALE * 0.08);
       const boardAtTarget = !!(boardTarget && Math.hypot(miner.x - boardTarget.x, miner.y - boardTarget.y) <= Math.max(boardAcceptRadius, GAME.SHIP_SCALE * 0.18));
       if (landed && hullDist <= boardAcceptRadius && boardNearShip && (boardPastCenterLine || boardAtTarget)){
+        this._spawnPickupAnimation(miner.type, miner.x, miner.y, 0, 0);
         if (miner.type === "miner"){
           ++this.ship.dropshipMiners;
         } else if (miner.type === "pilot"){
@@ -5217,6 +5274,7 @@ export class GameLoop {
       level: this.level,
       minersDead: this.minersDead,
       healthPickups: dynamicOverlayEnabled ? this.healthPickups : EMPTY_RENDER_ARRAY,
+      pickupAnimations: dynamicOverlayEnabled ? this.pickupAnimations : EMPTY_RENDER_ARRAY,
       enemies: dynamicOverlayEnabled ? this.enemies.enemies : EMPTY_RENDER_ARRAY,
       shots: dynamicOverlayEnabled ? this.enemies.shots : EMPTY_RENDER_ARRAY,
       explosions: dynamicOverlayEnabled ? this.enemies.explosions : EMPTY_RENDER_ARRAY,

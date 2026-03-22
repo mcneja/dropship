@@ -201,6 +201,19 @@
  */
 
 /**
+ * @typedef {Object} PickupAnimation
+ * @property {number} x
+ * @property {number} y
+ * @property {"miner"|"pilot"|"engineer"|"health"} kind
+ * @property {number} t
+ * @property {number} duration
+ * @property {number} fromLocalX
+ * @property {number} fromLocalY
+ * @property {number} toLocalX
+ * @property {number} toLocalY
+ */
+
+/**
  * @typedef {"hunter"|"ranger"|"crawler"|"turret"|"orbitingTurret"} EnemyType
  */
 
@@ -318,6 +331,7 @@
  * @property {number} minersDead
  * @property {number} [minerTarget]
  * @property {Array<HealthPickup>} healthPickups
+ * @property {Array<PickupAnimation>} [pickupAnimations]
  * @property {Array<{x:number,y:number,type:EnemyType,vx?:number,vy?:number,cooldown?:number,hp?:number,hitT?:number,stunT?:number,dir?:number,fuse?:number}>} enemies
  * @property {Array<{x:number,y:number,vx?:number,vy?:number,life?:number,owner:string}>} shots
  * @property {Array<{x:number,y:number,life:number,maxLife?:number,owner:string,radius?:number}>} explosions
