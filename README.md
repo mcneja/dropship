@@ -82,6 +82,16 @@ Useful benchmark params:
 - `bench_start=orbit` or `bench_start=docked`
 - `bench_warmup=3`
 - `bench_duration=20`
+- `perf_max_dpr=1`
+- `perf_disable_msaa=1`
+- `perf_disable_fog=1`
+- `perf_disable_dynamic_overlay=1`
+- `perf_disable_overlay_canvas=1`
+- `perf_disable_hud_layout=1`
+- `perf_disable_enemy_ai=1`
+- `perf_disable_audio_playback=1`
+- `perf_disable_music_playback=1`
+- `perf_disable_sfx_playback=1`
 
 HUD frame-time metrics:
 
@@ -159,6 +169,24 @@ Disable enemy AI/pathing:
 
 ```text
 https://spillz.github.io/dropship-testing/?bench=1&bench_seed=1337&bench_level=3&perf_disable_enemy_ai=1
+```
+
+Disable all audio playback:
+
+```text
+https://spillz.github.io/dropship-testing/?bench=1&bench_seed=1337&bench_level=3&perf_disable_audio_playback=1
+```
+
+Disable music playback only:
+
+```text
+https://spillz.github.io/dropship-testing/?bench=1&bench_seed=1337&bench_level=3&perf_disable_music_playback=1
+```
+
+Disable SFX playback only:
+
+```text
+https://spillz.github.io/dropship-testing/?bench=1&bench_seed=1337&bench_level=3&perf_disable_sfx_playback=1
 ```
 
 ### Comparison Workflow

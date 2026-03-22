@@ -24,6 +24,13 @@ const input = new Input(canvas);
 const bgm = new BackgroundMusic({ volume: 0.35 });
 if (PERF_FLAGS.disableAudioPlayback){
   bgm.setPlaybackBypassed(true);
+} else {
+  if (PERF_FLAGS.disableMusicPlayback){
+    bgm.setMusicEnabled(false);
+  }
+  if (PERF_FLAGS.disableSfxPlayback){
+    bgm.setSfxEnabled(false);
+  }
 }
 const helpPopup = new HelpPopup({
   onToggle: (open) => input.setModalOpen(open),

@@ -51,7 +51,7 @@ const COMBAT_PLAYLIST = [
   combatOrbitalUrl,
 ];
 
-const MUSIC_CROSSFADE_MS = 1400;
+const DEFAULT_MUSIC_CROSSFADE_MS = 1400;
 const COMBAT_TRIGGER_MIN_MS = 24000;
 const COMBAT_TRIGGER_MAX_MS = 48000;
 const COMBAT_RETRIGGER_COOLDOWN_MS = 18000;
@@ -75,11 +75,72 @@ const SFX_MIN_INTERVAL_MS = {
   ship_laser: 70,
   miner_down: 90,
 };
-const WEB_AUDIO_SFX_IDS = Object.freeze(["ship_laser", "enemy_fire"]);
+const DEFAULT_WEB_AUDIO_SFX_IDS = Object.freeze(["ship_laser", "enemy_fire"]);
 /** @type {Readonly<Record<string, number[]>>} */
 const WEB_AUDIO_SFX_VARIANT_RATES = Object.freeze({
   ship_laser: [0.96, 1.0, 1.04],
 });
+
+/**
+ * @returns {{lowOverhead:boolean,useWebAudio:boolean,primeSfx:boolean,preRenderPitchVariants:boolean,musicCrossfadeMs:number,maxSfxPoolSize:number,preloadMode:"auto"|"metadata",musicEnabledByDefault:boolean,thrustLoopMode:"htmlAudio"|"webAudio"}}
+ */
+function detectAudioRuntimeProfile(){
+  const hasAudioContext = typeof window !== "undefined"
+    && !!(window.AudioContext || /** @type {any} */ (window).webkitAudioContext);
+  if (typeof navigator === "undefined"){
+    return {
+      lowOverhead: false,
+      useWebAudio: true,
+      primeSfx: true,
+      preRenderPitchVariants: true,
+      musicCrossfadeMs: DEFAULT_MUSIC_CROSSFADE_MS,
+      maxSfxPoolSize: Number.POSITIVE_INFINITY,
+      preloadMode: "auto",
+      musicEnabledByDefault: true,
+      thrustLoopMode: hasAudioContext ? "webAudio" : "htmlAudio",
+    };
+  }
+  const ua = navigator.userAgent || "";
+  const platform = navigator.platform || "";
+  const maxTouchPoints = Number.isFinite(navigator.maxTouchPoints) ? navigator.maxTouchPoints : 0;
+  const appleMobileWebKit =
+    /AppleWebKit/i.test(ua) &&
+    (/iP(hone|ad|od)/i.test(ua) || (platform === "MacIntel" && maxTouchPoints > 1));
+  if (!appleMobileWebKit){
+    return {
+      lowOverhead: false,
+      useWebAudio: true,
+      primeSfx: true,
+      preRenderPitchVariants: true,
+      musicCrossfadeMs: DEFAULT_MUSIC_CROSSFADE_MS,
+      maxSfxPoolSize: Number.POSITIVE_INFINITY,
+      preloadMode: "auto",
+      musicEnabledByDefault: true,
+      thrustLoopMode: hasAudioContext ? "webAudio" : "htmlAudio",
+    };
+  }
+  return {
+    lowOverhead: true,
+    useWebAudio: false,
+    primeSfx: false,
+    preRenderPitchVariants: false,
+    musicCrossfadeMs: 120,
+    maxSfxPoolSize: 2,
+    preloadMode: "metadata",
+    musicEnabledByDefault: true,
+    thrustLoopMode: hasAudioContext ? "webAudio" : "htmlAudio",
+  };
+}
+
+/**
+ * @param {{maxSfxPoolSize:number}} profile
+ * @param {keyof typeof SFX_POOL_SIZE} id
+ * @returns {number}
+ */
+function runtimeSfxPoolSize(profile, id){
+  const base = SFX_POOL_SIZE[id] || DEFAULT_SFX_POOL_SIZE;
+  return Math.max(1, Math.min(base, profile.maxSfxPoolSize));
+}
 
 const SFX_PLACEHOLDER_URLS = {
   ship_laser: pistol256Url,
@@ -133,10 +194,12 @@ export class BackgroundMusic {
     const volume = opts && typeof opts.volume === "number" ? opts.volume : 0.35;
     const persisted = loadAudioSettings();
     this.musicVolume = clampUnit(persisted ? persisted.musicVolume : volume);
+    this.runtimeProfile = detectAudioRuntimeProfile();
 
-    this.enabled = true;
+    this.enabled = this.runtimeProfile.musicEnabledByDefault;
     this.sfxEnabled = true;
     this.playbackBypassed = false;
+    this.musicCrossfadeMs = this.runtimeProfile.musicCrossfadeMs;
     this.sfxMasterVolume = clampUnit(persisted ? persisted.sfxMasterVolume : 0.7);
     this.combatMusicEnabled = true;
     /** @type {AudioContext|null} */
@@ -148,7 +211,10 @@ export class BackgroundMusic {
     /** @type {Map<SfxId, Promise<AudioBuffer|null>>} */
     this.webAudioBufferPromises = new Map();
     /** @type {Set<SfxId>} */
-    this.webAudioSfxIds = new Set(/** @type {SfxId[]} */ (WEB_AUDIO_SFX_IDS));
+    this.webAudioSfxIds = new Set(this.runtimeProfile.useWebAudio ? /** @type {SfxId[]} */ (DEFAULT_WEB_AUDIO_SFX_IDS) : []);
+    if (this.runtimeProfile.thrustLoopMode === "webAudio"){
+      this.webAudioSfxIds.add("ship_thrust_loop");
+    }
 
     this.audioUnlocked = false;
     this.sfxPrimed = false;
@@ -164,29 +230,34 @@ export class BackgroundMusic {
 
     this.audio = new Audio(AMBIENT_PLAYLIST[0]);
     this.audio.loop = false;
-    this.audio.preload = "auto";
+    this.audio.preload = this.runtimeProfile.preloadMode;
     this.audio.volume = this.musicVolume;
     this.audio.addEventListener("ended", () => this._onAmbientEnded());
 
     this.combatAudio = new Audio();
     this.combatAudio.loop = false;
-    this.combatAudio.preload = "auto";
+    this.combatAudio.preload = this.runtimeProfile.preloadMode;
     this.combatAudio.volume = 0;
     this.combatAudio.addEventListener("ended", () => this._onCombatEnded());
 
     this.victoryAudio = new Audio(victoryMusicUrl);
     this.victoryAudio.loop = false;
-    this.victoryAudio.preload = "auto";
+    this.victoryAudio.preload = this.runtimeProfile.preloadMode;
     this.victoryAudio.volume = 0;
     this.victoryAudio.addEventListener("ended", () => this._onVictoryEnded());
 
     this.thrustLoopRequested = false;
     this.thrustLoopAudible = false;
+    this.thrustLoopTargetVolume = 0;
+    /** @type {AudioBufferSourceNode|null} */
+    this.thrustLoopSourceNode = null;
+    /** @type {GainNode|null} */
+    this.thrustLoopGainNode = null;
     const thrustTemplateUrl = SFX_PLACEHOLDER_URLS.ship_thrust_loop;
-    this.thrustLoopAudio = thrustTemplateUrl ? new Audio(thrustTemplateUrl) : null;
+    this.thrustLoopAudio = (thrustTemplateUrl && this.runtimeProfile.thrustLoopMode === "htmlAudio") ? new Audio(thrustTemplateUrl) : null;
     if (this.thrustLoopAudio){
       this.thrustLoopAudio.loop = true;
-      this.thrustLoopAudio.preload = "auto";
+      this.thrustLoopAudio.preload = this.runtimeProfile.preloadMode;
       this.thrustLoopAudio.volume = 0;
     }
 
@@ -204,12 +275,12 @@ export class BackgroundMusic {
       if (id === "ship_thrust_loop") continue;
       const typedId = /** @type {SfxId} */ (id);
       const typedPoolId = /** @type {keyof typeof SFX_POOL_SIZE} */ (id);
-      const voiceCount = (SFX_POOL_SIZE[typedPoolId] || DEFAULT_SFX_POOL_SIZE);
+      const voiceCount = runtimeSfxPoolSize(this.runtimeProfile, typedPoolId);
       /** @type {HTMLAudioElement[]} */
       const voices = [];
       for (let i = 0; i < voiceCount; i++){
         const el = new Audio(url);
-        el.preload = "auto";
+        el.preload = this.runtimeProfile.preloadMode;
         voices.push(el);
       }
       this.sfxPools.set(typedId, { voices, next: 0 });
@@ -220,11 +291,14 @@ export class BackgroundMusic {
       this._detachGestureListeners();
       this._initWebAudioContext();
       this._preloadWebAudioSfx();
-      this._playModeIfEnabled();
-      if (!this.playbackBypassed){
-        this._primeSfx();
-        this._flushPendingSfx();
+      if (this.runtimeProfile.thrustLoopMode === "webAudio"){
+        this._ensureWebAudioBuffer("ship_thrust_loop");
       }
+      this._playModeIfEnabled();
+      if (!this.playbackBypassed && this.runtimeProfile.primeSfx){
+        this._primeSfx();
+      }
+      this._flushPendingSfx();
       this._syncThrustLoopPlayback();
     };
 
@@ -390,6 +464,9 @@ export class BackgroundMusic {
    * @returns {Promise<AudioBuffer[]>}
    */
   async _buildWebAudioVariants(id, baseBuffer){
+    if (!this.runtimeProfile.preRenderPitchVariants){
+      return [baseBuffer];
+    }
     const rates = WEB_AUDIO_SFX_VARIANT_RATES[id];
     if (!Array.isArray(rates) || rates.length <= 1){
       return [baseBuffer];
@@ -557,6 +634,7 @@ export class BackgroundMusic {
         voice.currentTime = 0;
       }
     });
+    this._stopWebAudioThrustLoop(true);
     if (this.thrustLoopAudio){
       this._cancelFade(this.thrustLoopAudio);
       this.thrustLoopAudio.pause();
@@ -564,6 +642,107 @@ export class BackgroundMusic {
       this.thrustLoopAudio.volume = 0;
     }
     this.thrustLoopAudible = false;
+  }
+
+  /**
+   * @param {boolean} immediate
+   * @returns {void}
+   */
+  _stopWebAudioThrustLoop(immediate){
+    const source = this.thrustLoopSourceNode;
+    const gain = this.thrustLoopGainNode;
+    if (!source || !gain){
+      this.thrustLoopSourceNode = null;
+      this.thrustLoopGainNode = null;
+      this.thrustLoopTargetVolume = 0;
+      return;
+    }
+    const ctx = this.webAudioCtx;
+    const now = ctx ? ctx.currentTime : 0;
+    try {
+      gain.gain.cancelScheduledValues(now);
+      if (immediate || !ctx){
+        gain.gain.value = 0;
+        source.stop();
+      } else {
+        gain.gain.setValueAtTime(gain.gain.value, now);
+        gain.gain.linearRampToValueAtTime(0, now + THRUST_LOOP_FADE_OUT_MS / 1000);
+        source.stop(now + THRUST_LOOP_FADE_OUT_MS / 1000 + 0.05);
+      }
+    } catch (_err){
+      try { source.stop(); } catch (_stopErr){}
+    }
+    this.thrustLoopSourceNode = null;
+    this.thrustLoopGainNode = null;
+    this.thrustLoopTargetVolume = 0;
+  }
+
+  /**
+   * @param {number} targetVolume
+   * @returns {void}
+   */
+  _setWebAudioThrustGain(targetVolume){
+    const gain = this.thrustLoopGainNode;
+    const ctx = this.webAudioCtx;
+    if (!gain || !ctx) return;
+    const clamped = Math.max(0, Math.min(1, targetVolume));
+    if (Math.abs(clamped - this.thrustLoopTargetVolume) <= 0.001) return;
+    const now = ctx.currentTime;
+    gain.gain.cancelScheduledValues(now);
+    gain.gain.setValueAtTime(gain.gain.value, now);
+    gain.gain.linearRampToValueAtTime(clamped, now + 0.05);
+    this.thrustLoopTargetVolume = clamped;
+  }
+
+  /**
+   * @param {number} targetVolume
+   * @returns {void}
+   */
+  _ensureWebAudioThrustLoop(targetVolume){
+    if (this.thrustLoopSourceNode && this.thrustLoopGainNode){
+      this._setWebAudioThrustGain(targetVolume);
+      return;
+    }
+    const ctx = this._initWebAudioContext();
+    if (!ctx) return;
+    const buffer = this.webAudioBuffers.get("ship_thrust_loop") || null;
+    if (!buffer){
+      this._ensureWebAudioBuffer("ship_thrust_loop");
+      return;
+    }
+    try {
+      if (ctx.state === "suspended"){
+        const maybe = ctx.resume();
+        if (maybe && typeof maybe.then === "function"){
+          maybe.catch(() => {});
+        }
+      }
+      const source = ctx.createBufferSource();
+      const gain = ctx.createGain();
+      source.buffer = buffer;
+      source.loop = true;
+      gain.gain.value = 0;
+      source.connect(gain);
+      gain.connect(ctx.destination);
+      source.onended = () => {
+        if (this.thrustLoopSourceNode === source){
+          this.thrustLoopSourceNode = null;
+          this.thrustLoopGainNode = null;
+          this.thrustLoopTargetVolume = 0;
+        }
+        source.disconnect();
+        gain.disconnect();
+      };
+      source.start(0);
+      this.thrustLoopSourceNode = source;
+      this.thrustLoopGainNode = gain;
+      this.thrustLoopTargetVolume = 0;
+      this._setWebAudioThrustGain(targetVolume);
+    } catch (_err){
+      this.thrustLoopSourceNode = null;
+      this.thrustLoopGainNode = null;
+      this.thrustLoopTargetVolume = 0;
+    }
   }
 
   /**
@@ -648,15 +827,15 @@ export class BackgroundMusic {
     this.combatAudio.volume = 0;
 
     this._playCombatIfEnabled();
-    this._fadeAudio(this.audio, 0, MUSIC_CROSSFADE_MS, () => {
+    this._fadeAudio(this.audio, 0, this.musicCrossfadeMs, () => {
       this.audio.pause();
       this.audio.volume = this.musicVolume;
     });
-    this._fadeAudio(this.victoryAudio, 0, MUSIC_CROSSFADE_MS, () => {
+    this._fadeAudio(this.victoryAudio, 0, this.musicCrossfadeMs, () => {
       this.victoryAudio.pause();
       this.victoryAudio.currentTime = 0;
     });
-    this._fadeAudio(this.combatAudio, this.musicVolume, MUSIC_CROSSFADE_MS);
+    this._fadeAudio(this.combatAudio, this.musicVolume, this.musicCrossfadeMs);
     return true;
   }
 
@@ -679,15 +858,15 @@ export class BackgroundMusic {
     this._cancelAllFades();
     this.audio.volume = 0;
     this._playAmbientIfEnabled();
-    this._fadeAudio(this.combatAudio, 0, MUSIC_CROSSFADE_MS, () => {
+    this._fadeAudio(this.combatAudio, 0, this.musicCrossfadeMs, () => {
       this.combatAudio.pause();
       this.combatAudio.currentTime = 0;
     });
-    this._fadeAudio(this.victoryAudio, 0, MUSIC_CROSSFADE_MS, () => {
+    this._fadeAudio(this.victoryAudio, 0, this.musicCrossfadeMs, () => {
       this.victoryAudio.pause();
       this.victoryAudio.currentTime = 0;
     });
-    this._fadeAudio(this.audio, this.musicVolume, MUSIC_CROSSFADE_MS);
+    this._fadeAudio(this.audio, this.musicVolume, this.musicCrossfadeMs);
   }
 
   /**
@@ -764,15 +943,15 @@ export class BackgroundMusic {
     this.victoryAudio.currentTime = 0;
     this.victoryAudio.volume = this.audioUnlocked ? 0 : this.musicVolume;
     this._playVictoryIfEnabled();
-    this._fadeAudio(this.audio, 0, MUSIC_CROSSFADE_MS, () => {
+    this._fadeAudio(this.audio, 0, this.musicCrossfadeMs, () => {
       this.audio.pause();
       this.audio.volume = this.musicVolume;
     });
-    this._fadeAudio(this.combatAudio, 0, MUSIC_CROSSFADE_MS, () => {
+    this._fadeAudio(this.combatAudio, 0, this.musicCrossfadeMs, () => {
       this.combatAudio.pause();
       this.combatAudio.currentTime = 0;
     });
-    this._fadeAudio(this.victoryAudio, this.musicVolume, MUSIC_CROSSFADE_MS);
+    this._fadeAudio(this.victoryAudio, this.musicVolume, this.musicCrossfadeMs);
     return true;
   }
 
@@ -788,9 +967,18 @@ export class BackgroundMusic {
    * @returns {void}
    */
   _syncThrustLoopPlayback(){
-    if (!this.thrustLoopAudio) return;
     const shouldPlay = !this.playbackBypassed && this.sfxEnabled && this.thrustLoopRequested && !document.hidden;
     const targetVolume = Math.max(0, Math.min(1, this.sfxMasterVolume * THRUST_LOOP_GAIN));
+    if (this.runtimeProfile.thrustLoopMode === "webAudio"){
+      this.thrustLoopAudible = shouldPlay;
+      if (shouldPlay){
+        this._ensureWebAudioThrustLoop(targetVolume);
+      } else {
+        this._stopWebAudioThrustLoop(false);
+      }
+      return;
+    }
+    if (!this.thrustLoopAudio) return;
     if (shouldPlay === this.thrustLoopAudible){
       if (shouldPlay){
         if (this.thrustLoopAudio.paused){
@@ -834,6 +1022,7 @@ export class BackgroundMusic {
    */
   _primeSfx(){
     if (this.playbackBypassed) return;
+    if (!this.runtimeProfile.primeSfx) return;
     if (this.sfxPrimed) return;
     this.sfxPrimed = true;
     this.sfxPools.forEach((pool) => {
@@ -963,6 +1152,21 @@ export class BackgroundMusic {
   }
 
   /**
+   * @param {boolean} enabled
+   * @returns {boolean}
+   */
+  setSfxEnabled(enabled){
+    this.sfxEnabled = !!enabled;
+    if (!this.sfxEnabled){
+      this.pendingSfx.length = 0;
+      this._stopAllSfxPlayback();
+    } else {
+      this._syncThrustLoopPlayback();
+    }
+    return this.sfxEnabled;
+  }
+
+  /**
    * @returns {ReadonlyArray<{id:string,priority:number,trigger:string,placeholderFile:string}>}
    */
   listImportantSfx(){
@@ -1031,6 +1235,21 @@ export class BackgroundMusic {
     }
     this._syncThrustLoopPlayback();
     return !this.enabled;
+  }
+
+  /**
+   * @param {boolean} enabled
+   * @returns {boolean}
+   */
+  setMusicEnabled(enabled){
+    this.enabled = !!enabled;
+    if (this.enabled){
+      this._playModeIfEnabled();
+    } else {
+      this._cancelAllFades();
+      this._pauseAllMusic();
+    }
+    return this.enabled;
   }
 
   /**
