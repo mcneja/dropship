@@ -3,7 +3,7 @@
 /** @typedef {import("./types.d.js").Point} Point */
 /** @typedef {import("./types.d.js").InputState} InputState */
 
-import { TOUCH_UI, TOUCH_START_PROMPT, GAME } from "./config.js";
+import { TOUCH_UI, GAME } from "./config.js";
 
 const KEY_LEFT = new Set(["ArrowLeft", "a", "A"]);
 const KEY_RIGHT = new Set(["ArrowRight", "d", "D"]);
@@ -18,31 +18,62 @@ function ensureTouchDockStyles(){
   const style = document.createElement("style");
   style.id = "touch-dock-style";
   style.textContent = `
+    #touch-action-toggle,
     #touch-launch-toggle {
       position: fixed;
-      left: calc(50% - 58px);
       bottom: max(calc(env(safe-area-inset-bottom) + 16px), 9dvh);
-      width: 42px;
       height: 42px;
       border-radius: 999px;
-      border: 1px solid rgba(120, 230, 255, 0.98);
-      background: rgba(10, 18, 28, 0.9);
-      color: rgba(220, 245, 255, 1);
       display: none;
       place-items: center;
       z-index: 45;
-      font: 800 21px/1 "Science Gothic", ui-sans-serif, system-ui, sans-serif;
       text-shadow: 0 1px 3px rgba(0,0,0,0.7);
       box-shadow: 0 3px 12px rgba(0,0,0,0.35);
       padding: 0;
       pointer-events: auto;
       touch-action: manipulation;
     }
+    #touch-launch-toggle {
+      left: calc(50% - 104px);
+      width: 42px;
+      border: 1px solid rgba(120, 230, 255, 0.98);
+      background: rgba(10, 18, 28, 0.9);
+      color: rgba(220, 245, 255, 1);
+      font: 800 21px/1 "Science Gothic", ui-sans-serif, system-ui, sans-serif;
+    }
     #touch-launch-toggle.touch-launch-visible { display: grid; }
     #touch-launch-toggle.touch-launch-holding {
       background: rgba(32, 78, 104, 0.96);
       border-color: rgba(168, 242, 255, 1);
       box-shadow: 0 0 16px rgba(96, 220, 255, 0.35);
+    }
+    #touch-action-toggle {
+      left: calc(50% - 28px);
+      min-width: 56px;
+      padding: 0 14px;
+      border: 1px solid rgba(255, 215, 110, 0.98);
+      background: rgba(18, 16, 24, 0.92);
+      color: rgba(255, 240, 190, 1);
+      font: 800 13px/1 "Science Gothic", ui-sans-serif, system-ui, sans-serif;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    #touch-action-toggle.touch-action-visible { display: grid; }
+    #touch-action-toggle.touch-action-map {
+      border-color: rgba(120, 210, 255, 0.98);
+      color: rgba(205, 236, 255, 1);
+    }
+    #touch-action-toggle.touch-action-next {
+      border-color: rgba(120, 255, 190, 0.98);
+      color: rgba(210, 255, 230, 1);
+    }
+    #touch-action-toggle.touch-action-upgrade {
+      border-color: rgba(255, 215, 110, 0.98);
+      color: rgba(255, 240, 190, 1);
+    }
+    #touch-action-toggle.touch-action-restart {
+      border-color: rgba(255, 150, 110, 0.98);
+      color: rgba(255, 215, 190, 1);
     }
   `;
   document.head.appendChild(style);
@@ -66,8 +97,6 @@ export class Input {
     this.laserControl = { id: null, pos: null, start: null, center: null };
     /** @type {{id:number|null,pos:Point|null,start:Point|null,center:Point|null}} */
     this.bombControl = { id: null, pos: null, start: null, center: null };
-    /** @type {{id:number|null,downAt:number,triggered:boolean}} */
-    this.startControl = { id: null, downAt: 0, triggered: false };
     /** @type {{id:number|null,downAt:number,triggered:boolean}} */
     this.touchRestartControl = { id: null, downAt: 0, triggered: false };
 
@@ -144,11 +173,11 @@ export class Input {
     /** @type {boolean} */
     this.modalOpen = false;
     /** @type {boolean} */
-    this.touchStartPromptActive = false;
-    /** @type {boolean} */
     this.debugCommandsEnabled = false;
     /** @type {HTMLButtonElement|null} */
     this.touchRestartButton = null;
+    /** @type {HTMLButtonElement|null} */
+    this.touchActionButton = null;
     /** @type {HTMLButtonElement|null} */
     this.touchLaunchButton = null;
     /** @type {number|null} */
@@ -157,6 +186,8 @@ export class Input {
     this.touchDocked = false;
     /** @type {boolean} */
     this.touchPerkChoiceActive = false;
+    /** @type {"respawnShip"|"restartGame"|"upgrade"|"nextLevel"|"viewMap"|"exitMap"|null} */
+    this.touchActionMode = null;
 
     ensureTouchDockStyles();
     window.addEventListener("keydown", (e) => this._onKeyDown(e), { passive: false });
@@ -222,9 +253,6 @@ export class Input {
       this.bombControl.pos = null;
       this.bombControl.start = null;
       this.bombControl.center = null;
-      this.startControl.id = null;
-      this.startControl.downAt = 0;
-      this.startControl.triggered = false;
       this._clearTouchRestartControl();
       this._clearTouchLaunchControl();
       this.mouseShootHeld = false;
@@ -283,9 +311,6 @@ export class Input {
     this.bombControl.pos = null;
     this.bombControl.start = null;
     this.bombControl.center = null;
-    this.startControl.id = null;
-    this.startControl.downAt = 0;
-    this.startControl.triggered = false;
     this._clearTouchRestartControl();
     this._clearTouchLaunchControl();
     this.mouseShootHeld = false;
@@ -301,11 +326,12 @@ export class Input {
   }
 
   /**
-   * @param {boolean} active
+   * @param {"respawnShip"|"restartGame"|"upgrade"|"nextLevel"|"viewMap"|"exitMap"|null} mode
    * @returns {void}
    */
-  setTouchStartPromptActive(active){
-    this.touchStartPromptActive = !!active;
+  setTouchActionMode(mode){
+    this.touchActionMode = mode;
+    this._updateTouchDockButtonVisual();
   }
 
   /**
@@ -394,6 +420,38 @@ export class Input {
   /**
    * @returns {HTMLButtonElement|null}
    */
+  _ensureTouchActionButton(){
+    if (typeof document === "undefined" || !document.body) return null;
+    const existing = document.getElementById("touch-action-toggle");
+    if (existing && existing.parentElement){
+      existing.parentElement.removeChild(existing);
+    }
+    const button = document.createElement("button");
+    button.id = "touch-action-toggle";
+    button.type = "button";
+    button.setAttribute("aria-label", "Primary docked action");
+    button.textContent = "GO";
+    button.addEventListener("pointerdown", (e) => {
+      if (this.modalOpen) return;
+      if (e.pointerType !== "touch") return;
+      if (!this.touchActionMode) return;
+      e.preventDefault();
+      e.stopPropagation();
+      this.lastInputType = "touch";
+    });
+    button.addEventListener("click", (e) => {
+      e.preventDefault();
+      if (!this.touchActionMode) return;
+      this.oneshot.reset = true;
+    });
+    button.addEventListener("contextmenu", (e) => e.preventDefault());
+    document.body.appendChild(button);
+    return button;
+  }
+
+  /**
+   * @returns {HTMLButtonElement|null}
+   */
   _ensureTouchLaunchButton(){
     if (typeof document === "undefined" || !document.body) return null;
     const existing = document.getElementById("touch-launch-toggle");
@@ -404,7 +462,7 @@ export class Input {
     button.id = "touch-launch-toggle";
     button.type = "button";
     button.setAttribute("aria-label", "Launch from mothership");
-    button.textContent = "^";
+    button.textContent = "▲";
     button.addEventListener("pointerdown", (e) => {
       if (this.modalOpen) return;
       if (e.pointerType !== "touch") return;
@@ -475,6 +533,35 @@ export class Input {
    */
   _updateTouchDockButtonVisual(){
     const showDocked = !!(this.touchDocked && this.lastInputType === "touch" && !this.modalOpen && !this.gameOver);
+    const showAction = !!(showDocked && this.touchActionMode);
+    if (this.touchActionButton){
+      const mode = this.touchActionMode;
+      let label = "GO";
+      let modeClass = "touch-action-upgrade";
+      if (mode === "upgrade"){
+        label = "UP";
+        modeClass = "touch-action-upgrade";
+      } else if (mode === "nextLevel"){
+        label = "GO";
+        modeClass = "touch-action-next";
+      } else if (mode === "viewMap"){
+        label = "MAP";
+        modeClass = "touch-action-map";
+      } else if (mode === "exitMap"){
+        label = "BACK";
+        modeClass = "touch-action-map";
+      } else if (mode === "restartGame"){
+        label = "NEW";
+        modeClass = "touch-action-restart";
+      } else if (mode === "respawnShip"){
+        label = "SHIP";
+        modeClass = "touch-action-restart";
+      }
+      this.touchActionButton.textContent = label;
+      this.touchActionButton.classList.toggle("touch-action-visible", showAction);
+      this.touchActionButton.classList.remove("touch-action-upgrade", "touch-action-next", "touch-action-map", "touch-action-restart");
+      if (showAction) this.touchActionButton.classList.add(modeClass);
+    }
     if (this.touchLaunchButton){
       this.touchLaunchButton.classList.toggle("touch-launch-visible", showDocked);
       this.touchLaunchButton.classList.toggle("touch-launch-holding", this.touchLaunchPointerId !== null);
@@ -699,12 +786,6 @@ export class Input {
     this.lastInputType = "touch";
     const p = this._pointerPos(e);
     this.canvas.setPointerCapture(e.pointerId);
-    if (this.touchStartPromptActive && this._inCircle(p, TOUCH_START_PROMPT, TOUCH_START_PROMPT.r)){
-      this.startControl.id = e.pointerId;
-      this.startControl.downAt = performance.now();
-      this.startControl.triggered = false;
-      return;
-    }
     if (this.touchPerkChoiceActive && p.y >= TOUCH_PERK_CHOICE_TOP && p.y <= TOUCH_PERK_CHOICE_BOTTOM){
       if (p.x < 0.5) this.oneshot.perkLeft = true;
       else this.oneshot.perkRight = true;
@@ -781,16 +862,6 @@ export class Input {
       }
       this.mouseShootHeld = !!(e.buttons & 1);
       this.lastInputType = "mouse";
-      return;
-    }
-    if (this.startControl.id === e.pointerId){
-      const cancelled = e.type === "pointercancel";
-      if (!cancelled && !this.startControl.triggered){
-        this.oneshot.reset = true;
-      }
-      this.startControl.id = null;
-      this.startControl.downAt = 0;
-      this.startControl.triggered = false;
       return;
     }
     if (this.leftControl.id === e.pointerId){
@@ -1053,6 +1124,9 @@ export class Input {
   update(){
     if (!this.touchRestartButton){
       this.touchRestartButton = this._ensureTouchRestartButton();
+    }
+    if (!this.touchActionButton){
+      this.touchActionButton = this._ensureTouchActionButton();
     }
     if (!this.touchLaunchButton){
       this.touchLaunchButton = this._ensureTouchLaunchButton();

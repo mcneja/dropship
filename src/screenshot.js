@@ -153,8 +153,6 @@ export async function copyGameplayScreenshotToClipboard(opts){
     debugRingVertices: false,
     showGameplayIndicators: false,
     touchUi: null,
-    touchStart: false,
-    touchStartMode: null,
   } : null;
 
   const canvas = buildScreenshotCanvas({

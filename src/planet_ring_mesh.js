@@ -189,6 +189,7 @@ export class RingMesh {
     this._fogSeen = new Uint8Array(total);
     this._fogHold = new Uint8Array(total);
     this._fogAlpha.fill(this._fogUnseenAlpha);
+    this._coreOverlaySeen = false;
     const triIndexOf = new Map();
     let idx = 0;
     for (const band of this.bandTris){
@@ -808,6 +809,30 @@ export class RingMesh {
   }
 
   /**
+   * @param {number} coreRadius
+   * @param {number} moltenOuterRadius
+   * @returns {boolean}
+   */
+  hasSeenCoreOverlay(coreRadius, moltenOuterRadius){
+    if (!(coreRadius > 0)) return false;
+    if (this._coreOverlaySeen) return true;
+    if (!this._fogSeen || !this._triCentroids || !this._triCentroids.length) return true;
+    const baseOuter = moltenOuterRadius > coreRadius ? moltenOuterRadius : (coreRadius + 0.8);
+    const revealOuterR = Math.max(coreRadius + 0.5, baseOuter + 0.5);
+    const revealOuterR2 = revealOuterR * revealOuterR;
+    for (let idx = 0; idx < this._fogSeen.length; idx++){
+      if (!this._fogSeen[idx]) continue;
+      const base = idx * 2;
+      const cx = /** @type {number} */ (this._triCentroids[base]);
+      const cy = /** @type {number} */ (this._triCentroids[base + 1]);
+      if ((cx * cx + cy * cy) > revealOuterR2) continue;
+      this._coreOverlaySeen = true;
+      return true;
+    }
+    return false;
+  }
+
+  /**
    * Seed the outermost mesh band as explored after level generation.
    * This does not mark it currently visible.
    * @returns {void}
@@ -871,6 +896,7 @@ export class RingMesh {
     this._fogVisible.set(state.visible);
     this._fogSeen.set(state.seen);
     this._fogHold.set(state.hold);
+    this._coreOverlaySeen = false;
     const count = this._fogVisible.length;
     const nextCursor = Math.max(0, Math.min(count, state.cursor | 0));
     this._fogCursor = (nextCursor >= count) ? 0 : nextCursor;

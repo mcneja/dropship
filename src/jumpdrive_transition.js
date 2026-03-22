@@ -626,8 +626,6 @@ export class JumpdriveTransition {
     const nextState = cloneRenderState(state);
     nextState.showGameplayIndicators = false;
     nextState.touchUi = null;
-    nextState.touchStart = false;
-    nextState.touchStartMode = null;
     nextState.aimWorld = null;
     nextState.aimOrigin = null;
     nextState.ship = shipDockPoseForMothership(

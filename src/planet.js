@@ -2877,6 +2877,21 @@ export class Planet {
   }
 
   /**
+   * @returns {boolean}
+   */
+  hasSeenCoreOverlay(){
+    const coreR = this.getCoreRadius ? this.getCoreRadius() : 0;
+    if (!(coreR > 0)) return false;
+    const params = this.getPlanetParams ? this.getPlanetParams() : null;
+    const moltenOuter = params && typeof params.MOLTEN_RING_OUTER === "number"
+      ? params.MOLTEN_RING_OUTER
+      : 0;
+    return !this.radial || typeof this.radial.hasSeenCoreOverlay !== "function"
+      ? true
+      : this.radial.hasSeenCoreOverlay(coreR, moltenOuter);
+  }
+
+  /**
    * @param {number} x
    * @param {number} y
    * @returns {number}

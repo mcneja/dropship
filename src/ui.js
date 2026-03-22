@@ -192,6 +192,7 @@ export function updateMothershipDashboard(root, stats){
   } else {
     root.classList.toggle("dashboard-open", false);
     root.setAttribute("aria-hidden", "true");
+    syncDashboardViewportState(root, state, false);
     if (state.open && !state.hideTimer){
       state.hideTimer = window.setTimeout(() => {
         root.style.display = "none";
@@ -204,6 +205,7 @@ export function updateMothershipDashboard(root, stats){
     return;
   }
   state.open = true;
+  syncDashboardViewportState(root, state, true);
 
   renderDashboardRows(state.shipRows, stats.shipRows || [], state, "shipRowsKey");
   renderDashboardStatsTable(state.statsBody, stats.statsRows || [], state);
@@ -246,6 +248,8 @@ export function scrollMothershipDashboard(root, deltaY){
  *   missionStatus:HTMLElement,
  *   leftScroll:HTMLElement,
  *   rightScroll:HTMLElement,
+ *   leftPanel:HTMLElement,
+ *   rightPanel:HTMLElement,
  *   planetCanvas:HTMLCanvasElement,
  *   planetLabel:HTMLElement,
  *   planetNote:HTMLElement,
@@ -253,6 +257,7 @@ export function scrollMothershipDashboard(root, deltaY){
  *   hideTimer:number,
  *   shipRowsKey:string,
  *   statsTableKey:string,
+ *   centerWidth:number,
  * }}
  */
 function ensureMothershipDashboard(root){
@@ -310,6 +315,8 @@ function ensureMothershipDashboard(root){
     missionStatus: /** @type {HTMLElement} */ (root.querySelector(".dashboard-mission-status")),
     leftScroll: /** @type {HTMLElement} */ (root.querySelector(".dashboard-left-scroll")),
     rightScroll: /** @type {HTMLElement} */ (root.querySelector(".dashboard-text-scroll")),
+    leftPanel: /** @type {HTMLElement} */ (root.querySelector(".dashboard-panel-left")),
+    rightPanel: /** @type {HTMLElement} */ (root.querySelector(".dashboard-panel-right")),
     planetCanvas: /** @type {HTMLCanvasElement} */ (root.querySelector(".dashboard-planet-canvas")),
     planetLabel: /** @type {HTMLElement} */ (root.querySelector(".dashboard-planet-label")),
     planetNote: /** @type {HTMLElement} */ (root.querySelector(".dashboard-planet-note")),
@@ -317,9 +324,41 @@ function ensureMothershipDashboard(root){
     hideTimer: 0,
     shipRowsKey: "",
     statsTableKey: "",
+    centerWidth: 0,
   };
   dashboardStateByRoot.set(root, state);
   return state;
+}
+
+/**
+ * @param {HTMLElement} root
+ * @param {{leftPanel:HTMLElement,rightPanel:HTMLElement,open:boolean,centerWidth:number}} state
+ * @param {boolean} open
+ * @returns {void}
+ */
+function syncDashboardViewportState(root, state, open){
+  if (typeof document === "undefined" || !document.body) return;
+  const body = document.body;
+  body.classList.toggle("dashboard-visible", !!open);
+  if (!open){
+    state.centerWidth = 0;
+    body.style.removeProperty("--dashboard-center-width");
+    return;
+  }
+  const rootRect = root.getBoundingClientRect();
+  const leftWidth = state.leftPanel.getBoundingClientRect().width;
+  const rightWidth = state.rightPanel.getBoundingClientRect().width;
+  const rootStyle = window.getComputedStyle(root);
+  const gap = parseFloat(rootStyle.columnGap || rootStyle.gap || "0") || 0;
+  const padLeft = parseFloat(rootStyle.paddingLeft || "0") || 0;
+  const padRight = parseFloat(rootStyle.paddingRight || "0") || 0;
+  const centerWidth = Math.max(
+    96,
+    Math.round(rootRect.width - padLeft - padRight - leftWidth - rightWidth - gap - 24)
+  );
+  if (centerWidth === state.centerWidth) return;
+  state.centerWidth = centerWidth;
+  body.style.setProperty("--dashboard-center-width", `${centerWidth}px`);
 }
 
 /**
@@ -446,10 +485,6 @@ function ensureMothershipDashboardStyles(){
     #mothership-dashboard.dashboard-open .dashboard-panel-left,
     #mothership-dashboard.dashboard-open .dashboard-panel-right {
       transform: translateX(0) scale(1);
-    }
-    body.help-touch-visible #mothership-dashboard .dashboard-panel-left {
-      margin-left: 74px;
-      width: min(calc(100% - 74px), 500px);
     }
     #mothership-dashboard .dashboard-header {
       padding: 10px 12px 8px;
@@ -676,11 +711,6 @@ function ensureMothershipDashboardStyles(){
       #mothership-dashboard .dashboard-stats-table td {
         padding: 5px 6px;
       }
-      body.help-touch-visible #mothership-dashboard .dashboard-panel-left {
-        margin-left: 62px;
-        width: min(calc(33vw - 62px), 240px);
-        min-width: 128px;
-      }
     }
     @media (max-width: 860px) {
       #mothership-dashboard {
@@ -696,10 +726,6 @@ function ensureMothershipDashboardStyles(){
         width: min(34vw, 200px);
         min-width: 132px;
         max-height: calc(100dvh - var(--ui-top) - var(--ui-bottom) - 8px);
-      }
-      body.help-touch-visible #mothership-dashboard .dashboard-panel-left {
-        margin-left: 0;
-        width: min(34vw, 200px);
       }
     }
   `;

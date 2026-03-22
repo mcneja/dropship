@@ -4768,8 +4768,9 @@ export class GameLoop {
     const transitionActive = this.jumpdriveTransition.isActive();
     const dockedNow = this._isDockedWithMothership();
     const touchStartActionMode = transitionActive ? null : this._touchStartActionMode();
-    const touchStartPromptActive = touchStartActionMode !== null;
-    this.input.setTouchStartPromptActive(touchStartPromptActive);
+    if (this.input && typeof this.input.setTouchActionMode === "function"){
+      this.input.setTouchActionMode(touchStartActionMode);
+    }
     if (this.input && typeof this.input.setTouchDocked === "function"){
       this.input.setTouchDocked(!transitionActive && dockedNow);
     }
@@ -4803,7 +4804,6 @@ export class GameLoop {
     const fixed = 1 / 60;
     const stepFrame = !!(this.debugFrameStepMode && inputState.stepFrame && !helpOpen);
     const dt = helpOpen ? 0 : (this.debugFrameStepMode ? (stepFrame ? fixed : 0) : rawDt);
-    this._updateShipRenderAngle(dt);
     if (this.newGameHelpPromptT > 0){
       this.newGameHelpPromptT = Math.max(0, this.newGameHelpPromptT - dt);
     }
@@ -5229,8 +5229,6 @@ export class GameLoop {
       aimOrigin: this.ship.state === "crashed" ? null : this._shipGunPivotWorld(),
       planetPalette: this._planetPalette(),
       touchUi: this.ship.state === "crashed" ? null : inputState.touchUi,
-      touchStart: inputState.inputType === "touch" && touchStartPromptActive,
-      touchStartMode: inputState.inputType === "touch" ? touchStartActionMode : null,
     };
     if (transitionActive){
       renderState = this.jumpdriveTransition.decorateRenderState(renderState);
@@ -5297,6 +5295,7 @@ export class GameLoop {
       });
     }
     const dashboardOpen = !transitionActive
+      && this.pendingPerkChoice === null
       && !this.planetView
       && (this.hasLaunchedPlayerShip || runEnded)
       && (this._isDockedWithMothership() || runEnded);
@@ -5485,11 +5484,11 @@ export class GameLoop {
   _objectivePromptText(inputType){
     const type = inputType || "keyboard";
     const startButtonPrefix =
-      (type === "touch") ? "Tap Play to " :
+      (type === "touch") ? `Tap ${this._touchActionPromptLabel(this._touchStartActionMode())} to ` :
       (type === "gamepad") ? "Press Button0 to " :
       "Press R to ";
     if (this.pendingPerkChoice){
-      if (type === "touch") return "Choose upgrade: use left/right thrust controls.";
+      if (type === "touch") return "Choose upgrade: tap left or right option.";
       if (type === "gamepad") return "Choose upgrade: press left/right.";
       return "Choose upgrade: press left/right.";
     } else if (this.ship.state === "crashed"){
@@ -5524,6 +5523,9 @@ export class GameLoop {
    * @returns {string}
    */
   _startObjectiveText(inputType){
+    if ((inputType || "keyboard") === "touch"){
+      return `Tap ${this._touchLaunchPromptLabel()} to lift off, or tap ${this._helpActionLabel(inputType)} for help.`;
+    }
     return `Lift off to start, or press ${this._helpActionLabel(inputType)} for help.`;
   }
 
@@ -5532,6 +5534,9 @@ export class GameLoop {
    * @returns {string}
    */
   _helpPromptLine(inputType){
+    if ((inputType || "keyboard") === "touch"){
+      return `Tap ${this._helpActionLabel(inputType)} for help. ${this._abandonPromptText(inputType || "keyboard")}`;
+    }
     return `Press ${this._helpActionLabel(inputType)} for help. ${this._abandonPromptText(inputType || "keyboard")}`;
   }
 
@@ -5571,9 +5576,30 @@ export class GameLoop {
    */
   _helpActionLabel(inputType){
     const type = inputType || "keyboard";
-    if (type === "touch") return "the ? button";
+    if (type === "touch") return "?";
     if (type === "gamepad") return "Button3";
     return "/";
+  }
+
+  /**
+   * @param {"respawnShip"|"restartGame"|"upgrade"|"nextLevel"|"viewMap"|"exitMap"|null} mode
+   * @returns {string}
+   */
+  _touchActionPromptLabel(mode){
+    if (mode === "upgrade") return "UP";
+    if (mode === "nextLevel") return "GO";
+    if (mode === "viewMap") return "MAP";
+    if (mode === "exitMap") return "BACK";
+    if (mode === "respawnShip") return "SHIP";
+    if (mode === "restartGame") return "NEW";
+    return this._touchLaunchPromptLabel();
+  }
+
+  /**
+   * @returns {string}
+   */
+  _touchLaunchPromptLabel(){
+    return "▲";
   }
 
   /**

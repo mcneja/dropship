@@ -332,7 +332,7 @@ function ensureHelpStyles(){
     }
     #help-touch-toggle.help-touch-visible { display: grid; }
     body.help-touch-visible.touch-docked-visible #help-touch-toggle {
-      left: calc(50% + 12px);
+      left: calc(50% + 40px);
       top: auto;
       bottom: max(calc(env(safe-area-inset-bottom) + 16px), 9dvh);
     }
@@ -360,7 +360,7 @@ function ensureHelpStyles(){
     body.help-touch-visible #touch-restart-toggle { display: grid; }
     body.help-touch-visible #touch-restart-toggle.touch-restart-disabled { display: none; }
     body.help-touch-visible.touch-docked-visible #touch-restart-toggle {
-      left: calc(50% + 58px);
+      left: calc(50% + 84px);
       top: auto;
       bottom: max(calc(env(safe-area-inset-bottom) + 16px), 9dvh);
     }

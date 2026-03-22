@@ -1,6 +1,6 @@
 ﻿// @ts-check
 
-import { CFG, TOUCH_UI, TOUCH_START_PROMPT } from "./config.js";
+import { CFG, TOUCH_UI } from "./config.js";
 import { PERF_FLAGS, getEffectiveDevicePixelRatio } from "./perf.js";
 import {
   DROPSHIP_MODEL,
@@ -1791,7 +1791,10 @@ function drawFrameImpl(renderer, state, planet){
   }
 
   const coreR = planet.getCoreRadius ? planet.getCoreRadius() : 0;
-  if (coreR > 0){
+  const coreOverlayVisible = !state.fogEnabled
+    || !planet.hasSeenCoreOverlay
+    || planet.hasSeenCoreOverlay();
+  if (coreR > 0 && coreOverlayVisible){
     const params = planet.getPlanetParams ? planet.getPlanetParams() : null;
     const moltenOuter = params && typeof params.MOLTEN_RING_OUTER === "number" ? params.MOLTEN_RING_OUTER : 0;
     const r0 = coreR + 0.5;
@@ -3347,107 +3350,6 @@ function drawFrameImpl(renderer, state, planet){
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(uiPos), gl.DYNAMIC_DRAW);
     gl.bindBuffer(gl.ARRAY_BUFFER, oCol);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(uiCol), gl.DYNAMIC_DRAW);
-
-    if (uiLine > 0){
-      gl.drawArrays(gl.LINES, 0, uiLine);
-    }
-  }
-
-  if (showGameplayIndicators && state.touchStart){
-    /** @type {number[]} */
-    const linePos = [];
-    /** @type {number[]} */
-    const lineCol = [];
-    const w = canvas.width;
-    const h = canvas.height;
-    const minDim = Math.max(1, Math.min(w, h));
-    const centerX = TOUCH_START_PROMPT.x * w;
-    const centerY = TOUCH_START_PROMPT.y * h;
-    const radius = TOUCH_START_PROMPT.r * minDim;
-    const touchStartMode = (typeof state.touchStartMode === "string") ? state.touchStartMode : "play";
-
-    let ringR = 0.62;
-    let ringG = 1.0;
-    let ringB = 0.56;
-    if (touchStartMode === "upgrade"){
-      ringR = 1.0; ringG = 0.92; ringB = 0.58;
-    } else if (touchStartMode === "nextLevel"){
-      ringR = 0.58; ringG = 0.92; ringB = 1.0;
-    } else if (touchStartMode === "viewMap" || touchStartMode === "exitMap"){
-      ringR = 0.66; ringG = 0.84; ringB = 1.0;
-    } else if (touchStartMode === "respawnShip"){
-      ringR = 1.0; ringG = 0.68; ringB = 0.56;
-    } else if (touchStartMode === "restartGame"){
-      ringR = 1.0; ringG = 0.74; ringB = 0.42;
-    }
-    pushCircle(linePos, lineCol, centerX, centerY, radius, ringR, ringG, ringB, 0.98, 64);
-
-    const iconR = Math.min(1, ringR + 0.2);
-    const iconG = Math.min(1, ringG + 0.2);
-    const iconB = Math.min(1, ringB + 0.2);
-    const iconA = 0.98;
-    if (touchStartMode === "upgrade"){
-      const d = radius * 0.34;
-      pushLine(linePos, lineCol, centerX - d, centerY, centerX + d, centerY, iconR, iconG, iconB, iconA);
-      pushLine(linePos, lineCol, centerX, centerY - d, centerX, centerY + d, iconR, iconG, iconB, iconA);
-    } else if (touchStartMode === "nextLevel"){
-      const dx = radius * 0.16;
-      const dy = radius * 0.30;
-      const cx0 = centerX - radius * 0.18;
-      const cx1 = centerX + radius * 0.14;
-      pushLine(linePos, lineCol, cx0 - dx, centerY - dy, cx0 + dx, centerY, iconR, iconG, iconB, iconA);
-      pushLine(linePos, lineCol, cx0 + dx, centerY, cx0 - dx, centerY + dy, iconR, iconG, iconB, iconA);
-      pushLine(linePos, lineCol, cx1 - dx, centerY - dy, cx1 + dx, centerY, iconR, iconG, iconB, iconA);
-      pushLine(linePos, lineCol, cx1 + dx, centerY, cx1 - dx, centerY + dy, iconR, iconG, iconB, iconA);
-    } else if (touchStartMode === "viewMap" || touchStartMode === "exitMap"){
-      const rr = radius * 0.38;
-      pushSquareOutline(linePos, lineCol, centerX, centerY, rr, iconR, iconG, iconB, iconA);
-      pushLine(linePos, lineCol, centerX - rr * 0.33, centerY - rr, centerX - rr * 0.33, centerY + rr, iconR, iconG, iconB, iconA);
-      pushLine(linePos, lineCol, centerX + rr * 0.33, centerY - rr, centerX + rr * 0.33, centerY + rr, iconR, iconG, iconB, iconA);
-      if (touchStartMode === "exitMap"){
-        const xr = rr * 0.78;
-        pushLine(linePos, lineCol, centerX - xr, centerY - xr, centerX + xr, centerY + xr, iconR, iconG, iconB, iconA);
-        pushLine(linePos, lineCol, centerX - xr, centerY + xr, centerX + xr, centerY - xr, iconR, iconG, iconB, iconA);
-      }
-    } else {
-      const restartTriScale = (touchStartMode === "restartGame") ? 0.84 : 1.0;
-      const triLeft = centerX - radius * 0.28 * restartTriScale;
-      const triRight = centerX + radius * 0.40 * restartTriScale;
-      const triTop = centerY + radius * 0.40 * restartTriScale;
-      const triBottom = centerY - radius * 0.40 * restartTriScale;
-      pushTriangleOutline(linePos, lineCol, triLeft, triTop, triRight, centerY, triLeft, triBottom, iconR, iconG, iconB, iconA);
-      if (touchStartMode === "respawnShip"){
-        const d = radius * 0.16;
-        const px = centerX + radius * 0.28;
-        const py = centerY - radius * 0.28;
-        pushLine(linePos, lineCol, px - d, py, px + d, py, iconR, iconG, iconB, iconA);
-        pushLine(linePos, lineCol, px, py - d, px, py + d, iconR, iconG, iconB, iconA);
-      } else if (touchStartMode === "restartGame"){
-        const triMidLeftY = (triTop + triBottom) * 0.5;
-        const spiralStartX = triLeft - radius * 0.04;
-        const spiralStartY = triBottom - radius * 0.16;
-        const spiralLowerRightX = triRight;
-        const spiralLowerRightY = centerY - radius * 0.08;
-        const spiralTopX = triLeft + radius * 0.10;
-        const spiralTopY = triTop;
-        const spiralMidLeftX = triLeft - radius * 0.26;
-        const spiralMidLeftY = triMidLeftY;
-        pushLine(linePos, lineCol, spiralStartX, spiralStartY, spiralLowerRightX, spiralLowerRightY, iconR, iconG, iconB, iconA);
-        pushLine(linePos, lineCol, spiralLowerRightX, spiralLowerRightY, spiralTopX, spiralTopY, iconR, iconG, iconB, iconA);
-        pushLine(linePos, lineCol, spiralTopX, spiralTopY, spiralMidLeftX, spiralMidLeftY, iconR, iconG, iconB, iconA);
-        pushLine(linePos, lineCol, spiralMidLeftX, spiralMidLeftY, triLeft, triMidLeftY, iconR, iconG, iconB, iconA);
-      }
-    }
-
-    const uiLine = linePos.length / 2;
-    gl.uniform2f(ouScale, 2 / w, 2 / h);
-    gl.uniform2f(ouCam, w * 0.5, h * 0.5);
-    gl.uniform1f(ouRot, 0);
-
-    gl.bindBuffer(gl.ARRAY_BUFFER, oPos);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(linePos), gl.DYNAMIC_DRAW);
-    gl.bindBuffer(gl.ARRAY_BUFFER, oCol);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(lineCol), gl.DYNAMIC_DRAW);
 
     if (uiLine > 0){
       gl.drawArrays(gl.LINES, 0, uiLine);
