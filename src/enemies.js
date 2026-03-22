@@ -5,6 +5,7 @@ import { findPathAStar, lineOfSightAir } from "./navigation.js";
 import { collidesAtOffsets, isAir } from "./collision_world.js";
 import { GAME } from "./config.js";
 import { spawnFragmentBurst, updateFragmentDebris } from "./fragment_fx.js";
+import { PERF_FLAGS } from "./perf.js";
 
 /** @typedef {import("./types.d.js").Vec2} Vec2 */
 /** @typedef {import("./types.d.js").EnemyType} EnemyType */
@@ -469,6 +470,10 @@ export class Enemies {
       if (!explosion) continue;
       explosion.life -= dt;
       if (explosion.life <= 0) this.explosions.splice(i, 1);
+    }
+
+    if (PERF_FLAGS.disableEnemyAi){
+      return;
     }
 
     const shipTarget = (ship && ship.state !== "crashed") ? ship : null;

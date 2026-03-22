@@ -33,6 +33,7 @@ import { clearSavedGame, createLoopSaveSnapshot, restoreLoopFromSaveSnapshot } f
 import { copyGameplayScreenshotToClipboard, drawStartTitle } from "./screenshot.js";
 import { JumpdriveTransition } from "./jumpdrive_transition.js";
 import { spawnFragmentBurst, spawnTerrainHexFragments, spawnTerrainPropFragments, updateFragmentDebris } from "./fragment_fx.js";
+import { ACTIVE_PERF_FLAGS, BENCH_CONFIG, PERF_FLAGS, RollingFrameStats, getEffectiveDevicePixelRatio, reportBenchmarkResult } from "./perf.js";
 import {
   extractPathSegment,
   findGuidePathTargetIndex,
@@ -55,6 +56,17 @@ import { lerpAngleShortest, sweptShipVsMovingMothership } from "./collision_moth
 /** @typedef {import("./help_popup.js").HelpPopup} HelpPopup */
 /** @typedef {import("./planet_config.js").PlanetTypeId} PlanetTypeId */
 /** @typedef {import("./planet_config.js").PlanetConfig} PlanetConfig */
+
+/** @type {any[]} */
+const EMPTY_RENDER_ARRAY = [];
+Object.freeze(EMPTY_RENDER_ARRAY);
+const EMPTY_FEATURE_PARTICLES = Object.freeze({
+  iceShard: [],
+  lava: [],
+  mushroom: [],
+  bubbles: [],
+  splashes: [],
+});
 
 /**
  * Fade atmosphere density from full strength at/below the surface to zero above the configured height.
@@ -112,9 +124,9 @@ export class GameLoop {
    * @param {HelpPopup} [deps.helpPopup]
    */
   constructor({ renderer, input, ui, audio, canvas, hud, overlay, planetLabel, objectiveLabel, shipStatusLabel, signalMeter, heatMeter, helpPopup }){
-    this.level = 1;
+    this.level = BENCH_CONFIG.enabled ? BENCH_CONFIG.level : 1;
     // const seed = CFG.seed;
-    const seed = performance.now();
+    const seed = BENCH_CONFIG.enabled ? BENCH_CONFIG.seed : performance.now();
     this.progressionSeed = seed | 0;
     const planetConfig = this._planetConfigFromLevel(this.level);
     const planetParams = resolvePlanetParams(seed, this.level, planetConfig, GAME);
@@ -301,6 +313,43 @@ export class GameLoop {
     this.fpsTime = this.lastTime;
     this.fpsFrames = 0;
     this.fps = 0;
+    this.frameStats = null;
+    this.frameStatsTracker = new RollingFrameStats(BENCH_CONFIG.enabled ? 2400 : 600);
+    this.frameStatsUpdatedAt = this.lastTime;
+    this.perfFlags = ACTIVE_PERF_FLAGS;
+    /** @type {{
+     *   startedAtMs:number,
+     *   sampleStartAtMs:number,
+     *   sampleEndAtMs:number,
+     *   active:boolean,
+     *   finished:boolean,
+     *   stateText:string,
+     *   tracker:RollingFrameStats,
+     *   result:{
+     *     sampleCount:number,
+     *     avgMs:number,
+     *     avgFps:number,
+     *     p50Ms:number,
+     *     p95Ms:number,
+     *     p99Ms:number,
+     *     low1Fps:number,
+     *     over16_7:number,
+     *     over25:number,
+     *     over33_3:number,
+     *     maxMs:number,
+     *   }|null,
+     * }|null}
+     */
+    this.benchmarkRun = BENCH_CONFIG.enabled ? {
+      startedAtMs: 0,
+      sampleStartAtMs: 0,
+      sampleEndAtMs: 0,
+      active: false,
+      finished: false,
+      stateText: `warmup ${Math.ceil(BENCH_CONFIG.warmupMs / 1000)}s`,
+      tracker: new RollingFrameStats(Math.max(600, Math.ceil((BENCH_CONFIG.durationMs / 1000) * 180))),
+      result: null,
+    } : null;
     this.debugCollisions = GAME.DEBUG_COLLISION;
     this.debugPlanetTriangles = false;
     this.debugCollisionContours = false;
@@ -308,7 +357,8 @@ export class GameLoop {
     this.debugMinerGuidePath = false;
     this.debugRingVertices = false;
     this.debugMinerPathToMiner = null;
-    this.devHudVisible = false;
+    this.devHudVisible = BENCH_CONFIG.enabled;
+    this.hud.style.display = this.devHudVisible ? "block" : "none";
     if (this.input && typeof this.input.setDebugCommandsEnabled === "function"){
       this.input.setDebugCommandsEnabled(this.devHudVisible);
     }
@@ -325,7 +375,7 @@ export class GameLoop {
     this._landingDebugSessionSource = "";
     this._minerPathDebugCooldown = 0;
     this._resetStartTitle();
-    this.pendingBootJumpdriveIntro = true;
+    this.pendingBootJumpdriveIntro = !BENCH_CONFIG.enabled;
     this.NEW_GAME_HELP_PROMPT_SECS = 10;
     this.newGameHelpPromptT = 0;
     this.newGameHelpPromptArmed = true;
@@ -395,6 +445,77 @@ export class GameLoop {
     this.objectiveCompleteSfxPlayed = this._objectiveComplete();
     this.objectiveCompleteSfxDueAtMs = Number.POSITIVE_INFINITY;
     this.victoryMusicTriggered = false;
+    if (BENCH_CONFIG.enabled){
+      this._applyBenchmarkSetup();
+    }
+  }
+
+  /**
+   * @returns {void}
+   */
+  _applyBenchmarkSetup(){
+    this.pendingBootJumpdriveIntro = false;
+    this.startTitleSeen = true;
+    this.startTitleFade = true;
+    this.startTitleAlpha = 0;
+    this.newGameHelpPromptT = 0;
+    this.newGameHelpPromptArmed = false;
+    this.devHudVisible = true;
+    this.hud.style.display = "block";
+    if (this.input && typeof this.input.setDebugCommandsEnabled === "function"){
+      this.input.setDebugCommandsEnabled(true);
+    }
+    if (BENCH_CONFIG.start === "orbit"){
+      this._putShipInLowOrbit();
+      this.hasLaunchedPlayerShip = true;
+    }
+    const perfText = this.perfFlags.length ? ` | ${this.perfFlags.join(",")}` : "";
+    this._showStatusCue(`Benchmark warmup ${Math.ceil(BENCH_CONFIG.warmupMs / 1000)}s${perfText}`, 2.5);
+  }
+
+  /**
+   * @param {number} now
+   * @param {number} frameMs
+   * @returns {void}
+   */
+  _recordFrameTiming(now, frameMs){
+    this.frameStatsTracker.record(frameMs);
+    if (!this.frameStats || (now - this.frameStatsUpdatedAt) >= 500){
+      this.frameStats = this.frameStatsTracker.snapshot();
+      this.frameStatsUpdatedAt = now;
+    }
+
+    if (!this.benchmarkRun || this.benchmarkRun.finished) return;
+    if (!this.benchmarkRun.startedAtMs){
+      this.benchmarkRun.startedAtMs = now;
+      this.benchmarkRun.sampleStartAtMs = now + BENCH_CONFIG.warmupMs;
+      this.benchmarkRun.sampleEndAtMs = this.benchmarkRun.sampleStartAtMs + BENCH_CONFIG.durationMs;
+    }
+    if (now < this.benchmarkRun.sampleStartAtMs){
+      this.benchmarkRun.stateText = `warmup ${Math.max(0, Math.ceil((this.benchmarkRun.sampleStartAtMs - now) / 1000))}s`;
+      return;
+    }
+    if (!this.benchmarkRun.active){
+      this.benchmarkRun.active = true;
+      this.benchmarkRun.tracker.reset();
+      this._showStatusCue(`Benchmark recording ${Math.ceil(BENCH_CONFIG.durationMs / 1000)}s`, 1.5);
+    }
+    this.benchmarkRun.tracker.record(frameMs);
+    const remainingMs = this.benchmarkRun.sampleEndAtMs - now;
+    if (remainingMs > 0){
+      this.benchmarkRun.stateText = `run ${Math.max(0, Math.ceil(remainingMs / 1000))}s`;
+      return;
+    }
+    this.benchmarkRun.finished = true;
+    this.benchmarkRun.stateText = "done";
+    this.benchmarkRun.result = this.benchmarkRun.tracker.snapshot();
+    reportBenchmarkResult({
+      bench: BENCH_CONFIG,
+      stats: this.benchmarkRun.result,
+      perfFlags: this.perfFlags,
+      planetSeed: this.planet.getSeed(),
+    });
+    this._showStatusCue("Benchmark complete; see console", 3.5);
   }
 
   /**
@@ -4223,8 +4344,10 @@ export class GameLoop {
    */
   _frame(){
     const now = performance.now();
-    const rawDt = Math.min(0.05, (now - this.lastTime) / 1000);
+    const frameMs = Math.max(0, now - this.lastTime);
+    const rawDt = Math.min(0.05, frameMs / 1000);
     this.lastTime = now;
+    this._recordFrameTiming(now, frameMs);
     const transitionActive = this.jumpdriveTransition.isActive();
     const touchStartActionMode = transitionActive ? null : this._touchStartActionMode();
     const touchStartPromptActive = touchStartActionMode !== null;
@@ -4630,9 +4753,11 @@ export class GameLoop {
 
     const gameOver = !transitionActive && this.ship.state === "crashed";
     const transitionFogOrigin = transitionActive ? this.jumpdriveTransition.fogOrigin(this.ship) : null;
-    if (!transitionActive){
+    const fogSyncEnabled = !PERF_FLAGS.disableFogSync;
+    const dynamicOverlayEnabled = !PERF_FLAGS.disableDynamicOverlay;
+    if (fogSyncEnabled && !transitionActive){
       this.planet.syncRenderFog(this.renderer, this.ship.x, this.ship.y);
-    } else if (transitionFogOrigin){
+    } else if (fogSyncEnabled && transitionFogOrigin){
       this.planet.syncRenderFog(this.renderer, transitionFogOrigin.x, transitionFogOrigin.y);
     }
     /** @type {RenderState} */
@@ -4651,24 +4776,24 @@ export class GameLoop {
       debugMinerPathToMiner: this.debugMinerPathToMiner,
       debugCollisionSamples: (this.debugCollisions || this.debugCollisionContours) ? (this.ship._samples || []) : null,
       debugPoints: ((this.debugCollisions && GAME.DEBUG_NODES) || this.debugRingVertices) ? this.planet.debugPoints() : null,
-      fogEnabled: this.fogEnabled,
+      fogEnabled: this.fogEnabled && fogSyncEnabled,
       fps: this.fps,
       finalAir: this.planet.getFinalAir(),
-      miners: this.miners,
-      fallenMiners: this.fallenMiners,
+      miners: dynamicOverlayEnabled ? this.miners : EMPTY_RENDER_ARRAY,
+      fallenMiners: dynamicOverlayEnabled ? this.fallenMiners : EMPTY_RENDER_ARRAY,
       minersRemaining: this.minersRemaining,
       minerTarget: this.minerTarget,
       level: this.level,
       minersDead: this.minersDead,
-      healthPickups: this.healthPickups,
-      enemies: this.enemies.enemies,
-      shots: this.enemies.shots,
-      explosions: this.enemies.explosions,
-      fragments: this.fragments.concat(this.enemies.debris),
-      playerShots: this.playerShots,
-      playerBombs: this.playerBombs,
-      featureParticles: this.planet.getFeatureParticles(),
-      entityExplosions: this.entityExplosions,
+      healthPickups: dynamicOverlayEnabled ? this.healthPickups : EMPTY_RENDER_ARRAY,
+      enemies: dynamicOverlayEnabled ? this.enemies.enemies : EMPTY_RENDER_ARRAY,
+      shots: dynamicOverlayEnabled ? this.enemies.shots : EMPTY_RENDER_ARRAY,
+      explosions: dynamicOverlayEnabled ? this.enemies.explosions : EMPTY_RENDER_ARRAY,
+      fragments: dynamicOverlayEnabled ? this.fragments.concat(this.enemies.debris) : EMPTY_RENDER_ARRAY,
+      playerShots: dynamicOverlayEnabled ? this.playerShots : EMPTY_RENDER_ARRAY,
+      playerBombs: dynamicOverlayEnabled ? this.playerBombs : EMPTY_RENDER_ARRAY,
+      featureParticles: dynamicOverlayEnabled ? this.planet.getFeatureParticles() : EMPTY_FEATURE_PARTICLES,
+      entityExplosions: dynamicOverlayEnabled ? this.entityExplosions : EMPTY_RENDER_ARRAY,
       aimWorld: gameOver ? null : this.lastAimWorld,
       aimOrigin: gameOver ? null : this._shipGunPivotWorld(),
       planetPalette: this._planetPalette(),
@@ -4735,6 +4860,9 @@ export class GameLoop {
         minerCandidates: this.minerCandidates,
         landingDebug: this.ship._landingDebug || null,
         inputType: inputState.inputType,
+        frameStats: this.frameStats,
+        benchState: this.benchmarkRun ? this.benchmarkRun.stateText : null,
+        perfFlags: this.perfFlags,
       });
     }
     const heat = this.ship.heat || 0;
@@ -5279,12 +5407,12 @@ export class GameLoop {
    * @returns {void}
    */
   _drawMinerPopups(){
-    if (!this.overlay || !this.overlayCtx){
+    if (PERF_FLAGS.disableOverlayCanvas || !this.overlay || !this.overlayCtx){
       return;
     }
 
     const ctx = this.overlayCtx;
-    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    const dpr = getEffectiveDevicePixelRatio();
     const w = Math.floor(this.overlay.clientWidth * dpr);
     const h = Math.floor(this.overlay.clientHeight * dpr);
     if (this.overlay.width !== w || this.overlay.height !== h){

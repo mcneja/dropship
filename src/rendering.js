@@ -1,6 +1,7 @@
 ﻿// @ts-check
 
 import { CFG, TOUCH_UI } from "./config.js";
+import { PERF_FLAGS, getEffectiveDevicePixelRatio } from "./perf.js";
 import {
   DROPSHIP_MODEL,
   getDropshipGeometryProfileN,
@@ -1106,6 +1107,10 @@ function drawFrameImpl(renderer, state, planet){
   if (renderer.uMaxR) gl.uniform1f(renderer.uMaxR, rMax + 0.5);
   gl.drawArrays(gl.TRIANGLES, 0, vertCount);
   gl.bindVertexArray(null);
+  if (PERF_FLAGS.disableDynamicOverlay){
+    gl.disable(gl.BLEND);
+    return;
+  }
 
   /**
    * Runtime visibility for dynamic actors/FX tied to terrain exploration memory.
@@ -3552,7 +3557,10 @@ export class Renderer {
     this.game = game;
 
     /** @type {WebGL2RenderingContext|null} */
-    const glMaybe = canvas.getContext("webgl2", { antialias:true, premultipliedAlpha:false });
+    const glMaybe = canvas.getContext("webgl2", {
+      antialias: !PERF_FLAGS.disableMsaa,
+      premultipliedAlpha: false,
+    });
     if (!glMaybe) throw new Error("WebGL2 not available");
     /** @type {WebGL2RenderingContext} */
     const gl = glMaybe;
@@ -3849,7 +3857,7 @@ export class Renderer {
    * @returns {void}
    */
   resize(){
-    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    const dpr = getEffectiveDevicePixelRatio();
     const w = Math.floor(this.canvas.clientWidth * dpr);
     const h = Math.floor(this.canvas.clientHeight * dpr);
     if (this.canvas.width !== w || this.canvas.height !== h){

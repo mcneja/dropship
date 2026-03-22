@@ -8,6 +8,7 @@ import { GameLoop } from "./loop.js";
 import { BackgroundMusic } from "./audio.js";
 import { HelpPopup } from "./help_popup.js";
 import { loadGameFromStorage, installExitSaveHandlers } from "./save_state.js";
+import { BENCH_CONFIG } from "./perf.js";
 
 const canvas = /** @type {HTMLCanvasElement} */ (document.getElementById("gl"));
 const hud = /** @type {HTMLElement} */ (document.getElementById("hud"));
@@ -41,6 +42,8 @@ const loop = new GameLoop({
   helpPopup,
 });
 
-loadGameFromStorage(loop);
-installExitSaveHandlers(loop);
+if (!BENCH_CONFIG.enabled){
+  loadGameFromStorage(loop);
+  installExitSaveHandlers(loop);
+}
 loop.start();

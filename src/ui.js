@@ -1,8 +1,10 @@
-﻿// @ts-check
+// @ts-check
+
+import { PERF_FLAGS } from "./perf.js";
 
 /**
  * @param {HTMLElement} hud
- * @param {{fps:number,state:string,speed:number,verts:number,air:number,miners:number,minersDead:number,level:number,debug:boolean,minerCandidates:number,shipHp:number,bombs:number,landingDebug?:{source?:string,reason?:string,dotUp?:number,slope?:number,landSlope?:number,vn?:number,vt?:number,speed?:number,airFront?:number,airBack?:number,landable?:boolean,landed?:boolean,support?:boolean,supportDist?:number,contactsCount?:number,bestDotUpAny?:number,bestDotUpUnder?:number,impactPoint?:number,supportPoint?:number,impactT?:number,supportT?:number,impactX?:number,impactY?:number,supportX?:number,supportY?:number,supportTriOuterCount?:number,supportTriAirMin?:number,supportTriAirMax?:number,supportTriRMin?:number,supportTriRMax?:number}|null,inputType:("keyboard"|"mouse"|"touch"|"gamepad"|null|undefined)}} stats
+ * @param {{fps:number,state:string,speed:number,verts:number,air:number,miners:number,minersDead:number,level:number,debug:boolean,minerCandidates:number,shipHp:number,bombs:number,landingDebug?:{source?:string,reason?:string,dotUp?:number,slope?:number,landSlope?:number,vn?:number,vt?:number,speed?:number,airFront?:number,airBack?:number,landable?:boolean,landed?:boolean,support?:boolean,supportDist?:number,contactsCount?:number,bestDotUpAny?:number,bestDotUpUnder?:number,impactPoint?:number,supportPoint?:number,impactT?:number,supportT?:number,impactX?:number,impactY?:number,supportX?:number,supportY?:number,supportTriOuterCount?:number,supportTriAirMin?:number,supportTriAirMax?:number,supportTriRMin?:number,supportTriRMax?:number}|null,inputType:("keyboard"|"mouse"|"touch"|"gamepad"|null|undefined),frameStats?:{sampleCount:number,avgMs:number,avgFps:number,p50Ms:number,p95Ms:number,p99Ms:number,low1Fps:number,over16_7:number,over25:number,over33_3:number,maxMs:number}|null,benchState?:string|null,perfFlags?:readonly string[]|null}} stats
  * @returns {void}
  */
 export function updateHud(hud, stats){
@@ -10,9 +12,15 @@ export function updateHud(hud, stats){
   const landingSuffix = landingDbg
     ? ` | landDbg src:${landingDbg.source || "-"} r:${landingDbg.reason || "-"} lu:${fmtN(landingDbg.dotUp)} sl:${fmtN(landingDbg.slope)}<=${fmtN(landingDbg.landSlope)} vn:${fmtN(landingDbg.vn)} vt:${fmtN(landingDbg.vt)} sp:${fmtN(landingDbg.speed)} af:${fmtN(landingDbg.airFront)} ab:${fmtN(landingDbg.airBack)} sup:${landingDbg.support ? 1 : 0}@${fmtN(landingDbg.supportDist)} ok:${landingDbg.landable ? 1 : 0}`
     : "";
+  const frameStats = stats.frameStats || null;
+  const frameSuffix = frameStats
+    ? ` | ft avg:${frameStats.avgMs.toFixed(2)}ms p95:${frameStats.p95Ms.toFixed(2)} p99:${frameStats.p99Ms.toFixed(2)} 1%:${frameStats.low1Fps.toFixed(1)} >16:${frameStats.over16_7} max:${frameStats.maxMs.toFixed(2)}`
+    : "";
+  const perfFlags = Array.isArray(stats.perfFlags) ? stats.perfFlags : [];
   const debugSuffix = stats.debug ? ` | miner candidates: ${stats.minerCandidates}${landingSuffix}` : "";
+  const perfLine = perfRecordingLine(stats.benchState, perfFlags);
   hud.textContent =
-    `fps: ${stats.fps} | hull: ${stats.shipHp} | bombs: ${stats.bombs} | level: ${stats.level} | state: ${stats.state} | speed: ${stats.speed.toFixed(1)} | miners: ${stats.miners} | dead: ${stats.minersDead} | verts: ${stats.verts.toLocaleString()} | air: ${stats.air.toFixed(3)}${debugSuffix} | LMB: shoot | RMB: bomb | Wheel: zoom | 0: zoom reset | -/=: music vol | Alt+M: new map | Alt+N: next level | Alt+Shift+N: prev level | Alt+K: jump to level | Alt+G/H: ring vertices | Alt+T: planet tri outline | Alt+Y: collision contours | Alt+U: miner path debug | Alt+I: debug collisions | Alt+V: view map | Alt+F: toggle fog | Alt+X: clear enemies | Alt+E: remove entities | Alt+C: copy screenshot | Alt+Shift+C: copy clean screenshot | Alt+Shift+G: copy title screenshot | Alt+\\: toggle dev HUD | M/B: music | J: combat tracks | R: restart`;
+    `fps: ${stats.fps} | hull: ${stats.shipHp} | bombs: ${stats.bombs} | level: ${stats.level} | state: ${stats.state} | speed: ${stats.speed.toFixed(1)} | miners: ${stats.miners} | dead: ${stats.minersDead} | verts: ${stats.verts.toLocaleString()} | air: ${stats.air.toFixed(3)}${frameSuffix}${debugSuffix}\nLMB: shoot | RMB: bomb | Wheel: zoom | 0: zoom reset | -/=: music vol | Alt+M: new map | Alt+N: next level | Alt+Shift+N: prev level | Alt+K: jump to level | Alt+G/H: ring vertices | Alt+T: planet tri outline | Alt+Y: collision contours | Alt+U: miner path debug | Alt+I: debug collisions | Alt+V: view map | Alt+F: toggle fog | Alt+X: clear enemies | Alt+E: remove entities | Alt+C: copy screenshot | Alt+Shift+C: copy clean screenshot | Alt+Shift+G: copy title screenshot | Alt+\\: toggle dev HUD | M/B: music | J: combat tracks | R: restart\n${perfLine}`;
 }
 
 /**
@@ -21,6 +29,32 @@ export function updateHud(hud, stats){
  */
 function fmtN(n){
   return Number.isFinite(n) ? Number(n).toFixed(2) : "-";
+}
+
+/**
+ * @param {string|null|undefined} benchState
+ * @param {readonly string[]} perfFlags
+ * @returns {string}
+ */
+function perfRecordingLine(benchState, perfFlags){
+  let stateLabel = "idle";
+  let detail = "";
+  const text = typeof benchState === "string" ? benchState.trim() : "";
+  if (text){
+    if (text.startsWith("warmup")){
+      stateLabel = "pending";
+      detail = text;
+    } else if (text.startsWith("run")){
+      stateLabel = "active";
+      detail = text;
+    } else if (text === "done"){
+      stateLabel = "done";
+    } else {
+      stateLabel = text;
+    }
+  }
+  const flagsText = perfFlags.length ? ` | perf: ${perfFlags.join(",")}` : "";
+  return `perf recording: ${stateLabel}${detail ? ` (${detail})` : ""}${flagsText}`;
 }
 
 /**
@@ -68,7 +102,7 @@ export function updateSignalMeter(el, signalStrength, show){
     const pct = Math.max(0, Math.min(100, signalStrength * 10));
     fill.style.width = `${pct}%`;
   }
-  layoutSignalMeter(el);
+  if (!PERF_FLAGS.disableHudLayout) layoutSignalMeter(el);
 }
 
 /**
@@ -90,7 +124,7 @@ export function updateHeatMeter(el, heat, show, flashing){
   const value = Math.max(0, Math.min(100, Math.round(heat)));
   const fill = /** @type {HTMLElement|null} */ (el.querySelector(".heat-bar-fill"));
   if (fill) fill.style.width = `${value}%`;
-  layoutHeatMeter(el);
+  if (!PERF_FLAGS.disableHudLayout) layoutHeatMeter(el);
 }
 
 /**
@@ -108,7 +142,6 @@ function layoutHeatMeter(el){
   const shipStatus = /** @type {HTMLElement|null} */ (document.getElementById("ship-status-label"));
   const signalMeter = /** @type {HTMLElement|null} */ (document.getElementById("signal-meter"));
 
-  // Default placement: bottom center.
   el.style.left = "50%";
   el.style.transform = "translateX(-50%)";
   el.style.top = "auto";
@@ -136,7 +169,6 @@ function layoutHeatMeter(el){
   const stillOverlaps = labels.some((r) => rectsOverlap(liftedRect, r, pad));
   if (!stillOverlaps) return;
 
-  // Fallback on very small screens: place below the active top HUD stack.
   const topAnchors = [shipStatus, signalMeter]
     .filter((node) => !!node && /** @type {HTMLElement} */ (node).style.display !== "none")
     .map((node) => /** @type {HTMLElement} */ (node).getBoundingClientRect().bottom);
