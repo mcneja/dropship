@@ -3841,6 +3841,29 @@ export class GameLoop {
   }
 
   /**
+   * Treat water entry as "submerged" only when there is meaningful radial
+   * clearance below the ship, so a paper-thin surface water layer does not
+   * bleed off a lethal rock impact.
+   * @param {number} waterR
+   * @param {number} shipX
+   * @param {number} shipY
+   * @returns {boolean}
+   */
+  _shipCountsAsSubmergedInWater(waterR, shipX, shipY){
+    if (!(waterR > 0) || !this.planet) return false;
+    const sr = Math.hypot(shipX, shipY);
+    if (!(sr <= waterR + 0.02)) return false;
+    if (!(this.planet.airValueAtWorld(shipX, shipY) > 0.5)) return false;
+    const ux = sr > 1e-6 ? (shipX / sr) : 1;
+    const uy = sr > 1e-6 ? (shipY / sr) : 0;
+    const probeDepth = Math.max(0.16, Math.min(0.32, this._shipRadius() * 0.55));
+    const sampleCollisionAir = (typeof this.planet.airValueAtWorldForCollision === "function")
+      ? this.planet.airValueAtWorldForCollision(shipX - ux * probeDepth, shipY - uy * probeDepth)
+      : this.planet.airValueAtWorld(shipX - ux * probeDepth, shipY - uy * probeDepth);
+    return sampleCollisionAir > 0.5;
+  }
+
+  /**
    * Swept enemy-shot vs ship hit test to avoid tunneling between frames.
    * @param {{x:number,y:number,vx:number,vy:number}} shot
    * @param {number} dt
@@ -4272,7 +4295,7 @@ export class GameLoop {
       ay += inertialDriveAccel.ay;
       const { r, rx, ry, tx, ty } = thrustAccel;
       const waterR = isWaterWorld ? Math.max(0, outerRingR) : 0;
-      const shipInWaterBefore = !!(isWaterWorld && waterR > 0 && r <= waterR + 0.02 && this.planet.airValueAtWorld(this.ship.x, this.ship.y) > 0.5);
+      const shipInWaterBefore = !!(isWaterWorld && this._shipCountsAsSubmergedInWater(waterR, this.ship.x, this.ship.y));
 
       /*
       const aThrustSqr = ax*ax + ay*ay;
@@ -4306,7 +4329,7 @@ export class GameLoop {
       let shipInWaterNow = false;
       if (isWaterWorld){
         const rNow = Math.hypot(this.ship.x, this.ship.y) || 1;
-        shipInWaterNow = !!(waterR > 0 && rNow <= waterR + 0.02 && this.planet.airValueAtWorld(this.ship.x, this.ship.y) > 0.5);
+        shipInWaterNow = this._shipCountsAsSubmergedInWater(waterR, this.ship.x, this.ship.y);
         if (shipInWaterNow && !this._shipWasInWater){
           this._playSfx("water_splash", {
             volume: Math.max(0.35, Math.min(0.95, 0.42 + shipWaterSpeed * 0.12)),
