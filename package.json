@@ -1,6 +1,6 @@
 {
   "name": "dropship",
-  "version": "0.1.1",
+  "version": "1.2.0",
   "description": "7DRL Space Game for 2026",
   "scripts": {
     "dev": "vite",
