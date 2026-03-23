@@ -535,12 +535,12 @@ export class Enemies {
       lineOfSightAir(this.collision, e.x, e.y, ship.x, ship.y, this._LOS_STEP);
 
     if (seesShip) {
-      this.modeCooldown = Math.max(this.modeCooldown, this._HUNTER_HUNT_DURATION);
+      e.modeCooldown = Math.max(e.modeCooldown, this._HUNTER_HUNT_DURATION);
     } else {
-      this.modeCooldown = Math.max(0, this.modeCooldown - dt);
+      e.modeCooldown = Math.max(0, e.modeCooldown - dt);
     }
 
-    if (this.modeCooldown <= 0 || !this._tryMoveHunter(e, ship, dt)) {
+    if (e.modeCooldown <= 0 || !this._tryMoveHunter(e, ship, dt)) {
       this._wander(e, this._HUNTER_SPEED, dt);
     }
 
