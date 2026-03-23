@@ -168,6 +168,24 @@ export class Planet {
   }
 
   /**
+   * Molten worlds render a hot-core overlay beyond the literal solid core.
+   * Keep excavation from removing terrain hidden behind that visual mask.
+   * @returns {number}
+   */
+  getProtectedTerrainRadius(){
+    const coreR = this.getCoreRadius ? this.getCoreRadius() : 0;
+    if (!(coreR > 0)) return 0;
+    const cfg = this.getPlanetConfig ? this.getPlanetConfig() : null;
+    if (!(cfg && cfg.id === "molten")) return coreR;
+    const params = this.getPlanetParams ? this.getPlanetParams() : null;
+    const moltenOuter = (params && typeof params.MOLTEN_RING_OUTER === "number")
+      ? Math.max(0, params.MOLTEN_RING_OUTER)
+      : 0;
+    const baseOuter = moltenOuter > coreR ? moltenOuter : (coreR + 0.8);
+    return Math.max(coreR, baseOuter + 0.5);
+  }
+
+  /**
    * @param {number} x
    * @param {number} y
    * @param {number} radius
@@ -287,6 +305,20 @@ export class Planet {
   }
 
   /**
+   * @param {DestroyedTerrainNode[]} destroyedNodes
+   * @param {{
+   *  onExplosion?: (info:{x:number,y:number,life:number,radius:number})=>void,
+   *  onDebris?: (info:{x:number,y:number,vx:number,vy:number,a:number,w:number,life:number})=>void,
+   *  onAreaDamage?: (x:number, y:number, radius:number)=>void,
+   * }} callbacks
+   * @returns {void}
+   */
+  handleFeatureTerrainDestroyed(destroyedNodes, callbacks){
+    if (!this.features || !this.features.handleTerrainDestroyed) return;
+    this.features.handleTerrainDestroyed(destroyedNodes, callbacks);
+  }
+
+  /**
    * Find nearest radial node to world point using ring radius.
    * @param {number} x
    * @param {number} y
@@ -389,14 +421,14 @@ export class Planet {
     const limit = Number.isFinite(maxTargets) ? Math.max(1, Math.floor(maxTargets)) : Infinity;
     const rangeClamped = Math.max(0, range);
     const rangeSq = rangeClamped * rangeClamped;
-    const coreRadius = Math.max(0, this.coreRadius || 0);
+    const protectedRadius = Math.max(0, this.getProtectedTerrainRadius());
     /** @type {Array<{idx:number,d2:number}>} */
     const candidates = [];
     for (let i = 0; i < nodes.length; i++){
       if (air[i]) continue;
       const node = nodes[i];
       if (!node || node.navPadded) continue;
-      if (coreRadius > 0 && Math.hypot(node.x, node.y) <= coreRadius) continue;
+      if (protectedRadius > 0 && Math.hypot(node.x, node.y) <= protectedRadius) continue;
       const dx = node.x - x;
       const dy = node.y - y;
       const d2 = dx * dx + dy * dy;

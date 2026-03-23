@@ -1072,26 +1072,45 @@ export class GameLoop {
     if (this.ship.dropshipMiners > 0) cargoParts.push(`${this.ship.dropshipMiners}M`);
     if (this.ship.dropshipPilots > 0) cargoParts.push(`${this.ship.dropshipPilots}P`);
     if (this.ship.dropshipEngineers > 0) cargoParts.push(`${this.ship.dropshipEngineers}E`);
-    const systems = [];
-    if (this.ship.bombStrength > GAME.SHIP_STARTING_BOMB_STRENGTH) systems.push(`Bomb +${this.ship.bombStrength - GAME.SHIP_STARTING_BOMB_STRENGTH}`);
-    if (this.ship.thrust > GAME.SHIP_STARTING_THRUST) systems.push(`Thrust +${this.ship.thrust - GAME.SHIP_STARTING_THRUST}`);
-    if (this.ship.inertialDrive > GAME.SHIP_STARTING_INERTIAL_DRIVE) systems.push(`Drive +${this.ship.inertialDrive - GAME.SHIP_STARTING_INERTIAL_DRIVE}`);
-    if (this.ship.gunPower > GAME.SHIP_STARTING_GUN_POWER) systems.push(`Gun +${this.ship.gunPower - GAME.SHIP_STARTING_GUN_POWER}`);
-    return [
+    const rows = [
       { label: "Hull", value: `${this.ship.hpCur}/${this.ship.hpMax}` },
       { label: "Bombs", value: `${this.ship.bombsCur}/${this.ship.bombsMax}` },
       { label: "Cargo", value: cargoParts.length ? cargoParts.join("  ") : "Clear" },
-      {
-        label: "Systems",
-        value: systems.length ? systems.join("  ") : "Baseline",
-      },
-      {
-        label: "Gear",
-        value: [this.ship.rescueeDetector ? "Detector" : "", this.ship.planetScanner ? "Scanner" : "", this.ship.bounceShots ? "Bouncer" : ""]
-          .filter(Boolean)
-          .join("  ") || "Standard",
-      },
     ];
+    const perkRows = this._dashboardPerkRows();
+    if (perkRows.length){
+      rows.push(...perkRows);
+    } else {
+      rows.push({ label: "Perks", value: "Baseline" });
+    }
+    return rows;
+  }
+
+  /**
+   * @returns {Array<{label:string,value:string}>}
+    */
+  _dashboardPerkRows(){
+    /** @type {Array<{label:string,value:string}>} */
+    const rows = [];
+    /**
+     * @param {string} label
+     * @param {number} count
+     * @returns {void}
+     */
+    const addCountRow = (label, count) => {
+      const n = Math.max(0, count | 0);
+      if (n > 0) rows.push({ label, value: `x${n}` });
+    };
+    addCountRow("Reinforced Hull", this.ship.hpMax - GAME.SHIP_STARTING_MAX_HP);
+    addCountRow("Payload Bay", this.ship.bombsMax - GAME.SHIP_STARTING_MAX_BOMBS);
+    addCountRow("Heavy Charges", this.ship.bombStrength - GAME.SHIP_STARTING_BOMB_STRENGTH);
+    addCountRow("Engine Tune-Up", this.ship.thrust - GAME.SHIP_STARTING_THRUST);
+    addCountRow("Inertial Drive", this.ship.inertialDrive - GAME.SHIP_STARTING_INERTIAL_DRIVE);
+    addCountRow("Firepower", this.ship.gunPower - GAME.SHIP_STARTING_GUN_POWER);
+    if (this.ship.rescueeDetector) rows.push({ label: "Rescuee Detector", value: "x1" });
+    if (this.ship.planetScanner) rows.push({ label: "Planet Scanner", value: "x1" });
+    if (this.ship.bounceShots) rows.push({ label: "Bounce Shots", value: "x1" });
+    return rows;
   }
 
   /**
@@ -5857,7 +5876,7 @@ export class GameLoop {
   _perkChoiceText(perk){
     if (perk === "hpMax") return "Reinforced hull: +1 max HP";
     if (perk === "bombsMax") return "Expanded payload bay: +1 max bomb";
-    if (perk === "bombStrength") return "Heavy charges: bombs breach more rock";
+    if (perk === "bombStrength") return "Heavy charges: bigger bomb blast";
     if (perk === "thrust") return "Engine tune-up: +10% thrust power";
     if (perk === "inertialDrive") return "Inertial drive: +10% corrective thrust";
     if (perk === "gunPower") return "Firepower: +1 HP damage";

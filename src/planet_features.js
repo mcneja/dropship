@@ -7,6 +7,7 @@ import { lineOfSightAir } from "./navigation.js";
 /** @typedef {{x:number,y:number,r:number,i:number,navPadded?:boolean}} RadialNode */
 /** @typedef {{to:number}} NavEdgeRef */
 /** @typedef {{n:RadialNode,rockNeighbor:RadialNode,nx:number,ny:number}} WallAttachCandidate */
+/** @typedef {import("./types.d.js").DestroyedTerrainNode} DestroyedTerrainNode */
 /** @typedef {import("./types.d.js").DetachedTerrainProp} DetachedTerrainProp */
 
 /**
@@ -647,6 +648,14 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
       bombTriggerKick: 0.45,
       bombRateMul: 2.35,
       bombSpeedMul: 1.45,
+      terrainBurstCount: 5,
+      terrainBurstCountJitter: 3,
+      terrainSpeedMul: 1.18,
+      terrainVentChance: 0.16,
+      terrainVentMinDist: 1.05,
+      terrainVentKick: 0.35,
+      terrainVentRateMul: 1.2,
+      terrainVentSpeedMul: 1.08,
     },
     // Wider hot-core heat falloff so the danger zone reaches farther from the core.
     coreHeatRadius: 3.2,
@@ -963,6 +972,178 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
     emitVentLava(p, tuning.lava.bombTriggerKick, tuning.lava.bombRateMul, tuning.lava.bombSpeedMul);
     rebuildEnemyVentNavMask();
     return true;
+  };
+
+  /**
+   * @param {number} r
+   * @returns {number}
+   */
+  const moltenTerrainHeat = (r) => {
+    const protectedR = planet.getProtectedTerrainRadius ? planet.getProtectedTerrainRadius() : 0;
+    const params = planet.getPlanetParams ? planet.getPlanetParams() : null;
+    const rMax = (params && typeof params.RMAX === "number") ? params.RMAX : Math.max(r, protectedR + 1);
+    const falloff = Math.max(2.2, rMax - protectedR);
+    return Math.max(0.2, Math.min(1, 1 - Math.max(0, r - protectedR) / falloff));
+  };
+
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @param {number} nx
+   * @param {number} ny
+   * @param {number} heat
+   * @returns {void}
+   */
+  const emitTerrainLavaBurst = (x, y, nx, ny, heat) => {
+    const len = Math.hypot(nx, ny) || 1;
+    const dirX = nx / len;
+    const dirY = ny / len;
+    const tanX = -dirY;
+    const tanY = dirX;
+    const base = Math.max(1, tuning.lava.terrainBurstCount);
+    const jitter = Math.max(0, tuning.lava.terrainBurstCountJitter);
+    const total = Math.max(1, base + Math.floor(Math.random() * (jitter + 1)));
+    const speed = tuning.lava.speed * tuning.lava.terrainSpeedMul * (0.8 + 0.4 * heat);
+    for (let i = 0; i < total; i++){
+      const spread = (Math.random() * 2 - 1) * (0.22 + 0.18 * heat);
+      const kick = speed * (0.75 + Math.random() * 0.45);
+      particles.lava.push({
+        x: x + dirX * 0.08,
+        y: y + dirY * 0.08,
+        vx: (dirX + tanX * spread) * kick,
+        vy: (dirY + tanY * spread) * kick,
+        life: tuning.lava.life * (0.75 + 0.35 * heat),
+      });
+    }
+  };
+
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @param {number} minDist
+   * @returns {boolean}
+   */
+  const canGrowVentAt = (x, y, minDist) => {
+    /** @type {Array<{x:number,y:number,r:number}>} */
+    const reservations = [];
+    const baseReserve = Math.max(0.4, GAME.MINER_MIN_SEP * 0.6);
+    for (const p of props || []){
+      if (!p || p.dead) continue;
+      if (p.type === "turret_pad") continue;
+      reservations.push({ x: p.x, y: p.y, r: baseReserve });
+    }
+    return isFarFromReservations(x, y, minDist, reservations);
+  };
+
+  /**
+   * @param {DestroyedTerrainNode} destroyed
+   * @param {number} heat
+   * @returns {PlanetProp|null}
+   */
+  const growVentFromDestroyedTerrain = (destroyed, heat) => {
+    if (!destroyed || !Number.isFinite(destroyed.idx)) return null;
+    const graph = planet.radialGraph;
+    const nodes = graph && graph.nodes ? graph.nodes : null;
+    const neighbors = graph && graph.neighbors ? graph.neighbors : null;
+    const air = planet.airNodesBitmap;
+    if (!nodes || !neighbors || !air || destroyed.idx < 0 || destroyed.idx >= nodes.length) return null;
+    const params = planet.getPlanetParams ? planet.getPlanetParams() : null;
+    if (!params) return null;
+    const r = Math.hypot(destroyed.x, destroyed.y);
+    const rMin = Math.max(planet.getProtectedTerrainRadius ? planet.getProtectedTerrainRadius() : 0, params.MOLTEN_RING_OUTER || 0) + 0.2;
+    const rMax = Math.max(rMin + 0.3, params.RMAX - 0.45);
+    if (r < rMin || r > rMax) return null;
+    const node = nodes[destroyed.idx];
+    if (!node || !air[destroyed.idx]) return null;
+    const neigh = neighbors[destroyed.idx] || [];
+    let airCount = 0;
+    /** @type {RadialNode|null} */
+    let rockNeighbor = null;
+    let rockDist2 = Infinity;
+    for (const e of neigh){
+      if (!e || e.to < 0 || e.to >= nodes.length) continue;
+      const nb = nodes[e.to];
+      if (!nb) continue;
+      if (air[e.to]){
+        airCount++;
+        continue;
+      }
+      const dx = node.x - nb.x;
+      const dy = node.y - nb.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < rockDist2){
+        rockDist2 = d2;
+        rockNeighbor = nb;
+      }
+    }
+    if (airCount < 2 || !rockNeighbor) return null;
+    const dxr = node.x - rockNeighbor.x;
+    const dyr = node.y - rockNeighbor.y;
+    const nlen = Math.hypot(dxr, dyr) || 1;
+    const nx = dxr / nlen;
+    const ny = dyr / nlen;
+    let lo = { x: rockNeighbor.x, y: rockNeighbor.y };
+    let hi = { x: node.x, y: node.y };
+    for (let i = 0; i < 8; i++){
+      const mx = (lo.x + hi.x) * 0.5;
+      const my = (lo.y + hi.y) * 0.5;
+      if (planet.airValueAtWorld(mx, my) > 0.5){
+        hi = { x: mx, y: my };
+      } else {
+        lo = { x: mx, y: my };
+      }
+    }
+    const bx = hi.x - nx * 0.08;
+    const by = hi.y - ny * 0.08;
+    if (!canGrowVentAt(bx, by, tuning.lava.terrainVentMinDist)) return null;
+    const vent = {
+      type: "vent",
+      x: bx,
+      y: by,
+      scale: 0.48 + Math.random() * 0.20,
+      rot: Math.atan2(ny, nx) - Math.PI * 0.5,
+      nx,
+      ny,
+      ventHeat: Math.max(0.6, heat),
+      ventBombT: tuning.lava.bombTriggerDuration * (0.18 + 0.16 * heat),
+    };
+    props.push(vent);
+    emitVentLava(vent, tuning.lava.terrainVentKick, tuning.lava.terrainVentRateMul, tuning.lava.terrainVentSpeedMul);
+    rebuildEnemyVentNavMask();
+    return vent;
+  };
+
+  /**
+   * @param {DestroyedTerrainNode[]} destroyedNodes
+   * @param {FeatureCallbacks} callbacks
+   * @returns {void}
+   */
+  const handleTerrainDestroyed = (destroyedNodes, callbacks) => {
+    const cfg = planet.getPlanetConfig ? planet.getPlanetConfig() : null;
+    if (!(cfg && cfg.id === "molten") || !destroyedNodes || !destroyedNodes.length) return;
+    let grewVent = false;
+    for (const destroyed of destroyedNodes){
+      if (!destroyed) continue;
+      const r = Math.hypot(destroyed.x, destroyed.y);
+      const heat = moltenTerrainHeat(r);
+      const nx = Number.isFinite(destroyed.nx) ? /** @type {number} */ (destroyed.nx) : (destroyed.x / (r || 1));
+      const ny = Number.isFinite(destroyed.ny) ? /** @type {number} */ (destroyed.ny) : (destroyed.y / (r || 1));
+      emitTerrainLavaBurst(destroyed.x, destroyed.y, nx, ny, heat);
+      if (!grewVent && Math.random() < tuning.lava.terrainVentChance * heat){
+        grewVent = !!growVentFromDestroyedTerrain(destroyed, heat);
+      }
+    }
+    if (callbacks && callbacks.onExplosion){
+      const anchor = destroyedNodes[0];
+      if (anchor){
+        callbacks.onExplosion({
+          x: anchor.x,
+          y: anchor.y,
+          life: 0.22,
+          radius: 0.18 + 0.10 * destroyedNodes.length,
+        });
+      }
+    }
   };
 
   /**
@@ -1790,6 +1971,7 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
         }
       }
     },
+    handleTerrainDestroyed,
     handleShipContact,
     handleShot,
     handleBomb,
