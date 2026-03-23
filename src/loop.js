@@ -2116,6 +2116,25 @@ export class GameLoop {
   }
 
   /**
+   * @param {number} x
+   * @param {number} y
+   * @param {number} destroyedCount
+   * @returns {void}
+   */
+  _addTerrainDestructionShake(x, y, destroyedCount){
+    const count = Math.max(0, destroyedCount || 0);
+    if (!(count > 0)) return;
+    const dx = this.ship.x - x;
+    const dy = this.ship.y - y;
+    const dist = Math.hypot(dx, dy);
+    const reach = 8.5;
+    if (dist >= reach) return;
+    const proximity = 1 - (dist / reach);
+    const strength = (0.038 + Math.min(0.06, count * 0.018)) * proximity * proximity;
+    this._addScreenShake(strength);
+  }
+
+  /**
    * @param {number} dt
    * @returns {void}
    */
@@ -2298,6 +2317,7 @@ export class GameLoop {
   _emitTerrainDestructionFragments(result, x, y){
     if (result.newAir) this.renderer.updateAir(result.newAir);
     if (!result.destroyedNodes || !result.destroyedNodes.length) return;
+    this._addTerrainDestructionShake(x, y, result.destroyedNodes.length);
     this.planet.handleFeatureTerrainDestroyed(result.destroyedNodes, this.featureCallbacks);
     if (this._isMechanizedLevel()){
       this._destroyFactoriesAttachedToTerrainNodes(result.destroyedNodes);
