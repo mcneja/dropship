@@ -6625,17 +6625,17 @@ export class GameLoop {
    * @returns {string}
    */
   _perkChoiceText(perk){
-    if (perk === "hpMax") return "Reinforced hull: +1 max HP";
-    if (perk === "bombsMax") return "Expanded payload bay: +1 max bomb";
-    if (perk === "bombStrength") return "Heavy charges: bigger bomb blast";
-    if (perk === "thrust") return "Engine tune-up: +10% thrust power";
+    if (perk === "hpMax") return "Reinforced hull:\n+1 max HP";
+    if (perk === "bombsMax") return "Expanded payload bay:\n+1 max bomb";
+    if (perk === "bombStrength") return "Heavy charges:\nbigger bomb blast";
+    if (perk === "thrust") return "Engine tune-up:\n+10% thrust power";
     if (perk === "inertialDrive"){
-      if (this.ship.inertialDrive <= 0) return "Inertial drive: enable corrective thrust";
-      return `Inertial drive: +${Math.round(GAME.INERTIAL_DRIVE_UPGRADE_FACTOR * 100)}% corrective thrust`;
+      if (this.ship.inertialDrive <= 0) return "Inertial drive:\ncorrective thrust";
+      return `Inertial drive:\n+${Math.round(GAME.INERTIAL_DRIVE_UPGRADE_FACTOR * 100)}% corrective thrust`;
     }
-    if (perk === "gunPower") return "Firepower: +1 HP damage";
-    if (perk === "rescueeDetector") return "Rescuee detector: locate stranded crew";
-    if (perk === "planetScanner") return "Planet scanner: scan planet from mothership";
+    if (perk === "gunPower") return "Firepower:\n+1 HP damage";
+    if (perk === "rescueeDetector") return "Rescuee detector:\nlocate stranded crew";
+    if (perk === "planetScanner") return "Planet scanner:\nview from mothership";
     if (perk === "bounceShots") return "Bounce shots";
     return perk;
   }
@@ -6971,43 +6971,54 @@ function fitCanvasFontPx(ctx, text, weight, maxPx, minPx, maxWidth, family){
  * @returns {void}
  */
 function drawCenteredWrappedText(ctx, text, cx, topY, maxWidth, lineHeight, maxLines){
-  const rawWords = String(text || "").trim().split(/\s+/).filter(Boolean);
-  if (!rawWords.length) return;
-  /** @type {string[]} */
-  const words = [];
-  for (const token of rawWords){
-    if (ctx.measureText(token).width <= maxWidth){
-      words.push(token);
-      continue;
-    }
-    let chunk = "";
-    for (const ch of token){
-      const next = chunk + ch;
-      if (chunk && ctx.measureText(next).width > maxWidth){
-        words.push(chunk);
-        chunk = ch;
-      } else {
-        chunk = next;
-      }
-    }
-    if (chunk) words.push(chunk);
-  }
-
   /** @type {string[]} */
   const lines = [];
-  let line = "";
-  for (const word of words){
-    const next = line ? `${line} ${word}` : word;
-    if (line && ctx.measureText(next).width > maxWidth){
-      lines.push(line);
-      line = word;
-      if (lines.length >= maxLines - 1) break;
-    } else {
-      line = next;
+  const paragraphs = String(text || "").split(/\r?\n/);
+  for (const paragraph of paragraphs){
+    const rawWords = paragraph.trim().split(/\s+/).filter(Boolean);
+    if (!rawWords.length){
+      if (lines.length < maxLines){
+        lines.push("");
+      }
+      continue;
     }
-  }
-  if (line && lines.length < maxLines){
-    lines.push(line);
+    /** @type {string[]} */
+    const words = [];
+    for (const token of rawWords){
+      if (ctx.measureText(token).width <= maxWidth){
+        words.push(token);
+        continue;
+      }
+      let chunk = "";
+      for (const ch of token){
+        const next = chunk + ch;
+        if (chunk && ctx.measureText(next).width > maxWidth){
+          words.push(chunk);
+          chunk = ch;
+        } else {
+          chunk = next;
+        }
+      }
+      if (chunk) words.push(chunk);
+    }
+
+    let line = "";
+    for (const word of words){
+      const next = line ? `${line} ${word}` : word;
+      if (line && ctx.measureText(next).width > maxWidth){
+        lines.push(line);
+        line = word;
+        if (lines.length >= maxLines - 1) break;
+      } else {
+        line = next;
+      }
+    }
+    if (line && lines.length < maxLines){
+      lines.push(line);
+    }
+    if (lines.length >= maxLines){
+      break;
+    }
   }
   if (!lines.length) return;
 
