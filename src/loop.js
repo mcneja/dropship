@@ -1040,21 +1040,231 @@ export class GameLoop {
     if (this._runEnded()){
       return "The run is over. Review the level and total columns for the final tally before starting again.";
     }
-    let fluff = "Keep the mothership in sight, stay disciplined on approach, and leave the orbit cleaner than you found it.";
-    if (this.objective && this.objective.type === "extract"){
-      fluff = this.level === 1
-        ? "Routine pickup, at least on paper. Set down, round up the survivors, and head back upstairs before it turns into anyone's problem."
-        : "The window is narrow. Touch down fast, pull the survivors out, and get them back upstairs before the locals regroup.";
-    } else if (this.objective && this.objective.type === "clear"){
-      fluff = this.level === 2
-        ? "Intel says our miners were working through an old fort when it suddenly started shooting back. Sweep the place, put down anything still active, and try not to wake the rest of it."
-        : "This one calls for a hard sweep. Burn down every hostile contact you can find, then lift out before the debris settles.";
-    } else if (this.objective && this.objective.type === "destroy_factories"){
-      fluff = "Industrial resistance is dug in deep. Crack the production line, keep pressure on the surface, and deny them time to rebuild.";
-    } else if (this.objective && this.objective.type === "destroy_core"){
-      fluff = "The core is unstable and the whole world knows it. Cut the tethers, trigger the collapse, and run for open sky.";
+    const cfg = this.planet && this.planet.getPlanetConfig ? this.planet.getPlanetConfig() : null;
+    const planetFluff = this._dashboardProceduralMissionBody(cfg);
+    if (planetFluff) return planetFluff;
+    if (this.objective && this.objective.type === "destroy_core"){
+      return "The core is unstable and the whole world knows it. Cut the tethers, trigger the collapse, and run for open sky.";
     }
-    return fluff;
+    if (this.objective && this.objective.type === "destroy_factories"){
+      return "Industrial resistance is dug in deep. Crack the production line, keep pressure on the surface, and deny them time to rebuild.";
+    }
+    if (this.objective && this.objective.type === "clear"){
+      return "This one calls for a hard sweep. Burn down every hostile contact you can find, then lift out before the debris settles.";
+    }
+    if (this.objective && this.objective.type === "extract"){
+      return "The window is narrow. Touch down fast, pull the survivors out, and get them back upstairs before the locals regroup.";
+    }
+    return "Keep the mothership in sight, stay disciplined on approach, and leave the orbit cleaner than you found it.";
+  }
+
+  /**
+   * @param {string} text
+   * @returns {number}
+   */
+  _dashboardTextHash(text){
+    let h = 2166136261 >>> 0;
+    const s = String(text || "");
+    for (let i = 0; i < s.length; i++){
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 16777619) >>> 0;
+    }
+    return h >>> 0;
+  }
+
+  /**
+   * @param {string} text
+   * @returns {string}
+   */
+  _dashboardCap(text){
+    if (!text) return "";
+    return text.charAt(0).toUpperCase() + text.slice(1);
+  }
+
+  /**
+   * @param {readonly string[]} options
+   * @param {string} tag
+   * @param {PlanetConfig|null|undefined} [cfg]
+   * @returns {string}
+   */
+  _dashboardPickMissionLine(options, tag, cfg){
+    if (!Array.isArray(options) || options.length === 0) return "";
+    const planetSeed = (this.planet && typeof this.planet.getSeed === "function")
+      ? (this.planet.getSeed() | 0)
+      : (this.progressionSeed | 0);
+    const objType = this.objective ? this.objective.type : "";
+    let seed = (planetSeed ^ Math.imul((this.level | 0) + 1, 1103515245)) >>> 0;
+    seed ^= this._dashboardTextHash(tag);
+    seed ^= this._dashboardTextHash(cfg && cfg.id ? cfg.id : "");
+    seed ^= this._dashboardTextHash(objType);
+    const idx = options.length > 1 ? (seed % options.length) : 0;
+    return options[idx];
+  }
+
+  /**
+   * @param {PlanetConfig|null|undefined} cfg
+   * @returns {string}
+   */
+  _dashboardThreatFlavor(cfg){
+    if (!cfg || !Array.isArray(cfg.enemyAllow) || !cfg.enemyAllow.length){
+      return "support hardware that is still pretending to be scenery";
+    }
+    /** @type {Array<string>} */
+    const parts = [];
+    if (cfg.enemyAllow.includes("hunter")) parts.push("hunter drones");
+    if (cfg.enemyAllow.includes("ranger")) parts.push("survey rangers");
+    if (cfg.enemyAllow.includes("crawler")) parts.push("maintenance crawlers");
+    if (cfg.enemyAllow.includes("turret")) parts.push("point-defense nests");
+    if (cfg.enemyAllow.includes("orbitingTurret")) parts.push("orbiting sentries");
+    if (!parts.length) return "support hardware with concerning initiative";
+    if (parts.length === 1) return parts[0] || "support hardware with concerning initiative";
+    if (parts.length === 2){
+      const first = parts[0] || "support hardware";
+      const second = parts[1] || "more support hardware";
+      return `${first} and ${second}`;
+    }
+    const last = parts[parts.length - 1] || "more support hardware";
+    return `${parts.slice(0, -1).join(", ")}, and ${last}`;
+  }
+
+  /**
+   * @param {PlanetConfig|null|undefined} cfg
+   * @returns {string}
+   */
+  _dashboardThreatSentence(cfg){
+    const threat = this._dashboardThreatFlavor(cfg);
+    if (!cfg || !Array.isArray(cfg.enemyAllow) || !cfg.enemyAllow.length){
+      return this._dashboardPickMissionLine([
+        "Most of the old support kit still looks harmless, which is how it likes to start the conversation.",
+        "Nothing here seems especially dangerous yet, which is rarely a stable condition.",
+      ], "threat-none", cfg);
+    }
+    return this._dashboardPickMissionLine([
+      `Expect ${threat} anywhere the old support network still has power.`,
+      `The rogue support stack is fielding ${threat}, because apparently customer service now includes suppressive fire.`,
+      `${this._dashboardCap(threat)} are active on this site, and they seem oddly committed to the new management plan.`,
+    ], "threat", cfg);
+  }
+
+  /**
+   * @param {PlanetConfig|null|undefined} cfg
+   * @returns {string}
+   */
+  _dashboardWorldSentence(cfg){
+    switch (cfg && cfg.id){
+      case "barren_pickup":
+        return this._dashboardPickMissionLine([
+          "Routine pickup on a dead shell, about as glamorous as the paperwork promised.",
+          "Quiet vacuum, bright rock, and one allegedly simple extraction.",
+        ], "world-barren-pickup", cfg);
+      case "barren_clear":
+        return this._dashboardPickMissionLine([
+          "Our miners opened an old fort and its antique security package woke up furious.",
+          "The fort on this rock was supposed to stay historical, but its defenses have updated their opinion.",
+        ], "world-barren-clear", cfg);
+      case "no_caves":
+        return this._dashboardPickMissionLine([
+          "Wide badlands, no caves, and nowhere to hide once the shooting starts.",
+          "Open ridges and long approaches make every pass here a public performance.",
+        ], "world-no-caves", cfg);
+      case "molten":
+        return this._dashboardPickMissionLine([
+          "The mining stack under this crust has gone full furnace tantrum.",
+          "Heat shimmer, open lava, and a support network that now thinks in weapons-grade terms.",
+        ], "world-molten", cfg);
+      case "ice":
+        return this._dashboardPickMissionLine([
+          "Everything here is slick enough to turn braking into a theory problem.",
+          "Blue ice, cold caves, and exactly the amount of traction you were hoping not to hear about.",
+        ], "world-ice", cfg);
+      case "gaia":
+        return this._dashboardPickMissionLine([
+          "The old terraforming kit went feral and landscaped itself a kill zone.",
+          "Green from orbit, rude up close; the local support tech has chosen a very aggressive gardening style.",
+        ], "world-gaia", cfg);
+      case "water":
+        return this._dashboardPickMissionLine([
+          "This flooded job site flies like syrup and keeps most of its bad ideas underwater.",
+          "Buoyancy helps right up until the drowned machinery remembers it has opinions.",
+        ], "world-water", cfg);
+      case "cavern":
+        return this._dashboardPickMissionLine([
+          "These tunnels were built for mining and later repurposed for ambushes.",
+          "Legacy excavation routes now double as a maze for very motivated hardware.",
+        ], "world-cavern", cfg);
+      case "mechanized":
+        return this._dashboardPickMissionLine([
+          "The mining support network has stopped supporting and started industrial empire-building.",
+          "This is what happens when a company town lets the automation write policy.",
+        ], "world-mechanized", cfg);
+      default:
+        return this._dashboardPickMissionLine([
+          "Local conditions remain unfriendly and increasingly automated.",
+          "The site is active, hostile, and somehow still filed under support operations.",
+        ], "world-default", cfg);
+    }
+  }
+
+  /**
+   * @param {PlanetConfig|null|undefined} cfg
+   * @returns {string}
+   */
+  _dashboardObjectiveSentence(cfg){
+    if (this.objective && this.objective.type === "extract"){
+      if (this.level === 1){
+        return this._dashboardPickMissionLine([
+          "Touch down, load the survivors, and leave before the job site discovers ambition.",
+          "Collect the crew, keep the ship tidy, and clock out before routine becomes memorable.",
+        ], "objective-extract-l1", cfg);
+      }
+      return this._dashboardPickMissionLine([
+        "Get the crew out fast and do not stay to troubleshoot the locals.",
+        "Pull the survivors, keep the lanes clear, and resist any urge to linger.",
+        "Make the pickup, keep moving, and let orbit handle the paperwork.",
+      ], "objective-extract", cfg);
+    }
+    if (this.objective && this.objective.type === "clear"){
+      if (this.level === 2 || (cfg && cfg.id === "barren_clear")){
+        return this._dashboardPickMissionLine([
+          "Sweep the active guns, keep moving, and try not to wake whatever else the fort buried under its budget.",
+          "Clear the old defenses, silence anything still tracking you, and mark the site as less retired than advertised.",
+        ], "objective-clear-early", cfg);
+      }
+      return this._dashboardPickMissionLine([
+        "Sweep the site, shut down anything still hostile, and make the report sound routine.",
+        "Clear the active hardware, keep your exits open, and leave before it starts networking again.",
+        "Burn down local resistance, then break orbit before the neighborhood compares notes.",
+      ], "objective-clear", cfg);
+    }
+    if (this.objective && this.objective.type === "destroy_factories"){
+      return this._dashboardPickMissionLine([
+        "Break the production line, pull the teeth from local security, and remind the machines that quotas are optional.",
+        "Crack the factories, spoil the rollout, and leave the assembly floor arguing with itself.",
+        "Smash the line, ruin the schedule, and make expansion a tomorrow problem for someone else.",
+      ], "objective-factories", cfg);
+    }
+    if (this.objective && this.objective.type === "destroy_core"){
+      return this._dashboardPickMissionLine([
+        "Cut the tethers, start the collapse, and be somewhere else when the accounting catches up.",
+        "Trip the core, outrun the consequences, and let the machines explain the loss to themselves.",
+        "Bring the heart down, dodge the last defenses, and leave before the planet files a complaint.",
+      ], "objective-core", cfg);
+    }
+    return this._dashboardPickMissionLine([
+      "Stay on task, keep the ship intact, and leave orbit cleaner than you found it.",
+      "Keep the approach tidy, do the job, and try not to improve the disaster.",
+    ], "objective-default", cfg);
+  }
+
+  /**
+   * @param {PlanetConfig|null|undefined} cfg
+   * @returns {string}
+   */
+  _dashboardProceduralMissionBody(cfg){
+    const world = this._dashboardWorldSentence(cfg);
+    const threat = this._dashboardThreatSentence(cfg);
+    const objective = this._dashboardObjectiveSentence(cfg);
+    return [world, threat, objective].filter(Boolean).join(" ");
   }
 
   /**
@@ -1101,45 +1311,41 @@ export class GameLoop {
     if (this.ship.dropshipMiners > 0) cargoParts.push(`${this.ship.dropshipMiners}M`);
     if (this.ship.dropshipPilots > 0) cargoParts.push(`${this.ship.dropshipPilots}P`);
     if (this.ship.dropshipEngineers > 0) cargoParts.push(`${this.ship.dropshipEngineers}E`);
+    const perkSummary = this._dashboardPerkSummary();
     const rows = [
       { label: "Hull", value: `${this.ship.hpCur}/${this.ship.hpMax}` },
       { label: "Bombs", value: `${this.ship.bombsCur}/${this.ship.bombsMax}` },
-      { label: "Cargo", value: cargoParts.length ? cargoParts.join("  ") : "Clear" },
+      { label: "Upgrades", value: perkSummary || "None" },
     ];
-    const perkRows = this._dashboardPerkRows();
-    if (perkRows.length){
-      rows.push(...perkRows);
-    } else {
-      rows.push({ label: "Perks", value: "Baseline" });
-    }
     return rows;
   }
 
   /**
-   * @returns {Array<{label:string,value:string}>}
+   * @returns {string}
     */
-  _dashboardPerkRows(){
-    /** @type {Array<{label:string,value:string}>} */
-    const rows = [];
+  _dashboardPerkSummary(){
+    /** @type {Array<string>} */
+    const parts = [];
     /**
-     * @param {string} label
+     * @param {string} text
      * @param {number} count
      * @returns {void}
      */
-    const addCountRow = (label, count) => {
+    const addCountPart = (text, count) => {
       const n = Math.max(0, count | 0);
-      if (n > 0) rows.push({ label, value: `x${n}` });
+      if (n <= 0) return;
+      parts.push(n > 1 ? `${text} (x${n})` : text);
     };
-    addCountRow("Reinforced Hull", this.ship.hpMax - GAME.SHIP_STARTING_MAX_HP);
-    addCountRow("Payload Bay", this.ship.bombsMax - GAME.SHIP_STARTING_MAX_BOMBS);
-    addCountRow("Heavy Charges", this.ship.bombStrength - GAME.SHIP_STARTING_BOMB_STRENGTH);
-    addCountRow("Engine Tune-Up", this.ship.thrust - GAME.SHIP_STARTING_THRUST);
-    addCountRow("Inertial Drive", this.ship.inertialDrive - GAME.SHIP_STARTING_INERTIAL_DRIVE);
-    addCountRow("Firepower", this.ship.gunPower - GAME.SHIP_STARTING_GUN_POWER);
-    if (this.ship.rescueeDetector) rows.push({ label: "Rescuee Detector", value: "x1" });
-    if (this.ship.planetScanner) rows.push({ label: "Planet Scanner", value: "x1" });
-    if (this.ship.bounceShots) rows.push({ label: "Bounce Shots", value: "x1" });
-    return rows;
+    addCountPart("Reinforced Hull", this.ship.hpMax - GAME.SHIP_STARTING_MAX_HP);
+    addCountPart("Payload Bay", this.ship.bombsMax - GAME.SHIP_STARTING_MAX_BOMBS);
+    addCountPart("Heavy Charges", this.ship.bombStrength - GAME.SHIP_STARTING_BOMB_STRENGTH);
+    addCountPart("Engine Tune-Up", this.ship.thrust - GAME.SHIP_STARTING_THRUST);
+    addCountPart("Inertial Drive", this.ship.inertialDrive - GAME.SHIP_STARTING_INERTIAL_DRIVE);
+    addCountPart("Firepower", this.ship.gunPower - GAME.SHIP_STARTING_GUN_POWER);
+    if (this.ship.rescueeDetector) parts.push("Rescuee Detector");
+    if (this.ship.planetScanner) parts.push("Planet Scanner");
+    if (this.ship.bounceShots) parts.push("Bounce Shots");
+    return parts.join(", ");
   }
 
   /**
@@ -6413,6 +6619,7 @@ export class GameLoop {
    * @returns {void}
    */
   _rescueAll(){
+    let rescued = 0;
     for (let i = this.miners.length - 1; i >= 0; i--){
       const miner = /** @type {Miner} */ (this.miners[i]);
       if (miner.type === "miner"){
@@ -6422,6 +6629,7 @@ export class GameLoop {
       } else if (miner.type === "engineer"){
         ++this.ship.dropshipEngineers;
       }
+      rescued++;
       this.minersRemaining = Math.max(0, this.minersRemaining - 1);
       this.miners.splice(i, 1);
     }
@@ -6429,6 +6637,7 @@ export class GameLoop {
     if (this._isDockedWithMothership()){
       this._onSuccessfullyDocked();
     }
+    this._showStatusCue(rescued > 0 ? `Debug rescue: ${rescued} collected` : "Debug rescue: no miners left");
   }
 
   /**
