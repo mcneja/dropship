@@ -2978,6 +2978,12 @@ export class GameLoop {
    * @returns {number}
    */
   _mechanizedLarvaSpawnCount(){
+    if (this.level <= 8){
+      const seed = (this.planet && typeof this.planet.getSeed === "function")
+        ? (this.planet.getSeed() | 0)
+        : (this.progressionSeed | 0);
+      return 2 + (Math.abs(seed) % 2);
+    }
     return Math.max(2, Math.min(7, 2 + Math.floor(Math.max(0, (this.level | 0) - 1) / 3)));
   }
 
