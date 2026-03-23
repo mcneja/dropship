@@ -999,9 +999,6 @@ export class GameLoop {
    */
   _dashboardMissionMeta(){
     const cfg = this.planet && this.planet.getPlanetConfig ? this.planet.getPlanetConfig() : null;
-    if (this._runEnded()){
-      return cfg ? `Final Report | Level ${this.level} | ${cfg.label}` : `Final Report | Level ${this.level}`;
-    }
     return cfg ? `Level ${this.level} | ${cfg.label}` : `Level ${this.level}`;
   }
 
@@ -6094,6 +6091,7 @@ export class GameLoop {
             open: true,
             shipRows: this._dashboardShipRows(),
             statsRows: this._dashboardStatsRows(),
+            missionHeader: this._runEnded() ? "Final Report" : "Mission Brief",
             missionMeta: this._dashboardMissionMeta(),
             missionTitle: this._objectiveText().replace(/^Objective:\s*/, ""),
             missionBody: this._dashboardMissionBody(),

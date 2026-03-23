@@ -177,6 +177,7 @@ export function updateHeatMeter(el, heat, show, flashing){
  *   open:boolean,
  *   shipRows:Array<{label:string,value:string}>,
  *   statsRows:Array<{label:string,level:string,total:string}>,
+ *   missionHeader?:string,
  *   missionTitle:string,
  *   missionBody:string,
  *   missionStatus:string,
@@ -227,6 +228,7 @@ export function updateMothershipDashboard(root, stats){
   renderDashboardRows(state.shipRows, stats.shipRows || [], state, "shipRowsKey");
   renderDashboardStatsTable(state.statsBody, stats.statsRows || [], state);
 
+  setTextIfChanged(state.missionHeader, stats.missionHeader || "Mission Brief");
   setTextIfChanged(state.missionMeta, stats.missionMeta || "");
   setTextIfChanged(state.missionTitle, stats.missionTitle || "");
   setTextIfChanged(state.missionBody, stats.missionBody || "");
@@ -259,6 +261,7 @@ export function scrollMothershipDashboard(root, deltaY){
  * @returns {{
  *   shipRows:HTMLElement,
  *   statsBody:HTMLElement,
+ *   missionHeader:HTMLElement,
  *   missionMeta:HTMLElement,
  *   missionTitle:HTMLElement,
  *   missionBody:HTMLElement,
@@ -305,7 +308,7 @@ function ensureMothershipDashboard(root){
       </div>
     </section>
     <section class="dashboard-panel dashboard-panel-right" aria-label="Mission brief and planet scan">
-      <header class="dashboard-header">Mission Brief</header>
+      <header class="dashboard-header dashboard-mission-header">Mission Brief</header>
       <div class="dashboard-right-body">
         <div class="dashboard-scroll dashboard-text-scroll">
           <div class="dashboard-copy dashboard-mission-meta"></div>
@@ -326,6 +329,7 @@ function ensureMothershipDashboard(root){
   const state = {
     shipRows: /** @type {HTMLElement} */ (root.querySelector(".dashboard-ship-rows")),
     statsBody: /** @type {HTMLElement} */ (root.querySelector(".dashboard-stats-body")),
+    missionHeader: /** @type {HTMLElement} */ (root.querySelector(".dashboard-mission-header")),
     missionMeta: /** @type {HTMLElement} */ (root.querySelector(".dashboard-mission-meta")),
     missionTitle: /** @type {HTMLElement} */ (root.querySelector(".dashboard-mission-title")),
     missionBody: /** @type {HTMLElement} */ (root.querySelector(".dashboard-mission-body")),
