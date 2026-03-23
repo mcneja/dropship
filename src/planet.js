@@ -97,6 +97,7 @@ export class Planet {
     }
 
     this.features = createPlanetFeatures(this, this.props || [], this.iceShardHazard, this.ridgeSpikeHazard, this.mushroomHazard);
+    this._refreshTerrainPropSupportNodes();
 
     /** @type {Array<[number,number,boolean,number]>|null} */
     this._radialDebugPoints = null;
@@ -144,13 +145,14 @@ export class Planet {
    * @returns {{
    *  iceShard:Array<{x:number,y:number,vx:number,vy:number,life:number,maxLife:number,size:number}>,
    *  lava:Array<{x:number,y:number,vx:number,vy:number,life:number}>,
+   *  tremorLava:Array<{x:number,y:number,vx:number,vy:number,life:number,maxLife:number,size:number}>,
    *  mushroom:Array<{x:number,y:number,vx:number,vy:number,life:number}>,
    *  bubbles:Array<{x:number,y:number,vx:number,vy:number,life:number,maxLife:number,size:number,rot:number,spin:number}>,
    *  splashes:Array<{x:number,y:number,vx:number,vy:number,life:number,maxLife:number,size:number,rot:number,cr:number,cg:number,cb:number}>
    * }}
    */
   getFeatureParticles(){
-    return this.features ? this.features.getParticles() : { iceShard: [], lava: [], mushroom: [], bubbles: [], splashes: [] };
+    return this.features ? this.features.getParticles() : { iceShard: [], lava: [], tremorLava: [], mushroom: [], bubbles: [], splashes: [] };
   }
 
   /**
@@ -175,12 +177,11 @@ export class Planet {
   getProtectedTerrainRadius(){
     const coreR = this.getCoreRadius ? this.getCoreRadius() : 0;
     if (!(coreR > 0)) return 0;
-    const cfg = this.getPlanetConfig ? this.getPlanetConfig() : null;
-    if (!(cfg && cfg.id === "molten")) return coreR;
     const params = this.getPlanetParams ? this.getPlanetParams() : null;
     const moltenOuter = (params && typeof params.MOLTEN_RING_OUTER === "number")
       ? Math.max(0, params.MOLTEN_RING_OUTER)
       : 0;
+    if (!(moltenOuter > coreR)) return coreR;
     const baseOuter = moltenOuter > coreR ? moltenOuter : (coreR + 0.8);
     return Math.max(coreR, baseOuter + 0.5);
   }
@@ -203,6 +204,8 @@ export class Planet {
    *  onEnemyHit?: (enemy:{x:number,y:number,hp:number,hitT?:number,stunT?:number}, x:number, y:number)=>void,
    *  onEnemyStun?: (enemy:{x:number,y:number,hp:number,hitT?:number,stunT?:number}, duration:number, source?:"mushroom"|"lava")=>void,
    *  onMinerKilled?: (miner:import("./types.d.js").Miner)=>void,
+   *  onScreenShake?: (amount:number)=>void,
+   *  onRumble?: (weak:number, strong:number, durationMs?:number)=>void,
    * }} state
    * @returns {void}
    */
@@ -296,12 +299,33 @@ export class Planet {
    *  onExplosion?: (info:{x:number,y:number,life:number,radius:number})=>void,
    *  onDebris?: (info:{x:number,y:number,vx:number,vy:number,a:number,w:number,life:number})=>void,
    *  onAreaDamage?: (x:number, y:number, radius:number)=>void,
+   *  onScreenShake?: (amount:number)=>void,
+   *  onRumble?: (weak:number, strong:number, durationMs?:number)=>void,
    * }} callbacks
    * @returns {boolean}
    */
   handleFeatureBomb(x, y, impactRadius, bombRadius, callbacks){
     if (!this.features) return false;
     return this.features.handleBomb(x, y, impactRadius, bombRadius, callbacks);
+  }
+
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @param {number} impactRadius
+   * @param {"bomb"|"crawler"} kind
+   * @param {{
+   *  onExplosion?: (info:{x:number,y:number,life:number,radius:number})=>void,
+   *  onDebris?: (info:{x:number,y:number,vx:number,vy:number,a:number,w:number,life:number})=>void,
+   *  onAreaDamage?: (x:number, y:number, radius:number)=>void,
+   *  onScreenShake?: (amount:number)=>void,
+   *  onRumble?: (weak:number, strong:number, durationMs?:number)=>void,
+   * }} callbacks
+   * @returns {boolean}
+   */
+  handleFeatureImpact(x, y, impactRadius, kind, callbacks){
+    if (!this.features || !this.features.handleImpact) return false;
+    return this.features.handleImpact(x, y, impactRadius, kind, callbacks);
   }
 
   /**
@@ -471,7 +495,7 @@ export class Planet {
     const destroyedNodeIndices = new Set(destroyedNodes.map((node) => node.idx));
     for (const p of this.props){
       if (!p || p.dead) continue;
-      if (p.type !== "tree" && p.type !== "boulder" && p.type !== "ridge_spike" && p.type !== "stalactite" && p.type !== "ice_shard") continue;
+      if (!this._propDetachesWithTerrain(p)) continue;
       const scale = Math.max(0.2, p.scale || 1);
       const supportIndices = Array.isArray(p.supportNodeIndices) && p.supportNodeIndices.length
         ? p.supportNodeIndices
@@ -500,7 +524,7 @@ export class Planet {
 
   /**
    * @param {DetachedTerrainProp[]} detachedProps
-   * @param {{onExplosion?:(info:{x:number,y:number,life:number,radius:number})=>void,onDebris?:(info:{x:number,y:number,vx:number,vy:number,a:number,w:number,life:number})=>void,onAreaDamage?:(x:number,y:number,radius:number)=>void,onShipDamage?:(x:number,y:number)=>void,onShipHeat?:(amount:number)=>void,onShipCrash?:(x:number,y:number)=>void,onShipConfuse?:(duration:number)=>void}|null|undefined} callbacks
+   * @param {{onExplosion?:(info:{x:number,y:number,life:number,radius:number})=>void,onDebris?:(info:{x:number,y:number,vx:number,vy:number,a:number,w:number,life:number})=>void,onAreaDamage?:(x:number,y:number,radius:number)=>void,onShipDamage?:(x:number,y:number)=>void,onShipHeat?:(amount:number)=>void,onShipCrash?:()=>void,onShipConfuse?:(duration:number)=>void}|null|undefined} callbacks
    * @returns {void}
    */
   emitDetachedTerrainPropBursts(detachedProps, callbacks){
@@ -554,6 +578,9 @@ export class Planet {
       if (!p || !pt) continue;
       p.x = pt[0];
       p.y = pt[1];
+      p.supportX = pt[0];
+      p.supportY = pt[1];
+      p.supportNodeIndex = this._findStandableSupportNodeIndex(pt[0], pt[1]);
     }
   }
 
@@ -974,6 +1001,9 @@ export class Planet {
           factory.dead = true;
           return;
         }
+        factory.supportX = pt[0];
+        factory.supportY = pt[1];
+        factory.supportNodeIndex = Number.isFinite(pt[4]) ? Number(pt[4]) : -1;
         factory.x = pt[0];
         factory.y = pt[1];
         const normal = this.normalAtWorld(factory.x, factory.y);
@@ -1067,6 +1097,9 @@ export class Planet {
         p.dead = true;
         continue;
       }
+      p.supportX = pt[0];
+      p.supportY = pt[1];
+      p.supportNodeIndex = this._findStandableSupportNodeIndex(pt[0], pt[1]);
       p.x = pt[0];
       p.y = pt[1];
       const normal = this.normalAtWorld(p.x, p.y);
@@ -1968,6 +2001,8 @@ export class Planet {
       p.dead = false;
       p.x = pt.x;
       p.y = pt.y;
+      p.supportX = pt.x;
+      p.supportY = pt.y;
       if (forceHorizontalPads){
         p.padRing = pt.ring;
         p.padDepth = pt.depth;
@@ -1975,6 +2010,9 @@ export class Planet {
         p.padSourceKind = pt.sourceKind;
         p.padSourceRing = pt.sourceRing;
         p.padSourceIndex = pt.sourceIndex;
+        p.supportNodeIndex = (pt.sourceKind === "rock" && Number.isFinite(pt.sourceIndex))
+          ? Number(pt.sourceIndex)
+          : this._findStandableSupportNodeIndex(p.x, p.y);
         const up = this._upDirAt(p.x, p.y);
         if (up){
           p.padNx = up.ux;
@@ -1988,6 +2026,7 @@ export class Planet {
         delete p.padSourceKind;
         delete p.padSourceRing;
         delete p.padSourceIndex;
+        p.supportNodeIndex = this._findStandableSupportNodeIndex(p.x, p.y);
       }
       const normal = this.normalAtWorld(p.x, p.y);
       if (normal){
@@ -2216,7 +2255,39 @@ export class Planet {
     if (p.type === "ridge_spike") return Math.max(0.24, 0.16 + scale * 0.18);
     if (p.type === "stalactite") return Math.max(0.22, 0.15 + scale * 0.16);
     if (p.type === "ice_shard") return Math.max(0.18, 0.12 + scale * 0.14);
+    if (p.type === "factory") return Math.max(0.22, 0.16 + scale * 0.18);
+    if (p.type === "vent") return Math.max(0.18, 0.12 + scale * 0.12);
+    if (p.type === "mushroom") return Math.max(0.16, 0.10 + scale * 0.12);
+    if (p.type === "bubble_hex") return Math.max(0.10, 0.08 + scale * 0.10);
+    if (p.type === "turret_pad") return Math.max(0.24, 0.18 + scale * 0.14);
     return 0.28;
+  }
+
+  /**
+   * @param {{type?:string}|null|undefined} p
+   * @returns {boolean}
+   */
+  _propTracksTerrainSupport(p){
+    if (!p) return false;
+    return p.type === "tree"
+      || p.type === "boulder"
+      || p.type === "ridge_spike"
+      || p.type === "stalactite"
+      || p.type === "ice_shard"
+      || p.type === "factory"
+      || p.type === "vent"
+      || p.type === "mushroom"
+      || p.type === "bubble_hex"
+      || p.type === "turret_pad";
+  }
+
+  /**
+   * @param {{type?:string}|null|undefined} p
+   * @returns {boolean}
+   */
+  _propDetachesWithTerrain(p){
+    if (!this._propTracksTerrainSupport(p)) return false;
+    return !!(p && p.type !== "bubble_hex");
   }
 
   /**
@@ -2271,7 +2342,7 @@ export class Planet {
     if (!this.props || !this.props.length) return;
     for (const p of this.props){
       if (!p || p.dead) continue;
-      if (p.type !== "tree" && p.type !== "boulder" && p.type !== "ridge_spike" && p.type !== "stalactite" && p.type !== "ice_shard") continue;
+      if (!this._propTracksTerrainSupport(p)) continue;
       const anchorX = Number.isFinite(p.supportX) ? Number(p.supportX) : p.x;
       const anchorY = Number.isFinite(p.supportY) ? Number(p.supportY) : p.y;
       const supportIndices = this._collectRockSupportNodeIndices(

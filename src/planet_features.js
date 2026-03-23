@@ -153,7 +153,18 @@ function placeMoltenVents(planet, props){
     const by = hi.y - ny * recess;
     const rot = Math.atan2(ny, nx) - Math.PI * 0.5;
     const scale = 0.55 + rand() * 0.25;
-    props.push({ type: "vent", x: bx, y: by, scale, rot, nx, ny });
+    props.push({
+      type: "vent",
+      x: bx,
+      y: by,
+      scale,
+      rot,
+      nx,
+      ny,
+      supportX: hi.x,
+      supportY: hi.y,
+      supportNodeIndex: rn.i,
+    });
   }
 }
 
@@ -403,7 +414,19 @@ function placeMushrooms(planet, props){
     const by = hi.y + ny * recess;
     const rot = Math.atan2(ny, nx) - Math.PI * 0.5;
     const scale = 0.28 + rand() * 0.24;
-    props.push({ type: "mushroom", x: bx, y: by, scale, rot, nx, ny, hp: 1 });
+    props.push({
+      type: "mushroom",
+      x: bx,
+      y: by,
+      scale,
+      rot,
+      nx,
+      ny,
+      hp: 1,
+      supportX: hi.x,
+      supportY: hi.y,
+      supportNodeIndex: rn.i,
+    });
   }
 }
 
@@ -470,7 +493,7 @@ function pruneMoltenVentsAgainstPoints(planet, props, points){
  * Build rock-attached bubble emitters for water worlds using radial graph boundaries.
  * @param {import("./planet.js").Planet} planet
  * @param {number} target
- * @returns {Array<{x:number,y:number,nx:number,ny:number,t:number}>}
+ * @returns {Array<{x:number,y:number,nx:number,ny:number,t:number,supportX:number,supportY:number,supportNodeIndex:number}>}
  */
 function collectWaterBubbleSources(planet, target){
   const cfg = planet.getPlanetConfig ? planet.getPlanetConfig() : null;
@@ -490,7 +513,7 @@ function collectWaterBubbleSources(planet, target){
   const mediumR = Math.max(0.8, outerRingR - 0.5);
   const rMin = Math.max(0.7, params.RMAX * 0.12);
   const minDist = 0.65;
-  /** @type {Array<{x:number,y:number,nx:number,ny:number}>} */
+  /** @type {Array<{x:number,y:number,nx:number,ny:number,supportX:number,supportY:number,supportNodeIndex:number}>} */
   const candidates = [];
   for (let i = 0; i < nodes.length; i++){
     if (!air[i]) continue;
@@ -538,18 +561,18 @@ function collectWaterBubbleSources(planet, target){
     if (Math.hypot(sx, sy) > mediumR - 0.03) continue;
     if (planet.airValueAtWorld(sx, sy) <= 0.5) continue;
     if (planet.airValueAtWorld(sx + upx * 0.20, sy + upy * 0.20) <= 0.5) continue;
-    candidates.push({ x: sx, y: sy, nx, ny });
+    candidates.push({ x: sx, y: sy, nx, ny, supportX: hi.x, supportY: hi.y, supportNodeIndex: rockNeighbor.i });
   }
 
   const rand = mulberry32((planet.getSeed() + 14011) | 0);
   for (let i = candidates.length - 1; i > 0; i--){
     const j = Math.floor(rand() * (i + 1));
-    const tmp = /** @type {{x:number,y:number,nx:number,ny:number}} */ (candidates[i]);
-    candidates[i] = /** @type {{x:number,y:number,nx:number,ny:number}} */ (candidates[j]);
+    const tmp = /** @type {{x:number,y:number,nx:number,ny:number,supportX:number,supportY:number,supportNodeIndex:number}} */ (candidates[i]);
+    candidates[i] = /** @type {{x:number,y:number,nx:number,ny:number,supportX:number,supportY:number,supportNodeIndex:number}} */ (candidates[j]);
     candidates[j] = tmp;
   }
 
-  /** @type {Array<{x:number,y:number,nx:number,ny:number,t:number}>} */
+  /** @type {Array<{x:number,y:number,nx:number,ny:number,t:number,supportX:number,supportY:number,supportNodeIndex:number}>} */
   const picked = [];
   for (const c of candidates){
     let tooClose = false;
@@ -568,6 +591,9 @@ function collectWaterBubbleSources(planet, target){
       nx: c.nx,
       ny: c.ny,
       t: rand() * 2.2,
+      supportX: c.supportX,
+      supportY: c.supportY,
+      supportNodeIndex: c.supportNodeIndex,
     });
     if (picked.length >= target) break;
   }
@@ -581,8 +607,13 @@ function collectWaterBubbleSources(planet, target){
  * @property {(x:number,y:number,radius:number)=>void} [onAreaDamage]
  * @property {(x:number,y:number)=>void} [onShipDamage]
  * @property {(amount:number)=>void} [onShipHeat]
- * @property {(x:number,y:number)=>void} [onShipCrash]
+ * @property {()=>void} [onShipCrash]
  * @property {(duration:number)=>void} [onShipConfuse]
+ * @property {(enemy:{x:number,y:number,hp:number,hitT?:number,stunT?:number}, x:number, y:number)=>void} [onEnemyHit]
+ * @property {(enemy:{x:number,y:number,hp:number,hitT?:number,stunT?:number}, duration:number, source?:"mushroom"|"lava")=>void} [onEnemyStun]
+ * @property {(miner:import("./types.d.js").Miner)=>void} [onMinerKilled]
+ * @property {(amount:number)=>void} [onScreenShake]
+ * @property {(weak:number, strong:number, durationMs?:number)=>void} [onRumble]
  */
 
 /**
@@ -596,6 +627,8 @@ function collectWaterBubbleSources(planet, target){
  * @property {(enemy:{x:number,y:number,hp:number,hitT?:number,stunT?:number}, x:number, y:number)=>void} [onEnemyHit]
  * @property {(enemy:{x:number,y:number,hp:number,hitT?:number,stunT?:number}, duration:number, source?:"mushroom"|"lava")=>void} [onEnemyStun]
  * @property {(miner:import("./types.d.js").Miner)=>void} [onMinerKilled]
+ * @property {(amount:number)=>void} [onScreenShake]
+ * @property {(weak:number, strong:number, durationMs?:number)=>void} [onRumble]
  */
 
 /**
@@ -657,6 +690,32 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
       terrainVentRateMul: 1.2,
       terrainVentSpeedMul: 1.08,
     },
+    tremor: {
+      searchRadius: 1.6,
+      minSeparation: 0.55,
+      emitterLifeMin: 0.65,
+      emitterLifeMax: 1.15,
+      burstRate: 40,
+      speedMin: 3.8,
+      speedMax: 6.0,
+      radius: 0.24,
+      sizeMin: 0.11,
+      sizeMax: 0.19,
+      lifeMin: 0.42,
+      lifeMax: 0.72,
+      bombCountMin: 2,
+      bombCountMax: 4,
+      crawlerCountMin: 1,
+      crawlerCountMax: 3,
+      shipShake: 0.62,
+      rumbleWeak: 0.45,
+      rumbleStrong: 0.9,
+      rumbleMs: 360,
+      debrisPieces: 14,
+      debrisSpeedMin: 1.0,
+      debrisSpeedMax: 2.8,
+      contactHeat: 10,
+    },
     // Wider hot-core heat falloff so the danger zone reaches farther from the core.
     coreHeatRadius: 3.2,
     coreHeatRise: 22,
@@ -700,6 +759,8 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
     iceShard: [],
     /** @type {Array<{x:number,y:number,vx:number,vy:number,life:number}>} */
     lava: [],
+    /** @type {Array<{x:number,y:number,vx:number,vy:number,life:number,maxLife:number,size:number}>} */
+    tremorLava: [],
     /** @type {Array<{x:number,y:number,vx:number,vy:number,life:number}>} */
     mushroom: [],
     /** @type {Array<{x:number,y:number,vx:number,vy:number,life:number,maxLife:number,size:number,rot:number,spin:number}>} */
@@ -707,6 +768,11 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
     /** @type {Array<{x:number,y:number,vx:number,vy:number,life:number,maxLife:number,size:number,rot:number,cr:number,cg:number,cb:number}>} */
     splashes: [],
   };
+
+  const cfg = planet.getPlanetConfig ? planet.getPlanetConfig() : null;
+  const isMolten = !!(cfg && cfg.id === "molten");
+  /** @type {Array<{x:number,y:number,nx:number,ny:number,life:number,maxLife:number,rateMul:number}>} */
+  const tremorEruptions = [];
 
   placeMoltenVents(planet, props || []);
   const ventReserve = (props || []).filter((p) => p.type === "vent").map((p) => ({ x: p.x, y: p.y }));
@@ -745,6 +811,9 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
         rotSpeed: (rand() * 2 - 1) * 0.10,
         nx: src.nx,
         ny: src.ny,
+        supportX: src.supportX,
+        supportY: src.supportY,
+        supportNodeIndex: src.supportNodeIndex,
       });
     }
   }
@@ -1036,6 +1105,217 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
   };
 
   /**
+   * @param {RadialNode} airNode
+   * @param {RadialNode} rockNeighbor
+   * @returns {{x:number,y:number,nx:number,ny:number,supportX:number,supportY:number,supportNodeIndex:number}}
+   */
+  const buildWallAttachPoint = (airNode, rockNeighbor) => {
+    let lo = { x: rockNeighbor.x, y: rockNeighbor.y };
+    let hi = { x: airNode.x, y: airNode.y };
+    for (let i = 0; i < 8; i++){
+      const mx = (lo.x + hi.x) * 0.5;
+      const my = (lo.y + hi.y) * 0.5;
+      if (planet.airValueAtWorld(mx, my) > 0.5){
+        hi = { x: mx, y: my };
+      } else {
+        lo = { x: mx, y: my };
+      }
+    }
+    const dxr = hi.x - rockNeighbor.x;
+    const dyr = hi.y - rockNeighbor.y;
+    const nlen = Math.hypot(dxr, dyr) || 1;
+    const nx = dxr / nlen;
+    const ny = dyr / nlen;
+    return {
+      x: hi.x - nx * 0.06,
+      y: hi.y - ny * 0.06,
+      nx,
+      ny,
+      supportX: hi.x,
+      supportY: hi.y,
+      supportNodeIndex: rockNeighbor.i,
+    };
+  };
+
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @param {number} radius
+   * @returns {Array<{x:number,y:number,nx:number,ny:number,supportX:number,supportY:number,supportNodeIndex:number,score:number}>}
+   */
+  const collectMoltenImpactWallCandidates = (x, y, radius) => {
+    if (!isMolten) return [];
+    const graph = planet.radialGraph;
+    const nodes = graph && graph.nodes ? graph.nodes : null;
+    const neighbors = graph && graph.neighbors ? graph.neighbors : null;
+    const air = planet.airNodesBitmap;
+    if (!nodes || !neighbors || !air) return [];
+    const maxR = Math.max(0.75, radius);
+    const maxR2 = maxR * maxR;
+    /** @type {Array<{x:number,y:number,nx:number,ny:number,supportX:number,supportY:number,supportNodeIndex:number,score:number}>} */
+    const candidates = [];
+    for (let i = 0; i < nodes.length; i++){
+      if (!air[i]) continue;
+      const node = /** @type {RadialNode} */ (nodes[i]);
+      const dx = node.x - x;
+      const dy = node.y - y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > maxR2) continue;
+      const neigh = /** @type {NavEdgeRef[]} */ (neighbors[i] || []);
+      let airCount = 0;
+      /** @type {RadialNode|null} */
+      let rockNeighbor = null;
+      let rockDist2 = Infinity;
+      for (const edge of neigh){
+        if (!edge || edge.to < 0 || edge.to >= nodes.length) continue;
+        const nb = /** @type {RadialNode|null} */ (nodes[edge.to] || null);
+        if (!nb) continue;
+        if (air[edge.to]){
+          airCount++;
+          continue;
+        }
+        const edx = node.x - nb.x;
+        const edy = node.y - nb.y;
+        const eDist2 = edx * edx + edy * edy;
+        if (eDist2 < rockDist2){
+          rockDist2 = eDist2;
+          rockNeighbor = nb;
+        }
+      }
+      if (airCount < 2 || !rockNeighbor) continue;
+      const attach = buildWallAttachPoint(node, rockNeighbor);
+      const adx = attach.x - x;
+      const ady = attach.y - y;
+      const attachD2 = adx * adx + ady * ady;
+      candidates.push({
+        ...attach,
+        score: attachD2 + rockDist2 * 0.25,
+      });
+    }
+    candidates.sort((a, b) => a.score - b.score);
+    return candidates;
+  };
+
+  /**
+   * @param {{x:number,y:number,nx:number,ny:number,rateMul?:number}} source
+   * @returns {void}
+   */
+  const emitTremorLava = (source) => {
+    const dirLen = Math.hypot(source.nx, source.ny) || 1;
+    const nx = source.nx / dirLen;
+    const ny = source.ny / dirLen;
+    const tx = -ny;
+    const ty = nx;
+    const speedBase = tuning.tremor.speedMin + Math.random() * (tuning.tremor.speedMax - tuning.tremor.speedMin);
+    const speed = speedBase * Math.max(0.6, source.rateMul || 1);
+    const spread = (Math.random() * 2 - 1) * 0.42;
+    const lift = 0.86 + Math.random() * 0.34;
+    const vx = (nx * lift + tx * spread) * speed;
+    const vy = (ny * lift + ty * spread) * speed;
+    const life = tuning.tremor.lifeMin + Math.random() * (tuning.tremor.lifeMax - tuning.tremor.lifeMin);
+    particles.tremorLava.push({
+      x: source.x + nx * 0.08,
+      y: source.y + ny * 0.08,
+      vx,
+      vy,
+      life,
+      maxLife: life,
+      size: tuning.tremor.sizeMin + Math.random() * (tuning.tremor.sizeMax - tuning.tremor.sizeMin),
+    });
+  };
+
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @param {number} impactRadius
+   * @param {"bomb"|"crawler"} kind
+   * @param {FeatureCallbacks} callbacks
+   * @returns {boolean}
+   */
+  const triggerMoltenImpactTremor = (x, y, impactRadius, kind, callbacks) => {
+    if (!isMolten) return false;
+    const candidates = collectMoltenImpactWallCandidates(x, y, impactRadius + tuning.tremor.searchRadius);
+    if (!candidates.length) return false;
+    const minCount = kind === "bomb" ? tuning.tremor.bombCountMin : tuning.tremor.crawlerCountMin;
+    const maxCount = kind === "bomb" ? tuning.tremor.bombCountMax : tuning.tremor.crawlerCountMax;
+    const targetCount = Math.max(minCount, Math.min(maxCount, minCount + Math.floor(Math.random() * Math.max(1, maxCount - minCount + 1))));
+    /** @type {Array<{x:number,y:number,nx:number,ny:number,supportX:number,supportY:number,supportNodeIndex:number,score:number}>} */
+    const picked = [];
+    const minSep2 = tuning.tremor.minSeparation * tuning.tremor.minSeparation;
+    for (const candidate of candidates){
+      let tooClose = false;
+      for (const existing of picked){
+        const dx = existing.x - candidate.x;
+        const dy = existing.y - candidate.y;
+        if (dx * dx + dy * dy < minSep2){
+          tooClose = true;
+          break;
+        }
+      }
+      if (tooClose) continue;
+      picked.push(candidate);
+      if (picked.length >= targetCount) break;
+    }
+    if (!picked.length) return false;
+    for (const candidate of picked){
+      const life = tuning.tremor.emitterLifeMin + Math.random() * (tuning.tremor.emitterLifeMax - tuning.tremor.emitterLifeMin);
+      tremorEruptions.push({
+        x: candidate.x,
+        y: candidate.y,
+        nx: candidate.nx,
+        ny: candidate.ny,
+        life,
+        maxLife: life,
+        rateMul: kind === "bomb" ? 1.15 : 0.9,
+      });
+      const kickoff = kind === "bomb" ? 3 : 2;
+      for (let i = 0; i < kickoff; i++){
+        emitTremorLava({
+          x: candidate.x,
+          y: candidate.y,
+          nx: candidate.nx,
+          ny: candidate.ny,
+          rateMul: kind === "bomb" ? 1.12 : 0.92,
+        });
+      }
+    }
+    if (callbacks.onExplosion){
+      callbacks.onExplosion({
+        x,
+        y,
+        life: kind === "bomb" ? 0.8 : 0.65,
+        radius: 0.75 + picked.length * 0.16,
+      });
+    }
+    if (callbacks.onDebris){
+      for (let i = 0; i < tuning.tremor.debrisPieces; i++){
+        const ang = Math.random() * Math.PI * 2;
+        const speed = tuning.tremor.debrisSpeedMin + Math.random() * (tuning.tremor.debrisSpeedMax - tuning.tremor.debrisSpeedMin);
+        callbacks.onDebris({
+          x,
+          y,
+          vx: Math.cos(ang) * speed,
+          vy: Math.sin(ang) * speed,
+          a: Math.random() * Math.PI * 2,
+          w: (Math.random() * 2 - 1) * 8,
+          life: 0.35 + Math.random() * 0.45,
+        });
+      }
+    }
+    if (callbacks.onScreenShake){
+      callbacks.onScreenShake(tuning.tremor.shipShake + 0.06 * (picked.length - 1));
+    }
+    if (callbacks.onRumble){
+      callbacks.onRumble(
+        tuning.tremor.rumbleWeak,
+        tuning.tremor.rumbleStrong,
+        tuning.tremor.rumbleMs + picked.length * 35
+      );
+    }
+    return true;
+  };
+
+  /**
    * @param {DestroyedTerrainNode} destroyed
    * @param {number} heat
    * @returns {PlanetProp|null}
@@ -1104,6 +1384,9 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
       rot: Math.atan2(ny, nx) - Math.PI * 0.5,
       nx,
       ny,
+      supportX: hi.x,
+      supportY: hi.y,
+      supportNodeIndex: rockNeighbor.i,
       ventHeat: Math.max(0.6, heat),
       ventBombT: tuning.lava.bombTriggerDuration * (0.18 + 0.16 * heat),
     };
@@ -1391,6 +1674,18 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
   };
 
   /**
+   * @param {number} x
+   * @param {number} y
+   * @param {number} impactRadius
+   * @param {"bomb"|"crawler"} kind
+   * @param {FeatureCallbacks} callbacks
+   * @returns {boolean}
+   */
+  const handleImpact = (x, y, impactRadius, kind, callbacks) => {
+    return triggerMoltenImpactTremor(x, y, impactRadius, kind, callbacks);
+  };
+
+  /**
    * @param {number} dt
    * @param {FeatureUpdateState} state
    */
@@ -1438,9 +1733,11 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
 
   /**
    * @param {number} dt
+   * @param {FeatureUpdateState} state
    */
-  const updateVents = (dt) => {
+  const updateVents = (dt, state) => {
     if (!props || !props.length) return;
+    let moltenFeedback = 0;
     for (const p of props){
       if (p.type !== "vent") continue;
       p.ventT = (p.ventT || 0) + dt;
@@ -1455,8 +1752,27 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
       const rateMul = bombActive ? tuning.lava.bombRateMul : 1;
       const speedMul = bombActive ? tuning.lava.bombSpeedMul : 1;
       emitVentLava(p, dt, rateMul, speedMul);
+      if (isMolten && state && state.ship && state.ship.state !== "crashed"){
+        const dx = state.ship.x - p.x;
+        const dy = state.ship.y - p.y;
+        const dist = Math.hypot(dx, dy);
+        const reach = 4.2;
+        if (dist < reach){
+          const proximity = 1 - (dist / reach);
+          moltenFeedback += proximity * proximity * (bombActive ? 1.2 : 0.8);
+        }
+      }
     }
     rebuildEnemyVentNavMask();
+    if (moltenFeedback > 0 && state){
+      const strength = Math.min(1.35, moltenFeedback);
+      if (state.onScreenShake){
+        state.onScreenShake(0.012 * strength * dt * 60);
+      }
+      if (state.onRumble){
+        state.onRumble(0.05 * strength, 0.02 + 0.04 * strength, 110);
+      }
+    }
   };
 
   /**
@@ -1512,6 +1828,98 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
             state.miners.splice(j, 1);
             if (state.onMinerKilled) state.onMinerKilled(m);
             lava.splice(i, 1);
+            break;
+          }
+        }
+      }
+    }
+  };
+
+  /**
+   * @param {number} dt
+   * @returns {void}
+   */
+  const updateTremorEruptions = (dt) => {
+    if (!tremorEruptions.length) return;
+    for (let i = tremorEruptions.length - 1; i >= 0; i--){
+      const eruption = /** @type {{x:number,y:number,nx:number,ny:number,life:number,maxLife:number,rateMul:number}} */ (tremorEruptions[i]);
+      eruption.life -= dt;
+      if (eruption.life <= 0){
+        tremorEruptions.splice(i, 1);
+        continue;
+      }
+      const rate = tuning.tremor.burstRate * Math.max(0.4, eruption.rateMul || 1) * dt;
+      const emitWhole = Math.floor(rate);
+      const emitCount = emitWhole + (Math.random() < (rate - emitWhole) ? 1 : 0);
+      for (let j = 0; j < emitCount; j++){
+        emitTremorLava(eruption);
+      }
+    }
+  };
+
+  /**
+   * @param {number} dt
+   * @param {FeatureUpdateState} state
+   * @returns {void}
+   */
+  const updateTremorLavaParticles = (dt, state) => {
+    const tremorLava = particles.tremorLava;
+    if (!tremorLava.length) return;
+    const hitR2 = tuning.tremor.radius * tuning.tremor.radius;
+    for (let i = tremorLava.length - 1; i >= 0; i--){
+      const p = /** @type {{x:number,y:number,vx:number,vy:number,life:number,maxLife:number,size:number}} */ (tremorLava[i]);
+      const xPrev = p.x;
+      const yPrev = p.y;
+      const { x: gx, y: gy } = planet.gravityAt(p.x, p.y);
+      p.vx += gx * dt * 1.18;
+      p.vy += gy * dt * 1.18;
+      const drag = Math.max(0, 1 - 0.14 * dt);
+      p.vx *= drag;
+      p.vy *= drag;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.life -= dt;
+      const crossing = planet.terrainCrossing
+        ? planet.terrainCrossing({ x: xPrev, y: yPrev }, { x: p.x, y: p.y })
+        : null;
+      if (p.life <= 0 || crossing || planet.airValueAtWorld(p.x, p.y) <= 0.5){
+        tremorLava.splice(i, 1);
+        continue;
+      }
+      if (state.ship && state.ship.state !== "crashed"){
+        const dxs = state.ship.x - p.x;
+        const dys = state.ship.y - p.y;
+        if (dxs * dxs + dys * dys <= hitR2){
+          if (state.onShipDamage) state.onShipDamage(p.x, p.y);
+          if (state.onShipHeat) state.onShipHeat(tuning.tremor.contactHeat);
+          tremorLava.splice(i, 1);
+          continue;
+        }
+      }
+      let hit = false;
+      if (state.enemies){
+        for (let j = state.enemies.length - 1; j >= 0; j--){
+          const e = /** @type {{x:number,y:number,hp:number,hitT?:number,stunT?:number}} */ (state.enemies[j]);
+          const dx = e.x - p.x;
+          const dy = e.y - p.y;
+          if (dx * dx + dy * dy <= hitR2){
+            if (state.onEnemyHit) state.onEnemyHit(e, p.x, p.y);
+            tremorLava.splice(i, 1);
+            hit = true;
+            break;
+          }
+        }
+      }
+      if (hit) continue;
+      if (state.miners){
+        for (let j = state.miners.length - 1; j >= 0; j--){
+          const m = /** @type {import("./types.d.js").Miner} */ (state.miners[j]);
+          const dx = m.x - p.x;
+          const dy = m.y - p.y;
+          if (dx * dx + dy * dy <= hitR2){
+            state.miners.splice(j, 1);
+            if (state.onMinerKilled) state.onMinerKilled(m);
+            tremorLava.splice(i, 1);
             break;
           }
         }
@@ -1908,9 +2316,11 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
     clearParticles: () => {
       particles.iceShard.length = 0;
       particles.lava.length = 0;
+      particles.tremorLava.length = 0;
       particles.mushroom.length = 0;
       particles.bubbles.length = 0;
       particles.splashes.length = 0;
+      tremorEruptions.length = 0;
     },
     getEnemyNavigationMask: () => {
       if (!enemyVentMaskActive || !enemyVentNavMask) return planet.airNodesBitmap;
@@ -1942,9 +2352,11 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
      */
     update: (dt, state) => {
       updateCoreHeat(dt, state);
-      updateVents(dt);
+      updateVents(dt, state);
+      updateTremorEruptions(dt);
       updateIceShardParticles(dt, state);
       updateLavaParticles(dt, state);
+      updateTremorLavaParticles(dt, state);
       updateMushroomParticles(dt, state);
       updateWaterBubbles(dt, state);
     },
@@ -1954,8 +2366,10 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
      */
     emitDetachedPropBursts: (detachedProps, callbacks) => {
       if (!detachedProps || !detachedProps.length) return;
+      let ventDetached = false;
       for (const p of detachedProps){
         if (!p) continue;
+        if (p.type === "vent") ventDetached = true;
         if (p.type === "ridge_spike" || p.type === "stalactite"){
           emitRidgeSpikeBurst({ x: p.x, y: p.y, scale: p.scale || 1 }, callbacks, false);
           continue;
@@ -1970,11 +2384,15 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
           }, callbacks);
         }
       }
+      if (ventDetached){
+        rebuildEnemyVentNavMask();
+      }
     },
     handleTerrainDestroyed,
     handleShipContact,
     handleShot,
     handleBomb,
+    handleImpact,
   };
 }
 

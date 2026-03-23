@@ -34,6 +34,7 @@ import { copyGameplayScreenshotToClipboard, drawStartTitle } from "./screenshot.
 import { JumpdriveTransition } from "./jumpdrive_transition.js";
 import { spawnFragmentBurst, spawnTerrainHexFragments, spawnTerrainPropFragments, updateFragmentDebris } from "./fragment_fx.js";
 import { ACTIVE_PERF_FLAGS, BENCH_CONFIG, PERF_FLAGS, RollingFrameStats, getEffectiveDevicePixelRatio, reportBenchmarkResult } from "./perf.js";
+import { findPathAStar } from "./navigation.js";
 import {
   extractPathSegment,
   findGuidePathTargetIndex,
@@ -53,9 +54,11 @@ import { lerpAngleShortest, sweptShipVsMovingMothership } from "./collision_moth
 /** @typedef {import("./types.d.js").Ui} Ui */
 /** @typedef {import("./types.d.js").DestroyedTerrainNode} DestroyedTerrainNode */
 /** @typedef {import("./types.d.js").FragmentOwnerType} FragmentOwnerType */
+/** @typedef {import("./types.d.js").MechanizedLarva} MechanizedLarva */
 /** @typedef {import("./help_popup.js").HelpPopup} HelpPopup */
 /** @typedef {import("./planet_config.js").PlanetTypeId} PlanetTypeId */
 /** @typedef {import("./planet_config.js").PlanetConfig} PlanetConfig */
+/** @typedef {Gamepad & {hapticActuators?: Array<{pulse:(value:number, durationMs:number)=>Promise<void>}>}} LegacyHapticGamepad */
 
 /** @type {any[]} */
 const EMPTY_RENDER_ARRAY = [];
@@ -63,6 +66,7 @@ Object.freeze(EMPTY_RENDER_ARRAY);
 const EMPTY_FEATURE_PARTICLES = Object.freeze({
   iceShard: [],
   lava: [],
+  tremorLava: [],
   mushroom: [],
   bubbles: [],
   splashes: [],
@@ -217,6 +221,8 @@ export class GameLoop {
     this.debris = [];
     /** @type {Array<import("./types.d.js").Debris>} */
     this.fragments = [];
+    /** @type {MechanizedLarva[]} */
+    this.mechanizedLarvae = [];
     /** @type {Array<import("./types.d.js").FallenMiner>} */
     this.fallenMiners = [];
     /** @type {Array<{x:number,y:number,vx:number,vy:number,life:number}>} */
@@ -278,6 +284,17 @@ export class GameLoop {
     this.coreMeltdownT = 0;
     this.coreMeltdownDuration = 120;
     this.coreMeltdownEruptT = 0;
+    this.screenShakeTrauma = 0;
+    this.screenShakeClock = 0;
+    this.rumbleWeak = 0;
+    this.rumbleStrong = 0;
+    this.rumbleUntilMs = 0;
+    this._lastRumbleApplyMs = 0;
+    this._lastRumbleWeakApplied = 0;
+    this._lastRumbleStrongApplied = 0;
+    this._lastBrowserVibrateMs = 0;
+    /** @type {"keyboard"|"mouse"|"touch"|"gamepad"|null} */
+    this.activeInputType = null;
     console.log("[Level] init", {
       level: this.level,
       planetId: planetConfig.id,
@@ -409,6 +426,8 @@ export class GameLoop {
      *   onEnemyHit:(enemy:{x:number,y:number,hp:number,hitT?:number,stunT?:number}, x:number, y:number)=>void,
      *   onEnemyStun:(enemy:{x:number,y:number,hp:number,hitT?:number,stunT?:number}, duration:number, source?:"mushroom"|"lava")=>void,
      *   onMinerKilled:()=>void,
+     *   onScreenShake:(amount:number)=>void,
+     *   onRumble:(weak:number, strong:number, durationMs?:number)=>void,
      * }}
      */
     this.featureCallbacks = {
@@ -445,6 +464,12 @@ export class GameLoop {
       onMinerKilled: () => {
         this.minersRemaining = Math.max(0, this.minersRemaining - 1);
         this._registerMinerLoss(1);
+      },
+      onScreenShake: (amount) => {
+        this._addScreenShake(amount);
+      },
+      onRumble: (weak, strong, durationMs) => {
+        this._queueRumble(weak, strong, durationMs);
       },
     };
     this.planetView = false;
@@ -1017,9 +1042,13 @@ export class GameLoop {
     }
     let fluff = "Keep the mothership in sight, stay disciplined on approach, and leave the orbit cleaner than you found it.";
     if (this.objective && this.objective.type === "extract"){
-      fluff = "The window is narrow. Touch down fast, pull the survivors out, and get them back upstairs before the locals regroup.";
+      fluff = this.level === 1
+        ? "Routine pickup, at least on paper. Set down, round up the survivors, and head back upstairs before it turns into anyone's problem."
+        : "The window is narrow. Touch down fast, pull the survivors out, and get them back upstairs before the locals regroup.";
     } else if (this.objective && this.objective.type === "clear"){
-      fluff = "This one calls for a hard sweep. Burn down every hostile contact you can find, then lift out before the debris settles.";
+      fluff = this.level === 2
+        ? "Intel says our miners were working through an old fort when it suddenly started shooting back. Sweep the place, put down anything still active, and try not to wake the rest of it."
+        : "This one calls for a hard sweep. Burn down every hostile contact you can find, then lift out before the debris settles.";
     } else if (this.objective && this.objective.type === "destroy_factories"){
       fluff = "Industrial resistance is dug in deep. Crack the production line, keep pressure on the surface, and deny them time to rebuild.";
     } else if (this.objective && this.objective.type === "destroy_core"){
@@ -1165,6 +1194,14 @@ export class GameLoop {
     this.ship._landingDebug = null;
     this.debris.length = 0;
     this.fragments.length = 0;
+    this.mechanizedLarvae.length = 0;
+    this.screenShakeTrauma = 0;
+    this.screenShakeClock = 0;
+    this.rumbleWeak = 0;
+    this.rumbleStrong = 0;
+    this.rumbleUntilMs = 0;
+    this._lastRumbleWeakApplied = 0;
+    this._lastRumbleStrongApplied = 0;
     this.fallenMiners.length = 0;
     this.playerShots.length = 0;
     this.playerBombs.length = 0;
@@ -1486,7 +1523,12 @@ export class GameLoop {
    */
   _applyCrawlerTerrainImpact(x, y, range){
     const cfg = this.planet ? this.planet.getPlanetConfig() : null;
-    if (cfg && cfg.flags && cfg.flags.disableTerrainDestruction) return;
+    if (cfg && cfg.flags && cfg.flags.disableTerrainDestruction){
+      if (cfg.id === "molten"){
+        this.planet.handleFeatureImpact(x, y, Math.max(this.TERRAIN_NODE_IMPACT_RANGE, range), "crawler", this.featureCallbacks);
+      }
+      return;
+    }
     const result = this.planet.destroyRockRadialNodesInRange(x, y, Math.max(this.TERRAIN_NODE_IMPACT_RANGE, range));
     if (!result) return;
     this._emitTerrainDestructionFragments(result, x, y);
@@ -1838,16 +1880,139 @@ export class GameLoop {
    */
   _viewState() {
     const view = this._autoViewState();
-    if (!this.manualZoomActive || this.planetView) return view;
-    const zoomMul = this._currentZoomMultiplier();
-    const baseRadius = Math.max(1e-6, view.radius);
-    const radiusScaled = baseRadius / zoomMul;
-    const ratio = radiusScaled / baseRadius;
-    // Apply wheel zoom around the ship so auto-framing offsets do not shift unpredictably.
-    view.xCenter = this.ship.x + (view.xCenter - this.ship.x) * ratio;
-    view.yCenter = this.ship.y + (view.yCenter - this.ship.y) * ratio;
-    view.radius = radiusScaled;
+    if (this.manualZoomActive && !this.planetView){
+      const zoomMul = this._currentZoomMultiplier();
+      const baseRadius = Math.max(1e-6, view.radius);
+      const radiusScaled = baseRadius / zoomMul;
+      const ratio = radiusScaled / baseRadius;
+      // Apply wheel zoom around the ship so auto-framing offsets do not shift unpredictably.
+      view.xCenter = this.ship.x + (view.xCenter - this.ship.x) * ratio;
+      view.yCenter = this.ship.y + (view.yCenter - this.ship.y) * ratio;
+      view.radius = radiusScaled;
+    }
+    if (this.screenShakeTrauma > 1e-4){
+      const t = this.screenShakeClock;
+      const trauma = Math.max(0, Math.min(1.2, this.screenShakeTrauma));
+      const amp = (0.015 + 0.095 * trauma * trauma) * Math.max(0.55, view.radius / GAME.PLANETSIDE_ZOOM);
+      view.xCenter += Math.sin(t * 23.7) * amp + Math.sin(t * 41.9) * amp * 0.42;
+      view.yCenter += Math.cos(t * 19.3) * amp + Math.cos(t * 36.1) * amp * 0.42;
+    }
     return view;
+  }
+
+  /**
+   * @param {number} amount
+   * @returns {void}
+   */
+  _addScreenShake(amount){
+    const add = Math.max(0, amount || 0);
+    if (!(add > 0)) return;
+    this.screenShakeTrauma = Math.min(1.2, this.screenShakeTrauma + add);
+  }
+
+  /**
+   * @param {number} dt
+   * @returns {void}
+   */
+  _updateScreenShake(dt){
+    if (!(dt > 0)) return;
+    this.screenShakeClock += dt;
+    this.screenShakeTrauma = Math.max(0, this.screenShakeTrauma - dt * 1.7);
+  }
+
+  /**
+   * @param {number} weak
+   * @param {number} strong
+   * @param {number} [durationMs=140]
+   * @returns {void}
+   */
+  _queueRumble(weak, strong, durationMs = 140){
+    const w = Math.max(0, Math.min(1, weak || 0));
+    const s = Math.max(0, Math.min(1, strong || 0));
+    if (!(w > 0 || s > 0)) return;
+    this.rumbleWeak = Math.max(this.rumbleWeak, w);
+    this.rumbleStrong = Math.max(this.rumbleStrong, s);
+    const now = this.lastTime || performance.now();
+    this.rumbleUntilMs = Math.max(this.rumbleUntilMs, now + Math.max(16, durationMs || 0));
+  }
+
+  /**
+   * @param {number} weak
+   * @param {number} strong
+   * @param {number} durationMs
+   * @returns {boolean}
+   */
+  _applyGamepadRumble(weak, strong, durationMs){
+    if (typeof navigator === "undefined" || typeof navigator.getGamepads !== "function") return false;
+    const pads = navigator.getGamepads() || [];
+    let applied = false;
+    for (const pad of pads){
+      if (!pad) continue;
+      const actuator = pad.vibrationActuator;
+      if (actuator && typeof actuator.playEffect === "function"){
+        applied = true;
+        actuator.playEffect("dual-rumble", {
+          duration: Math.max(16, Math.round(durationMs)),
+          weakMagnitude: weak,
+          strongMagnitude: strong,
+          startDelay: 0,
+        }).catch(() => {});
+        continue;
+      }
+      const legacyPad = /** @type {LegacyHapticGamepad} */ (pad);
+      const haptics = Array.isArray(legacyPad.hapticActuators) ? legacyPad.hapticActuators : [];
+      if (!haptics.length) continue;
+      applied = true;
+      const mag = Math.max(weak, strong);
+      for (const h of haptics){
+        if (h && typeof h.pulse === "function"){
+          h.pulse(mag, Math.max(16, Math.round(durationMs))).catch(() => {});
+        }
+      }
+    }
+    return applied;
+  }
+
+  /**
+   * @param {number} durationMs
+   * @returns {void}
+   */
+  _applyBrowserVibration(durationMs){
+    if (typeof navigator === "undefined" || typeof navigator.vibrate !== "function") return;
+    const now = this.lastTime || performance.now();
+    if (now - this._lastBrowserVibrateMs < 120) return;
+    this._lastBrowserVibrateMs = now;
+    navigator.vibrate(Math.max(20, Math.min(180, Math.round(durationMs))));
+  }
+
+  /**
+   * @param {"keyboard"|"mouse"|"touch"|"gamepad"|null|undefined} inputType
+   * @param {number} now
+   * @returns {void}
+   */
+  _flushRumble(inputType, now){
+    const active = now < this.rumbleUntilMs;
+    const weak = active ? this.rumbleWeak : 0;
+    const strong = active ? this.rumbleStrong : 0;
+    const prevWeak = this._lastRumbleWeakApplied || 0;
+    const prevStrong = this._lastRumbleStrongApplied || 0;
+    const hadPrev = prevWeak > 1e-3 || prevStrong > 1e-3;
+    const changed = Math.abs(prevWeak - weak) > 0.03 || Math.abs(prevStrong - strong) > 0.03;
+    if ((active || hadPrev) && (changed || now - this._lastRumbleApplyMs >= 90)){
+      const durationMs = active ? Math.max(40, this.rumbleUntilMs - now) : 40;
+      const appliedToPad = this._applyGamepadRumble(weak, strong, durationMs);
+      if (!appliedToPad && strong >= 0.35 && (inputType === "touch" || inputType === "gamepad")){
+        this._applyBrowserVibration(durationMs);
+      }
+      this._lastRumbleWeakApplied = weak;
+      this._lastRumbleStrongApplied = strong;
+      this._lastRumbleApplyMs = now;
+    }
+    if (!active){
+      this.rumbleWeak = 0;
+      this.rumbleStrong = 0;
+      this.rumbleUntilMs = 0;
+    }
   }
 
   /**
@@ -1885,7 +2050,12 @@ export class GameLoop {
    */
   _applyBombImpact(x, y){
     const cfg = this.planet ? this.planet.getPlanetConfig() : null;
-    if (cfg && cfg.flags && cfg.flags.disableTerrainDestruction) return;
+    if (cfg && cfg.flags && cfg.flags.disableTerrainDestruction){
+      if (cfg.id === "molten"){
+        this.planet.handleFeatureImpact(x, y, this._playerBombTerrainImpactRange(), "bomb", this.featureCallbacks);
+      }
+      return;
+    }
     const result = this.planet.destroyRockRadialNodesInRange(
       x,
       y,
@@ -1924,6 +2094,10 @@ export class GameLoop {
     if (result.newAir) this.renderer.updateAir(result.newAir);
     if (!result.destroyedNodes || !result.destroyedNodes.length) return;
     this.planet.handleFeatureTerrainDestroyed(result.destroyedNodes, this.featureCallbacks);
+    if (this._isMechanizedLevel()){
+      this._destroyFactoriesAttachedToTerrainNodes(result.destroyedNodes);
+      this._spawnMechanizedTerrainLarvae(result.destroyedNodes);
+    }
     const palette = this._planetPalette();
     spawnTerrainHexFragments(this.fragments, result.destroyedNodes, { x, y }, palette);
     const destroyedProps = this.planet.destroyTerrainPropsAttachedToNodes(result.destroyedNodes);
@@ -2387,6 +2561,37 @@ export class GameLoop {
   }
 
   /**
+   * @param {DestroyedTerrainNode[]} destroyedNodes
+   * @returns {number}
+   */
+  _destroyFactoriesAttachedToTerrainNodes(destroyedNodes){
+    if (!destroyedNodes || !destroyedNodes.length || !this.planet || !this.planet.props || !this.planet.props.length) return 0;
+    const destroyedNodeIndices = new Set(destroyedNodes.map((node) => node.idx));
+    let count = 0;
+    for (const p of this.planet.props){
+      if (!p || p.dead || p.type !== "factory") continue;
+      const supportIndices = Array.isArray(p.supportNodeIndices) && p.supportNodeIndices.length
+        ? p.supportNodeIndices
+        : (Number.isFinite(p.supportNodeIndex) ? [Number(p.supportNodeIndex)] : []);
+      if (!supportIndices.length) continue;
+      let detached = false;
+      for (const idx of supportIndices){
+        if (destroyedNodeIndices.has(idx)){
+          detached = true;
+          break;
+        }
+      }
+      if (!detached) continue;
+      this._destroyFactoryProp(p);
+      count++;
+    }
+    if (count > 0){
+      this._syncTetherProtectionStates();
+    }
+    return count;
+  }
+
+  /**
    * @param {number} x
    * @param {number} y
    * @param {number} radius
@@ -2510,6 +2715,9 @@ export class GameLoop {
     if (coreR <= 0) return;
     this.coreMeltdownT += dt;
     const progress = Math.max(0, Math.min(1, this.coreMeltdownT / Math.max(0.001, this.coreMeltdownDuration)));
+    if (!this._isDockedWithMothership()){
+      this._queueRumble(0.18 + progress * 0.18, 0.42 + progress * 0.34, 150);
+    }
     const featureParticles = this.planet && this.planet.getFeatureParticles ? this.planet.getFeatureParticles() : null;
     const lava = featureParticles && featureParticles.lava ? featureParticles.lava : null;
     if (lava){
@@ -2564,6 +2772,221 @@ export class GameLoop {
   }
 
   /**
+   * @returns {number}
+   */
+  _mechanizedLarvaSpawnCount(){
+    return Math.max(2, Math.min(7, 2 + Math.floor(Math.max(0, (this.level | 0) - 1) / 3)));
+  }
+
+  /**
+   * @returns {import("./types.d.js").EnemyType}
+   */
+  _pickMechanizedLarvaHatchType(){
+    const cfg = this.planet && this.planet.getPlanetConfig ? this.planet.getPlanetConfig() : null;
+    const allow = (cfg && cfg.enemyAllow) ? cfg.enemyAllow : [];
+    const pool = allow.filter((t) => t === "hunter" || t === "ranger" || t === "crawler");
+    return pool.length
+      ? /** @type {import("./types.d.js").EnemyType} */ (pool[Math.floor(Math.random() * pool.length)])
+      : "hunter";
+  }
+
+  /**
+   * @param {import("./types.d.js").EnemyType} type
+   * @param {number} x
+   * @param {number} y
+   * @returns {boolean}
+   */
+  _spawnHostileAt(type, x, y){
+    if (!this.enemies || !this.enemies.enemies) return false;
+    let px = x;
+    let py = y;
+    if (this.collision.airValueAtWorld(px, py) <= 0.5){
+      const nudge = this.planet.nudgeOutOfTerrain(px, py, 0.9, 0.08, 0.18);
+      if (!nudge.ok) return false;
+      px = nudge.x;
+      py = nudge.y;
+      if (this.collision.airValueAtWorld(px, py) <= 0.5) return false;
+    }
+    const shotCooldown = Math.random();
+    if (type === "hunter"){
+      this.enemies.enemies.push({ type, x: px, y: py, vx: 0, vy: 0, hp: 3, shotCooldown, modeCooldown: 0, iNodeGoal: null });
+    } else if (type === "ranger"){
+      this.enemies.enemies.push({ type, x: px, y: py, vx: 0, vy: 0, hp: 2, shotCooldown, modeCooldown: 0, iNodeGoal: null });
+    } else {
+      const ang = Math.random() * Math.PI * 2;
+      const speed = Math.min(3, this.level * 0.25 + 0.5);
+      this.enemies.enemies.push({ type: "crawler", x: px, y: py, vx: Math.cos(ang) * speed, vy: Math.sin(ang) * speed, hp: 1, shotCooldown: 0, modeCooldown: 0, iNodeGoal: null });
+    }
+    if (this.objective && this.objective.type === "clear"){
+      this.clearObjectiveTotal = Math.max(this.clearObjectiveTotal || 0, this._remainingClearTargets()) + 1;
+      this.objective.target = this.clearObjectiveTotal;
+    }
+    this.entityExplosions.push({ x: px, y: py, life: 0.35, radius: 0.45 });
+    return true;
+  }
+
+  /**
+   * @param {number} startNode
+   * @param {Set<number>} usedTargets
+   * @returns {{path:number[],targetNode:number}|null}
+   */
+  _findMechanizedLarvaEscapePath(startNode, usedTargets){
+    const graph = this.planet && this.planet.getRadialGraph ? this.planet.getRadialGraph(false) : null;
+    const passable = this.planet && this.planet.getAirNodesBitmap ? this.planet.getAirNodesBitmap(false) : null;
+    if (!graph || !graph.nodes || !graph.neighbors || !passable || startNode < 0 || startNode >= graph.nodes.length || !passable[startNode]){
+      return null;
+    }
+    const start = graph.nodes[startNode];
+    if (!start) return null;
+    const hops = new Int16Array(graph.nodes.length);
+    hops.fill(-1);
+    const queue = [startNode];
+    hops[startNode] = 0;
+    for (let head = 0; head < queue.length; head++){
+      const idx = /** @type {number} */ (queue[head]);
+      const nextHop = /** @type {number} */ (hops[idx]) + 1;
+      const neigh = graph.neighbors[idx] || [];
+      for (const edge of neigh){
+        const next = edge.to;
+        if (!/** @type {number} */ (passable[next]) || /** @type {number} */ (hops[next]) >= 0) continue;
+        hops[next] = nextHop;
+        queue.push(next);
+      }
+    }
+    /** @type {Array<{idx:number,hops:number,r:number,d2:number}>} */
+    const preferred = [];
+    /** @type {Array<{idx:number,hops:number,r:number,d2:number}>} */
+    const fallback = [];
+    for (let i = 0; i < hops.length; i++){
+      const h = /** @type {number} */ (hops[i]);
+      if (h < 0 || i === startNode || usedTargets.has(i)) continue;
+      const node = graph.nodes[i];
+      if (!node) continue;
+      const dx = node.x - start.x;
+      const dy = node.y - start.y;
+      const d2 = dx * dx + dy * dy;
+      const info = { idx: i, hops: h, r: Math.hypot(node.x, node.y), d2 };
+      fallback.push(info);
+      if (h >= 10 && h <= 18){
+        preferred.push(info);
+      }
+    }
+    /**
+     * @param {{idx:number,hops:number,r:number,d2:number}} a
+     * @param {{idx:number,hops:number,r:number,d2:number}} b
+     * @returns {number}
+     */
+    const rank = (a, b) => {
+      if (b.r !== a.r) return b.r - a.r;
+      if (b.hops !== a.hops) return b.hops - a.hops;
+      return b.d2 - a.d2;
+    };
+    preferred.sort(rank);
+    fallback.sort(rank);
+    const pool = preferred.length ? preferred : fallback;
+    for (const candidate of pool){
+      const path = findPathAStar(graph, startNode, candidate.idx, passable);
+      if (!path || path.length < 2) continue;
+      return { path, targetNode: candidate.idx };
+    }
+    return null;
+  }
+
+  /**
+   * @param {DestroyedTerrainNode[]} destroyedNodes
+   * @returns {void}
+   */
+  _spawnMechanizedTerrainLarvae(destroyedNodes){
+    if (!this._isMechanizedLevel() || !destroyedNodes || !destroyedNodes.length) return;
+    const graph = this.planet && this.planet.getRadialGraph ? this.planet.getRadialGraph(false) : null;
+    if (!graph || !graph.nodes || !graph.nodes.length) return;
+    const usedTargets = new Set();
+    const spawnCount = this._mechanizedLarvaSpawnCount();
+    for (let i = 0; i < spawnCount; i++){
+      const anchor = destroyedNodes[i % destroyedNodes.length];
+      if (!anchor) continue;
+      const startNode = this.planet.nearestRadialNodeInAir(anchor.x, anchor.y);
+      if (startNode < 0 || startNode >= graph.nodes.length) continue;
+      const plan = this._findMechanizedLarvaEscapePath(startNode, usedTargets);
+      if (!plan) continue;
+      const node = graph.nodes[startNode];
+      if (!node) continue;
+      usedTargets.add(plan.targetNode);
+      const size = 0.10 + Math.random() * 0.05;
+      const speed = 1.65 + Math.min(1.0, this.level * 0.035) + Math.random() * 0.25;
+      const dirX = anchor.x - node.x;
+      const dirY = anchor.y - node.y;
+      const dirLen = Math.hypot(dirX, dirY) || 1;
+      this.mechanizedLarvae.push({
+        x: node.x + (dirX / dirLen) * 0.04,
+        y: node.y + (dirY / dirLen) * 0.04,
+        vx: 0,
+        vy: 0,
+        speed,
+        size,
+        phase: Math.random() * Math.PI * 2,
+        t: 0,
+        path: plan.path,
+        pathIndex: 1,
+        hatchType: this._pickMechanizedLarvaHatchType(),
+      });
+    }
+  }
+
+  /**
+   * @param {number} dt
+   * @returns {void}
+   */
+  _updateMechanizedLarvae(dt){
+    if (!this.mechanizedLarvae.length) return;
+    const graph = this.planet && this.planet.getRadialGraph ? this.planet.getRadialGraph(false) : null;
+    if (!graph || !graph.nodes || !graph.nodes.length){
+      this.mechanizedLarvae.length = 0;
+      return;
+    }
+    for (let i = this.mechanizedLarvae.length - 1; i >= 0; i--){
+      const larva = /** @type {MechanizedLarva} */ (this.mechanizedLarvae[i]);
+      larva.t += dt;
+      const path = larva.path || [];
+      if (!path.length || larva.pathIndex >= path.length){
+        this._spawnHostileAt(larva.hatchType, larva.x, larva.y);
+        this.mechanizedLarvae.splice(i, 1);
+        continue;
+      }
+      const nodeIdx = /** @type {number} */ (path[larva.pathIndex]);
+      const target = (typeof nodeIdx === "number" && nodeIdx >= 0 && nodeIdx < graph.nodes.length)
+        ? graph.nodes[nodeIdx]
+        : null;
+      if (!target){
+        this._spawnHostileAt(larva.hatchType, larva.x, larva.y);
+        this.mechanizedLarvae.splice(i, 1);
+        continue;
+      }
+      const dx = target.x - larva.x;
+      const dy = target.y - larva.y;
+      const dist = Math.hypot(dx, dy);
+      const step = larva.speed * dt;
+      if (dist <= Math.max(0.02, step)){
+        larva.x = target.x;
+        larva.y = target.y;
+        larva.vx = 0;
+        larva.vy = 0;
+        larva.pathIndex++;
+        if (larva.pathIndex >= path.length){
+          this._spawnHostileAt(larva.hatchType, larva.x, larva.y);
+          this.mechanizedLarvae.splice(i, 1);
+        }
+        continue;
+      }
+      const inv = 1 / Math.max(1e-6, dist);
+      larva.vx = dx * inv * larva.speed;
+      larva.vy = dy * inv * larva.speed;
+      larva.x += larva.vx * dt;
+      larva.y += larva.vy * dt;
+    }
+  }
+
+  /**
    * @param {any} factory
    * @returns {boolean}
    */
@@ -2575,7 +2998,9 @@ export class GameLoop {
     if (this._remainingCombatEnemies() >= maxEnemies) return false;
     const allow = (cfg && cfg.enemyAllow) ? cfg.enemyAllow : [];
     const pool = allow.filter((t) => t === "hunter" || t === "ranger" || t === "crawler");
-    const type = pool.length ? pool[Math.floor(Math.random() * pool.length)] : "hunter";
+    const type = pool.length
+      ? /** @type {import("./types.d.js").EnemyType} */ (pool[Math.floor(Math.random() * pool.length)])
+      : "hunter";
     const { nx, ny, tx, ty } = this._propBasis(factory);
     const s = factory.scale || 1;
     let x = factory.x + nx * (0.58 * s + 0.28);
@@ -2589,22 +3014,7 @@ export class GameLoop {
       y = nudge.y;
       if (this.collision.airValueAtWorld(x, y) <= 0.5) return false;
     }
-    const shotCooldown = Math.random();
-    if (type === "hunter"){
-      this.enemies.enemies.push({ type, x, y, vx: 0, vy: 0, hp: 3, shotCooldown, modeCooldown: 0, iNodeGoal: null });
-    } else if (type === "ranger"){
-      this.enemies.enemies.push({ type, x, y, vx: 0, vy: 0, hp: 2, shotCooldown, modeCooldown: 0, iNodeGoal: null });
-    } else {
-      const ang = Math.random() * Math.PI * 2;
-      const speed = Math.min(3, this.level * 0.25 + 0.5);
-      this.enemies.enemies.push({ type: "crawler", x, y, vx: Math.cos(ang) * speed, vy: Math.sin(ang) * speed, hp: 1, shotCooldown: 0, modeCooldown: 0, iNodeGoal: null });
-    }
-    if (this.objective && this.objective.type === "clear"){
-      this.clearObjectiveTotal = Math.max(this.clearObjectiveTotal || 0, this._remainingClearTargets()) + 1;
-      this.objective.target = this.clearObjectiveTotal;
-    }
-    this.entityExplosions.push({ x, y, life: 0.35, radius: 0.45 });
-    return true;
+    return this._spawnHostileAt(type, x, y);
   }
 
   /**
@@ -2968,6 +3378,14 @@ export class GameLoop {
     this.renderer.setPlanet(this.planet);
     this._resetShip();
     this.entityExplosions.length = 0;
+    this.mechanizedLarvae.length = 0;
+    this.screenShakeTrauma = 0;
+    this.screenShakeClock = 0;
+    this.rumbleWeak = 0;
+    this.rumbleStrong = 0;
+    this.rumbleUntilMs = 0;
+    this._lastRumbleWeakApplied = 0;
+    this._lastRumbleStrongApplied = 0;
     this._spawnMiners();
     this.planet.reconcileFeatures({
       enemies: this.enemies.enemies,
@@ -4282,6 +4700,8 @@ export class GameLoop {
       onEnemyHit: this.featureCallbacks.onEnemyHit,
       onEnemyStun: this.featureCallbacks.onEnemyStun,
       onMinerKilled: this.featureCallbacks.onMinerKilled,
+      onScreenShake: this.featureCallbacks.onScreenShake,
+      onRumble: this.featureCallbacks.onRumble,
     });
     if (this.ship.state !== "crashed"){
       if (this._heatMechanicsActive() && (this.ship.heat || 0) >= 100){
@@ -4834,6 +5254,7 @@ export class GameLoop {
       }
     }
 
+    this._updateMechanizedLarvae(dt);
     this.enemies.update(this.ship, dt);
     this._updateFactorySpawns(dt);
     this._resolveEnemySolidPropCollisions();
@@ -4897,6 +5318,7 @@ export class GameLoop {
       this.input.setDebugCommandsEnabled(this.devHudVisible);
     }
     const inputState = this.input.update();
+    this.activeInputType = inputState.inputType || this.activeInputType;
     if (!transitionActive && inputState.toggleFrameStep){
       this.debugFrameStepMode = !this.debugFrameStepMode;
       this.accumulator = 0;
@@ -5044,6 +5466,8 @@ export class GameLoop {
       this.accumulator -= fixed;
       steps++;
     }
+    this._updateScreenShake(rawDt);
+    this._flushRumble(this.activeInputType, now);
     const objectiveCompleteNow = this._objectiveComplete();
     if (objectiveCompleteNow && this.level >= 16 && !this.victoryMusicTriggered){
       this.victoryMusicTriggered = true;
@@ -5334,6 +5758,7 @@ export class GameLoop {
       healthPickups: dynamicOverlayEnabled ? this.healthPickups : EMPTY_RENDER_ARRAY,
       pickupAnimations: dynamicOverlayEnabled ? this.pickupAnimations : EMPTY_RENDER_ARRAY,
       enemies: dynamicOverlayEnabled ? this.enemies.enemies : EMPTY_RENDER_ARRAY,
+      mechanizedLarvae: dynamicOverlayEnabled ? this.mechanizedLarvae : EMPTY_RENDER_ARRAY,
       shots: dynamicOverlayEnabled ? this.enemies.shots : EMPTY_RENDER_ARRAY,
       explosions: dynamicOverlayEnabled ? this.enemies.explosions : EMPTY_RENDER_ARRAY,
       fragments: dynamicOverlayEnabled ? this.fragments.concat(this.enemies.debris) : EMPTY_RENDER_ARRAY,

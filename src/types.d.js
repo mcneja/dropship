@@ -307,6 +307,21 @@
  */
 
 /**
+ * @typedef {Object} MechanizedLarva
+ * @property {number} x
+ * @property {number} y
+ * @property {number} vx
+ * @property {number} vy
+ * @property {number} speed
+ * @property {number} size
+ * @property {number} phase
+ * @property {number} t
+ * @property {number[]} path
+ * @property {number} pathIndex
+ * @property {EnemyType} hatchType
+ */
+
+/**
  * @typedef {Object} RenderState
  * @property {ViewState} view
  * @property {Ship} ship
@@ -334,12 +349,13 @@
  * @property {Array<HealthPickup>} healthPickups
  * @property {Array<PickupAnimation>} [pickupAnimations]
  * @property {Array<{x:number,y:number,type:EnemyType,vx?:number,vy?:number,cooldown?:number,hp?:number,hitT?:number,stunT?:number,dir?:number,fuse?:number}>} enemies
+ * @property {Array<MechanizedLarva>} [mechanizedLarvae]
  * @property {Array<{x:number,y:number,vx?:number,vy?:number,life?:number,owner:string}>} shots
  * @property {Array<{x:number,y:number,life:number,maxLife?:number,owner:string,radius?:number}>} explosions
  * @property {Array<Debris>} fragments
  * @property {Array<{x:number,y:number,vx?:number,vy?:number,life?:number}>} playerShots
  * @property {Array<{x:number,y:number,vx?:number,vy?:number,life?:number}>} playerBombs
- * @property {{iceShard:Array<{x:number,y:number,vx?:number,vy?:number,life?:number,maxLife?:number,size?:number}>,lava:Array<{x:number,y:number,vx?:number,vy?:number,life?:number}>,mushroom:Array<{x:number,y:number,vx?:number,vy?:number,life?:number}>,bubbles:Array<{x:number,y:number,vx?:number,vy?:number,life?:number,maxLife?:number,size?:number,rot?:number,spin?:number}>,splashes:Array<{x:number,y:number,vx?:number,vy?:number,life?:number,maxLife?:number,size?:number,rot?:number,cr?:number,cg?:number,cb?:number}>}} featureParticles
+ * @property {{iceShard:Array<{x:number,y:number,vx?:number,vy?:number,life?:number,maxLife?:number,size?:number}>,lava:Array<{x:number,y:number,vx?:number,vy?:number,life?:number}>,tremorLava:Array<{x:number,y:number,vx?:number,vy?:number,life?:number,maxLife?:number,size?:number}>,mushroom:Array<{x:number,y:number,vx?:number,vy?:number,life?:number}>,bubbles:Array<{x:number,y:number,vx?:number,vy?:number,life?:number,maxLife?:number,size?:number,rot?:number,spin?:number}>,splashes:Array<{x:number,y:number,vx?:number,vy?:number,life?:number,maxLife?:number,size?:number,rot?:number,cr?:number,cg?:number,cb?:number}>}} featureParticles
  * @property {Array<{x:number,y:number,life:number,radius?:number,cr?:number,cg?:number,cb?:number}>} entityExplosions
  * @property {{x:number,y:number}|null} aimWorld
  * @property {{x:number,y:number}|null} [aimOrigin]

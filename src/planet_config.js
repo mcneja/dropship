@@ -740,7 +740,7 @@ export const PLANET_CONFIGS = [
     factorySpawnCooldownMin: 6.5,
     factorySpawnCooldownMax: 10.5,
     notes: "Factory citadels have chained this rock in steel. Blast the line, crack the gates, and leave the assembly floor burning.",
-    flags: { disableTerrainDestruction: true },
+    flags: {},
     defaults: {
       ROCK_DARK: [0.20, 0.20, 0.22],
       ROCK_LIGHT: [0.45, 0.45, 0.50],

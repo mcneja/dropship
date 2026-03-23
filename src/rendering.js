@@ -1467,6 +1467,53 @@ function drawFrameImpl(renderer, state, planet){
     }
   }
 
+  if (state.mechanizedLarvae && state.mechanizedLarvae.length){
+    const tNow = performance.now() * 0.001;
+    for (const larva of state.mechanizedLarvae){
+      if (!visibleHostileNow(larva.x, larva.y)) continue;
+      const speed = Math.hypot(larva.vx || 0, larva.vy || 0);
+      let ux;
+      let uy;
+      if (speed > 1e-4){
+        ux = (larva.vx || 0) / speed;
+        uy = (larva.vy || 0) / speed;
+      } else {
+        const len = Math.hypot(larva.x, larva.y) || 1;
+        ux = larva.x / len;
+        uy = larva.y / len;
+      }
+      const tx = -uy;
+      const ty = ux;
+      const s = Math.max(0.05, larva.size || 0.12);
+      const pulse = 0.5 + 0.5 * Math.sin(tNow * 18 + (larva.phase || 0));
+      /** @type {[number, number, number]} */
+      const body = [0.82, 0.88, 0.24];
+      /** @type {[number, number, number]} */
+      const glow = [1.0, 0.62 + 0.18 * pulse, 0.18];
+      /** @type {[number, number, number]} */
+      const outline = [0.22, 0.30, 0.10];
+      /**
+       * @param {number} lx
+       * @param {number} ly
+       * @returns {[number, number]}
+       */
+      const toWorld = (lx, ly) => [larva.x + tx * lx + ux * ly, larva.y + ty * lx + uy * ly];
+      const tail = toWorld(0, -0.62 * s);
+      const left = toWorld(-0.42 * s, -0.06 * s);
+      const right = toWorld(0.42 * s, -0.06 * s);
+      const tip = toWorld(0, 0.74 * s);
+      const finL = toWorld(-0.34 * s, 0.32 * s);
+      const finR = toWorld(0.34 * s, 0.32 * s);
+      pushTri(pos, col, tail[0], tail[1], left[0], left[1], tip[0], tip[1], outline[0], outline[1], outline[2], 0.96);
+      pushTri(pos, col, tail[0], tail[1], tip[0], tip[1], right[0], right[1], outline[0], outline[1], outline[2], 0.96);
+      triVerts += 6;
+      pushTri(pos, col, left[0], left[1], finL[0], finL[1], tip[0], tip[1], body[0], body[1], body[2], 0.96);
+      pushTri(pos, col, right[0], right[1], tip[0], tip[1], finR[0], finR[1], body[0], body[1], body[2], 0.96);
+      triVerts += 6;
+      triVerts += pushPolyFan(pos, col, larva.x, larva.y + uy * 0.12 * s, 0.22 * s, 6, tNow * 3.4 + (larva.phase || 0), glow[0], glow[1], glow[2], 0.78) * 3;
+    }
+  }
+
 
   if (state.mothership){
     const m = state.mothership;
@@ -1764,6 +1811,18 @@ function drawFrameImpl(renderer, state, planet){
       if (!visibleEntityNow(p.x, p.y)) continue;
       pushDiamond(pos, col, p.x, p.y, size, 1.0, 0.25, 0.15, 0.95);
       triVerts += 6;
+    }
+  }
+  const tremorLavaParticles = featureParticles ? featureParticles.tremorLava : null;
+  if (tremorLavaParticles && tremorLavaParticles.length){
+    for (const p of tremorLavaParticles){
+      if (!visibleEntityNow(p.x, p.y)) continue;
+      const life = p.life ?? 0;
+      const lifeN = (p.maxLife && p.maxLife > 0) ? Math.max(0, Math.min(1, life / p.maxLife)) : 1;
+      const size = (p.size || 0.14) * (0.92 + (1 - lifeN) * 0.35);
+      pushSquare(pos, col, p.x, p.y, size * 1.15, 1.0, 0.42, 0.08, 0.84 * lifeN);
+      pushDiamond(pos, col, p.x, p.y, size * 0.72, 1.0, 0.92, 0.28, 0.96 * lifeN);
+      triVerts += 12;
     }
   }
   const mushroomParticles = featureParticles ? featureParticles.mushroom : null;
