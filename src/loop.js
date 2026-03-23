@@ -19,6 +19,7 @@ import {
   computeDropshipConvexHullBoundRadius,
   computeDropshipAcceleration,
   computeDropshipInertialDriveAcceleration,
+  getInertialDriveThrust,
   getDropshipGunPivotLocal,
   getDropshipWorldRotation,
   hasDropshipThrustInput,
@@ -314,6 +315,7 @@ export class GameLoop {
       level: this.level,
       levelSeed: this.planet.getSeed(),
       placement: planetConfig.enemyPlacement || "random",
+      solidPropSegmentBlocked: (ax, ay, bx, by, radius) => this._solidPropSegmentBlocked(ax, ay, bx, by, radius),
       onEnemyShot: () => {
         this._playSfx("enemy_fire", { volume: 0.55 });
         this._markCombatThreat();
@@ -2874,6 +2876,29 @@ export class GameLoop {
   }
 
   /**
+   * @param {any} tether
+   * @param {number} [duration]
+   * @returns {void}
+   */
+  _flashTether(tether, duration = 0.18){
+    if (!tether || tether.type !== "tether" || tether.dead) return;
+    tether.flashT = Math.max((typeof tether.flashT === "number") ? tether.flashT : 0, duration);
+  }
+
+  /**
+   * @param {number} dt
+   * @returns {void}
+   */
+  _updateTetherFlash(dt){
+    if (!(dt > 0) || !this._isMechanizedLevel()) return;
+    const tethers = this._tetherPropsAll();
+    for (const tether of tethers){
+      if (typeof tether.flashT !== "number" || tether.flashT <= 0) continue;
+      tether.flashT = Math.max(0, tether.flashT - dt);
+    }
+  }
+
+  /**
    * @returns {boolean}
    */
   _heatMechanicsActive(){
@@ -3281,6 +3306,46 @@ export class GameLoop {
   }
 
   /**
+   * @param {number} x0
+   * @param {number} y0
+   * @param {number} x1
+   * @param {number} y1
+   * @param {number} [radius]
+   * @returns {any|null}
+   */
+  _firstSolidPropOnSegment(x0, y0, x1, y1, radius = 0.04){
+    if (!this._isMechanizedLevel()) return null;
+    if (!this.planet || !this.planet.props || !this.planet.props.length) return null;
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    const dist = Math.hypot(dx, dy);
+    const step = Math.max(0.05, radius * 0.9);
+    const steps = Math.max(1, Math.ceil(dist / step));
+    for (let i = 1; i <= steps; i++){
+      const t = i / steps;
+      const x = x0 + dx * t;
+      const y = y0 + dy * t;
+      for (const p of this.planet.props){
+        if (p.dead) continue;
+        if (this._solidPropPenetration(p, x, y, radius)) return p;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * @param {number} x0
+   * @param {number} y0
+   * @param {number} x1
+   * @param {number} y1
+   * @param {number} [radius]
+   * @returns {boolean}
+   */
+  _solidPropSegmentBlocked(x0, y0, x1, y1, radius = 0.04){
+    return !!this._firstSolidPropOnSegment(x0, y0, x1, y1, radius);
+  }
+
+  /**
    * @returns {void}
    */
   _resolveShipSolidPropCollisions(){
@@ -3291,6 +3356,12 @@ export class GameLoop {
     for (const p of this.planet.props){
       const hit = this._solidPropPenetration(p, this.ship.x, this.ship.y, radius);
       if (!hit) continue;
+      if (p.type === "tether"){
+        this._flashTether(p);
+        this.entityExplosions.push({ x: this.ship.x, y: this.ship.y, life: 0.35, radius: Math.max(0.4, radius * 0.9) });
+        this._triggerCrash("explosion");
+        return;
+      }
       this.ship.x += hit.nx * (hit.depth + 0.01);
       this.ship.y += hit.ny * (hit.depth + 0.01);
       const vn = this.ship.vx * hit.nx + this.ship.vy * hit.ny;
@@ -3520,6 +3591,7 @@ export class GameLoop {
       level,
       levelSeed: planet.getSeed(),
       placement: planetConfig.enemyPlacement || "random",
+      solidPropSegmentBlocked: (ax, ay, bx, by, radius) => this._solidPropSegmentBlocked(ax, ay, bx, by, radius),
       onEnemyShot: () => {
         this._playSfx("enemy_fire", { volume: 0.55 });
         this._markCombatThreat();
@@ -4328,6 +4400,7 @@ export class GameLoop {
       return;
     }
     this._syncTetherProtectionStates();
+    this._updateTetherFlash(dt);
     if (!this.coreMeltdownActive && this.objective && this.objective.type === "destroy_core" && this._tetherPropsAlive().length <= 0){
       this._startCoreMeltdown();
     }
@@ -4488,7 +4561,7 @@ export class GameLoop {
         ? (this.planet.radial.rings.length - 1)
         : Math.floor(this.planetParams.RMAX || 0);
       const thrustMax = this.planetParams.THRUST * (1 + this.ship.thrust * 0.1);
-      const inertialDriveThrust = GAME.INERTIAL_DRIVE_THRUST * (1 + this.ship.inertialDrive * 0.1);
+      const inertialDriveThrust = getInertialDriveThrust(GAME, this.ship.inertialDrive);
       const thrustAccel = computeDropshipAcceleration(this.ship, { left, right, thrust, down, stickThrust }, thrustMax);
       let ax = thrustAccel.ax;
       let ay = thrustAccel.ay;
@@ -6497,7 +6570,7 @@ export class GameLoop {
     if (this.ship.thrust < 3){
       perksAvailable.push("thrust");
     }
-    if (this.ship.inertialDrive < 3){
+    if (this.ship.inertialDrive < GAME.SHIP_MAX_INERTIAL_DRIVE){
       perksAvailable.push("inertialDrive");
     }
     if (this.level > 5 && this.ship.gunPower < 2){
@@ -6536,7 +6609,10 @@ export class GameLoop {
     if (perk === "bombsMax") return "Expanded payload bay: +1 max bomb";
     if (perk === "bombStrength") return "Heavy charges: bigger bomb blast";
     if (perk === "thrust") return "Engine tune-up: +10% thrust power";
-    if (perk === "inertialDrive") return "Inertial drive: +10% corrective thrust";
+    if (perk === "inertialDrive"){
+      if (this.ship.inertialDrive <= 0) return "Inertial drive: enable corrective thrust";
+      return `Inertial drive: +${Math.round(GAME.INERTIAL_DRIVE_UPGRADE_FACTOR * 100)}% corrective thrust`;
+    }
     if (perk === "gunPower") return "Firepower: +1 HP damage";
     if (perk === "rescueeDetector") return "Rescuee detector: locate stranded crew";
     if (perk === "planetScanner") return "Planet scanner: scan planet from mothership";
@@ -6572,7 +6648,7 @@ export class GameLoop {
     } else if (perk === "thrust"){
       ++this.ship.thrust;
     } else if (perk === "inertialDrive"){
-      ++this.ship.inertialDrive;
+      this.ship.inertialDrive = Math.min(GAME.SHIP_MAX_INERTIAL_DRIVE, this.ship.inertialDrive + 1);
     } else if (perk === "gunPower"){
       ++this.ship.gunPower;
     } else if (perk === "rescueeDetector"){

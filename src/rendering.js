@@ -6,6 +6,7 @@ import {
   DROPSHIP_MODEL,
   getDropshipGeometryProfileN,
   getDropshipCargoBoundsN,
+  getInertialDriveThrust,
   getDropshipRenderSize,
   getDropshipThrusterPowers,
   getDropshipWorldRotation,
@@ -2143,10 +2144,23 @@ function drawFrameImpl(renderer, state, planet){
         const halfL = (typeof p.halfLength === "number" && p.halfLength > 0) ? p.halfLength : (0.9 * s);
         const halfW = (typeof p.halfWidth === "number" && p.halfWidth > 0) ? p.halfWidth : (0.12 * s);
         const locked = !!p.locked;
+        const flash = Math.max(0, Math.min(1, ((typeof p.flashT === "number") ? p.flashT : 0) / 0.18));
         /** @type {Rgb} */
-        const bodyCol = locked ? [0.28, 0.31, 0.38] : [0.78, 0.38, 0.20];
+        const bodyBase = locked ? [0.28, 0.31, 0.38] : [0.78, 0.38, 0.20];
         /** @type {Rgb} */
-        const coreCol = locked ? [0.14, 0.17, 0.22] : [1.0, 0.68, 0.32];
+        const coreBase = locked ? [0.14, 0.17, 0.22] : [1.0, 0.68, 0.32];
+        /** @type {Rgb} */
+        const bodyCol = [
+          bodyBase[0] + (1.0 - bodyBase[0]) * flash,
+          bodyBase[1] + (0.95 - bodyBase[1]) * flash,
+          bodyBase[2] + (0.78 - bodyBase[2]) * flash,
+        ];
+        /** @type {Rgb} */
+        const coreCol = [
+          coreBase[0] + (1.0 - coreBase[0]) * flash,
+          coreBase[1] + (0.98 - coreBase[1]) * flash,
+          coreBase[2] + (0.88 - coreBase[2]) * flash,
+        ];
         const a0 = toWorld(p.x, p.y, tx, ty, ux, uy, -halfW, -halfL);
         const a1 = toWorld(p.x, p.y, tx, ty, ux, uy, halfW, -halfL);
         const a2 = toWorld(p.x, p.y, tx, ty, ux, uy, halfW, halfL);
@@ -2572,7 +2586,7 @@ function drawFrameImpl(renderer, state, planet){
         const insideMothership = isInsideMothership(state.ship.x, state.ship.y);
 
         const thrustMax = planet.planetParams.THRUST * (1 + state.ship.thrust * 0.1);
-        const inertialDriveThrust = game.INERTIAL_DRIVE_THRUST * (1 + state.ship.inertialDrive * 0.1);
+        const inertialDriveThrust = getInertialDriveThrust(game, state.ship.inertialDrive);
 
         let vx = state.ship.vx;
         let vy = state.ship.vy;

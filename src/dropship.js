@@ -413,6 +413,17 @@ export function computeDropshipAcceleration(ship, input, thrustMax){
 }
 
 /**
+ * @param {{INERTIAL_DRIVE_THRUST:number,INERTIAL_DRIVE_UPGRADE_FACTOR:number}} game
+ * @param {number} inertialDriveLevel
+ * @returns {number}
+ */
+export function getInertialDriveThrust(game, inertialDriveLevel){
+  const level = Math.max(0, Math.floor(Number.isFinite(inertialDriveLevel) ? inertialDriveLevel : 0));
+  if (level <= 0) return 0;
+  return game.INERTIAL_DRIVE_THRUST * (1 + (level - 1) * game.INERTIAL_DRIVE_UPGRADE_FACTOR);
+}
+
+/**
  * Apply input-aware momentum correction. No input means no inertial-drive force.
  * @param {{x:number,y:number,vx:number,vy:number}} ship
  * @param {DropshipInput} input

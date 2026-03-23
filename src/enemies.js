@@ -17,6 +17,7 @@ import { PERF_FLAGS } from "./perf.js";
 /** @typedef {import("./types.d.js").Debris} Debris */
 /** @typedef {{cooldown:number, shipNode:number, nodeGoal:number, navPadded:boolean}} PursuitState */
 /** @typedef {{cause:"hp"|"detonate", destroyedBy:FragmentDestroyedBy}} EnemyDestroyInfo */
+/** @typedef {(ax:number, ay:number, bx:number, by:number, radius?:number)=>boolean} SegmentBlocker */
 
 /**
  * @param {number} radius
@@ -74,13 +75,15 @@ export class Enemies {
    * @param {number} deps.levelSeed Base seed for this level.
    * @param {(enemy:Enemy)=>void} [deps.onEnemyShot]
    * @param {(enemy:Enemy, info?:EnemyDestroyInfo)=>void} [deps.onEnemyDestroyed]
+   * @param {SegmentBlocker} [deps.solidPropSegmentBlocked]
    */
-  constructor({ planet, collision, total, level, levelSeed, placement, orbitingTurretCount, onEnemyShot, onEnemyDestroyed }){
+  constructor({ planet, collision, total, level, levelSeed, placement, orbitingTurretCount, onEnemyShot, onEnemyDestroyed, solidPropSegmentBlocked }){
     this.planet = planet;
     this.collision = collision;
     this.params = planet.getPlanetParams();
     this.onEnemyShot = (typeof onEnemyShot === "function") ? onEnemyShot : null;
     this.onEnemyDestroyed = (typeof onEnemyDestroyed === "function") ? onEnemyDestroyed : null;
+    this.solidPropSegmentBlocked = (typeof solidPropSegmentBlocked === "function") ? solidPropSegmentBlocked : null;
 
     /** @type {Enemy[]} */
     this.enemies = [];
@@ -457,10 +460,13 @@ export class Enemies {
     for (let i = this.shots.length - 1; i >= 0; i--){
       const s = this.shots[i];
       if (!s) continue;
+      const prevX = s.x;
+      const prevY = s.y;
       s.x += s.vx * dt;
       s.y += s.vy * dt;
       s.life -= dt;
-      if (s.life <= 0 || !isAir(collision, s.x, s.y)){
+      const blockedBySolidProp = !!(this.solidPropSegmentBlocked && this.solidPropSegmentBlocked(prevX, prevY, s.x, s.y, 0.04));
+      if (s.life <= 0 || !isAir(collision, s.x, s.y) || blockedBySolidProp){
         this.shots.splice(i, 1);
       }
     }
@@ -532,7 +538,7 @@ export class Enemies {
     const seesShip =
       ship &&
       Math.hypot(ship.x - e.x, ship.y - e.y) < this._HUNTER_SIGHT_RANGE &&
-      lineOfSightAir(this.collision, e.x, e.y, ship.x, ship.y, this._LOS_STEP);
+      this._hasLineOfSight(e.x, e.y, ship.x, ship.y);
 
     if (seesShip) {
       e.modeCooldown = Math.max(e.modeCooldown, this._HUNTER_HUNT_DURATION);
@@ -574,7 +580,7 @@ export class Enemies {
     const seesShip =
       ship &&
       Math.hypot(ship.x - e.x, ship.y - e.y) < this._TURRET_MAX_RANGE &&
-      lineOfSightAir(this.collision, e.x, e.y, ship.x, ship.y, this._LOS_STEP);
+      this._hasLineOfSight(e.x, e.y, ship.x, ship.y);
 
     if (seesShip) {
       const decay = Math.exp(-5 * dt);
@@ -917,7 +923,7 @@ export class Enemies {
     // Put turret on extra cooldown when player is out of sight, to
     // give players the element of "surprise" when they get into view.
 
-    if (!lineOfSightAir(this.collision, e.x, e.y, ship.x, ship.y, this._LOS_STEP)) {
+    if (!this._hasLineOfSight(e.x, e.y, ship.x, ship.y)) {
       e.shotCooldown = Math.max(e.shotCooldown, 1.5);
       return;
     }
@@ -971,6 +977,19 @@ export class Enemies {
     if (this.onEnemyShot){
       this.onEnemyShot(e);
     }
+  }
+
+  /**
+   * @param {number} ax
+   * @param {number} ay
+   * @param {number} bx
+   * @param {number} by
+   * @returns {boolean}
+   */
+  _hasLineOfSight(ax, ay, bx, by){
+    if (!lineOfSightAir(this.collision, ax, ay, bx, by, this._LOS_STEP)) return false;
+    if (this.solidPropSegmentBlocked && this.solidPropSegmentBlocked(ax, ay, bx, by, 0.05)) return false;
+    return true;
   }
 }
 
