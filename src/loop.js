@@ -751,6 +751,20 @@ export class GameLoop {
   }
 
   /**
+   * @returns {{done:number,target:number,remaining:number}}
+   */
+  _factoryObjectiveProgress(){
+    const configuredTarget = Math.max(0, (this.objective && this.objective.type === "destroy_factories")
+      ? (this.objective.target || 0)
+      : 0);
+    const destroyed = Math.max(0, this.levelStats.factoriesDestroyed || 0);
+    const target = configuredTarget || Math.max(0, destroyed + this._remainingFactoryTargets());
+    const done = target ? Math.min(target, destroyed) : destroyed;
+    const remaining = target ? Math.max(0, target - done) : 0;
+    return { done, target, remaining };
+  }
+
+  /**
    * @returns {{min:number,max:number}}
    */
   _factorySpawnCooldownRange(){
@@ -798,9 +812,7 @@ export class GameLoop {
       return `Objective: Clear enemies ${done}${target ? `/${target}` : ""}`;
     }
     if (this.objective.type === "destroy_factories"){
-      const remaining = this._remainingFactoryTargets();
-      const target = Math.max(this.objective.target || 0, remaining);
-      const done = target ? Math.max(0, target - remaining) : 0;
+      const { done, target, remaining } = this._factoryObjectiveProgress();
       return `Objective: Destroy factories ${done}${target ? `/${target}` : ""}${target ? ` (${remaining} remaining)` : ""}`;
     }
     if (this.objective.type === "extract"){
@@ -1892,6 +1904,7 @@ export class GameLoop {
   _emitTerrainDestructionFragments(result, x, y){
     if (result.newAir) this.renderer.updateAir(result.newAir);
     if (!result.destroyedNodes || !result.destroyedNodes.length) return;
+    this.planet.handleFeatureTerrainDestroyed(result.destroyedNodes, this.featureCallbacks);
     const palette = this._planetPalette();
     spawnTerrainHexFragments(this.fragments, result.destroyedNodes, { x, y }, palette);
     const destroyedProps = this.planet.destroyTerrainPropsAttachedToNodes(result.destroyedNodes);
@@ -5711,7 +5724,10 @@ export class GameLoop {
   _objectiveComplete(){
     const objType = this.objective ? this.objective.type : "extract";
     if (objType === "clear") return this._remainingClearTargets() === 0;
-    if (objType === "destroy_factories") return this._remainingFactoryTargets() === 0;
+    if (objType === "destroy_factories"){
+      const { done, target } = this._factoryObjectiveProgress();
+      return target <= 0 || done >= target;
+    }
     if (objType === "extract") return this.minersRemaining === 0;
     if (objType === "destroy_core") return this.coreMeltdownActive || this._tetherPropsAlive().length === 0;
     return false;
