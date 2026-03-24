@@ -267,7 +267,7 @@ function buildMinerSpawnPlacement(planet, x, y, supportX = x, supportY = y, supp
     ? supportNodeIndices
     : (
       Number.isFinite(placement.supportX) && Number.isFinite(placement.supportY)
-        ? collectSupportNodeIndices(nodes, air, placement.supportX, placement.supportY, minerSupportRadius(planet), preferredIndex, 4)
+        ? collectSupportNodeIndices(nodes, air, Number(placement.supportX), Number(placement.supportY), minerSupportRadius(planet), preferredIndex, 4)
         : []
     );
   setSupportNodeIndices(placement, footprint, preferredIndex);
@@ -701,16 +701,29 @@ export function alignMechanizedStructureSpawnProps(planet){
     /** @type {number[]} */
     const usedAngles = [];
     const usedSites = new Set();
+    /**
+     * @param {number} a
+     * @param {number} b
+     * @returns {number}
+     */
     const wrapDiff = (a, b) => {
       let d = Math.abs(a - b);
       if (d > Math.PI) d = Math.abs(d - Math.PI * 2);
       return d;
     };
+    /**
+     * @param {number} x
+     * @returns {number}
+     */
     const normalizeAngle = (x) => {
       let a = x % (Math.PI * 2);
       if (a < 0) a += Math.PI * 2;
       return a;
     };
+    /**
+     * @param {number} ang
+     * @returns {{nx:number,ny:number,outerR:number}|null}
+     */
     const evaluateTetherAngle = (ang) => {
       const nx = Math.cos(ang);
       const ny = Math.sin(ang);
@@ -732,6 +745,11 @@ export function alignMechanizedStructureSpawnProps(planet){
         outerR: Math.max(innerR + 0.9, rockAfterAir - 0.08),
       };
     };
+    /**
+     * @param {number} ang
+     * @param {number} minR
+     * @returns {number}
+     */
     const pickFactoryStandableIndex = (ang, minR) => {
       if (!factorySites.length) return -1;
       let best = -1;
@@ -756,6 +774,12 @@ export function alignMechanizedStructureSpawnProps(planet){
       }
       return -1;
     };
+    /**
+     * @param {any} factory
+     * @param {number} idx
+     * @param {number} iFactory
+     * @returns {void}
+     */
     const placeFactoryAtStandable = (factory, idx, iFactory) => {
       if (!factory || idx < 0 || idx >= factorySites.length){
         if (factory) factory.dead = true;

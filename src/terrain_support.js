@@ -99,7 +99,7 @@ export function setSupportNodeIndices(owner, indices, preferredIndex = -1){
     : [];
   if (normalized.length){
     owner.supportNodeIndices = normalized;
-    owner.supportNodeIndex = normalized[0];
+    owner.supportNodeIndex = /** @type {number} */ (normalized[0]);
     return true;
   }
   delete owner.supportNodeIndices;
