@@ -31,13 +31,26 @@ import { Mothership, updateMothership, mothershipCollisionInfo } from "./mothers
 import { Planet } from "./planet.js";
 import { pickPlanetConfig, pickPlanetConfigById, resolveLevelProgression, resolvePlanetParams } from "./planet_config.js";
 import { clearSavedGame, createLoopSaveSnapshot, restoreLoopFromSaveSnapshot } from "./save_state.js";
-import { copyGameplayScreenshotToClipboard, drawStartTitle } from "./screenshot.js";
+import { copyGameplayScreenshotToClipboard } from "./screenshot.js";
 import { JumpdriveTransition } from "./jumpdrive_transition.js";
 import { spawnFragmentBurst, spawnTerrainHexFragments, spawnTerrainPropFragments, updateFragmentDebris } from "./fragment_fx.js";
-import { ACTIVE_PERF_FLAGS, BENCH_CONFIG, PERF_FLAGS, RollingFrameStats, getEffectiveDevicePixelRatio, reportBenchmarkResult } from "./perf.js";
+import { ACTIVE_PERF_FLAGS, BENCH_CONFIG, PERF_FLAGS, RollingFrameStats } from "./perf.js";
 import { Camera } from "./camera.js";
 import { findPathAStar } from "./navigation.js";
 import { clearTerrainSupport, collectSupportNodeIndices, getSupportNodeIndices, setSupportAnchor, setSupportNodeIndices } from "./terrain_support.js";
+import {
+  applyBenchmarkSetup,
+  handleFrameDebugInput,
+  handleSpawnEnemyType,
+  initLoopDebugState,
+  logLevelBegin,
+  logLevelInit,
+  logMinerSpawnDiagnostics,
+  recordFrameTiming,
+  updateLandingDebug,
+  updateMinerPathDebugState,
+} from "./debug.js";
+import { drawGameOverlay } from "./ui_overlay.js";
 import {
   extractPathSegment,
   findGuidePathTargetIndex,
@@ -297,17 +310,7 @@ export class GameLoop {
     this._lastBrowserVibrateMs = 0;
     /** @type {"keyboard"|"mouse"|"touch"|"gamepad"|null} */
     this.activeInputType = null;
-    console.log("[Level] init", {
-      level: this.level,
-      planetId: planetConfig.id,
-      enemies: this._totalEnemiesForLevel(this.level),
-      miners: this._targetMinersForLevel(),
-      platformCount: planetConfig.platformCount,
-      props: (this.planet.props || []).length,
-    });
-    if (this.planet.props && this.planet.props.length){
-      console.log("[Level] props sample", this.planet.props.slice(0, 3).map((p) => ({ type: p.type, x: p.x, y: p.y, dead: !!p.dead })));
-    }
+    logLevelInit(this, planetConfig);
     this._prepareBarrenMinerPadReservations(this.planet, planetConfig, this.level);
     this.enemies = new Enemies({
       planet: this.planet,
@@ -343,6 +346,7 @@ export class GameLoop {
     this.fpsTime = this.lastTime;
     this.fpsFrames = 0;
     this.fps = 0;
+    /** @type {ReturnType<RollingFrameStats["snapshot"]>|null} */
     this.frameStats = null;
     this.frameStatsTracker = new RollingFrameStats(BENCH_CONFIG.enabled ? 2400 : 600);
     this.frameStatsUpdatedAt = this.lastTime;
@@ -380,23 +384,15 @@ export class GameLoop {
       tracker: new RollingFrameStats(Math.max(600, Math.ceil((BENCH_CONFIG.durationMs / 1000) * 180))),
       result: null,
     } : null;
-    this.debugCollisions = GAME.DEBUG_COLLISION;
+    this.debugCollisions = false;
     this.debugPlanetTriangles = false;
     this.debugCollisionContours = false;
     this.debugFrameStepMode = false;
     this.debugMinerGuidePath = false;
     this.debugRingVertices = false;
+    /** @type {Array<{x:number,y:number}>|null} */
     this.debugMinerPathToMiner = null;
-    this.devHudVisible = BENCH_CONFIG.enabled;
-    this.hud.style.display = this.devHudVisible ? "block" : "none";
-    if (this.input && typeof this.input.setDebugCommandsEnabled === "function"){
-      this.input.setDebugCommandsEnabled(this.devHudVisible);
-    }
-    this.levelAdvanceReady = false;
-    this.lastHeat = 0;
-    this.statusCueText = "";
-    this.statusCueUntil = 0;
-    this.screenshotCopyInFlight = false;
+    this.devHudVisible = false;
     this._lastLandingDebugConsoleLine = "";
     this._landingDebugSessionIdNext = 1;
     this._landingDebugSessionId = 0;
@@ -404,6 +400,12 @@ export class GameLoop {
     this._landingDebugSessionActive = false;
     this._landingDebugSessionSource = "";
     this._minerPathDebugCooldown = 0;
+    initLoopDebugState(this, GAME);
+    this.levelAdvanceReady = false;
+    this.lastHeat = 0;
+    this.statusCueText = "";
+    this.statusCueUntil = 0;
+    this.screenshotCopyInFlight = false;
     this._resetStartTitle();
     this.pendingBootJumpdriveIntro = !BENCH_CONFIG.enabled;
     this.NEW_GAME_HELP_PROMPT_SECS = 10;
@@ -484,77 +486,9 @@ export class GameLoop {
     this.objectiveCompleteSfxDueAtMs = Number.POSITIVE_INFINITY;
     this.victoryMusicTriggered = false;
     if (BENCH_CONFIG.enabled){
-      this._applyBenchmarkSetup();
+      applyBenchmarkSetup(this);
     }
     this.camera.snapToScene(this._cameraScene());
-  }
-
-  /**
-   * @returns {void}
-   */
-  _applyBenchmarkSetup(){
-    this.pendingBootJumpdriveIntro = false;
-    this.startTitleSeen = true;
-    this.startTitleFade = true;
-    this.startTitleAlpha = 0;
-    this.newGameHelpPromptT = 0;
-    this.newGameHelpPromptArmed = false;
-    this.devHudVisible = true;
-    this.hud.style.display = "block";
-    if (this.input && typeof this.input.setDebugCommandsEnabled === "function"){
-      this.input.setDebugCommandsEnabled(true);
-    }
-    if (BENCH_CONFIG.start === "orbit"){
-      this._putShipInLowOrbit();
-      this.hasLaunchedPlayerShip = true;
-    }
-    const perfText = this.perfFlags.length ? ` | ${this.perfFlags.join(",")}` : "";
-    this._showStatusCue(`Benchmark warmup ${Math.ceil(BENCH_CONFIG.warmupMs / 1000)}s${perfText}`, 2.5);
-  }
-
-  /**
-   * @param {number} now
-   * @param {number} frameMs
-   * @returns {void}
-   */
-  _recordFrameTiming(now, frameMs){
-    this.frameStatsTracker.record(frameMs);
-    if (!this.frameStats || (now - this.frameStatsUpdatedAt) >= 500){
-      this.frameStats = this.frameStatsTracker.snapshot();
-      this.frameStatsUpdatedAt = now;
-    }
-
-    if (!this.benchmarkRun || this.benchmarkRun.finished) return;
-    if (!this.benchmarkRun.startedAtMs){
-      this.benchmarkRun.startedAtMs = now;
-      this.benchmarkRun.sampleStartAtMs = now + BENCH_CONFIG.warmupMs;
-      this.benchmarkRun.sampleEndAtMs = this.benchmarkRun.sampleStartAtMs + BENCH_CONFIG.durationMs;
-    }
-    if (now < this.benchmarkRun.sampleStartAtMs){
-      this.benchmarkRun.stateText = `warmup ${Math.max(0, Math.ceil((this.benchmarkRun.sampleStartAtMs - now) / 1000))}s`;
-      return;
-    }
-    if (!this.benchmarkRun.active){
-      this.benchmarkRun.active = true;
-      this.benchmarkRun.tracker.reset();
-      this._showStatusCue(`Benchmark recording ${Math.ceil(BENCH_CONFIG.durationMs / 1000)}s`, 1.5);
-    }
-    this.benchmarkRun.tracker.record(frameMs);
-    const remainingMs = this.benchmarkRun.sampleEndAtMs - now;
-    if (remainingMs > 0){
-      this.benchmarkRun.stateText = `run ${Math.max(0, Math.ceil(remainingMs / 1000))}s`;
-      return;
-    }
-    this.benchmarkRun.finished = true;
-    this.benchmarkRun.stateText = "done";
-    this.benchmarkRun.result = this.benchmarkRun.tracker.snapshot();
-    reportBenchmarkResult({
-      bench: BENCH_CONFIG,
-      stats: this.benchmarkRun.result,
-      perfFlags: this.perfFlags,
-      planetSeed: this.planet.getSeed(),
-    });
-    this._showStatusCue("Benchmark complete; see console", 3.5);
   }
 
   /**
@@ -3256,29 +3190,7 @@ export class GameLoop {
     const barrenPerimeter = !!(cfg && cfg.flags && cfg.flags.barrenPerimeter);
     const spawnPlan = this.planet.planMinerSpawnPlacements(count, seed, GAME.MINER_MIN_SEP);
     const placed = spawnPlan.placements;
-    if (placed.length < count){
-      if (spawnPlan.debug.mode === "barren"){
-        console.error("[Level] miners spawn insufficient barren pads", {
-          level: this.level,
-          target: count,
-          placed: placed.length,
-          pads: spawnPlan.debug.pads || 0,
-        });
-      } else {
-        console.error("[Level] miners spawn insufficient standable points", {
-          level: this.level,
-          target: count,
-          placed: placed.length,
-          standable: spawnPlan.debug.standable || 0,
-          available: spawnPlan.debug.available || 0,
-          reservations: spawnPlan.debug.reservations || 0,
-          props: spawnPlan.debug.props || null,
-          moltenFiltered: spawnPlan.debug.filteredStandable || 0,
-          minR: spawnPlan.debug.minR || 0,
-        });
-      }
-    }
-    console.log("[Level] miners spawn", { level: this.level, target: count, placed: placed.length });
+    logMinerSpawnDiagnostics(this, spawnPlan, count);
     this.minerCandidates = placed.length;
     const cutoffPilot = (this.ship.mothershipPilots < 3) ? 1 : 0;
     const cutoffEngineer = cutoffPilot + 1;
@@ -3459,17 +3371,7 @@ export class GameLoop {
     this.collision = bundle.collision;
     this.enemies = bundle.enemies;
     this.healthPickups = [];
-    console.log("[Level] begin", {
-      level: this.level,
-      planetId: bundle.planetConfig.id,
-      enemies: this._totalEnemiesForLevel(this.level),
-      miners: this._targetMinersForLevel(),
-      platformCount: bundle.planetConfig.platformCount,
-      props: (this.planet.props || []).length,
-    });
-    if (this.planet.props && this.planet.props.length){
-      console.log("[Level] props sample", this.planet.props.slice(0, 3).map((p) => ({ type: p.type, x: p.x, y: p.y, dead: !!p.dead })));
-    }
+    logLevelBegin(this, bundle);
     if (this.level === 1){
       this.overallStats = this._createRunStats();
     }
@@ -3480,7 +3382,6 @@ export class GameLoop {
     this.coreMeltdownT = 0;
     this.coreMeltdownEruptT = 0;
     this._syncTetherProtectionStates();
-    console.log("[Level] enemies spawned", { level: this.level, enemies: this.enemies.enemies.length });
     this.renderer.setPlanet(this.planet);
     this._resetShip();
     this.entityExplosions.length = 0;
@@ -3596,21 +3497,6 @@ export class GameLoop {
     this._setThrustLoopActive(false);
     this._beginLevel(nextSeed, targetLevel);
     this._showStatusCue(reloadingCurrentLevel ? `Reloaded level ${targetLevel}` : `Jumped to level ${targetLevel}`);
-  }
-
-  /**
-   * @returns {void}
-   */
-  _promptDevJumpToLevel(){
-    if (typeof window === "undefined" || typeof window.prompt !== "function") return;
-    const raw = window.prompt("Jump to level number", String(this.level));
-    if (raw === null) return;
-    const targetLevel = Number.parseInt(raw.trim(), 10);
-    if (!Number.isFinite(targetLevel) || targetLevel < 1){
-      this._showStatusCue("Invalid level number");
-      return;
-    }
-    this._devJumpToLevel(targetLevel);
   }
 
   /**
@@ -4534,27 +4420,7 @@ export class GameLoop {
       while (da < -Math.PI) da += Math.PI * 2;
       mothershipAngularVel = da / Math.max(1e-6, dt);
     }
-    if (spawnEnemyType){
-      /** @type {Record<"1"|"2"|"3"|"4"|"5", import("./types.d.js").EnemyType>} */
-      const map = {
-        "1": "hunter",
-        "2": "ranger",
-        "3": "crawler",
-        "4": "turret",
-        "5": "orbitingTurret",
-      };
-      /** @type {import("./types.d.js").EnemyType} */
-      const type = (spawnEnemyType in map)
-        ? map[/** @type {"1"|"2"|"3"|"4"|"5"} */ (spawnEnemyType)]
-        : /** @type {import("./types.d.js").EnemyType} */ (spawnEnemyType);
-      if (type){
-        const ang = Math.random() * Math.PI * 2;
-        const dist = 10;
-        const sx = this.ship.x + Math.cos(ang) * dist;
-        const sy = this.ship.y + Math.sin(ang) * dist;
-        this.enemies.spawnDebug(type, sx, sy);
-      }
-    }
+    handleSpawnEnemyType(this, spawnEnemyType);
     const planetCfg = this.planet && this.planet.getPlanetConfig ? this.planet.getPlanetConfig() : null;
 
     if (this.ship.state === "landed" && this.ship._dock && this.mothership){
@@ -5616,11 +5482,7 @@ export class GameLoop {
         continue;
       }
     }
-    this.debugMinerPathToMiner = (landed && guidePathUsable) ? debugMinerPathToMiner : null;
-    if (minerPathDebugEnabled && this._minerPathDebugCooldown <= 0 && minerPathDebugRecord){
-      console.log("[minerDbg]", minerPathDebugRecord);
-      this._minerPathDebugCooldown = 0.35;
-    }
+    updateMinerPathDebugState(this, minerPathDebugRecord, debugMinerPathToMiner, landed, guidePathUsable);
 
     if (this.popups.length){
       for (let i = this.popups.length - 1; i >= 0; i--){
@@ -5719,7 +5581,7 @@ export class GameLoop {
     const frameMs = Math.max(0, now - this.lastTime);
     const rawDt = Math.min(0.05, frameMs / 1000);
     this.lastTime = now;
-    this._recordFrameTiming(now, frameMs);
+    recordFrameTiming(this, now, frameMs);
     const transitionActive = this.jumpdriveTransition.isActive();
     const dockedNow = this._isDockedWithMothership();
     const touchStartActionMode = transitionActive ? null : this._touchStartActionMode();
@@ -5791,51 +5653,9 @@ export class GameLoop {
       this.ship.explodeT = Math.min(1.2, this.ship.explodeT + dt * 0.9);
     }
 
-    if (!transitionActive && inputState.regen){
-      const nextSeed = this.planet.getSeed() + 1;
-      this._beginLevel(nextSeed, this.level);
-    }
-    if (!transitionActive && inputState.promptLevelJump){
-      this._promptDevJumpToLevel();
-    }
-    if (!transitionActive && inputState.prevLevel){
-      if (this.level > 1){
-        this._devJumpToLevel(this.level - 1);
-      }
-    } else if (!transitionActive && inputState.nextLevel){
-      if (this.planet){
-        const nextSeed = this.planet.getSeed() + 1;
-        this._startJumpdriveTransition(nextSeed, this.level + 1);
-      }
-    }
-    if (inputState.toggleDebug){
-      this.debugCollisions = !this.debugCollisions;
-    }
-    if (inputState.toggleDevHud){
-      this.devHudVisible = !this.devHudVisible;
-      this.hud.style.display = this.devHudVisible ? "block" : "none";
-      if (this.input && typeof this.input.setDebugCommandsEnabled === "function"){
-        this.input.setDebugCommandsEnabled(this.devHudVisible);
-      }
-    }
+    handleFrameDebugInput(this, inputState, transitionActive);
     if (inputState.togglePlanetView){
       this.planetView = !this.planetView;
-    }
-    if (inputState.toggleRingVertices){
-      this.debugRingVertices = !this.debugRingVertices;
-      this._showStatusCue(this.debugRingVertices ? "Ring vertex debug on" : "Ring vertex debug off");
-    }
-    if (inputState.togglePlanetTriangles){
-      this.debugPlanetTriangles = !this.debugPlanetTriangles;
-      this._showStatusCue(this.debugPlanetTriangles ? "Planet triangle outlines on" : "Planet triangle outlines off");
-    }
-    if (inputState.toggleCollisionContours){
-      this.debugCollisionContours = !this.debugCollisionContours;
-      this._showStatusCue(this.debugCollisionContours ? "Collision contour debug on" : "Collision contour debug off");
-    }
-    if (inputState.toggleMinerGuidePath){
-      this.debugMinerGuidePath = !this.debugMinerGuidePath;
-      this._showStatusCue(this.debugMinerGuidePath ? "Miner guide path debug on" : "Miner guide path debug off");
     }
     if (inputState.toggleFog){
       this.fogEnabled = !this.fogEnabled;
@@ -5858,15 +5678,6 @@ export class GameLoop {
     } else if (inputState.sfxVolumeUp && this.audio && typeof this.audio.stepSfxVolume === "function"){
       const nextPct = this.audio.stepSfxVolume(1);
       this._showStatusCue(`FX volume ${nextPct}%`);
-    }
-    if (inputState.rescueAll) {
-      this._rescueAll();
-    }
-    if (inputState.killAllEnemies){
-      this._killAllEnemies();
-    }
-    if (inputState.removeEntities){
-      this._killAllEnemiesAndFactories();
     }
     const captureScreenshot = !!inputState.copyScreenshot;
     const captureScreenshotClean = !!inputState.copyScreenshotClean;
@@ -5913,218 +5724,7 @@ export class GameLoop {
       performance.now() < this.combatThreatUntilMs;
     this._setCombatActive(combatActive);
 
-    const landingDbg = this.devHudVisible ? this.ship._landingDebug : null;
-    if (!this.devHudVisible){
-      this.ship._landingDebug = null;
-      this.ship._lastMothershipCollisionDiag = null;
-      this._lastLandingDebugConsoleLine = "";
-      this._landingDebugSessionActive = false;
-      this._landingDebugSessionFrame = 0;
-      this._landingDebugSessionSource = "";
-    } else if (landingDbg){
-      /** @param {number|undefined|null} n */
-      const fmt = (n) => Number.isFinite(n) ? Number(n).toFixed(2) : "-";
-      /** @param {number|undefined|null} n */
-      const fmtI = (n) => Number.isFinite(n) ? String(Math.round(Number(n))) : "-";
-      /** @param {{vx?:number,vy?:number,speed?:number,dirDeg?:number}|null|undefined} v */
-      const fmtVec = (v) => {
-        if (!v) return "-";
-        return `${fmt(v.vx)},${fmt(v.vy)}@${fmt(v.speed)}/${fmt(v.dirDeg)}deg`;
-      };
-      /** @param {{nx?:number,ny?:number}|null|undefined} n */
-      const fmtNormal = (n) => {
-        if (!n) return "-";
-        return `${fmt(n.nx)},${fmt(n.ny)}`;
-      };
-      /** @param {{hits?:Array<{kind?:string,edgeIdx?:number,hullIdx?:number}>}|null|undefined} e */
-      const fmtHits = (e) => {
-        if (!e || !Array.isArray(e.hits)) return "-";
-        return e.hits.map((h) => {
-          const kind = h && h.kind ? h.kind : "?";
-          const edge = Number.isFinite(h && h.edgeIdx) ? h.edgeIdx : "-";
-          const hull = Number.isFinite(h && h.hullIdx) ? h.hullIdx : "-";
-          return `${kind}[e${edge}/h${hull}]`;
-        }).join(",");
-      };
-      const reason = String(landingDbg.reason || "-");
-      let mothershipRelatedNoContact = false;
-      if (reason === "mothership_no_contact" && landingDbg.source === "mothership" && this.mothership){
-        const shipRadius = this._shipRadius();
-        const dx = this.ship.x - this.mothership.x;
-        const dy = this.ship.y - this.mothership.y;
-        const nearMothership = (dx * dx + dy * dy) <= Math.pow((this.mothership.bounds || 0) + shipRadius + 0.8, 2);
-        const overlap = nearMothership && this._shipCollidesWithMothershipAt(this.ship.x, this.ship.y);
-        const activeHit = !!(this.ship._collision && this.ship._collision.source === "mothership");
-        mothershipRelatedNoContact = overlap || activeHit;
-      }
-      const hasCollisionEvidence =
-        (Number(landingDbg.contactsCount) > 0)
-        || (Number(landingDbg.overlapBeforeCount) > 0)
-        || (Number(landingDbg.overlapAfterCount) > 0)
-        || (Number(landingDbg.depenPush) > 0);
-      const landedState = reason.includes("landed");
-      const quietState = (reason.includes("no_contact") || reason.includes("graze")) && !hasCollisionEvidence;
-      const mothershipSessionCandidate =
-        landingDbg.source === "mothership" && reason.startsWith("mothership_") && hasCollisionEvidence;
-      // Session ownership follows actual collision/depenetration evidence, not the
-      // human-readable reason label. For mothership debugging, keep all emitted
-      // mothership lines grouped under a real session id so misclassified
-      // `mothership_no_contact` frames do not fall back to sid:-.
-      const sessionActive = !!(!landedState && (
-        hasCollisionEvidence
-        || mothershipRelatedNoContact
-        || mothershipSessionCandidate
-      ));
-      let sessionId = this._landingDebugSessionActive ? this._landingDebugSessionId : 0;
-      let sessionFrame = this._landingDebugSessionActive ? this._landingDebugSessionFrame : 0;
-      if (sessionActive){
-        if (!this._landingDebugSessionActive){
-          this._landingDebugSessionActive = true;
-          this._landingDebugSessionId = this._landingDebugSessionIdNext++;
-          this._landingDebugSessionFrame = 1;
-          this._landingDebugSessionSource = String(landingDbg.source || "");
-          console.log(`[landDbgStart] sid:${this._landingDebugSessionId} src:${landingDbg.source || "-"} r:${reason}`);
-        } else {
-          this._landingDebugSessionFrame += 1;
-        }
-        sessionId = this._landingDebugSessionId;
-        sessionFrame = this._landingDebugSessionFrame;
-      } else if (this._landingDebugSessionActive){
-        console.log(
-          `[landDbgEnd] sid:${this._landingDebugSessionId} frames:${this._landingDebugSessionFrame} end:${reason}`
-        );
-        this._landingDebugSessionActive = false;
-        this._landingDebugSessionFrame = 0;
-        this._landingDebugSessionSource = "";
-        sessionId = 0;
-        sessionFrame = 0;
-      }
-      if (landingDbg.collisionDiag){
-        landingDbg.collisionDiag.session = {
-          id: sessionId,
-          frame: sessionFrame,
-          active: this._landingDebugSessionActive,
-          reason,
-        };
-      }
-      const line =
-        `[landDbg] sid:${sessionId || "-"} sf:${sessionFrame || "-"} src:${landingDbg.source || "-"} r:${reason} `
-        + `lu:${fmt(landingDbg.dotUp)} sl:${fmt(landingDbg.slope)}<=${fmt(landingDbg.landSlope)} `
-        + `vn:${fmt(landingDbg.vn)} vt:${fmt(landingDbg.vt)} sp:${fmt(landingDbg.speed)} `
-        + `af:${fmt(landingDbg.airFront)} ab:${fmt(landingDbg.airBack)} `
-        + `sup:${landingDbg.support ? 1 : 0}@${fmt(landingDbg.supportDist)} `
-        + `ok:${landingDbg.landable ? 1 : 0} `
-        + `c:${landingDbg.contactsCount ?? -1} bd:${fmt(landingDbg.bestDotUpAny)}/${fmt(landingDbg.bestDotUpUnder)} `
-        + `ip:${landingDbg.impactPoint ?? -1}@${fmt(landingDbg.impactT)} sp:${landingDbg.supportPoint ?? -1}@${fmt(landingDbg.supportT)} `
-        + `tri:o${landingDbg.supportTriOuterCount ?? -1} a:${fmt(landingDbg.supportTriAirMin)}-${fmt(landingDbg.supportTriAirMax)} `
-        + `r:${fmt(landingDbg.supportTriRMin)}-${fmt(landingDbg.supportTriRMax)} `
-        + `ov:${fmtI(landingDbg.overlapBeforeCount)}>${fmtI(landingDbg.overlapAfterCount)} `
-        + `ovm:${fmt(landingDbg.overlapBeforeMin)}>${fmt(landingDbg.overlapAfterMin)} `
-        + `dep:${fmt(landingDbg.depenPush)} csh:${fmt(landingDbg.depenCushion)} d:${fmtI(landingDbg.depenDir)} i:${fmtI(landingDbg.depenIter)} clr:${landingDbg.depenCleared ? 1 : 0}`;
-      const diag = landingDbg.collisionDiag || null;
-      const detailLine = diag
-        ? ` phase:${diag.phase || "-"}`
-          + ` hits:${diag.hitCount ?? "-"}`
-          + ` avgNormal:${fmtNormal(diag.averageNormal)}`
-          + ` baseW:${fmtVec(diag.baseAtContact)}`
-          + ` relInW:${fmtVec(diag.relIn)}`
-          + ` relOutW:${fmtVec(diag.relOut)}`
-          + ` baseL:${fmtVec(diag.baseAtContactLocal)}`
-          + ` relInL:${fmtVec(diag.relInLocal)}`
-          + ` relOutL:${fmtVec(diag.relOutLocal)}`
-          + ` vnIn:${fmt(diag.vnIn)}`
-          + ` vtIn:${fmt(diag.vtIn)}`
-          + ` vnOut:${fmt(diag.vnOut)}`
-          + ` vtOut:${fmt(diag.vtOut)}`
-          + ` evidence:${diag.evidence && diag.evidence.reason ? diag.evidence.reason : "-"}`
-          + ` hitList:${fmtHits(diag.evidence)}`
-          + ` sweepDbg:${diag.evidence && diag.evidence.debug ? [
-            `s${diag.evidence.debug.sampleCount ?? 0}`,
-            `e${diag.evidence.debug.edgeCount ?? 0}`,
-            `cand${diag.evidence.debug.candidateCount ?? 0}`,
-            `air${diag.evidence.debug.rejectStartNotAir ?? 0}`,
-            `solid${diag.evidence.debug.rejectEndNotSolid ?? 0}`,
-            `seg${diag.evidence.debug.rejectSegment ?? 0}`,
-            `t${diag.evidence.debug.rejectT ?? 0}`,
-            `feat${diag.evidence.debug.featureKeptCount ?? 0}/${diag.evidence.debug.featureGroupCount ?? 0}`,
-            `early${diag.evidence.debug.earliestCandidateCount ?? 0}`,
-            `keep${diag.evidence.debug.clusterKeptCount ?? 0}/${diag.evidence.debug.clusterInputCount ?? 0}`,
-            `inside${diag.evidence.debug.insideCount ?? 0}`,
-          ].join("|") : "-"}`
-          + ` dock:${diag.dock ? `${fmt(diag.dock.lx)},${fmt(diag.dock.ly)} n:${fmt(diag.dock.localNx)},${fmt(diag.dock.localNy)} floor:${diag.dock.dockFloorNormal ? 1 : 0}` : "-"}`
-          + ` backoff:${diag.backoff ? `${fmt(diag.backoff.dist)} dir:${fmt(diag.backoff.dirX)},${fmt(diag.backoff.dirY)} clear:${diag.backoff.cleared ? 1 : 0}` : "-"}`
-          + ` overlapNow:${diag.overlap ? `${diag.overlap.before ? 1 : 0}->${diag.overlap.after ? 1 : 0}` : "-"}`
-        : "";
-      const combinedLine = line + detailLine;
-      const idleNoContact = (!sessionActive && reason === "mothership_no_contact" && !mothershipRelatedNoContact);
-      const shouldLog = !idleNoContact && (sessionActive || line !== this._lastLandingDebugConsoleLine);
-      if (shouldLog){
-        console.log(combinedLine);
-        this._lastLandingDebugConsoleLine = line;
-      }
-    } else if (this.devHudVisible && this.mothership){
-      const shipRadius = this._shipRadius();
-      const dx = this.ship.x - this.mothership.x;
-      const dy = this.ship.y - this.mothership.y;
-      const nearMothership = (dx * dx + dy * dy) <= Math.pow((this.mothership.bounds || 0) + shipRadius + 0.8, 2);
-      const overlap = nearMothership && this._shipCollidesWithMothershipAt(this.ship.x, this.ship.y);
-      if (this._landingDebugSessionActive && this._landingDebugSessionSource !== "mothership"){
-        console.log(
-          `[landDbgEnd] sid:${this._landingDebugSessionId} frames:${this._landingDebugSessionFrame} end:no_debug`
-        );
-        this._landingDebugSessionActive = false;
-        this._landingDebugSessionFrame = 0;
-        this._landingDebugSessionSource = "";
-      }
-      if (!this._landingDebugSessionActive && overlap){
-        this._landingDebugSessionActive = true;
-        this._landingDebugSessionId = this._landingDebugSessionIdNext++;
-        this._landingDebugSessionFrame = 0;
-        this._landingDebugSessionSource = "mothership";
-        console.log(`[landDbgStart] sid:${this._landingDebugSessionId} src:mothership r:mothership_trace_overlap`);
-      }
-      if (this._landingDebugSessionActive && this._landingDebugSessionSource === "mothership"){
-        if (nearMothership){
-          this._landingDebugSessionFrame += 1;
-          const sid = this._landingDebugSessionId;
-          const sf = this._landingDebugSessionFrame;
-          const c = Math.cos(-this.mothership.angle);
-          const s = Math.sin(-this.mothership.angle);
-          const lx = c * dx - s * dy;
-          const ly = s * dx + c * dy;
-          const relVx = this.ship.vx - this.mothership.vx;
-          const relVy = this.ship.vy - this.mothership.vy;
-          const relLx = c * relVx - s * relVy;
-          const relLy = s * relVx + c * relVy;
-          const traceLine =
-            `[landDbgGap] sid:${sid} sf:${sf} src:mothership `
-            + `r:${overlap ? "mothership_trace_overlap" : "mothership_trace_near"} `
-            + `ship:${this.ship.x.toFixed(2)},${this.ship.y.toFixed(2)} `
-            + `dock:${lx.toFixed(2)},${ly.toFixed(2)} `
-            + `relW:${relVx.toFixed(2)},${relVy.toFixed(2)}@${Math.hypot(relVx, relVy).toFixed(2)} `
-            + `relL:${relLx.toFixed(2)},${relLy.toFixed(2)}@${Math.hypot(relLx, relLy).toFixed(2)} `
-            + `overlap:${overlap ? 1 : 0}`;
-          if (traceLine !== this._lastLandingDebugConsoleLine){
-            console.log(traceLine);
-            this._lastLandingDebugConsoleLine = traceLine;
-          }
-        } else {
-          console.log(
-            `[landDbgEnd] sid:${this._landingDebugSessionId} frames:${this._landingDebugSessionFrame} end:trace_far`
-          );
-          this._landingDebugSessionActive = false;
-          this._landingDebugSessionFrame = 0;
-          this._landingDebugSessionSource = "";
-        }
-      }
-    } else if (this.devHudVisible && this._landingDebugSessionActive){
-      console.log(
-        `[landDbgEnd] sid:${this._landingDebugSessionId} frames:${this._landingDebugSessionFrame} end:no_debug`
-      );
-      this._landingDebugSessionActive = false;
-      this._landingDebugSessionFrame = 0;
-      this._landingDebugSessionSource = "";
-    }
+    updateLandingDebug(this);
 
     this.levelAdvanceReady =
       this.pendingPerkChoice === null &&
@@ -6200,7 +5800,7 @@ export class GameLoop {
     this._lastRenderState = renderState;
     this.renderer.drawFrame(renderState, this.planet);
 
-    this._drawMinerPopups();
+    drawGameOverlay(this);
     if ((captureScreenshotClean || captureScreenshot || captureScreenshotCleanTitle) && !this.screenshotCopyInFlight){
       const mode = captureScreenshotCleanTitle ? "cleanTitle" : (captureScreenshotClean ? "clean" : "full");
       const clean = mode !== "full";
@@ -6212,7 +5812,7 @@ export class GameLoop {
         renderState,
         clean,
         drawFrame: (state) => this.renderer.drawFrame(state, this.planet),
-        redrawOverlay: () => this._drawMinerPopups(),
+        redrawOverlay: () => drawGameOverlay(this),
         includeStartTitle,
         startTitleText: this.startTitleText || "DROPSHIP",
         startTitleAlpha: (mode === "cleanTitle")
@@ -6814,84 +6414,6 @@ export class GameLoop {
   }
 
   /**
-   * @returns {void}
-   */
-  _rescueAll(){
-    let rescued = 0;
-    for (let i = this.miners.length - 1; i >= 0; i--){
-      const miner = /** @type {Miner} */ (this.miners[i]);
-      if (miner.type === "miner"){
-        ++this.ship.dropshipMiners;
-      } else if (miner.type === "pilot"){
-        ++this.ship.dropshipPilots;
-      } else if (miner.type === "engineer"){
-        ++this.ship.dropshipEngineers;
-      }
-      rescued++;
-      this.minersRemaining = Math.max(0, this.minersRemaining - 1);
-      this.miners.splice(i, 1);
-    }
-
-    if (this._isDockedWithMothership()){
-      this._onSuccessfullyDocked();
-    }
-    this._showStatusCue(rescued > 0 ? `Debug rescue: ${rescued} collected` : "Debug rescue: no miners left");
-  }
-
-  /**
-   * Debug helper: remove all active enemies without touching factories.
-   * @returns {void}
-   */
-  _killAllEnemies(){
-    let enemyCount = 0;
-    if (this.enemies && this.enemies.enemies){
-      for (const e of this.enemies.enemies){
-        if (e && (e.hp || 0) > 0) enemyCount++;
-      }
-      this.enemies.enemies.length = 0;
-      if (this.enemies.shots) this.enemies.shots.length = 0;
-      if (this.enemies.explosions) this.enemies.explosions.length = 0;
-      if (this.enemies.debris) this.enemies.debris.length = 0;
-    }
-    this._showStatusCue(enemyCount > 0 ? `Debug clear: ${enemyCount} enemies` : "Debug clear: no enemies alive");
-  }
-
-  /**
-   * Debug helper: remove all active enemies and destroy all active factories.
-   * @returns {void}
-   */
-  _killAllEnemiesAndFactories(){
-    let enemyCount = 0;
-    if (this.enemies && this.enemies.enemies){
-      for (const e of this.enemies.enemies){
-        if (e && (e.hp || 0) > 0) enemyCount++;
-      }
-      this.enemies.enemies.length = 0;
-      if (this.enemies.shots) this.enemies.shots.length = 0;
-      if (this.enemies.explosions) this.enemies.explosions.length = 0;
-      if (this.enemies.debris) this.enemies.debris.length = 0;
-    }
-
-    let factories = 0;
-    if (this.planet && this.planet.props){
-      for (const p of this.planet.props){
-        if (p.type !== "factory") continue;
-        if (p.dead || (typeof p.hp === "number" && p.hp <= 0)) continue;
-        this._destroyFactoryProp(p);
-        factories++;
-      }
-    }
-    if (factories > 0){
-      this._syncTetherProtectionStates();
-    }
-    if (enemyCount > 0 || factories > 0){
-      this._showStatusCue(`Debug clear: ${enemyCount} enemies, ${factories} factories`);
-    } else {
-      this._showStatusCue("Debug clear: no enemies or factories alive");
-    }
-  }
-
-  /**
    * Build a versioned runtime snapshot suitable for localStorage.
    * @returns {any}
    */
@@ -6915,217 +6437,6 @@ export class GameLoop {
     return restored;
   }
 
-  /**
-   * @returns {void}
-   */
-  _drawMinerPopups(){
-    if (PERF_FLAGS.disableOverlayCanvas || !this.overlay || !this.overlayCtx){
-      return;
-    }
-
-    const ctx = this.overlayCtx;
-    const dpr = getEffectiveDevicePixelRatio();
-    const w = Math.floor(this.overlay.clientWidth * dpr);
-    const h = Math.floor(this.overlay.clientHeight * dpr);
-    if (this.overlay.width !== w || this.overlay.height !== h){
-      this.overlay.width = w;
-      this.overlay.height = h;
-    }
-
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, w, h);
-    if (this.jumpdriveTransition.isActive()){
-      this.jumpdriveTransition.drawOverlay(ctx, w, h, dpr, this._lastRenderState);
-      ctx.globalAlpha = 1;
-      return;
-    }
-    const showStartTitle = !this.startTitleSeen && this.startTitleAlpha > 0;
-    if (!showStartTitle && !this.popups.length && !this.shipHitPopups.length && !this.lastAimScreen && !this.pendingPerkChoice){
-      return;
-    }
-
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.font = `700 ${Math.max(12, Math.round(16 * dpr))}px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace`;
-    const screenT = this._screenTransform(w / h);
-
-    for (const p of this.popups){
-      const t = Math.max(0, Math.min(1, p.life / GAME.MINER_POPUP_LIFE));
-      const alpha = 0.9 * t;
-      const screen = this._worldToScreenNorm(p.x, p.y, screenT);
-      const px = screen.x * w;
-      const py = screen.y * h;
-      ctx.globalAlpha = alpha;
-      ctx.fillStyle = "rgba(255, 236, 170, 1)";
-      ctx.fillText(p.text, px, py);
-    }
-    for (const p of this.shipHitPopups){
-      const t = Math.max(0, Math.min(1, p.life / GAME.SHIP_HIT_POPUP_LIFE));
-      const alpha = 0.9 * t;
-      const screen = this._worldToScreenNorm(p.x, p.y, screenT);
-      const px = screen.x * w;
-      const py = screen.y * h;
-      ctx.globalAlpha = alpha;
-      ctx.fillStyle = "rgba(255, 80, 80, 1)";
-      ctx.fillText("-1", px, py);
-    }
-
-    if (this.lastAimScreen && this.ship.state !== "crashed"){
-      const px = this.lastAimScreen.x * w;
-      const py = this.lastAimScreen.y * h;
-      const r = Math.max(6, Math.round(10 * dpr));
-      const cross = Math.max(4, Math.round(r * 0.6));
-      ctx.globalAlpha = 0.95;
-      ctx.strokeStyle = "rgba(120, 255, 220, 1)";
-      ctx.lineWidth = Math.max(1, Math.round(2 * dpr));
-      ctx.beginPath();
-      ctx.arc(px, py, r, 0, Math.PI * 2);
-      ctx.moveTo(px - cross, py);
-      ctx.lineTo(px + cross, py);
-      ctx.moveTo(px, py - cross);
-      ctx.lineTo(px, py + cross);
-      ctx.stroke();
-    }
-
-    if (this.pendingPerkChoice){
-      const panelW = Math.min(w * 0.94, 940 * dpr);
-      const x = (w - panelW) * 0.5;
-      const titleY = h * 0.30;
-      const cardY = h * 0.38;
-      const cardGap = Math.max(18 * dpr, panelW * 0.035);
-      const cardW = (panelW - cardGap) * 0.5;
-      const cardH = Math.min(h * 0.28, 210 * dpr);
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillStyle = "rgba(255, 240, 190, 1)";
-      const fontFamily = "\"Science Gothic\", ui-sans-serif, system-ui, sans-serif";
-      const titlePx = fitCanvasFontPx(ctx, "Choose an Upgrade", 700, Math.round(24 * dpr), Math.round(14 * dpr), panelW * 0.84, fontFamily);
-      ctx.font = `700 ${titlePx}px ${fontFamily}`;
-      ctx.fillText("Choose an Upgrade", x + panelW * 0.5, titleY);
-
-      const left = this.pendingPerkChoice[0];
-      const right = this.pendingPerkChoice[1];
-      const bodyPx = Math.max(Math.round(12 * dpr), Math.round(cardW * 0.06));
-      const lineHeight = Math.max(Math.round(15 * dpr), Math.round(bodyPx * 1.26));
-      const cardTitlePx = Math.max(Math.round(11 * dpr), Math.round(bodyPx * 0.92));
-      /** @param {number} cardX @param {string} heading @param {string} text @param {string} accent */
-      const drawPerkCard = (cardX, heading, text, accent) => {
-        const grad = ctx.createLinearGradient(0, cardY, 0, cardY + cardH);
-        grad.addColorStop(0, "rgba(14, 16, 28, 0.96)");
-        grad.addColorStop(1, "rgba(8, 10, 18, 0.96)");
-        ctx.globalAlpha = 0.92;
-        ctx.fillStyle = grad;
-        ctx.fillRect(cardX, cardY, cardW, cardH);
-        ctx.globalAlpha = 1;
-        ctx.strokeStyle = accent;
-        ctx.lineWidth = Math.max(1, Math.round(2 * dpr));
-        ctx.strokeRect(cardX, cardY, cardW, cardH);
-        ctx.font = `700 ${cardTitlePx}px ${fontFamily}`;
-        ctx.fillStyle = "rgba(255, 240, 190, 1)";
-        ctx.fillText(heading, cardX + cardW * 0.5, cardY + cardH * 0.18);
-        ctx.font = `600 ${bodyPx}px ${fontFamily}`;
-        ctx.fillStyle = "rgba(220, 236, 255, 1)";
-        drawCenteredWrappedText(ctx, text, cardX + cardW * 0.5, cardY + cardH * 0.56, cardW * 0.82, lineHeight, 3);
-      };
-      drawPerkCard(x, "LEFT", left ? left.text : "", "rgba(120, 210, 255, 0.95)");
-      drawPerkCard(x + cardW + cardGap, "RIGHT", right ? right.text : "", "rgba(255, 214, 180, 0.95)");
-    }
-
-    if (showStartTitle){
-      drawStartTitle(ctx, w, h, dpr, /** @type {string} */ (this.startTitleText), /** @type {number} */ (this.startTitleAlpha));
-    }
-    ctx.globalAlpha = 1;
-  }
-}
-
-/**
- * @param {CanvasRenderingContext2D} ctx
- * @param {string} text
- * @param {number} weight
- * @param {number} maxPx
- * @param {number} minPx
- * @param {number} maxWidth
- * @param {string} family
- * @returns {number}
- */
-function fitCanvasFontPx(ctx, text, weight, maxPx, minPx, maxWidth, family){
-  let px = Math.max(minPx, maxPx);
-  while (px > minPx){
-    ctx.font = `${weight} ${px}px ${family}`;
-    if (ctx.measureText(text).width <= maxWidth) break;
-    px -= 1;
-  }
-  return Math.max(minPx, px);
-}
-
-/**
- * Draw centered wrapped text from a top anchor.
- * @param {CanvasRenderingContext2D} ctx
- * @param {string} text
- * @param {number} cx
- * @param {number} topY
- * @param {number} maxWidth
- * @param {number} lineHeight
- * @param {number} maxLines
- * @returns {void}
- */
-function drawCenteredWrappedText(ctx, text, cx, topY, maxWidth, lineHeight, maxLines){
-  /** @type {string[]} */
-  const lines = [];
-  const paragraphs = String(text || "").split(/\r?\n/);
-  for (const paragraph of paragraphs){
-    const rawWords = paragraph.trim().split(/\s+/).filter(Boolean);
-    if (!rawWords.length){
-      if (lines.length < maxLines){
-        lines.push("");
-      }
-      continue;
-    }
-    /** @type {string[]} */
-    const words = [];
-    for (const token of rawWords){
-      if (ctx.measureText(token).width <= maxWidth){
-        words.push(token);
-        continue;
-      }
-      let chunk = "";
-      for (const ch of token){
-        const next = chunk + ch;
-        if (chunk && ctx.measureText(next).width > maxWidth){
-          words.push(chunk);
-          chunk = ch;
-        } else {
-          chunk = next;
-        }
-      }
-      if (chunk) words.push(chunk);
-    }
-
-    let line = "";
-    for (const word of words){
-      const next = line ? `${line} ${word}` : word;
-      if (line && ctx.measureText(next).width > maxWidth){
-        lines.push(line);
-        line = word;
-        if (lines.length >= maxLines - 1) break;
-      } else {
-        line = next;
-      }
-    }
-    if (line && lines.length < maxLines){
-      lines.push(line);
-    }
-    if (lines.length >= maxLines){
-      break;
-    }
-  }
-  if (!lines.length) return;
-
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  for (let i = 0; i < lines.length; i++){
-    ctx.fillText(/** @type {string} */ (lines[i]), cx, topY + i * lineHeight);
-  }
 }
 
 /**
