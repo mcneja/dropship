@@ -303,6 +303,17 @@ export class Planet {
   /**
    * @param {number} x
    * @param {number} y
+   * @param {number} radius
+   * @returns {boolean}
+   */
+  handleFeatureBombContact(x, y, radius){
+    if (!this.features || !this.features.handleBombContact) return false;
+    return this.features.handleBombContact(x, y, radius);
+  }
+
+  /**
+   * @param {number} x
+   * @param {number} y
    * @param {number} impactRadius
    * @param {number} bombRadius
    * @param {{

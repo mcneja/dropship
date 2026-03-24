@@ -5249,6 +5249,9 @@ export class GameLoop {
             }
           }
         }
+        if (!hit && this.planet.handleFeatureBombContact(b.x, b.y, this.PLAYER_BOMB_RADIUS)){
+          hit = true;
+        }
         if (!hit){
           for (let j = this.enemies.enemies.length - 1; j >= 0; j--){
             const e = /** @type {import("./types.d.js").Enemy} */ (this.enemies.enemies[j]);

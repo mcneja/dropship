@@ -1570,6 +1570,28 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
    * @param {number} x
    * @param {number} y
    * @param {number} radius
+   * @returns {boolean}
+   */
+  const handleBombContact = (x, y, radius) => {
+    const lava = particles.lava;
+    if (!lava.length) return false;
+    const hitRadius = Math.max(0, tuning.lava.radius + Math.max(0, radius));
+    const hitR2 = hitRadius * hitRadius;
+    for (let i = lava.length - 1; i >= 0; i--){
+      const p = /** @type {{x:number,y:number}} */ (lava[i]);
+      const dx = p.x - x;
+      const dy = p.y - y;
+      if (dx * dx + dy * dy > hitR2) continue;
+      lava.splice(i, 1);
+      return true;
+    }
+    return false;
+  };
+
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @param {number} radius
    * @param {FeatureCallbacks} callbacks
    * @returns {boolean}
    */
@@ -2390,6 +2412,7 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
     },
     handleTerrainDestroyed,
     handleShipContact,
+    handleBombContact,
     handleShot,
     handleBomb,
     handleImpact,
