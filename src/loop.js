@@ -6141,7 +6141,7 @@ export class GameLoop {
 
     const titleShowing = !this.startTitleSeen && this.startTitleAlpha > 0;
     const runEnded = !transitionActive && this._runEnded();
-    const hudVisible = this.devHudVisible && !runEnded;
+    const hudVisible = this.devHudVisible;
     this.hud.style.display = hudVisible ? "block" : "none";
     const transitionFogOrigin = transitionActive ? this.jumpdriveTransition.fogOrigin(this.ship) : null;
     const fogSyncEnabled = !PERF_FLAGS.disableFogSync;
