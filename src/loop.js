@@ -35,6 +35,7 @@ import { copyGameplayScreenshotToClipboard, drawStartTitle } from "./screenshot.
 import { JumpdriveTransition } from "./jumpdrive_transition.js";
 import { spawnFragmentBurst, spawnTerrainHexFragments, spawnTerrainPropFragments, updateFragmentDebris } from "./fragment_fx.js";
 import { ACTIVE_PERF_FLAGS, BENCH_CONFIG, PERF_FLAGS, RollingFrameStats, getEffectiveDevicePixelRatio, reportBenchmarkResult } from "./perf.js";
+import { Camera } from "./camera.js";
 import { findPathAStar } from "./navigation.js";
 import { clearTerrainSupport, collectSupportNodeIndices, getSupportNodeIndices, setSupportAnchor, setSupportNodeIndices } from "./terrain_support.js";
 import {
@@ -286,8 +287,7 @@ export class GameLoop {
     this.coreMeltdownT = 0;
     this.coreMeltdownDuration = 120;
     this.coreMeltdownEruptT = 0;
-    this.screenShakeTrauma = 0;
-    this.screenShakeClock = 0;
+    this.camera = new Camera();
     this.rumbleWeak = 0;
     this.rumbleStrong = 0;
     this.rumbleUntilMs = 0;
@@ -469,7 +469,7 @@ export class GameLoop {
         this._registerMinerLoss(1);
       },
       onScreenShake: (amount) => {
-        this._addScreenShake(amount);
+        this.camera.addScreenShake(amount);
       },
       onRumble: (weak, strong, durationMs) => {
         this._queueRumble(weak, strong, durationMs);
@@ -477,10 +477,6 @@ export class GameLoop {
     };
     this.planetView = false;
     this.fogEnabled = true;
-    /** @type {boolean} */
-    this.manualZoomActive = false;
-    /** @type {number} */
-    this.manualZoomMultiplier = 1;
     this.hasLaunchedPlayerShip = false;
     /** @type {Array<{perk:string,text:string}>|null} */
     this.pendingPerkChoice = null;
@@ -490,6 +486,7 @@ export class GameLoop {
     if (BENCH_CONFIG.enabled){
       this._applyBenchmarkSetup();
     }
+    this.camera.snapToScene(this._cameraScene());
   }
 
   /**
@@ -1401,8 +1398,7 @@ export class GameLoop {
     this.debris.length = 0;
     this.fragments.length = 0;
     this.mechanizedLarvae.length = 0;
-    this.screenShakeTrauma = 0;
-    this.screenShakeClock = 0;
+    this.camera.clearScreenShake();
     this.rumbleWeak = 0;
     this.rumbleStrong = 0;
     this.rumbleUntilMs = 0;
@@ -1425,6 +1421,7 @@ export class GameLoop {
     this._setCombatActive(false);
     this._setThrustLoopActive(false);
     this._resetShipRenderAngle();
+    this.camera.snapToScene(this._cameraScene());
   }
 
   /**
@@ -1439,6 +1436,7 @@ export class GameLoop {
     this.ship.state = "flying";
     this.ship._dock = null;
     this._resetShipRenderAngle();
+    this.camera.snapToScene(this._cameraScene());
   }
 
   /**
@@ -1844,28 +1842,50 @@ export class GameLoop {
   }
 
   /**
+   * @returns {{
+   *   ship: Ship,
+   *   mothership: import("./mothership.js").Mothership|null|undefined,
+   *   planetView: boolean,
+   *   planetRadius: number,
+   *   framedPlanetRadius: number,
+   *   coreMeltdownActive: boolean,
+   *   coreMeltdownT: number,
+   *   coreMeltdownDuration: number,
+   *   dockedWithMothership: boolean,
+   *   nowMs: number,
+   * }}
+   */
+  _cameraScene(){
+    return {
+      ship: this.ship,
+      mothership: this.mothership,
+      planetView: this.planetView,
+      planetRadius: this.planet ? (this.planet.planetRadius + CFG.PAD) : ((this.planetParams ? this.planetParams.RMAX : GAME.PLANETSIDE_ZOOM) + CFG.PAD),
+      framedPlanetRadius: this.planetParams ? (this.planetParams.RMAX + this.planetParams.PAD) : ((this.planet ? this.planet.planetRadius : GAME.PLANETSIDE_ZOOM) + CFG.PAD),
+      coreMeltdownActive: this.coreMeltdownActive,
+      coreMeltdownT: this.coreMeltdownT,
+      coreMeltdownDuration: this.coreMeltdownDuration,
+      dockedWithMothership: this._isDockedWithMothership(),
+      nowMs: this.lastTime || performance.now(),
+    };
+  }
+
+  /**
+   * @param {number} dt
+   * @returns {ViewState}
+   */
+  _updateCamera(dt){
+    return this.camera.update(dt, this._cameraScene());
+  }
+
+  /**
    * @param {{x:number,y:number}|null|undefined} aim
    * @returns {{x:number,y:number}|null}
    */
   _toWorldFromAim(aim){
     if (!aim) return null;
     const rect = this.canvas.getBoundingClientRect();
-    const w = Math.max(1, rect.width);
-    const h = Math.max(1, rect.height);
-    const xN = aim.x * 2 - 1;
-    const yN = (1 - aim.y) * 2 - 1;
-    const viewState = this._viewState();
-    const camRot = viewState.angle;
-    const s = 1 / viewState.radius;
-    const aspect = w / h;
-    const sx = s / aspect;
-    const sy = s;
-    const px = xN / sx;
-    const py = yN / sy;
-    const c = Math.cos(-camRot), s2 = Math.sin(-camRot);
-    const wx = c * px - s2 * py + viewState.xCenter;
-    const wy = s2 * px + c * py + viewState.yCenter;
-    return { x: wx, y: wy };
+    return this.camera.toWorldFromAim(aim, rect.width, rect.height);
   }
 
   /**
@@ -1873,17 +1893,7 @@ export class GameLoop {
    * @returns {{xCenter:number,yCenter:number,c:number,s:number,sx:number,sy:number}}
    */
   _screenTransform(aspect){
-    const viewState = this._viewState();
-    const camRot = viewState.angle;
-    const s = 1 / viewState.radius;
-    return {
-      xCenter: viewState.xCenter,
-      yCenter: viewState.yCenter,
-      c: Math.cos(camRot),
-      s: Math.sin(camRot),
-      sx: s / aspect,
-      sy: s,
-    };
+    return this.camera.screenTransform(aspect);
   }
 
   /**
@@ -1893,14 +1903,7 @@ export class GameLoop {
    * @returns {{x:number,y:number}}
    */
   _worldToScreenNorm(x, y, t){
-    const dx = x - t.xCenter;
-    const dy = y - t.yCenter;
-    const rx = t.c * dx - t.s * dy;
-    const ry = t.s * dx + t.c * dy;
-    return {
-      x: rx * t.sx * 0.5 + 0.5,
-      y: 0.5 - ry * t.sy * 0.5,
-    };
+    return this.camera.worldToScreenNorm(x, y, t);
   }
 
   /**
@@ -1910,9 +1913,7 @@ export class GameLoop {
   _aimScreenAroundShip(aim){
     if (!aim) return null;
     const rect = this.canvas.getBoundingClientRect();
-    const w = Math.max(1, rect.width);
-    const h = Math.max(1, rect.height);
-    const aspect = w / h;
+    const aspect = Math.max(1, rect.width) / Math.max(1, rect.height);
     const t = this._screenTransform(aspect);
     const ship = this._worldToScreenNorm(this.ship.x, this.ship.y, t);
     const ox = aim.x - 0.5;
@@ -1928,9 +1929,7 @@ export class GameLoop {
    * @returns {number}
    */
   _aimWorldDistance(screenFrac){
-    const viewState = this._viewState();
-    const radius = Math.max(1e-4, viewState.radius);
-    return 2 * screenFrac * radius;
+    return this.camera.aimWorldDistance(screenFrac);
   }
 
   /**
@@ -1938,182 +1937,15 @@ export class GameLoop {
    * @returns {{x:number,y:number}|null}
    */
   _defaultAimScreenFromShip(){
-    const r = Math.hypot(this.ship.x, this.ship.y) || 1;
-    const upx = this.ship.x / r;
-    const upy = this.ship.y / r;
-    const rightx = upy;
-    const righty = -upx;
-    const side = this.ship.cabinSide || 1;
-    const dirx = rightx * side;
-    const diry = righty * side;
-    const gunOrigin = this._shipGunPivotWorld();
-    const aimLen = Math.max(4.0, this._aimWorldDistance(GAME.AIM_SCREEN_RADIUS || 0.25));
-    const aimWorldX = gunOrigin.x + dirx * aimLen;
-    const aimWorldY = gunOrigin.y + diry * aimLen;
     const rect = this.canvas.getBoundingClientRect();
-    const w = Math.max(1, rect.width);
-    const h = Math.max(1, rect.height);
-    const screen = this._worldToScreenNorm(aimWorldX, aimWorldY, this._screenTransform(w / h));
-    return {
-      x: Math.max(0, Math.min(1, screen.x)),
-      y: Math.max(0, Math.min(1, screen.y)),
-    };
-  }
-
-  /**
-   * @returns {number}
-   */
-  _manualZoomMinMultiplier(){
-    return 0.35;
-  }
-
-  /**
-   * @returns {number}
-   */
-  _manualZoomMaxMultiplier(){
-    return 4.0;
-  }
-
-  /**
-   * @returns {number}
-   */
-  _currentZoomMultiplier(){
-    if (!this.manualZoomActive) return 1;
-    const minMul = this._manualZoomMinMultiplier();
-    const maxMul = this._manualZoomMaxMultiplier();
-    const raw = Number.isFinite(this.manualZoomMultiplier) ? this.manualZoomMultiplier : 1;
-    return Math.max(minMul, Math.min(maxMul, raw));
-  }
-
-  /**
-   * @returns {void}
-   */
-  _resetManualZoom(){
-    this.manualZoomActive = false;
-    this.manualZoomMultiplier = 1;
+    return this.camera.defaultAimScreenFromShip(this.ship, this._shipGunPivotWorld(), rect.width, rect.height);
   }
 
   /**
    * @returns {void}
    */
   _showZoomCue(){
-    this._showStatusCue(`Zoom ${this._currentZoomMultiplier().toFixed(2)}x`, 1.0);
-  }
-
-  /**
-   * @param {number} delta
-   * @returns {void}
-   */
-  _applyManualZoomDelta(delta){
-    if (!Number.isFinite(delta) || Math.abs(delta) < 1e-4) return;
-    if (this.planetView) return;
-    if (!this.manualZoomActive){
-      this.manualZoomActive = true;
-    }
-    const step = Math.max(-6, Math.min(6, delta));
-    const factor = Math.pow(1.1, step);
-    const minMul = this._manualZoomMinMultiplier();
-    const maxMul = this._manualZoomMaxMultiplier();
-    const nextMul = Math.max(minMul, Math.min(maxMul, this.manualZoomMultiplier / factor));
-    if (Math.abs(nextMul - 1) <= 0.02){
-      this._resetManualZoom();
-      this._showZoomCue();
-      return;
-    }
-    this.manualZoomMultiplier = nextMul;
-    this._showZoomCue();
-  }
-
-  /**
-   * @returns {ViewState}
-   */
-  _autoViewState() {
-    if (this.planetView){
-      return {
-        xCenter: 0,
-        yCenter: 0,
-        radius: (this.planet.planetRadius + CFG.PAD) * 1.05,
-        angle: 0,
-      };
-    }
-
-    const radiusViewMin = GAME.PLANETSIDE_ZOOM;
-    const rShip = Math.hypot(this.ship.x, this.ship.y);
-    const rPlanet = this.planetParams.RMAX + this.planetParams.PAD;
-
-    let uTransition = Math.max(0, Math.min(1, (rShip - rPlanet) / rPlanet));
-    uTransition = (3.0 - 2.0 * uTransition) * uTransition * uTransition;
-    const rFramedMin = (rShip - radiusViewMin) + (-rPlanet - (rShip - radiusViewMin)) * uTransition;
-    const rFramedMax = rShip + radiusViewMin;
-
-    const rViewCenter = (rFramedMin + rFramedMax) / 2;
-
-    const scale = rViewCenter / rShip;
-    const posViewCenterX = scale * this.ship.x;
-    const posViewCenterY = scale * this.ship.y;
-    const radiusView = (rFramedMax - rFramedMin) / 2;
-
-    const view = {
-      xCenter: posViewCenterX,
-      yCenter: posViewCenterY,
-      radius: radiusView,
-      angle: -(Number.isFinite(this.ship.renderAngle)
-        ? /** @type {number} */ (this.ship.renderAngle)
-        : getDropshipWorldRotation(this.ship.x, this.ship.y))
-    };
-    if (this.mothership){
-      const dx = this.ship.x - this.mothership.x;
-      const dy = this.ship.y - this.mothership.y;
-      const d = Math.hypot(dx, dy);
-      let t = Math.max(0, Math.min(1, (12 - d) / 8));
-      t = (3 - 2 * t) * t * t;
-      view.xCenter = view.xCenter * (1 - t) + this.ship.x * t;
-      view.yCenter = view.yCenter * (1 - t) + this.ship.y * t;
-      view.radius = radiusView * (1 - t) + GAME.MOTHERSHIP_ZOOM * t;
-    }
-    if (this.coreMeltdownActive && !this._isDockedWithMothership()){
-      const t = (this.lastTime || performance.now()) * 0.001;
-      const progress = Math.max(0, Math.min(1, this.coreMeltdownT / Math.max(0.001, this.coreMeltdownDuration)));
-      const amp = 0.035 + 0.085 * progress;
-      view.xCenter += Math.sin(t * 24.7) * amp + Math.sin(t * 41.3) * amp * 0.45;
-      view.yCenter += Math.cos(t * 19.9) * amp + Math.cos(t * 37.1) * amp * 0.45;
-    }
-    return view;
-  }
-
-  /**
-   * @returns {ViewState}
-   */
-  _viewState() {
-    const view = this._autoViewState();
-    if (this.manualZoomActive && !this.planetView){
-      const zoomMul = this._currentZoomMultiplier();
-      const baseRadius = Math.max(1e-6, view.radius);
-      const radiusScaled = baseRadius / zoomMul;
-      const ratio = radiusScaled / baseRadius;
-      // Apply wheel zoom around the ship so auto-framing offsets do not shift unpredictably.
-      view.xCenter = this.ship.x + (view.xCenter - this.ship.x) * ratio;
-      view.yCenter = this.ship.y + (view.yCenter - this.ship.y) * ratio;
-      view.radius = radiusScaled;
-    }
-    if (this.screenShakeTrauma > 1e-4){
-      const t = this.screenShakeClock;
-      const trauma = Math.max(0, Math.min(1.2, this.screenShakeTrauma));
-      const amp = (0.015 + 0.095 * trauma * trauma) * Math.max(0.55, view.radius / GAME.PLANETSIDE_ZOOM);
-      view.xCenter += Math.sin(t * 23.7) * amp + Math.sin(t * 41.9) * amp * 0.42;
-      view.yCenter += Math.cos(t * 19.3) * amp + Math.cos(t * 36.1) * amp * 0.42;
-    }
-    return view;
-  }
-
-  /**
-   * @param {number} amount
-   * @returns {void}
-   */
-  _addScreenShake(amount){
-    const add = Math.max(0, amount || 0);
-    if (!(add > 0)) return;
-    this.screenShakeTrauma = Math.min(1.2, this.screenShakeTrauma + add);
+    this._showStatusCue(`Zoom ${this.camera.currentZoomMultiplier().toFixed(2)}x`, 1.0);
   }
 
   /**
@@ -2132,17 +1964,7 @@ export class GameLoop {
     if (dist >= reach) return;
     const proximity = 1 - (dist / reach);
     const strength = (0.038 + Math.min(0.06, count * 0.018)) * proximity * proximity;
-    this._addScreenShake(strength);
-  }
-
-  /**
-   * @param {number} dt
-   * @returns {void}
-   */
-  _updateScreenShake(dt){
-    if (!(dt > 0)) return;
-    this.screenShakeClock += dt;
-    this.screenShakeTrauma = Math.max(0, this.screenShakeTrauma - dt * 1.7);
+    this.camera.addScreenShake(strength);
   }
 
   /**
@@ -2157,7 +1979,7 @@ export class GameLoop {
     if (!(w > 0 || s > 0)) return;
     this.rumbleWeak = Math.max(this.rumbleWeak, w);
     this.rumbleStrong = Math.max(this.rumbleStrong, s);
-    const now = this.lastTime || performance.now();
+    const now = Number.isFinite(this.lastTime) ? this.lastTime : performance.now();
     this.rumbleUntilMs = Math.max(this.rumbleUntilMs, now + Math.max(16, durationMs || 0));
   }
 
@@ -2191,7 +2013,8 @@ export class GameLoop {
       const mag = Math.max(weak, strong);
       for (const h of haptics){
         if (h && typeof h.pulse === "function"){
-          h.pulse(mag, Math.max(16, Math.round(durationMs))).catch(() => {});
+          const pulseResult = /** @type {Promise<unknown>} */ (h.pulse(mag, Math.max(16, Math.round(durationMs))));
+          pulseResult.catch(() => {});
         }
       }
     }
@@ -3662,8 +3485,7 @@ export class GameLoop {
     this._resetShip();
     this.entityExplosions.length = 0;
     this.mechanizedLarvae.length = 0;
-    this.screenShakeTrauma = 0;
-    this.screenShakeClock = 0;
+    this.camera.clearScreenShake();
     this.rumbleWeak = 0;
     this.rumbleStrong = 0;
     this.rumbleUntilMs = 0;
@@ -3683,8 +3505,7 @@ export class GameLoop {
       this.newGameHelpPromptT = 0;
       this.newGameHelpPromptArmed = true;
       this._resetStartTitle();
-      this.manualZoomActive = false;
-      this.manualZoomMultiplier = 1;
+      this.camera.resetManualZoom();
       this.ship.mothershipMiners = 0;
       this.ship.mothershipPilots = 0;
       this.ship.mothershipEngineers = 0;
@@ -3713,6 +3534,7 @@ export class GameLoop {
     if (previousLevel !== this.level){
       this.levelAdvanceReady = false;
     }
+    this.camera.snapToScene(this._cameraScene());
     this._markDashboardDirty();
   }
 
@@ -3739,8 +3561,7 @@ export class GameLoop {
    */
   _startJumpdriveTransition(seed, level){
     if (this.jumpdriveTransition.isActive()) return;
-    this.manualZoomActive = false;
-    this.manualZoomMultiplier = 1;
+    this.camera.resetManualZoom();
     this.planetView = false;
     this.levelAdvanceReady = false;
     this._setThrustLoopActive(false);
@@ -3751,7 +3572,7 @@ export class GameLoop {
       level,
       planetConfig,
       planetParams,
-      view: this._autoViewState(),
+      view: this.camera.autoView(this._cameraScene()),
       mothership: this.mothership,
       ship: this.ship,
       currentPlanetRadius: this.planet ? this.planet.planetRadius : (this.planetParams ? this.planetParams.RMAX : 0),
@@ -3769,8 +3590,7 @@ export class GameLoop {
     if (!Number.isFinite(targetLevel)) return;
     const reloadingCurrentLevel = targetLevel === this.level;
     const nextSeed = this.planet.getSeed() + 1;
-    this.manualZoomActive = false;
-    this.manualZoomMultiplier = 1;
+    this.camera.resetManualZoom();
     this.planetView = false;
     this.levelAdvanceReady = false;
     this._setThrustLoopActive(false);
@@ -3813,8 +3633,7 @@ export class GameLoop {
    */
   _startCurrentLevelJumpdriveIntro(){
     if (this.jumpdriveTransition.isActive() || !this.mothership || !this.planet) return;
-    this.manualZoomActive = false;
-    this.manualZoomMultiplier = 1;
+    this.camera.resetManualZoom();
     this.planetView = false;
     this.levelAdvanceReady = false;
     this._setThrustLoopActive(false);
@@ -3828,7 +3647,7 @@ export class GameLoop {
       planetConfig,
       planetParams,
       mapWorld,
-      view: this._autoViewState(),
+      view: this.camera.autoView(this._cameraScene()),
       mothership: this.mothership,
       ship: this.ship,
       currentPlanetRadius: this.planet.planetRadius,
@@ -4577,7 +4396,7 @@ export class GameLoop {
         this._beginLevel(preparedLevel.seed, preparedLevel.level, preparedLevel.mapWorld, true);
         this.jumpdriveTransition.applyPreparedLevel({
           mothership: this.mothership,
-          view: this._autoViewState(),
+          view: this.camera.autoView(this._cameraScene()),
         });
         this.planet.primeRenderFog(this.renderer, this.ship.x, this.ship.y);
       }
@@ -5054,6 +4873,7 @@ export class GameLoop {
     }
     // Keep camera/render orientation aligned with the pose after physics/collision resolution.
     this._updateShipRenderAngle(dt);
+    this._updateCamera(dt);
     const gunOrigin = this._shipGunPivotWorld();
     const aimWorldShoot = this._toWorldFromAim(aimShoot || aim);
     const aimWorldBomb = this._toWorldFromAim(aimBomb || aimShoot || aim);
@@ -5924,11 +5744,13 @@ export class GameLoop {
       inputState.thrust = false;
     }
     if (!transitionActive && inputState.zoomReset){
-      this._resetManualZoom();
+      this.camera.resetManualZoom();
       this._showZoomCue();
     }
     if (!transitionActive && typeof inputState.zoomDelta === "number" && Math.abs(inputState.zoomDelta) > 1e-4){
-      this._applyManualZoomDelta(inputState.zoomDelta);
+      if (this.camera.applyManualZoomDelta(inputState.zoomDelta, !this.planetView)){
+        this._showZoomCue();
+      }
     }
     if (this.helpPopup && typeof this.helpPopup.setTouchMode === "function"){
       this.helpPopup.setTouchMode(inputState.inputType === "touch");
@@ -6062,7 +5884,9 @@ export class GameLoop {
       this.accumulator -= fixed;
       steps++;
     }
-    this._updateScreenShake(rawDt);
+    if (steps === 0){
+      this._updateCamera(rawDt);
+    }
     this._flushRumble(this.activeInputType, now);
     const objectiveCompleteNow = this._objectiveComplete();
     if (objectiveCompleteNow && this.level >= 16 && !this.victoryMusicTriggered){
@@ -6328,7 +6152,7 @@ export class GameLoop {
     }
     /** @type {RenderState} */
     let renderState = {
-      view: this._viewState(),
+      view: this.camera.view,
       ship: this.ship,
       mothership: this.mothership,
       debris: this.debris,
@@ -7083,6 +6907,7 @@ export class GameLoop {
     const restored = restoreLoopFromSaveSnapshot(this, snapshot);
     if (restored){
       this._resetShipRenderAngle();
+      this.camera.snapToScene(this._cameraScene());
     }
     return restored;
   }
