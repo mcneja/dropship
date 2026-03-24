@@ -203,12 +203,11 @@ export class Camera {
     }
     const target = this._composeTargetView(scene);
     this.targetView = cloneView(target);
-    if (this._needsSnap || this._shouldSnapToTarget(target)){
-      this.baseView = cloneView(target);
-      this._needsSnap = false;
-    } else {
-      this._smoothBaseViewTowardTarget(target, dt);
-    }
+    // Keep the gameplay camera locked to the resolved simulation pose. The
+    // ship already smooths the singular core flip via renderAngle, so adding a
+    // second follow pass here reintroduces visible position/radius judder.
+    this.baseView = cloneView(target);
+    this._needsSnap = false;
     this.view = this._applyScreenShake(this.baseView);
     return this.view;
   }
