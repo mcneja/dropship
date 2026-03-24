@@ -36,6 +36,7 @@ import { JumpdriveTransition } from "./jumpdrive_transition.js";
 import { spawnFragmentBurst, spawnTerrainHexFragments, spawnTerrainPropFragments, updateFragmentDebris } from "./fragment_fx.js";
 import { ACTIVE_PERF_FLAGS, BENCH_CONFIG, PERF_FLAGS, RollingFrameStats, getEffectiveDevicePixelRatio, reportBenchmarkResult } from "./perf.js";
 import { findPathAStar } from "./navigation.js";
+import { clearTerrainSupport, collectSupportNodeIndices, getSupportNodeIndices, setSupportAnchor, setSupportNodeIndices } from "./terrain_support.js";
 import {
   extractPathSegment,
   findGuidePathTargetIndex,
@@ -2326,6 +2327,7 @@ export class GameLoop {
     const palette = this._planetPalette();
     spawnTerrainHexFragments(this.fragments, result.destroyedNodes, { x, y }, palette);
     const destroyedProps = this.planet.destroyTerrainPropsAttachedToNodes(result.destroyedNodes);
+    this._killMinersAttachedToTerrainNodes(result.destroyedNodes, { x, y });
     if (destroyedProps.length){
       this.planet.emitDetachedTerrainPropBursts(destroyedProps, this.featureCallbacks);
       spawnTerrainPropFragments(this.fragments, destroyedProps, { x, y }, palette);
@@ -2795,9 +2797,7 @@ export class GameLoop {
     let count = 0;
     for (const p of this.planet.props){
       if (!p || p.dead || p.type !== "factory") continue;
-      const supportIndices = Array.isArray(p.supportNodeIndices) && p.supportNodeIndices.length
-        ? p.supportNodeIndices
-        : (Number.isFinite(p.supportNodeIndex) ? [Number(p.supportNodeIndex)] : []);
+      const supportIndices = getSupportNodeIndices(p);
       if (!supportIndices.length) continue;
       let detached = false;
       for (const idx of supportIndices){
@@ -3431,60 +3431,27 @@ export class GameLoop {
     const count = Math.min(cap, base + Math.max(0, this.level - 1) * per);
     const seed = this.planet.getSeed() + this.level * 97;
     const barrenPerimeter = !!(cfg && cfg.flags && cfg.flags.barrenPerimeter);
-    let placed;
-    if (barrenPerimeter){
-      if (typeof this.planet.reserveBarrenPadsForMiners === "function"){
-        this.planet.reserveBarrenPadsForMiners(count, seed, GAME.MINER_MIN_SEP);
-      }
-      const reservedPads = [];
-      for (const p of (this.planet.props || [])){
-        if (p.type !== "turret_pad" || p.dead || p.padReservedFor !== "miner") continue;
-        reservedPads.push(p);
-      }
-      /** @param {number} ang */
-      const normalizeAngle = (ang) => {
-        let out = ang % (Math.PI * 2);
-        if (out < 0) out += Math.PI * 2;
-        return out;
-      };
-      reservedPads.sort((a, b) => {
-        const ringA = (typeof a.padRing === "number") ? a.padRing : Number.MAX_SAFE_INTEGER;
-        const ringB = (typeof b.padRing === "number") ? b.padRing : Number.MAX_SAFE_INTEGER;
-        if (ringA !== ringB) return ringA - ringB;
-        return normalizeAngle(Math.atan2(a.y, a.x)) - normalizeAngle(Math.atan2(b.y, b.x));
-      });
-      placed = reservedPads.slice(0, count).map((p) => [p.x, p.y]);
-      if (placed.length < count){
+    const spawnPlan = this.planet.planMinerSpawnPlacements(count, seed, GAME.MINER_MIN_SEP);
+    const placed = spawnPlan.placements;
+    if (placed.length < count){
+      if (spawnPlan.debug.mode === "barren"){
         console.error("[Level] miners spawn insufficient barren pads", {
           level: this.level,
           target: count,
           placed: placed.length,
-          pads: reservedPads.length,
+          pads: spawnPlan.debug.pads || 0,
         });
-      }
-    } else {
-      const standable = this.planet.getStandablePoints();
-      if (cfg && cfg.id === "molten"){
-        const moltenOuter = this.planetParams.MOLTEN_RING_OUTER || 0;
-        const minR = moltenOuter + 0.6;
-        placed = this.planet.sampleStandablePoints(count, seed, "uniform", GAME.MINER_MIN_SEP, true, minR);
       } else {
-        placed = this.planet.sampleStandablePoints(count, seed, "uniform", GAME.MINER_MIN_SEP, true);
-      }
-      if (placed.length < count){
-        const availability = this.planet.debugAvailableStandableCount
-          ? this.planet.debugAvailableStandableCount(GAME.MINER_MIN_SEP)
-          : { standable: standable.length, available: standable.length, reservations: 0 };
-        const propCounts = this.planet.debugPropCounts ? this.planet.debugPropCounts() : null;
         console.error("[Level] miners spawn insufficient standable points", {
           level: this.level,
           target: count,
           placed: placed.length,
-          standable: standable.length,
-          available: availability.available,
-          reservations: availability.reservations,
-          props: propCounts,
-          moltenFiltered: 0,
+          standable: spawnPlan.debug.standable || 0,
+          available: spawnPlan.debug.available || 0,
+          reservations: spawnPlan.debug.reservations || 0,
+          props: spawnPlan.debug.props || null,
+          moltenFiltered: spawnPlan.debug.filteredStandable || 0,
+          minR: spawnPlan.debug.minR || 0,
         });
       }
     }
@@ -3499,22 +3466,37 @@ export class GameLoop {
         (nudged.length < cutoffPilot) ? "pilot" :
         (nudged.length < cutoffEngineer) ? "engineer" :
         "miner";
+      let x = Number(p.x);
+      let y = Number(p.y);
       if (barrenPerimeter){
-        let x = /** @type {[number, number]} */ (p)[0];
-        let y = /** @type {[number, number]} */ (p)[1];
         const normal = this.planet.normalAtWorld(x, y);
         if (normal){
           x += normal.nx * 0.02;
           y += normal.ny * 0.02;
         }
-        nudged.push({ x, y, jumpCycle: Math.random(), type: minerType, state: "idle" });
       } else {
-        const res = this.planet.nudgeOutOfTerrain(/** @type {[number, number]} */ (p)[0], /** @type {[number, number]} */ (p)[1]);
+        let res = this.planet.nudgeOutOfTerrain(x, y);
+        if (!res.ok && Number.isFinite(p.supportX) && Number.isFinite(p.supportY)){
+          const anchorX = Number(p.supportX);
+          const anchorY = Number(p.supportY);
+          const normal = this.planet.normalAtWorld(anchorX, anchorY);
+          const fallbackX = normal ? (anchorX + normal.nx * Math.max(0.03, this.MINER_SURFACE_EPS * 3)) : anchorX;
+          const fallbackY = normal ? (anchorY + normal.ny * Math.max(0.03, this.MINER_SURFACE_EPS * 3)) : anchorY;
+          res = this.planet.nudgeOutOfTerrain(fallbackX, fallbackY, 0.35, 0.03, 0.08);
+          if (!res.ok && this.collision.airValueAtWorld(fallbackX, fallbackY) > 0.5){
+            res = { ok: true, x: fallbackX, y: fallbackY };
+          }
+        }
         if (!res.ok){
           continue;
         }
-        nudged.push({ x: res.x, y: res.y, jumpCycle: Math.random(), type: minerType, state: "idle" });
+        x = res.x;
+        y = res.y;
       }
+      /** @type {Miner} */
+      const miner = { x, y, jumpCycle: Math.random(), type: minerType, state: "idle", vx: 0, vy: 0, fallTime: 0 };
+      this._refreshMinerSupport(miner, p);
+      nudged.push(miner);
     }
     this.miners = nudged;
     this.minersRemaining = this.miners.length;
@@ -4004,6 +3986,7 @@ export class GameLoop {
   _nudgeMinersFromTerrain(){
     for (let i = this.miners.length - 1; i >= 0; i--){
       const m = /** @type {Miner} */ (this.miners[i]);
+      if (m.state === "falling") continue;
       const res = this.planet.nudgeOutOfTerrain(m.x, m.y);
       if (!res.ok){
         this.miners.splice(i, 1);
@@ -4013,7 +3996,266 @@ export class GameLoop {
       }
       m.x = res.x;
       m.y = res.y;
+      this._refreshMinerSupport(m);
     }
+  }
+
+  /**
+   * @returns {number}
+   */
+  _minerSupportRadius(){
+    return Math.max(0.08, this.MINER_HEIGHT * 0.36);
+  }
+
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @param {number} [preferredIndex=-1]
+   * @returns {number[]}
+   */
+  _collectMinerSupportFootprint(x, y, preferredIndex = -1){
+    const graph = this.planet && this.planet.getRadialGraph
+      ? this.planet.getRadialGraph(false)
+      : (this.planet ? this.planet.radialGraph : null);
+    const nodes = graph && graph.nodes ? graph.nodes : null;
+    const air = this.planet && this.planet.getAirNodesBitmap
+      ? this.planet.getAirNodesBitmap(false)
+      : (this.planet ? this.planet.airNodesBitmap : null);
+    return collectSupportNodeIndices(nodes, air, x, y, this._minerSupportRadius(), preferredIndex, 4);
+  }
+
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @param {number} [maxDist]
+   * @param {number} [minR]
+   * @returns {import("./types.d.js").StandablePoint|null}
+   */
+  _nearestMinerStandablePoint(x, y, maxDist = Infinity, minR = 0){
+    if (!this.planet || typeof this.planet.getStandablePoints !== "function") return null;
+    const points = this.planet.getStandablePoints();
+    if (!points || !points.length) return null;
+    const maxDistSq = Number.isFinite(maxDist) ? (Number(maxDist) * Number(maxDist)) : Infinity;
+    /** @type {import("./types.d.js").StandablePoint|null} */
+    let best = null;
+    let bestD2 = maxDistSq;
+    for (const pt of points){
+      if (!pt) continue;
+      if (minR > 0 && pt[3] < minR) continue;
+      const dx = pt[0] - x;
+      const dy = pt[1] - y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 >= bestD2) continue;
+      bestD2 = d2;
+      best = pt;
+    }
+    return best;
+  }
+
+  /**
+   * @param {Miner|null|undefined} miner
+   * @returns {number[]}
+   */
+  _minerSupportIndices(miner){
+    return getSupportNodeIndices(miner);
+  }
+
+  /**
+   * @param {Miner|null|undefined} miner
+   * @returns {void}
+   */
+  _clearMinerSupport(miner){
+    clearTerrainSupport(miner);
+  }
+
+  /**
+   * @param {Miner} miner
+   * @param {number} anchorX
+   * @param {number} anchorY
+   * @param {number} [preferredIndex=-1]
+   * @param {number[]|null} [explicitIndices=null]
+   * @returns {boolean}
+   */
+  _setMinerSupportAnchor(miner, anchorX, anchorY, preferredIndex = -1, explicitIndices = null){
+    if (!miner || !Number.isFinite(anchorX) || !Number.isFinite(anchorY)) return false;
+    setSupportAnchor(miner, anchorX, anchorY);
+    const supportIndices = Array.isArray(explicitIndices) && explicitIndices.length
+      ? explicitIndices.filter((idx) => Number.isFinite(idx)).map((idx) => Number(idx))
+      : this._collectMinerSupportFootprint(anchorX, anchorY, preferredIndex);
+    return setSupportNodeIndices(miner, supportIndices, preferredIndex);
+  }
+
+  /**
+   * @param {Miner} miner
+   * @param {{supportX?:number,supportY?:number,supportNodeIndex?:number,supportNodeIndices?:number[]}|null} [hint]
+   * @returns {boolean}
+   */
+  _refreshMinerSupport(miner, hint = null){
+    if (!miner || miner.state === "falling") return false;
+    if (hint && Number.isFinite(hint.supportX) && Number.isFinite(hint.supportY)){
+      return this._setMinerSupportAnchor(
+        miner,
+        Number(hint.supportX),
+        Number(hint.supportY),
+        Number.isFinite(hint.supportNodeIndex) ? Number(hint.supportNodeIndex) : -1,
+        Array.isArray(hint.supportNodeIndices) ? hint.supportNodeIndices : null,
+      );
+    }
+    const pt = this._nearestMinerStandablePoint(miner.x, miner.y, Math.max(0.18, this.MINER_HEIGHT * 1.4));
+    if (!pt){
+      this._clearMinerSupport(miner);
+      return false;
+    }
+    return this._setMinerSupportAnchor(
+      miner,
+      Number(pt[0]),
+      Number(pt[1]),
+      Number.isFinite(pt[4]) ? Number(pt[4]) : -1,
+      null,
+    );
+  }
+
+  /**
+   * @param {Miner} miner
+   * @returns {boolean|null}
+   */
+  _minerTrackedSupportIntact(miner){
+    const supportIndices = this._minerSupportIndices(miner);
+    if (!supportIndices.length) return null;
+    const graph = this.planet && this.planet.getRadialGraph
+      ? this.planet.getRadialGraph(false)
+      : (this.planet ? this.planet.radialGraph : null);
+    const nodes = graph && graph.nodes ? graph.nodes : null;
+    const air = this.planet && this.planet.getAirNodesBitmap
+      ? this.planet.getAirNodesBitmap(false)
+      : (this.planet ? this.planet.airNodesBitmap : null);
+    if (!nodes || !air || air.length !== nodes.length) return null;
+    for (const idx of supportIndices){
+      if (!Number.isFinite(idx) || idx < 0 || idx >= air.length || air[idx]){
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * @param {Miner} miner
+   * @returns {boolean}
+   */
+  _minerHasTerrainSupport(miner){
+    if (!miner) return false;
+    const trackedSupport = this._minerTrackedSupportIntact(miner);
+    if (trackedSupport !== null){
+      return trackedSupport;
+    }
+    const r = Math.hypot(miner.x, miner.y) || 1;
+    const upx = miner.x / r;
+    const upy = miner.y / r;
+    const tx = -upy;
+    const ty = upx;
+    const footBaseX = miner.x - upx * (this.MINER_HEAD_OFFSET * 0.32 + this.MINER_SURFACE_EPS * 2.5);
+    const footBaseY = miner.y - upy * (this.MINER_HEAD_OFFSET * 0.32 + this.MINER_SURFACE_EPS * 2.5);
+    const probeDepth = Math.max(0.05, this.MINER_HEIGHT * 0.32);
+    const probeWidth = Math.max(0.04, GAME.MINER_SCALE * 0.14);
+    const offsets = [0, -probeWidth, probeWidth];
+    for (const offset of offsets){
+      const px = footBaseX + tx * offset - upx * probeDepth;
+      const py = footBaseY + ty * offset - upy * probeDepth;
+      if (this.planet.airValueAtWorld(px, py) <= 0.5){
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * @param {DestroyedTerrainNode[]} destroyedNodes
+   * @param {{x?:number,y?:number}|null} [impact]
+   * @returns {number}
+   */
+  _killMinersAttachedToTerrainNodes(destroyedNodes, impact = null){
+    if (!destroyedNodes || !destroyedNodes.length || !this.miners.length) return 0;
+    const destroyedByIndex = new Map(destroyedNodes.map((node) => [node.idx, node]));
+    let count = 0;
+    for (let i = this.miners.length - 1; i >= 0; i--){
+      const miner = /** @type {Miner} */ (this.miners[i]);
+      const supportIndices = this._minerSupportIndices(miner);
+      if (!supportIndices.length) continue;
+      let hitNode = null;
+      for (const idx of supportIndices){
+        const node = destroyedByIndex.get(idx);
+        if (!node) continue;
+        hitNode = node;
+        break;
+      }
+      if (!hitNode) continue;
+      this._killMinerAt(i, "exploded", {
+        x: Number.isFinite(hitNode.x) ? Number(hitNode.x) : (Number.isFinite(miner.supportX) ? Number(miner.supportX) : (impact && Number.isFinite(impact.x) ? Number(impact.x) : miner.x)),
+        y: Number.isFinite(hitNode.y) ? Number(hitNode.y) : (Number.isFinite(miner.supportY) ? Number(miner.supportY) : (impact && Number.isFinite(impact.y) ? Number(impact.y) : miner.y)),
+      });
+      count++;
+    }
+    return count;
+  }
+
+  /**
+   * @param {Miner} miner
+   * @param {number} [vx=0]
+   * @param {number} [vy=0]
+   * @returns {void}
+   */
+  _startMinerFalling(miner, vx = 0, vy = 0){
+    if (!miner || miner.state === "falling") return;
+    miner.state = "falling";
+    miner.vx = vx;
+    miner.vy = vy;
+    miner.fallTime = 0;
+    this._clearMinerSupport(miner);
+  }
+
+  /**
+   * @param {number} index
+   * @param {Miner} miner
+   * @param {number} dt
+   * @returns {boolean}
+   */
+  _updateFallingMiner(index, miner, dt){
+    const prevX = miner.x;
+    const prevY = miner.y;
+    const g = this.planet.gravityAt(miner.x, miner.y);
+    miner.vx = (miner.vx || 0) + g.x * dt;
+    miner.vy = (miner.vy || 0) + g.y * dt;
+    const drag = Math.max(0, 1 - this.planetParams.DRAG * 0.45 * dt);
+    miner.vx *= drag;
+    miner.vy *= drag;
+    miner.x += miner.vx * dt;
+    miner.y += miner.vy * dt;
+    miner.fallTime = (miner.fallTime || 0) + dt;
+    miner.jumpCycle += dt * 0.6;
+    miner.jumpCycle -= Math.floor(miner.jumpCycle);
+    const crossing = this.planet.terrainCrossing({ x: prevX, y: prevY }, { x: miner.x, y: miner.y });
+    if (!crossing) return true;
+    const impactSpeed = Math.hypot(miner.vx || 0, miner.vy || 0);
+    if (impactSpeed > 1.35 || (miner.fallTime || 0) > 0.9){
+      this._killMinerAt(index, "exploded", {
+        x: crossing.x,
+        y: crossing.y,
+        vx: miner.vx,
+        vy: miner.vy,
+      });
+      return true;
+    }
+    const settleX = crossing.x + crossing.nx * Math.max(0.03, this.MINER_SURFACE_EPS * 3);
+    const settleY = crossing.y + crossing.ny * Math.max(0.03, this.MINER_SURFACE_EPS * 3);
+    const res = this.planet.nudgeOutOfTerrain(settleX, settleY, 0.35, 0.03, 0.08);
+    miner.x = res.ok ? res.x : settleX;
+    miner.y = res.ok ? res.y : settleY;
+    miner.vx = 0;
+    miner.vy = 0;
+    miner.fallTime = 0;
+    miner.state = "idle";
+    this._refreshMinerSupport(miner);
+    return true;
   }
 
   /**
@@ -5295,6 +5537,10 @@ export class GameLoop {
       const miner = /** @type {Miner} */ (this.miners[i]);
       const prevMinerX = miner.x;
       const prevMinerY = miner.y;
+      if (miner.state === "falling"){
+        this._updateFallingMiner(i, miner, dt);
+        continue;
+      }
 
       let indexPathMiner = null;
       /** @type {{radialTolBase?:number,sameRingIdx?:number|null,nearbyRingIdx?:number|null,plainIdx?:number|null,chosenStage?:string,chosenIdx?:number|null,chosenDist?:number,chosenR?:number,nearestIdx?:number|null,nearestDist?:number,nearestR?:number}|null} */
@@ -5313,7 +5559,7 @@ export class GameLoop {
         }
       }
 
-      miner.state = (indexPathMiner !== null) ? "running" :"idle";
+      miner.state = (indexPathMiner !== null) ? "running" : "idle";
       const indexPathMinerInitial = indexPathMiner;
       let indexPathTarget = null;
       let distMax = 0;
@@ -5520,6 +5766,31 @@ export class GameLoop {
           rate: 0.95 + Math.random() * 0.1,
         });
         this.miners.splice(i, 1);
+        continue;
+      }
+
+      const supportBypass = landed && (
+        boardNearShip
+        || hullDist <= Math.max(0.16, boardAcceptRadius * 1.8)
+        || !!(boardTarget && Math.hypot(miner.x - boardTarget.x, miner.y - boardTarget.y) <= directBoardRange)
+      );
+      if (!supportBypass){
+        if (minerMoved > 1e-5 || !this._minerSupportIndices(miner).length){
+          this._refreshMinerSupport(miner);
+        }
+        if (this._minerTrackedSupportIntact(miner) === false){
+          this._killMinerAt(i, "exploded", {
+            x: Number.isFinite(miner.supportX) ? Number(miner.supportX) : miner.x,
+            y: Number.isFinite(miner.supportY) ? Number(miner.supportY) : miner.y,
+          });
+          continue;
+        }
+      }
+      if (!supportBypass && !this._minerHasTerrainSupport(miner)){
+        const minerVx = dt > 1e-5 ? (miner.x - prevMinerX) / dt : 0;
+        const minerVy = dt > 1e-5 ? (miner.y - prevMinerY) / dt : 0;
+        this._startMinerFalling(miner, minerVx, minerVy);
+        continue;
       }
     }
     this.debugMinerPathToMiner = (landed && guidePathUsable) ? debugMinerPathToMiner : null;

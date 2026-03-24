@@ -174,7 +174,14 @@
  * @property {number} y
  * @property {number} jumpCycle
  * @property {"miner"|"pilot"|"engineer"} type
- * @property {"idle"|"running"} state
+ * @property {"idle"|"running"|"falling"} state
+ * @property {number} [vx]
+ * @property {number} [vy]
+ * @property {number} [fallTime]
+ * @property {number} [supportX]
+ * @property {number} [supportY]
+ * @property {number} [supportNodeIndex]
+ * @property {number[]} [supportNodeIndices]
  */
 
 /**

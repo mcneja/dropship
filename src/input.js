@@ -587,7 +587,7 @@ export class Input {
     const key = e.key;
     const code = e.code;
     const debugChord = e.altKey && !e.ctrlKey && !e.metaKey;
-    const devHudChord = this.debugCommandsEnabled && !e.ctrlKey && !e.metaKey && code === "KeyP";
+    const rescueAllChord = this.debugCommandsEnabled && debugChord && code === "KeyQ";
     const debugDigitChar = code.charAt(5);
     const debugDigit = code.startsWith("Digit") && code.length === 6 && debugDigitChar >= "1" && debugDigitChar <= "9";
     const debugToggleHud = debugChord && code === "Backslash";
@@ -607,12 +607,11 @@ export class Input {
         code === "KeyU" ||
         code === "KeyF" ||
         code === "KeyC" ||
-        code === "KeyP" ||
         code === "KeyX" ||
         code === "KeyZ" ||
         debugDigit
       );
-    const debugShortcut = debugToggleHud || debugAction || screenshotTitleShortcut || devHudChord;
+    const debugShortcut = debugToggleHud || debugAction || screenshotTitleShortcut || rescueAllChord;
     if (["ArrowLeft","ArrowRight","ArrowUp","ArrowDown"," ","Space"].includes(key)) e.preventDefault();
     if (debugShortcut) e.preventDefault();
     if (!this.keys.has(key)) this.justPressed.add(key);
@@ -659,7 +658,7 @@ export class Input {
     }
     if (key === "j" || key === "J") this.oneshot.toggleCombatMusic = true;
     if (this.debugCommandsEnabled && debugChord && debugDigit) this.oneshot.spawnEnemyType = /** @type {"1"|"2"|"3"|"4"|"5"} */ (debugDigitChar);
-    if (devHudChord) this.oneshot.rescueAll = true;
+    if (rescueAllChord) this.oneshot.rescueAll = true;
     if (this.debugCommandsEnabled && debugChord && code === "KeyX") this.oneshot.killAllEnemies = true;
     if (this.debugCommandsEnabled && debugChord && code === "KeyE") this.oneshot.removeEntities = true;
   }
