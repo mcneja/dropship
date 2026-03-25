@@ -1,4 +1,17 @@
 // @ts-check
+/** @typedef {import("./game.js").Game} Game */
+
+import { lerpAngleShortest } from "./collision_mothership.js";
+import { GAME } from "./config.js";
+import { spawnFragmentBurst } from "./fragment_fx.js";
+import * as audioState from "./audio.js";
+import * as camera from "./camera.js";
+import * as collisionDropship from "./collision_dropship.js";
+import * as collisionWorld from "./collision_world.js";
+import { resolveCollisionResponse, sampleBodyCollisionAt } from "./collision_world.js";
+import * as flightPhysics from "./flight_physics.js";
+import { mothershipCollisionInfo } from "./mothership.js";
+import * as stats from "./stats.js";
 
 /** @typedef {{x:number,y:number}} Point */
 /** @typedef {{stickThrust?:Point,left?:boolean,right?:boolean,thrust?:boolean,down?:boolean}} DropshipInput */
@@ -196,6 +209,32 @@ export function computeDropshipConvexHullBoundRadius(convexHullPoints){
     if (d2 > r2) r2 = d2;
   }
   return Math.sqrt(r2);
+}
+
+/**
+ * Given a unit vector for aim direction and current ship velocity,
+ * compute the projectile's launch velocity while preserving muzzle speed.
+ * @param {number} dirx
+ * @param {number} diry
+ * @param {number} vx
+ * @param {number} vy
+ * @param {number} bulletSpeed
+ * @returns {{vx:number, vy:number}}
+ */
+export function muzzleVelocity(dirx, diry, vx, vy, bulletSpeed){
+  const vn = vx * dirx + vy * diry;
+  const vt = vx * -diry + vy * dirx;
+  let speed = Math.sqrt(Math.max(0, bulletSpeed * bulletSpeed - vt * vt));
+  const MIN_LAUNCH_SPEED = 0.5;
+  if (speed < MIN_LAUNCH_SPEED){
+    vx += dirx * bulletSpeed;
+    vy += diry * bulletSpeed;
+  } else {
+    speed += vn;
+    vx = dirx * speed;
+    vy = diry * speed;
+  }
+  return { vx, vy };
 }
 
 /**
@@ -548,3 +587,765 @@ export function getDropshipThrusterPowers(input){
     right: Math.max(input.right ? 1 : 0, analogRight),
   };
 }
+
+/**
+ * @param {Game} game
+ * @returns {void}
+ */
+export function resetShip(game){
+  const c = Math.cos(game.mothership.angle);
+  const s = Math.sin(game.mothership.angle);
+  game.ship.x = game.mothership.x + c * GAME.MOTHERSHIP_START_DOCK_X - s * GAME.MOTHERSHIP_START_DOCK_Y;
+  game.ship.y = game.mothership.y + s * GAME.MOTHERSHIP_START_DOCK_X + c * GAME.MOTHERSHIP_START_DOCK_Y;
+  game.ship.vx = game.mothership.vx;
+  game.ship.vy = game.mothership.vy;
+  game.ship.state = "landed";
+  game.ship.explodeT = 0;
+  game.ship.hpCur = game.ship.hpMax;
+  game.ship.bombsCur = game.ship.bombsMax;
+  game.ship.heat = 0;
+  game.ship.invertT = 0;
+  game.ship.hitCooldown = 0;
+  game.ship.dropshipMiners = 0;
+  game.ship.dropshipPilots = 0;
+  game.ship.dropshipEngineers = 0;
+  game.ship._dock = { lx: GAME.MOTHERSHIP_START_DOCK_X, ly: GAME.MOTHERSHIP_START_DOCK_Y };
+  game.ship._collision = null;
+  game.ship._samples = null;
+  game.ship._landingDebug = null;
+  game.debris.length = 0;
+  game.fragments.length = 0;
+  game.mechanizedLarvae.length = 0;
+  game.camera.clearScreenShake();
+  game.feedbackState.rumbleWeak = 0;
+  game.feedbackState.rumbleStrong = 0;
+  game.feedbackState.rumbleUntilMs = 0;
+  game.feedbackState.lastRumbleApplyMs = 0;
+  game.feedbackState.lastRumbleWeakApplied = 0;
+  game.feedbackState.lastRumbleStrongApplied = 0;
+  game.feedbackState.lastBrowserVibrateMs = 0;
+  game.fallenMiners.length = 0;
+  game.playerShots.length = 0;
+  game.playerBombs.length = 0;
+  game.entityExplosions.length = 0;
+  game.popups.length = 0;
+  game.shipHitPopups.length = 0;
+  game.pickupAnimations.length = 0;
+  game.playerShotCooldown = 0;
+  game.planet.clearFeatureParticles();
+  game.lastAimWorld = null;
+  game.lastAimScreen = null;
+  game.lastHeat = 0;
+  game._shipWasInWater = false;
+  game.combatThreatUntilMs = 0;
+  audioState.setCombatActive(game, false);
+  audioState.setThrustLoopActive(game, false);
+  resetShipRenderAngle(game);
+  game.camera.snapToScene(camera.cameraScene(game));
+}
+
+/**
+ * @param {Game} game
+ * @returns {void}
+ */
+export function putShipInLowOrbit(game){
+  const orbitState = game.planet.orbitStateFromElements(game.planet.planetRadius + 1, 0, 0, true);
+  game.ship.x = orbitState.x;
+  game.ship.y = orbitState.y;
+  game.ship.vx = orbitState.vx;
+  game.ship.vy = orbitState.vy;
+  game.ship.state = "flying";
+  game.ship._dock = null;
+  resetShipRenderAngle(game);
+  game.camera.snapToScene(camera.cameraScene(game));
+}
+
+/**
+ * Reset ship/camera orientation after teleports, respawns, and load.
+ * @param {Game} game
+ * @returns {void}
+ */
+export function resetShipRenderAngle(game){
+  game.ship.renderAngle = getDropshipWorldRotation(game.ship.x, game.ship.y);
+}
+
+/**
+ * Damp the singular 180-degree flip at the planet core without adding general camera lag.
+ * @param {Game} game
+ * @param {number} dt
+ * @returns {void}
+ */
+export function updateShipRenderAngle(game, dt){
+  const target = getDropshipWorldRotation(game.ship.x, game.ship.y);
+  const current = Number.isFinite(game.ship.renderAngle) ? /** @type {number} */ (game.ship.renderAngle) : target;
+  const delta = lerpAngleShortest(current, target, 1) - current;
+  const maxStep = Math.PI * 8 * Math.max(0, dt);
+  if (!(maxStep > 0) || Math.abs(delta) <= maxStep){
+    game.ship.renderAngle = target;
+    return;
+  }
+  game.ship.renderAngle = lerpAngleShortest(current, target, maxStep / Math.abs(delta));
+}
+
+/**
+ * @param {Game} game
+ * @param {import("./types.d.js").FragmentDestroyedBy} [destroyedBy]
+ * @returns {void}
+ */
+export function triggerCrash(game, destroyedBy = "unknown"){
+  if (game.ship.state === "crashed") return;
+  game.ship.state = "crashed";
+  game.ship.explodeT = 0;
+  game.combatThreatUntilMs = 0;
+  audioState.setCombatActive(game, false);
+  audioState.setThrustLoopActive(game, false);
+  audioState.playSfx(game, "ship_crash", { volume: 0.9 });
+  game.lastAimWorld = null;
+  game.lastAimScreen = null;
+  stats.recordDropshipLoss(game, 1);
+  const pieces = 10;
+  for (let i = 0; i < pieces; i++){
+    const ang = Math.random() * Math.PI * 2;
+    const sp = 1.5 + Math.random() * 2.5;
+    game.debris.push({
+      x: game.ship.x + Math.cos(ang) * 0.1,
+      y: game.ship.y + Math.sin(ang) * 0.1,
+      vx: game.ship.vx + Math.cos(ang) * sp,
+      vy: game.ship.vy + Math.sin(ang) * sp,
+      a: Math.random() * Math.PI * 2,
+      w: (Math.random() - 0.5) * 4,
+      life: 2.5 + Math.random() * 1.5,
+    });
+  }
+  stats.registerMinerLoss(game, game.ship.dropshipMiners + game.ship.dropshipPilots + game.ship.dropshipEngineers);
+  spawnShipDestructionFragments(game, destroyedBy);
+  game.ship.dropshipMiners = 0;
+  game.ship.dropshipPilots = 0;
+  game.ship.dropshipEngineers = 0;
+}
+
+/**
+ * @param {Game} game
+ * @param {number} x
+ * @param {number} y
+ * @param {import("./types.d.js").FragmentDestroyedBy} [destroyedBy]
+ * @returns {void}
+ */
+export function damageShip(game, x, y, destroyedBy = "unknown"){
+  if (game.ship.state === "crashed") return;
+  if (game.ship.hitCooldown > 0) return;
+  audioState.markCombatThreat(game);
+  audioState.triggerCombatImmediate(game);
+  game.ship.hpCur = Math.max(0, game.ship.hpCur - 1);
+  game.ship.hitCooldown = GAME.SHIP_HIT_COOLDOWN;
+  audioState.playSfx(game, "ship_hit", { volume: 0.8 });
+  game.entityExplosions.push({ x, y, life: 0.5, radius: game.SHIP_HIT_BLAST });
+  game.shipHitPopups.push({
+    x: game.ship.x,
+    y: game.ship.y,
+    vx: 0,
+    vy: 0,
+    life: GAME.SHIP_HIT_POPUP_LIFE,
+  });
+  if (game.ship.hpCur <= 0){
+    triggerCrash(game, destroyedBy);
+  }
+}
+
+/**
+ * @param {Game} game
+ * @param {number} dt
+ * @returns {void}
+ */
+export function updateHostileDamage(game, dt){
+  if (game.ship.state === "crashed") return;
+  for (let i = game.enemies.shots.length - 1; i >= 0; i--){
+    const shot = game.enemies.shots[i];
+    if (!shot) continue;
+    if (collisionDropship.enemyShotHitsShip(game, shot, dt)){
+      game.enemies.shots.splice(i, 1);
+      damageShip(game, shot.x, shot.y, "bullet");
+    }
+  }
+  if (!game.enemies.explosions.length) return;
+  const shipRadius = collisionDropship.shipRadius(game);
+  for (const explosion of game.enemies.explosions){
+    if (!explosion) continue;
+    const radius = (explosion.radius ?? 1.0) + shipRadius;
+    const dx = game.ship.x - explosion.x;
+    const dy = game.ship.y - explosion.y;
+    if (dx * dx + dy * dy <= radius * radius){
+      damageShip(game, explosion.x, explosion.y, "explosion");
+      break;
+    }
+  }
+}
+
+/**
+ * @param {Game} game
+ * @param {DropshipInput} input
+ * @returns {void}
+ */
+export function updateLandedState(game, input){
+  if (game.ship.state !== "landed") return;
+  if (!wantsDropshipLiftoff(input)) return;
+  game.ship.state = "flying";
+  game.ship._dock = null;
+  game.hasLaunchedPlayerShip = true;
+}
+
+/**
+ * @param {Game} game
+ * @param {{thrust:boolean,stickThrust:{x:number,y:number}}} input
+ * @param {any} titleState
+ * @param {{aim?:any,aimShoot?:any,aimBomb?:any,lastAimScreen?:any}} [aimState]
+ * @returns {{aim:any,aimShoot:any,aimBomb:any}|null}
+ */
+export function updateDockedMothershipState(game, input, titleState, aimState = {}){
+  if (!(game.ship.state === "landed" && game.ship._dock && game.mothership)) return null;
+  if (input.thrust || input.stickThrust.y > 0.5){
+    const shipRadius = collisionDropship.shipRadius(game);
+    const pushStep = shipRadius * 0.35;
+    for (let i = 0; i < 8 && collisionDropship.shipCollidesAt(game, game.ship.x, game.ship.y); i++){
+      const info = mothershipCollisionInfo(game.mothership, game.ship.x, game.ship.y);
+      if (!info) break;
+      game.ship.x += info.nx * pushStep;
+      game.ship.y += info.ny * pushStep;
+    }
+    const info = mothershipCollisionInfo(game.mothership, game.ship.x, game.ship.y);
+    if (info){
+      const lift = shipRadius * 0.25;
+      game.ship.x += info.nx * lift;
+      game.ship.y += info.ny * lift;
+      game.ship.vx += info.nx * 0.05;
+      game.ship.vy += info.ny * 0.05;
+    }
+    game.ship.state = "flying";
+    game.ship._dock = null;
+    game.hasLaunchedPlayerShip = true;
+    if (titleState.newGameHelpPromptArmed){
+      titleState.newGameHelpPromptT = game.NEW_GAME_HELP_PROMPT_SECS;
+      titleState.newGameHelpPromptArmed = false;
+    }
+    if (!aimState.aim && !aimState.aimShoot && !aimState.aimBomb && !aimState.lastAimScreen){
+      const seededAim = camera.defaultAimScreenFromShip(game, () => collisionDropship.shipGunPivotWorld(game));
+      if (seededAim){
+        return { aim: seededAim, aimShoot: seededAim, aimBomb: seededAim };
+      }
+    }
+    return null;
+  }
+
+  const { lx, ly } = game.ship._dock;
+  const c = Math.cos(game.mothership.angle);
+  const s = Math.sin(game.mothership.angle);
+  game.ship.x = game.mothership.x + c * lx - s * ly;
+  game.ship.y = game.mothership.y + s * lx + c * ly;
+  game.ship.vx = game.mothership.vx;
+  game.ship.vy = game.mothership.vy;
+  game.ship._shipRadius = collisionDropship.shipRadius(game);
+  game.ship._samples = sampleBodyCollisionAt(
+    game.collision,
+    (px, py) => collisionDropship.shipCollisionPoints(game, px, py),
+    game.ship.x,
+    game.ship.y,
+    false
+  ).samples;
+  game.lastAimWorld = null;
+  game.lastAimScreen = null;
+  return null;
+}
+
+/**
+ * @param {Game} game
+ * @param {{
+ *  aim:any,
+ *  aimShoot:any,
+ *  aimBomb:any,
+ *  aimShootFrom:any,
+ *  aimShootTo:any,
+ *  aimBombFrom:any,
+ *  aimBombTo:any,
+ * }} aimState
+ * @returns {{gunOrigin:{x:number,y:number},aimWorldShoot:any,aimWorldBomb:any,aimWorld:any}}
+ */
+export function resolveAimState(game, aimState){
+  const gunOrigin = collisionDropship.shipGunPivotWorld(game);
+  const aimWorldShoot = camera.toWorldFromAim(game, aimState.aimShoot || aimState.aim);
+  const aimWorldBomb = camera.toWorldFromAim(game, aimState.aimBomb || aimState.aimShoot || aimState.aim);
+  let aimWorld =
+    (aimState.aimShootTo && camera.toWorldFromAim(game, aimState.aimShootTo)) ||
+    aimWorldShoot ||
+    (aimState.aimBombTo && camera.toWorldFromAim(game, aimState.aimBombTo)) ||
+    aimWorldBomb;
+  if ((aimState.aimShootFrom && aimState.aimShootTo) || (aimState.aimBombFrom && aimState.aimBombTo)){
+    const from = aimState.aimShootFrom || aimState.aimBombFrom;
+    const to = aimState.aimShootTo || aimState.aimBombTo;
+    const worldFrom = from ? camera.toWorldFromAim(game, from) : null;
+    const worldTo = to ? camera.toWorldFromAim(game, to) : null;
+    if (worldFrom && worldTo){
+      const dx = worldTo.x - worldFrom.x;
+      const dy = worldTo.y - worldFrom.y;
+      const dist = Math.hypot(dx, dy) || 1;
+      const aimLen = Math.max(4.0, camera.aimWorldDistance(game, GAME.AIM_SCREEN_RADIUS || 0.25));
+      aimWorld = {
+        x: gunOrigin.x + (dx / dist) * aimLen,
+        y: gunOrigin.y + (dy / dist) * aimLen,
+      };
+    }
+  }
+  if (!isDockedWithMothership(game)){
+    game.lastAimWorld = aimWorld;
+    if (aimState.aim) game.lastAimScreen = aimState.aim;
+  }
+  return { gunOrigin, aimWorldShoot, aimWorldBomb, aimWorld };
+}
+
+/**
+ * @param {Game} game
+ * @param {number} dt
+ * @param {{
+ *  left:boolean,
+ *  right:boolean,
+ *  thrust:boolean,
+ *  down:boolean,
+ *  stickThrust:{x:number,y:number},
+ *  aim:any,
+ *  aimShoot:any,
+ *  aimBomb:any,
+ *  aimShootFrom:any,
+ *  aimShootTo:any,
+ *  aimBombFrom:any,
+ *  aimBombTo:any,
+ * }} controls
+ * @param {any} titleState
+ * @param {{prevPose:{x:number,y:number,angle:number}|null, angularVel:number}} mothershipMotion
+ * @returns {{gunOrigin:{x:number,y:number},aimWorldShoot:any,aimWorldBomb:any,aimWorld:any}}
+ */
+export function updateStep(game, dt, controls, titleState, mothershipMotion){
+  const planetCfg = game.planet && game.planet.getPlanetConfig ? game.planet.getPlanetConfig() : null;
+  let aim = controls.aim;
+  let aimShoot = controls.aimShoot;
+  let aimBomb = controls.aimBomb;
+  const dockAim = updateDockedMothershipState(
+    game,
+    { thrust: controls.thrust, stickThrust: controls.stickThrust },
+    titleState,
+    { aim, aimShoot, aimBomb, lastAimScreen: game.lastAimScreen }
+  );
+  if (dockAim){
+    aim = dockAim.aim;
+    aimShoot = dockAim.aimShoot;
+    aimBomb = dockAim.aimBomb;
+  }
+  updateDamageState(game, dt);
+  updateFlyingState(
+    game,
+    dt,
+    {
+      left: controls.left,
+      right: controls.right,
+      thrust: controls.thrust,
+      down: controls.down,
+      stickThrust: controls.stickThrust,
+    },
+    planetCfg,
+    mothershipMotion.prevPose,
+    mothershipMotion.angularVel
+  );
+  finalizePose(game, dt);
+  return resolveAimState(game, {
+    aim,
+    aimShoot,
+    aimBomb,
+    aimShootFrom: controls.aimShootFrom,
+    aimShootTo: controls.aimShootTo,
+    aimBombFrom: controls.aimBombFrom,
+    aimBombTo: controls.aimBombTo,
+  });
+}
+
+/**
+ * @param {Game} game
+ * @param {number} dt
+ * @param {DropshipInput} input
+ * @param {any} planetCfg
+ * @param {{x:number,y:number,angle:number}|null} mothershipPrevPose
+ * @param {number} mothershipAngularVel
+ * @returns {void}
+ */
+export function updateFlyingState(game, dt, input, planetCfg, mothershipPrevPose, mothershipAngularVel){
+  if (game.ship.state !== "flying") return;
+
+  const { left, right, thrust, down, stickThrust } = input;
+  const controls = {
+    left: !!left,
+    right: !!right,
+    thrust: !!thrust,
+    down: !!down,
+    stickThrust: stickThrust || { x: 0, y: 0 },
+  };
+  game.ship.cabinSide = resolveDropshipFacing(game.ship.cabinSide || 1, controls);
+  audioState.setThrustLoopActive(game, hasDropshipThrustInput(controls));
+
+  const isWaterWorld = !!(planetCfg && planetCfg.id === "water");
+  const outerRingR = (game.planet && game.planet.radial && game.planet.radial.rings && game.planet.radial.rings.length)
+    ? (game.planet.radial.rings.length - 1)
+    : Math.floor(game.planetParams.RMAX || 0);
+  const thrustMax = game.planetParams.THRUST * (1 + game.ship.thrust * 0.1);
+  const inertialDriveThrust = getInertialDriveThrust(GAME, game.ship.inertialDrive);
+  const thrustAccel = computeDropshipAcceleration(game.ship, controls, thrustMax);
+  let ax = thrustAccel.ax;
+  let ay = thrustAccel.ay;
+  const inertialDriveAccel = computeDropshipInertialDriveAcceleration(
+    game.ship,
+    controls,
+    inertialDriveThrust,
+    GAME.INERTIAL_DRIVE_REVERSE_FRACTION,
+    GAME.INERTIAL_DRIVE_LATERAL_FRACTION,
+    dt
+  );
+  ax += inertialDriveAccel.ax;
+  ay += inertialDriveAccel.ay;
+  const { r, rx, ry } = thrustAccel;
+  const waterR = isWaterWorld ? Math.max(0, outerRingR) : 0;
+  const shipInWaterBefore = !!(isWaterWorld && collisionWorld.shipCountsAsSubmergedInWater(game, waterR, game.ship.x, game.ship.y));
+
+  if (isWaterWorld && shipInWaterBefore){
+    let buoyancy = Math.max(0, game.planetParams.SURFACE_G * 0.45);
+    buoyancy = Math.max(buoyancy, game.planetParams.SURFACE_G * 0.95);
+    ax += rx * buoyancy;
+    ay += ry * buoyancy;
+  }
+
+  const prevShipX = game.ship.x;
+  const prevShipY = game.ship.y;
+  const { x: gx, y: gy } = game.planet.gravityAt(game.ship.x, game.ship.y);
+  game.ship.x += (game.ship.vx + 0.5 * (ax + gx) * dt) * dt;
+  game.ship.y += (game.ship.vy + 0.5 * (ay + gy) * dt) * dt;
+
+  const { x: gx2, y: gy2 } = game.planet.gravityAt(game.ship.x, game.ship.y);
+  game.ship.vx += (ax + (gx + gx2) / 2) * dt;
+  game.ship.vy += (ay + (gy + gy2) / 2) * dt;
+  const shipWaterSpeed = Math.hypot(game.ship.vx, game.ship.vy);
+
+  let shipInWaterNow = false;
+  if (isWaterWorld){
+    const rNow = Math.hypot(game.ship.x, game.ship.y) || 1;
+    shipInWaterNow = collisionWorld.shipCountsAsSubmergedInWater(game, waterR, game.ship.x, game.ship.y);
+    if (shipInWaterNow && !game._shipWasInWater){
+      audioState.playSfx(game, "water_splash", {
+        volume: Math.max(0.35, Math.min(0.95, 0.42 + shipWaterSpeed * 0.12)),
+        rate: Math.max(0.86, Math.min(1.16, 0.9 + shipWaterSpeed * 0.04)),
+      });
+    } else if (!shipInWaterNow && game._shipWasInWater){
+      audioState.playSfx(game, "water_splash", {
+        volume: Math.max(0.3, Math.min(0.8, 0.36 + shipWaterSpeed * 0.1)),
+        rate: Math.max(0.9, Math.min(1.22, 1.02 + shipWaterSpeed * 0.03)),
+      });
+    }
+    if (shipInWaterNow){
+      const depth = Math.max(0, waterR - rNow);
+      const edgeBand = Math.max(0.35, waterR * 0.22);
+      const edgeMix = Math.max(0, Math.min(1, 1 - depth / edgeBand));
+      const dragK = game.planetParams.DRAG * (4.8 + edgeMix * 5.4);
+      const drag = Math.max(0, 1 - dragK * dt);
+      game.ship.vx *= drag;
+      game.ship.vy *= drag;
+      const maxWaterSpeed = Math.max(1.35, thrustMax * 0.55);
+      const speed = Math.hypot(game.ship.vx, game.ship.vy);
+      if (speed > maxWaterSpeed){
+        const scale = maxWaterSpeed / speed;
+        game.ship.vx *= scale;
+        game.ship.vy *= scale;
+      }
+      if (!game._shipWasInWater){
+        game.ship.vx *= 0.68;
+        game.ship.vy *= 0.68;
+      }
+    }
+    game._shipWasInWater = shipInWaterNow;
+  } else {
+    game._shipWasInWater = false;
+  }
+
+  if (!shipInWaterNow){
+    const atmosphereDensity = flightPhysics.sampleAtmosphereDensity(
+      game.planet,
+      game.planetParams,
+      outerRingR,
+      game.ship.x,
+      game.ship.y
+    );
+    if (atmosphereDensity > 0){
+      const dragOut = flightPhysics.applyQuadraticVelocityDrag(
+        game.ship.vx,
+        game.ship.vy,
+        game.planetParams.ATMOSPHERE_DRAG * atmosphereDensity,
+        dt
+      );
+      game.ship.vx = dragOut.vx;
+      game.ship.vy = dragOut.vy;
+    }
+  }
+
+  const eps = game.COLLISION_EPS;
+  const shipRadius = collisionDropship.shipRadius(game);
+  const attemptedShipX = game.ship.x;
+  const attemptedShipY = game.ship.y;
+  const travelDist = Math.hypot(attemptedShipX - prevShipX, attemptedShipY - prevShipY);
+  const sweepStep = Math.max(0.03, Math.min(0.05, shipRadius * 0.2));
+  const sweepMaxSteps = Math.max(18, Math.min(96, Math.ceil(travelDist / sweepStep) + 2));
+  game.ship._landingDebug = null;
+  let sweptHit = collisionDropship.firstShipCollisionOnSegmentExact(
+    game,
+    prevShipX,
+    prevShipY,
+    game.ship.x,
+    game.ship.y,
+    sweepStep,
+    sweepMaxSteps
+  );
+  if (!sweptHit && game.mothership && mothershipPrevPose){
+    const mothershipCurrPose = {
+      x: game.mothership.x,
+      y: game.mothership.y,
+      angle: game.mothership.angle,
+    };
+    sweptHit = collisionDropship.sweptShipVsMovingMothershipAt(
+      game,
+      prevShipX,
+      prevShipY,
+      game.ship.x,
+      game.ship.y,
+      shipRadius,
+      mothershipPrevPose,
+      mothershipCurrPose
+    );
+  }
+
+  let samples;
+  let hit;
+  let hitSource;
+  if (sweptHit){
+    game.ship.x = sweptHit.x;
+    game.ship.y = sweptHit.y;
+    samples = sampleBodyCollisionAt(
+      game.collision,
+      (px, py) => collisionDropship.shipCollisionPoints(game, px, py),
+      game.ship.x,
+      game.ship.y,
+      false
+    ).samples;
+    hit = sweptHit.hit;
+    hitSource = sweptHit.hitSource;
+  } else {
+    ({ samples, hit, hitSource } = sampleBodyCollisionAt(
+      game.collision,
+      (px, py) => collisionDropship.shipCollisionPoints(game, px, py),
+      game.ship.x,
+      game.ship.y,
+      false
+    ));
+  }
+  const collides = !!hit;
+  game.ship._samples = samples;
+  game.ship._shipRadius = shipRadius;
+  if (hit){
+    const hitTri = (hitSource === "planet")
+      ? (hit.tri || game.planet.radial.findTriAtWorld(hit.x, hit.y))
+      : null;
+    game.ship._collision = {
+      x: hit.x,
+      y: hit.y,
+      tri: hitTri,
+      node: (hitSource === "planet") ? game.planet.radial.nearestNodeOnRing(hit.x, hit.y) : null,
+      contacts: Array.isArray(hit.contacts) ? hit.contacts : null,
+      ...(hitSource ? { source: hitSource } : {}),
+    };
+  } else {
+    game.ship._collision = null;
+  }
+
+  if (!collides) return;
+  const prevCollider = collisionDropship.shipConvexHullSampleSet(game, prevShipX, prevShipY);
+  const currCollider = collisionDropship.shipConvexHullSampleSet(game, attemptedShipX, attemptedShipY);
+  resolveCollisionResponse({
+    ship: game.ship,
+    collision: game.collision,
+    planet: game.planet,
+    mothership: game.mothership,
+    planetParams: game.planetParams,
+    game: GAME,
+    dt,
+    eps,
+    debugEnabled: game.debugState.devHudVisible,
+    shipRadius,
+    shipCollidesAt: (x, y) => collisionDropship.shipCollidesAt(game, x, y),
+    shipCollidesMothershipAt: (x, y) => collisionDropship.shipCollidesWithMothershipAt(game, x, y),
+    shipLocalConvexHull: collisionDropship.shipCollisionLocalConvexHull(game),
+    shipCollisionPointsAt: (x, y) => collisionDropship.shipCollisionPoints(game, x, y),
+    shipStartX: prevShipX,
+    shipStartY: prevShipY,
+    shipEndX: attemptedShipX,
+    shipEndY: attemptedShipY,
+    mothershipAngularVel,
+    mothershipPrevPose,
+    prevPoints: prevCollider.points,
+    currPoints: currCollider.points,
+    onCrash: () => triggerCrash(game),
+    isDockedWithMothership: () => isDockedWithMothership(game),
+    onSuccessfullyDocked: () => onSuccessfullyDocked(game),
+  });
+}
+
+/**
+ * @param {Game} game
+ * @param {number} dt
+ * @returns {void}
+ */
+export function updateDamageState(game, dt){
+  if (game.ship.hitCooldown > 0){
+    game.ship.hitCooldown = Math.max(0, game.ship.hitCooldown - dt);
+  }
+}
+
+/**
+ * @param {Game} game
+ * @param {number} dt
+ * @returns {void}
+ */
+export function finalizePose(game, dt){
+  if (game.ship.state !== "crashed" && game.ship._collision && game.ship._collision.source === "planet"){
+    collisionDropship.stabilizeShipAgainstPlanetPenetration(game, 10);
+  }
+  if (game.ship.state !== "flying"){
+    audioState.setThrustLoopActive(game, false);
+  }
+  updateShipRenderAngle(game, dt);
+}
+
+/**
+ * @param {Game} game
+ * @param {number} dt
+ * @returns {void}
+ */
+export function updateFeatureContact(game, dt){
+  if (game.ship.state === "crashed") return;
+  const shipRadius = collisionDropship.shipRadius(game);
+  game.planet.handleFeatureContact(game.ship.x, game.ship.y, shipRadius, dt, game.featureCallbacks);
+}
+
+/**
+ * @param {Game} game
+ * @param {import("./types.d.js").FragmentDestroyedBy} destroyedBy
+ * @returns {void}
+ */
+export function spawnShipDestructionFragments(game, destroyedBy){
+  const start = game.fragments.length;
+  spawnFragmentBurst(game.fragments, game.ship, "dropship", destroyedBy, { pieces: 6 });
+  /** @type {[number, number, number]} */
+  const shipSilverTop = [0.85, 0.87, 0.9];
+  /** @type {[number, number, number]} */
+  const shipSilverBottom = [0.55, 0.58, 0.62];
+  /** @type {[number, number, number]} */
+  const shipWindow = [0.05, 0.05, 0.05];
+  const created = game.fragments.slice(start);
+  for (let i = 0; i < created.length; i++){
+    const frag = created[i];
+    if (!frag) continue;
+    if (i === 0){
+      frag.cr = shipWindow[0];
+      frag.cg = shipWindow[1];
+      frag.cb = shipWindow[2];
+      continue;
+    }
+    const t = Math.max(0, Math.min(1, (i - 1) / Math.max(1, created.length - 2)));
+    frag.cr = shipSilverBottom[0] + (shipSilverTop[0] - shipSilverBottom[0]) * t;
+    frag.cg = shipSilverBottom[1] + (shipSilverTop[1] - shipSilverBottom[1]) * t;
+    frag.cb = shipSilverBottom[2] + (shipSilverTop[2] - shipSilverBottom[2]) * t;
+  }
+  /** @type {import("./types.d.js").FragmentOwnerType[]} */
+  const cargo = [];
+  for (let i = 0; i < game.ship.dropshipMiners; i++) cargo.push("miner");
+  for (let i = 0; i < game.ship.dropshipPilots; i++) cargo.push("pilot");
+  for (let i = 0; i < game.ship.dropshipEngineers; i++) cargo.push("engineer");
+  const cargoCount = cargo.length;
+  for (let i = 0; i < cargoCount; i++){
+    const cargoType = cargo[i];
+    if (!cargoType) continue;
+    const ang = (i / Math.max(1, cargoCount)) * Math.PI * 2 + Math.random() * 0.35;
+    const radius = 0.18 + Math.random() * 0.12;
+    spawnFragmentBurst(game.fragments, {
+      x: game.ship.x + Math.cos(ang) * radius,
+      y: game.ship.y + Math.sin(ang) * radius,
+      vx: game.ship.vx + Math.cos(ang) * (0.45 + Math.random() * 0.5),
+      vy: game.ship.vy + Math.sin(ang) * (0.45 + Math.random() * 0.5),
+    }, cargoType, destroyedBy, { pieces: 1 });
+  }
+}
+
+/**
+ * @param {Game} game
+ * @returns {void}
+ */
+export function onSuccessfullyDocked(game){
+  let y = 0.5;
+  const r = Math.hypot(game.ship.x, game.ship.y);
+  const upx = game.ship.x / r;
+  const upy = game.ship.y / r;
+  const hullRestored = Math.max(0, game.ship.hpMax - game.ship.hpCur);
+  const bombsRestored = Math.max(0, game.ship.bombsMax - game.ship.bombsCur);
+  /** @param {string} msg */
+  const addPopup = (msg) => {
+    game.popups.push({
+      x: game.ship.x + upx * y,
+      y: game.ship.y + upy * y,
+      vx: game.mothership.vx + upx * GAME.MINER_POPUP_SPEED,
+      vy: game.mothership.vy + upy * GAME.MINER_POPUP_SPEED,
+      text: msg,
+      life: 2.0,
+    });
+    y += 0.25;
+  };
+  /**
+   * @param {string} name
+   * @param {number} count
+   * @returns {void}
+   */
+  const addGroupPopup = (name, count) => {
+    if (count <= 0) return;
+    addPopup(name + " +" + count);
+  };
+
+  addGroupPopup("pilot", game.ship.dropshipPilots);
+  addGroupPopup("engineer", game.ship.dropshipEngineers);
+  addGroupPopup("miner", game.ship.dropshipMiners);
+  addGroupPopup("hull", hullRestored);
+  addGroupPopup("bomb", bombsRestored);
+
+  const rescued = game.ship.dropshipMiners + game.ship.dropshipPilots + game.ship.dropshipEngineers;
+  stats.recordRescue(game, rescued);
+  if (game.hasLaunchedPlayerShip && (rescued > 0 || hullRestored > 0 || bombsRestored > 0)){
+    stats.recordDock(game, 1);
+  }
+  game.ship.mothershipMiners += game.ship.dropshipMiners;
+  game.ship.mothershipPilots += game.ship.dropshipPilots;
+  game.ship.mothershipEngineers += game.ship.dropshipEngineers;
+  game.ship.dropshipMiners = 0;
+  game.ship.dropshipPilots = 0;
+  game.ship.dropshipEngineers = 0;
+  game.ship.hpCur = game.ship.hpMax;
+  game.ship.bombsCur = game.ship.bombsMax;
+  stats.markDashboardDirty(game);
+}
+
+/**
+ * @param {Game} game
+ * @returns {boolean}
+ */
+export function isDockedWithMothership(game){
+  return game.ship.state === "landed" && game.ship._dock !== null && game.ship._dock.ly > 0.5;
+}
+
+

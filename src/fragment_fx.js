@@ -1,4 +1,13 @@
 // @ts-check
+/** @typedef {import("./game.js").Game} Game */
+
+import * as factories from "./factories.js";
+import * as feedback from "./feedback.js";
+import * as levels from "./levels.js";
+import * as mechanized from "./mechanized.js";
+import * as miners from "./miners.js";
+import * as planetVisuals from "./planet_visuals.js";
+import { GAME } from "./config.js";
 
 /** @typedef {import("./types.d.js").FragmentOwnerType} FragmentOwnerType */
 /** @typedef {import("./types.d.js").FragmentDestroyedBy} FragmentDestroyedBy */
@@ -258,6 +267,32 @@ export function spawnFragmentBurst(out, source, ownerType, destroyedBy, override
 }
 
 /**
+ * @param {Game} game
+ * @param {{newAir:Float32Array|undefined,destroyedNodes:DestroyedTerrainNode[]}} result
+ * @param {number} x
+ * @param {number} y
+ * @returns {void}
+ */
+export function emitTerrainDestructionFragments(game, result, x, y){
+  if (result.newAir) game.renderer.updateAir(result.newAir);
+  if (!result.destroyedNodes || !result.destroyedNodes.length) return;
+  feedback.addTerrainDestructionShake(game, x, y, result.destroyedNodes.length);
+  game.planet.handleFeatureTerrainDestroyed(result.destroyedNodes, game.featureCallbacks);
+  if (levels.isMechanizedLevel(game)){
+    factories.destroyFactoriesAttachedToTerrainNodes(game, result.destroyedNodes);
+    mechanized.spawnMechanizedTerrainLarvae(game, result.destroyedNodes);
+  }
+  const palette = planetVisuals.planetPalette(game);
+  spawnTerrainHexFragments(game.fragments, result.destroyedNodes, { x, y }, palette);
+  const destroyedProps = game.planet.destroyTerrainPropsAttachedToNodes(result.destroyedNodes);
+  miners.killMinersAttachedToTerrainNodes(game, result.destroyedNodes, { x, y });
+  if (destroyedProps.length){
+    game.planet.emitDetachedTerrainPropBursts(destroyedProps, game.featureCallbacks);
+    spawnTerrainPropFragments(game.fragments, destroyedProps, { x, y }, palette);
+  }
+}
+
+/**
  * @param {number} a
  * @param {number} b
  * @param {number} t
@@ -507,3 +542,40 @@ export function updateFragmentDebris(debris, opts){
     if (d.life <= 0) debris.splice(i, 1);
   }
 }
+
+/**
+ * @param {Game} game
+ * @param {number} dt
+ * @returns {void}
+ */
+export function updateFragmentsAndDebris(game, dt){
+  updateFragmentDebris(game.fragments, {
+    gravityAt: (x, y) => game.planet.gravityAt(x, y),
+    dragCoeff: game.planetParams.DRAG,
+    dt,
+    terrainCrossing: GAME.FRAGMENT_PLANET_COLLISION
+      ? (p1, p2) => game.planet.terrainCrossing(p1, p2)
+      : null,
+    terrainCollisionEnabled: GAME.FRAGMENT_PLANET_COLLISION,
+    restitution: Number.isFinite(game.planetParams.BOUNCE_RESTITUTION)
+      ? Number(game.planetParams.BOUNCE_RESTITUTION)
+      : GAME.BOUNCE_RESTITUTION,
+  });
+  if (!game.debris.length) return;
+  for (let i = game.debris.length - 1; i >= 0; i--){
+    const debris = game.debris[i];
+    if (!debris) continue;
+    const gravity = game.planet.gravityAt(debris.x, debris.y);
+    debris.vx += gravity.x * dt;
+    debris.vy += gravity.y * dt;
+    debris.vx *= Math.max(0, 1 - game.planetParams.DRAG * dt);
+    debris.vy *= Math.max(0, 1 - game.planetParams.DRAG * dt);
+    debris.x += debris.vx * dt;
+    debris.y += debris.vy * dt;
+    debris.a += debris.w * dt;
+    debris.life -= dt;
+    if (debris.life <= 0) game.debris.splice(i, 1);
+  }
+}
+
+

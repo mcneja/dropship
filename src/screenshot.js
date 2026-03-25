@@ -193,3 +193,4 @@ function fitCanvasFontPx(ctx, text, weight, maxPx, minPx, maxWidth, family){
   }
   return Math.max(minPx, px);
 }
+

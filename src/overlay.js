@@ -1,58 +1,61 @@
 // @ts-check
+/** @typedef {import("./game.js").Game} Game */
 
+import * as camera from "./camera.js";
 import { GAME } from "./config.js";
 import { PERF_FLAGS, getEffectiveDevicePixelRatio } from "./perf.js";
 import { drawStartTitle } from "./screenshot.js";
 
 /**
- * @param {any} loop
+ * @param {Game} game
  * @returns {void}
  */
-export function drawGameOverlay(loop){
-  if (PERF_FLAGS.disableOverlayCanvas || !loop.overlay || !loop.overlayCtx){
+export function drawGameOverlay(game){
+  if (PERF_FLAGS.disableOverlayCanvas || !game.overlay || !game.overlayCtx){
     return;
   }
 
-  const ctx = loop.overlayCtx;
+  const titleState = game.titleState;
+  const ctx = game.overlayCtx;
   const dpr = getEffectiveDevicePixelRatio();
-  const w = Math.floor(loop.overlay.clientWidth * dpr);
-  const h = Math.floor(loop.overlay.clientHeight * dpr);
-  if (loop.overlay.width !== w || loop.overlay.height !== h){
-    loop.overlay.width = w;
-    loop.overlay.height = h;
+  const w = Math.floor(game.overlay.clientWidth * dpr);
+  const h = Math.floor(game.overlay.clientHeight * dpr);
+  if (game.overlay.width !== w || game.overlay.height !== h){
+    game.overlay.width = w;
+    game.overlay.height = h;
   }
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, w, h);
-  if (loop.jumpdriveTransition.isActive()){
-    loop.jumpdriveTransition.drawOverlay(ctx, w, h, dpr, loop._lastRenderState);
+  if (game.jumpdriveTransition.isActive()){
+    game.jumpdriveTransition.drawOverlay(ctx, w, h, dpr, game._lastRenderState);
     ctx.globalAlpha = 1;
     return;
   }
-  const showStartTitle = !loop.startTitleSeen && loop.startTitleAlpha > 0;
-  if (!showStartTitle && !loop.popups.length && !loop.shipHitPopups.length && !loop.lastAimScreen && !loop.pendingPerkChoice){
+  const showStartTitle = !titleState.seen && titleState.alpha > 0;
+  if (!showStartTitle && !game.popups.length && !game.shipHitPopups.length && !game.lastAimScreen && !game.pendingPerkChoice){
     return;
   }
 
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.font = `700 ${Math.max(12, Math.round(16 * dpr))}px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace`;
-  const screenT = loop._screenTransform(w / h);
+  const screenT = camera.screenTransform(game, w / h);
 
-  for (const p of loop.popups){
+  for (const p of game.popups){
     const t = Math.max(0, Math.min(1, p.life / GAME.MINER_POPUP_LIFE));
     const alpha = 0.9 * t;
-    const screen = loop._worldToScreenNorm(p.x, p.y, screenT);
+    const screen = camera.worldToScreenNorm(game, p.x, p.y, screenT);
     const px = screen.x * w;
     const py = screen.y * h;
     ctx.globalAlpha = alpha;
     ctx.fillStyle = "rgba(255, 236, 170, 1)";
     ctx.fillText(p.text, px, py);
   }
-  for (const p of loop.shipHitPopups){
+  for (const p of game.shipHitPopups){
     const t = Math.max(0, Math.min(1, p.life / GAME.SHIP_HIT_POPUP_LIFE));
     const alpha = 0.9 * t;
-    const screen = loop._worldToScreenNorm(p.x, p.y, screenT);
+    const screen = camera.worldToScreenNorm(game, p.x, p.y, screenT);
     const px = screen.x * w;
     const py = screen.y * h;
     ctx.globalAlpha = alpha;
@@ -60,9 +63,9 @@ export function drawGameOverlay(loop){
     ctx.fillText("-1", px, py);
   }
 
-  if (loop.lastAimScreen && loop.ship.state !== "crashed"){
-    const px = loop.lastAimScreen.x * w;
-    const py = loop.lastAimScreen.y * h;
+  if (game.lastAimScreen && game.ship.state !== "crashed"){
+    const px = game.lastAimScreen.x * w;
+    const py = game.lastAimScreen.y * h;
     const r = Math.max(6, Math.round(10 * dpr));
     const cross = Math.max(4, Math.round(r * 0.6));
     ctx.globalAlpha = 0.95;
@@ -77,7 +80,7 @@ export function drawGameOverlay(loop){
     ctx.stroke();
   }
 
-  if (loop.pendingPerkChoice){
+  if (game.pendingPerkChoice){
     const panelW = Math.min(w * 0.94, 940 * dpr);
     const x = (w - panelW) * 0.5;
     const titleY = h * 0.30;
@@ -93,8 +96,8 @@ export function drawGameOverlay(loop){
     ctx.font = `700 ${titlePx}px ${fontFamily}`;
     ctx.fillText("Choose an Upgrade", x + panelW * 0.5, titleY);
 
-    const left = loop.pendingPerkChoice[0];
-    const right = loop.pendingPerkChoice[1];
+    const left = game.pendingPerkChoice[0];
+    const right = game.pendingPerkChoice[1];
     const bodyPx = Math.max(Math.round(12 * dpr), Math.round(cardW * 0.06));
     const lineHeight = Math.max(Math.round(15 * dpr), Math.round(bodyPx * 1.26));
     const cardTitlePx = Math.max(Math.round(11 * dpr), Math.round(bodyPx * 0.92));
@@ -128,7 +131,7 @@ export function drawGameOverlay(loop){
   }
 
   if (showStartTitle){
-    drawStartTitle(ctx, w, h, dpr, /** @type {string} */ (loop.startTitleText), /** @type {number} */ (loop.startTitleAlpha));
+    drawStartTitle(ctx, w, h, dpr, /** @type {string} */ (titleState.text), /** @type {number} */ (titleState.alpha));
   }
   ctx.globalAlpha = 1;
 }
@@ -221,3 +224,5 @@ function drawCenteredWrappedText(ctx, text, cx, topY, maxWidth, lineHeight, maxL
     ctx.fillText(/** @type {string} */ (lines[i]), cx, topY + i * lineHeight);
   }
 }
+
+

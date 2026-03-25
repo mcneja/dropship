@@ -1,12 +1,7 @@
-﻿// @ts-check
+// @ts-check
 
 import { CFG, GAME } from "./config.js";
-import {
-  buildSurfaceGuidePath,
-  closestPathIndex as closestSurfacePathIndex,
-  ensureSurfaceGuideContour,
-  invalidateSurfaceGuidePathCache,
-} from "./surface_guide_path.js";
+import * as miners from "./miners.js";
 
 /** @typedef {{x:number,y:number,air:number}} MeshVertex */
 /** @typedef {[MeshVertex, MeshVertex, MeshVertex]} MeshTri */
@@ -432,7 +427,7 @@ export class RingMesh {
    * }}
    */
   _ensureGuideContour(threshold = 0.5){
-    return ensureSurfaceGuideContour(this, threshold);
+    return miners.ensureSurfaceGuideContour(this, threshold);
   }
 
   /**
@@ -443,7 +438,7 @@ export class RingMesh {
    * @returns {number|null}
    */
   _closestPathIndex(path, qx, qy){
-    return closestSurfacePathIndex(path, qx, qy);
+    return miners.closestPathIndex(path, qx, qy);
   }
 
   /**
@@ -454,7 +449,7 @@ export class RingMesh {
    * @returns {{path:Array<{x:number,y:number}>, indexClosest:number}|null}
    */
   surfaceGuidePathTo(x, y, maxDistance){
-    return buildSurfaceGuidePath(this, x, y, maxDistance);
+    return miners.buildSurfaceGuidePath(this, x, y, maxDistance);
   }
 
   /**
@@ -475,7 +470,7 @@ export class RingMesh {
     for (let i = 0; i < this.vertCount; i++){
       this.airFlag[i] = /** @type {MeshVertex} */ (this._vertRefs[i]).air;
     }
-    invalidateSurfaceGuidePathCache(this);
+    miners.invalidateSurfaceGuidePathCache(this);
     return new Float32Array(this.airFlag);
   }
 
@@ -903,3 +898,4 @@ export class RingMesh {
     return true;
   }
 }
+

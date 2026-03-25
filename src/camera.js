@@ -1,8 +1,10 @@
 // @ts-check
+/** @typedef {import("./game.js").Game} Game */
 
-import { GAME } from "./config.js";
+import { GAME, CFG } from "./config.js";
 import { getDropshipWorldRotation } from "./dropship.js";
 import { lerpAngleShortest } from "./collision_mothership.js";
+import * as feedback from "./feedback.js";
 
 /** @typedef {import("./types.d.js").Ship} Ship */
 /** @typedef {import("./types.d.js").ViewState} ViewState */
@@ -462,3 +464,121 @@ export class Camera {
     return shaken;
   }
 }
+
+/**
+ * @param {Game} game
+ * @returns {CameraScene}
+ */
+export function cameraScene(game){
+  return {
+    ship: game.ship,
+    mothership: game.mothership,
+    planetView: game.planetView,
+    planetRadius: game.planet ? (game.planet.planetRadius + CFG.PAD) : ((game.planetParams ? game.planetParams.RMAX : GAME.PLANETSIDE_ZOOM) + CFG.PAD),
+    framedPlanetRadius: game.planetParams ? (game.planetParams.RMAX + game.planetParams.PAD) : ((game.planet ? game.planet.planetRadius : GAME.PLANETSIDE_ZOOM) + CFG.PAD),
+    coreMeltdownActive: game.coreMeltdownActive,
+    coreMeltdownT: game.coreMeltdownT,
+    coreMeltdownDuration: game.coreMeltdownDuration,
+    dockedWithMothership: game.ship.state === "landed" && game.ship._dock !== null && game.ship._dock.ly > 0.5,
+    nowMs: game.lastTime || performance.now(),
+  };
+}
+
+/**
+ * @param {Game} game
+ * @param {number} dt
+ * @returns {ViewState}
+ */
+export function updateLoopCamera(game, dt){
+  return game.camera.update(dt, cameraScene(game));
+}
+
+/**
+ * @param {Game} game
+ * @param {{x:number,y:number}|null|undefined} aim
+ * @returns {{x:number,y:number}|null}
+ */
+export function toWorldFromAim(game, aim){
+  if (!aim) return null;
+  const rect = game.canvas.getBoundingClientRect();
+  return game.camera.toWorldFromAim(aim, rect.width, rect.height);
+}
+
+/**
+ * @param {Game} game
+ * @param {number} aspect
+ * @returns {ScreenTransform}
+ */
+export function screenTransform(game, aspect){
+  return game.camera.screenTransform(aspect);
+}
+
+/**
+ * @param {Game} game
+ * @param {number} x
+ * @param {number} y
+ * @param {ScreenTransform} t
+ * @returns {{x:number,y:number}}
+ */
+export function worldToScreenNorm(game, x, y, t){
+  return game.camera.worldToScreenNorm(x, y, t);
+}
+
+/**
+ * @param {Game} game
+ * @param {{x:number,y:number}|null|undefined} aim
+ * @returns {{x:number,y:number}|null}
+ */
+export function aimScreenAroundShip(game, aim){
+  if (!aim) return null;
+  const rect = game.canvas.getBoundingClientRect();
+  const aspect = Math.max(1, rect.width) / Math.max(1, rect.height);
+  const t = screenTransform(game, aspect);
+  const ship = worldToScreenNorm(game, game.ship.x, game.ship.y, t);
+  const ox = aim.x - 0.5;
+  const oy = aim.y - 0.5;
+  return {
+    x: ship.x + ox,
+    y: ship.y + oy,
+  };
+}
+
+/**
+ * @param {Game} game
+ * @param {number} screenFrac
+ * @returns {number}
+ */
+export function aimWorldDistance(game, screenFrac){
+  return game.camera.aimWorldDistance(screenFrac);
+}
+
+/**
+ * @param {Game} game
+ * @param {()=>{x:number,y:number}} getGunPivotWorld
+ * @returns {{x:number,y:number}|null}
+ */
+export function defaultAimScreenFromShip(game, getGunPivotWorld){
+  const rect = game.canvas.getBoundingClientRect();
+  return game.camera.defaultAimScreenFromShip(game.ship, getGunPivotWorld(), rect.width, rect.height);
+}
+
+/**
+ * @param {Game} game
+ * @param {import("./types.d.js").InputState} inputState
+ * @param {boolean} transitionActive
+ * @returns {void}
+ */
+export function handleZoomInput(game, inputState, transitionActive){
+  if (transitionActive) return;
+  if (inputState.zoomReset){
+    game.camera.resetManualZoom();
+    feedback.showZoomCue(game);
+  }
+  if (typeof inputState.zoomDelta === "number" && Math.abs(inputState.zoomDelta) > 1e-4){
+    if (game.camera.applyManualZoomDelta(inputState.zoomDelta, !game.planetView)){
+      feedback.showZoomCue(game);
+    }
+  }
+}
+
+

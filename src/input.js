@@ -1,4 +1,4 @@
-﻿// @ts-check
+// @ts-check
 
 /** @typedef {import("./types.d.js").Point} Point */
 /** @typedef {import("./types.d.js").InputState} InputState */
@@ -376,7 +376,7 @@ export class Input {
     button.id = "touch-restart-toggle";
     button.type = "button";
     button.setAttribute("aria-label", "Hold 1 second to abandon run");
-    button.textContent = "↻";
+    button.textContent = "?";
     button.style.setProperty("--restart-hold-progress", "0%");
     button.addEventListener("pointerdown", (e) => {
       if (this.modalOpen) return;
@@ -462,7 +462,7 @@ export class Input {
     button.id = "touch-launch-toggle";
     button.type = "button";
     button.setAttribute("aria-label", "Launch from mothership");
-    button.textContent = "▲";
+    button.textContent = "?";
     button.addEventListener("pointerdown", (e) => {
       if (this.modalOpen) return;
       if (e.pointerType !== "touch") return;
@@ -1408,3 +1408,4 @@ export class Input {
     this.bombReleaseTo = null;
   }
 }
+

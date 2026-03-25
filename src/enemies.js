@@ -1013,3 +1013,4 @@ function dTImpact(x, y, vx, vy, s) {
   const t = Math.max(0, (b + Math.sqrt(d)) / a);
   return t;
 }
+

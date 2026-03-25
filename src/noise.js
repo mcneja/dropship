@@ -1,4 +1,4 @@
-﻿// @ts-check
+// @ts-check
 
 import { mulberry32 } from "./rng.js";
 
@@ -143,3 +143,4 @@ export class Noise {
     return norm ? total/norm : 0; // [0,1]
   }
 }
+

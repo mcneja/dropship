@@ -155,14 +155,14 @@ export class Planet {
    * @returns {{
    *  iceShard:Array<{x:number,y:number,vx:number,vy:number,life:number,maxLife:number,size:number}>,
    *  lava:Array<{x:number,y:number,vx:number,vy:number,life:number}>,
-   *  tremorLava:Array<{x:number,y:number,vx:number,vy:number,life:number,maxLife:number,size:number}>,
-   *  mushroom:Array<{x:number,y:number,vx:number,vy:number,life:number}>,
+   *  ventPlume:Array<{x:number,y:number,vx:number,vy:number,life:number,maxLife:number,size:number}>,
+   *  spores:Array<{x:number,y:number,vx:number,vy:number,life:number}>,
    *  bubbles:Array<{x:number,y:number,vx:number,vy:number,life:number,maxLife:number,size:number,rot:number,spin:number}>,
    *  splashes:Array<{x:number,y:number,vx:number,vy:number,life:number,maxLife:number,size:number,rot:number,cr:number,cg:number,cb:number}>
    * }}
    */
   getFeatureParticles(){
-    return this.features ? this.features.getParticles() : { iceShard: [], lava: [], tremorLava: [], mushroom: [], bubbles: [], splashes: [] };
+    return this.features ? this.features.getParticles() : { iceShard: [], lava: [], ventPlume: [], spores: [], bubbles: [], splashes: [] };
   }
 
   /**
@@ -212,7 +212,7 @@ export class Planet {
    *  onShipHeat?: (amount:number)=>void,
    *  onShipConfuse?: (duration:number)=>void,
    *  onEnemyHit?: (enemy:{x:number,y:number,hp:number,hitT?:number,stunT?:number}, x:number, y:number)=>void,
-   *  onEnemyStun?: (enemy:{x:number,y:number,hp:number,hitT?:number,stunT?:number}, duration:number, source?:"mushroom"|"lava")=>void,
+   *  onEnemyStun?: (enemy:{x:number,y:number,hp:number,hitT?:number,stunT?:number}, duration:number, source?:"spores"|"lava")=>void,
    *  onMinerKilled?: (miner:import("./types.d.js").Miner)=>void,
    *  onScreenShake?: (amount:number)=>void,
    *  onRumble?: (weak:number, strong:number, durationMs?:number)=>void,
@@ -2866,3 +2866,4 @@ function clonePlainData(value){
   }
   return out;
 }
+

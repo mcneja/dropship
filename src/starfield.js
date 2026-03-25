@@ -90,3 +90,4 @@ export function buildStarfieldMesh(seed, opts = {}){
 
   return { positions, phase, rate, depth, color, vertCount: triVerts };
 }
+

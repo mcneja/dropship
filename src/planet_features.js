@@ -1,8 +1,10 @@
 // @ts-check
+/** @typedef {import("./game.js").Game} Game */
 
-import { mulberry32 } from "./rng.js";
 import { GAME } from "./config.js";
+import * as dropship from "./dropship.js";
 import { lineOfSightAir } from "./navigation.js";
+import { mulberry32 } from "./rng.js";
 
 /** @typedef {{x:number,y:number,r:number,i:number,navPadded?:boolean}} RadialNode */
 /** @typedef {{to:number}} NavEdgeRef */
@@ -610,7 +612,7 @@ function collectWaterBubbleSources(planet, target){
  * @property {()=>void} [onShipCrash]
  * @property {(duration:number)=>void} [onShipConfuse]
  * @property {(enemy:{x:number,y:number,hp:number,hitT?:number,stunT?:number}, x:number, y:number)=>void} [onEnemyHit]
- * @property {(enemy:{x:number,y:number,hp:number,hitT?:number,stunT?:number}, duration:number, source?:"mushroom"|"lava")=>void} [onEnemyStun]
+ * @property {(enemy:{x:number,y:number,hp:number,hitT?:number,stunT?:number}, duration:number, source?:"spores"|"lava")=>void} [onEnemyStun]
  * @property {(miner:import("./types.d.js").Miner)=>void} [onMinerKilled]
  * @property {(amount:number)=>void} [onScreenShake]
  * @property {(weak:number, strong:number, durationMs?:number)=>void} [onRumble]
@@ -625,7 +627,7 @@ function collectWaterBubbleSources(planet, target){
  * @property {(amount:number)=>void} [onShipHeat]
  * @property {(duration:number)=>void} [onShipConfuse]
  * @property {(enemy:{x:number,y:number,hp:number,hitT?:number,stunT?:number}, x:number, y:number)=>void} [onEnemyHit]
- * @property {(enemy:{x:number,y:number,hp:number,hitT?:number,stunT?:number}, duration:number, source?:"mushroom"|"lava")=>void} [onEnemyStun]
+ * @property {(enemy:{x:number,y:number,hp:number,hitT?:number,stunT?:number}, duration:number, source?:"spores"|"lava")=>void} [onEnemyStun]
  * @property {(miner:import("./types.d.js").Miner)=>void} [onMinerKilled]
  * @property {(amount:number)=>void} [onScreenShake]
  * @property {(weak:number, strong:number, durationMs?:number)=>void} [onRumble]
@@ -760,9 +762,9 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
     /** @type {Array<{x:number,y:number,vx:number,vy:number,life:number}>} */
     lava: [],
     /** @type {Array<{x:number,y:number,vx:number,vy:number,life:number,maxLife:number,size:number}>} */
-    tremorLava: [],
+    ventPlume: [],
     /** @type {Array<{x:number,y:number,vx:number,vy:number,life:number}>} */
-    mushroom: [],
+    spores: [],
     /** @type {Array<{x:number,y:number,vx:number,vy:number,life:number,maxLife:number,size:number,rot:number,spin:number}>} */
     bubbles: [],
     /** @type {Array<{x:number,y:number,vx:number,vy:number,life:number,maxLife:number,size:number,rot:number,cr:number,cg:number,cb:number}>} */
@@ -824,7 +826,7 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
   let enemyVentMaskActive = false;
 
   /**
-   * @param {PlanetProp} p
+   * @param {{x:number,y:number,nx?:number,ny?:number}} p
    * @returns {{nx:number,ny:number,tx:number,ty:number}}
    */
   const ventAxes = (p) => {
@@ -989,7 +991,7 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
   };
 
   /**
-   * @param {PlanetProp} p
+   * @param {{x:number,y:number,nx?:number,ny?:number}} p
    * @param {number} dt
    * @param {number} [rateMul]
    * @param {number} [speedMul]
@@ -1200,7 +1202,7 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
    * @param {{x:number,y:number,nx:number,ny:number,rateMul?:number}} source
    * @returns {void}
    */
-  const emitTremorLava = (source) => {
+  const emitVentPlume = (source) => {
     const dirLen = Math.hypot(source.nx, source.ny) || 1;
     const nx = source.nx / dirLen;
     const ny = source.ny / dirLen;
@@ -1213,7 +1215,7 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
     const vx = (nx * lift + tx * spread) * speed;
     const vy = (ny * lift + ty * spread) * speed;
     const life = tuning.tremor.lifeMin + Math.random() * (tuning.tremor.lifeMax - tuning.tremor.lifeMin);
-    particles.tremorLava.push({
+    particles.ventPlume.push({
       x: source.x + nx * 0.08,
       y: source.y + ny * 0.08,
       vx,
@@ -1270,13 +1272,14 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
       });
       const kickoff = kind === "bomb" ? 3 : 2;
       for (let i = 0; i < kickoff; i++){
-        emitTremorLava({
+        emitVentPlume({
           x: candidate.x,
           y: candidate.y,
           nx: candidate.nx,
           ny: candidate.ny,
           rateMul: kind === "bomb" ? 1.12 : 0.92,
         });
+        emitVentLava(candidate, kind === "bomb" ? 0.1 : 0.06, kind === "bomb" ? 1.45 : 1.1, kind === "bomb" ? 1.2 : 1.0);
       }
     }
     if (callbacks.onExplosion){
@@ -1472,7 +1475,7 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
     for (let i = 0; i < pieces; i++){
       const ang = (i / pieces) * Math.PI * 2 + Math.random() * 0.4;
       const sp = tuning.mushroom.speed * (0.8 + Math.random() * 0.4);
-      particles.mushroom.push({
+      particles.spores.push({
         x,
         y,
         vx: Math.cos(ang) * sp,
@@ -1874,7 +1877,7 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
       const emitWhole = Math.floor(rate);
       const emitCount = emitWhole + (Math.random() < (rate - emitWhole) ? 1 : 0);
       for (let j = 0; j < emitCount; j++){
-        emitTremorLava(eruption);
+        emitVentPlume(eruption);
       }
     }
   };
@@ -1884,12 +1887,12 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
    * @param {FeatureUpdateState} state
    * @returns {void}
    */
-  const updateTremorLavaParticles = (dt, state) => {
-    const tremorLava = particles.tremorLava;
-    if (!tremorLava.length) return;
+  const updateVentPlumeParticles = (dt, state) => {
+    const ventPlume = particles.ventPlume;
+    if (!ventPlume.length) return;
     const hitR2 = tuning.tremor.radius * tuning.tremor.radius;
-    for (let i = tremorLava.length - 1; i >= 0; i--){
-      const p = /** @type {{x:number,y:number,vx:number,vy:number,life:number,maxLife:number,size:number}} */ (tremorLava[i]);
+    for (let i = ventPlume.length - 1; i >= 0; i--){
+      const p = /** @type {{x:number,y:number,vx:number,vy:number,life:number,maxLife:number,size:number}} */ (ventPlume[i]);
       const xPrev = p.x;
       const yPrev = p.y;
       const { x: gx, y: gy } = planet.gravityAt(p.x, p.y);
@@ -1905,7 +1908,7 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
         ? planet.terrainCrossing({ x: xPrev, y: yPrev }, { x: p.x, y: p.y })
         : null;
       if (p.life <= 0 || crossing || planet.airValueAtWorld(p.x, p.y) <= 0.5){
-        tremorLava.splice(i, 1);
+        ventPlume.splice(i, 1);
         continue;
       }
       if (state.ship && state.ship.state !== "crashed"){
@@ -1914,7 +1917,7 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
         if (dxs * dxs + dys * dys <= hitR2){
           if (state.onShipDamage) state.onShipDamage(p.x, p.y);
           if (state.onShipHeat) state.onShipHeat(tuning.tremor.contactHeat);
-          tremorLava.splice(i, 1);
+          ventPlume.splice(i, 1);
           continue;
         }
       }
@@ -1926,7 +1929,7 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
           const dy = e.y - p.y;
           if (dx * dx + dy * dy <= hitR2){
             if (state.onEnemyHit) state.onEnemyHit(e, p.x, p.y);
-            tremorLava.splice(i, 1);
+            ventPlume.splice(i, 1);
             hit = true;
             break;
           }
@@ -1941,7 +1944,7 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
           if (dx * dx + dy * dy <= hitR2){
             state.miners.splice(j, 1);
             if (state.onMinerKilled) state.onMinerKilled(m);
-            tremorLava.splice(i, 1);
+            ventPlume.splice(i, 1);
             break;
           }
         }
@@ -1953,8 +1956,8 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
    * @param {number} dt
    * @param {FeatureUpdateState} state
    */
-  const updateMushroomParticles = (dt, state) => {
-    const mush = particles.mushroom;
+  const updateSporeParticles = (dt, state) => {
+    const mush = particles.spores;
     if (!mush.length) return;
     const hitR2 = tuning.mushroom.radius * tuning.mushroom.radius;
     for (let i = mush.length - 1; i >= 0; i--){
@@ -2017,7 +2020,7 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
         const dx = e.x - p.x;
         const dy = e.y - p.y;
         if (dx * dx + dy * dy <= hitR2){
-          if (state.onEnemyStun) state.onEnemyStun(e, tuning.mushroom.stunTime, "mushroom");
+          if (state.onEnemyStun) state.onEnemyStun(e, tuning.mushroom.stunTime, "spores");
           mush.splice(i, 1);
           break;
         }
@@ -2338,8 +2341,8 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
     clearParticles: () => {
       particles.iceShard.length = 0;
       particles.lava.length = 0;
-      particles.tremorLava.length = 0;
-      particles.mushroom.length = 0;
+      particles.ventPlume.length = 0;
+      particles.spores.length = 0;
       particles.bubbles.length = 0;
       particles.splashes.length = 0;
       tremorEruptions.length = 0;
@@ -2378,8 +2381,8 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
       updateTremorEruptions(dt);
       updateIceShardParticles(dt, state);
       updateLavaParticles(dt, state);
-      updateTremorLavaParticles(dt, state);
-      updateMushroomParticles(dt, state);
+      updateVentPlumeParticles(dt, state);
+      updateSporeParticles(dt, state);
       updateWaterBubbles(dt, state);
     },
     /**
@@ -2417,6 +2420,28 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
     handleBomb,
     handleImpact,
   };
+}
+
+/**
+ * @param {Game} game
+ * @param {number} dt
+ * @returns {void}
+ */
+export function updateFeatureEffects(game, dt){
+  dropship.updateFeatureContact(game, dt);
+  game.planet.updateFeatureEffects(dt, {
+    ship: game.ship,
+    enemies: game.enemies.enemies,
+    miners: game.miners,
+    onShipDamage: game.featureCallbacks.onShipDamage,
+    onShipHeat: game.featureCallbacks.onShipHeat,
+    onShipConfuse: game.featureCallbacks.onShipConfuse,
+    onEnemyHit: game.featureCallbacks.onEnemyHit,
+    onEnemyStun: game.featureCallbacks.onEnemyStun,
+    onMinerKilled: game.featureCallbacks.onMinerKilled,
+    onScreenShake: game.featureCallbacks.onScreenShake,
+    onRumble: game.featureCallbacks.onRumble,
+  });
 }
 
 /** @typedef {import("./types.d.js").Vec2} Vec2 */
@@ -3005,3 +3030,6 @@ function sampleCaveBoundaryPoints(mapgen, params, limit){
   }
   return pts;
 }
+
+
+

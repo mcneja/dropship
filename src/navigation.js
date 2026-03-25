@@ -525,3 +525,4 @@ export function lineOfSightAir(mesh, ax, ay, bx, by, step = 0.25){
 export function lineOfSightShipTo(mesh, ship, target, step){
   return lineOfSightAir(mesh, ship.x, ship.y, target.x, target.y, step);
 }
+

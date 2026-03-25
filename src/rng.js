@@ -1,4 +1,4 @@
-﻿// @ts-check
+// @ts-check
 
 /**
  * Deterministic RNG (Mulberry32).
@@ -14,3 +14,4 @@ export function mulberry32(seed){
     return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
   };
 }
+

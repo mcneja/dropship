@@ -1,4 +1,4 @@
-﻿// @ts-check
+// @ts-check
 
 import { mulberry32 } from "./rng.js";
 import { Noise } from "./noise.js";
@@ -568,3 +568,4 @@ function normalizeMapWorld(world, gridSize, fallbackSeed){
     finalAir: (world && Number.isFinite(world.finalAir)) ? +world.finalAir : 0,
   };
 }
+

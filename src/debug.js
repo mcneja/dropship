@@ -1,128 +1,200 @@
 // @ts-check
+/** @typedef {import("./game.js").Game} Game */
 
+import * as collisionDropship from "./collision_dropship.js";
+import * as dropship from "./dropship.js";
+import * as factories from "./factories.js";
+import * as feedback from "./feedback.js";
+import * as levels from "./levels.js";
 import { BENCH_CONFIG, reportBenchmarkResult } from "./perf.js";
+import * as tether from "./tether.js";
+import * as audioState from "./audio.js";
+
+export class DebugState {
+  constructor(){
+    this.collisions = false;
+    this.planetTriangles = false;
+    this.collisionContours = false;
+    this.frameStepMode = false;
+    this.minerGuidePath = false;
+    this.ringVertices = false;
+    /** @type {Array<{x:number,y:number}>|null} */
+    this.minerPathToMiner = null;
+    this.devHudVisible = false;
+    this.lastLandingDebugConsoleLine = "";
+    this.landingDebugSessionIdNext = 1;
+    this.landingDebugSessionId = 0;
+    this.landingDebugSessionFrame = 0;
+    this.landingDebugSessionActive = false;
+    this.landingDebugSessionSource = "";
+    this.minerPathDebugCooldown = 0;
+  }
+}
 
 /**
- * @param {any} loop
+ * @param {Game} game
  * @param {boolean} visible
  * @returns {void}
  */
-export function setDevHudVisible(loop, visible){
-  loop.devHudVisible = !!visible;
-  if (loop.hud && loop.hud.style){
-    loop.hud.style.display = loop.devHudVisible ? "block" : "none";
+export function setDevHudVisible(game, visible){
+  game.debugState.devHudVisible = !!visible;
+  if (game.hud && game.hud.style){
+    game.hud.style.display = game.debugState.devHudVisible ? "block" : "none";
   }
-  if (loop.input && typeof loop.input.setDebugCommandsEnabled === "function"){
-    loop.input.setDebugCommandsEnabled(loop.devHudVisible);
+  if (game.input && typeof game.input.setDebugCommandsEnabled === "function"){
+    game.input.setDebugCommandsEnabled(game.debugState.devHudVisible);
   }
 }
 
 /**
- * @param {any} loop
- * @param {{DEBUG_COLLISION?:boolean}} game
+ * @param {Game} game
+ * @param {{DEBUG_COLLISION?:boolean}} config
  * @returns {void}
  */
-export function initLoopDebugState(loop, game){
-  loop.debugCollisions = !!(game && game.DEBUG_COLLISION);
-  loop.debugPlanetTriangles = false;
-  loop.debugCollisionContours = false;
-  loop.debugFrameStepMode = false;
-  loop.debugMinerGuidePath = false;
-  loop.debugRingVertices = false;
-  loop.debugMinerPathToMiner = null;
-  setDevHudVisible(loop, BENCH_CONFIG.enabled);
-  loop._lastLandingDebugConsoleLine = "";
-  loop._landingDebugSessionIdNext = 1;
-  loop._landingDebugSessionId = 0;
-  loop._landingDebugSessionFrame = 0;
-  loop._landingDebugSessionActive = false;
-  loop._landingDebugSessionSource = "";
-  loop._minerPathDebugCooldown = 0;
+export function initLoopDebugState(game, config){
+  game.debugState.collisions = !!(config && config.DEBUG_COLLISION);
+  game.debugState.planetTriangles = false;
+  game.debugState.collisionContours = false;
+  game.debugState.frameStepMode = false;
+  game.debugState.minerGuidePath = false;
+  game.debugState.ringVertices = false;
+  game.debugState.minerPathToMiner = null;
+  setDevHudVisible(game, BENCH_CONFIG.enabled);
+  game.debugState.lastLandingDebugConsoleLine = "";
+  game.debugState.landingDebugSessionIdNext = 1;
+  game.debugState.landingDebugSessionId = 0;
+  game.debugState.landingDebugSessionFrame = 0;
+  game.debugState.landingDebugSessionActive = false;
+  game.debugState.landingDebugSessionSource = "";
+  game.debugState.minerPathDebugCooldown = 0;
 }
 
 /**
- * @param {any} loop
+ * @param {Game} game
  * @returns {void}
  */
-export function applyBenchmarkSetup(loop){
-  applyBenchmarkSetupImpl.call(loop);
+export function applyBenchmarkSetup(game){
+  applyBenchmarkSetupImpl.call(game);
 }
 
 /**
- * @param {any} loop
+ * @param {Game} game
  * @param {number} now
  * @param {number} frameMs
  * @returns {void}
  */
-export function recordFrameTiming(loop, now, frameMs){
-  recordFrameTimingImpl.call(loop, now, frameMs);
+export function recordFrameTiming(game, now, frameMs){
+  recordFrameTimingImpl.call(game, now, frameMs);
 }
 
 /**
- * @param {any} loop
+ * @param {Game} game
  * @param {any} planetConfig
  * @returns {void}
  */
-export function logLevelInit(loop, planetConfig){
-  logLevelInitImpl.call(loop, planetConfig);
+export function logLevelInit(game, planetConfig){
+  logLevelInitImpl.call(game, planetConfig);
 }
 
 /**
- * @param {any} loop
+ * @param {Game} game
  * @param {any} spawnPlan
  * @param {number} count
  * @returns {void}
  */
-export function logMinerSpawnDiagnostics(loop, spawnPlan, count){
-  logMinerSpawnDiagnosticsImpl.call(loop, spawnPlan, count);
+export function logMinerSpawnDiagnostics(game, spawnPlan, count){
+  logMinerSpawnDiagnosticsImpl.call(game, spawnPlan, count);
 }
 
 /**
- * @param {any} loop
+ * @param {Game} game
  * @param {any} bundle
  * @returns {void}
  */
-export function logLevelBegin(loop, bundle){
-  logLevelBeginImpl.call(loop, bundle);
+export function logLevelBegin(game, bundle){
+  logLevelBeginImpl.call(game, bundle);
 }
 
 /**
- * @param {any} loop
+ * @param {Game} game
  * @param {any} inputState
  * @param {boolean} transitionActive
  * @returns {void}
  */
-export function handleFrameDebugInput(loop, inputState, transitionActive){
-  handleFrameDebugInputImpl.call(loop, inputState, transitionActive);
+export function handleFrameDebugInput(game, inputState, transitionActive){
+  handleFrameDebugInputImpl.call(game, inputState, transitionActive);
 }
 
 /**
- * @param {any} loop
+ * @param {Game} game
+ * @param {any} inputState
+ * @param {boolean} transitionActive
+ * @returns {void}
+ */
+export function syncFrameStep(game, inputState, transitionActive){
+  const debugState = game.debugState;
+  if (!transitionActive && inputState.toggleFrameStep){
+    debugState.frameStepMode = !debugState.frameStepMode;
+    game.accumulator = 0;
+    feedback.showStatusCue(game, debugState.frameStepMode ? "Frame step on (Alt+L, Space steps)" : "Frame step off");
+  }
+  if (debugState.frameStepMode || transitionActive){
+    inputState.thrust = false;
+  }
+}
+
+/**
+ * @param {Game} game
+ * @param {number} rawDt
+ * @param {any} inputState
+ * @param {boolean} helpOpen
+ * @returns {{fixed:number,stepFrame:boolean,dt:number}}
+ */
+export function resolveFrameDt(game, rawDt, inputState, helpOpen){
+  const fixed = 1 / 60;
+  const stepFrame = !!(game.debugState.frameStepMode && inputState.stepFrame && !helpOpen);
+  const dt = helpOpen ? 0 : (game.debugState.frameStepMode ? (stepFrame ? fixed : 0) : rawDt);
+  if (helpOpen){
+    game.accumulator = 0;
+    audioState.setThrustLoopActive(game, false);
+  } else if (game.debugState.frameStepMode){
+    game.accumulator = stepFrame ? fixed : 0;
+    if (!stepFrame){
+      audioState.setThrustLoopActive(game, false);
+    }
+  } else {
+    game.accumulator += dt;
+  }
+  return { fixed, stepFrame, dt };
+}
+
+/**
+ * @param {Game} game
  * @param {string|null|undefined} spawnEnemyType
  * @returns {void}
  */
-export function handleSpawnEnemyType(loop, spawnEnemyType){
-  handleSpawnEnemyTypeImpl.call(loop, spawnEnemyType);
+export function handleSpawnEnemyType(game, spawnEnemyType){
+  handleSpawnEnemyTypeImpl.call(game, spawnEnemyType);
 }
 
 /**
- * @param {any} loop
+ * @param {Game} game
  * @param {any} minerPathDebugRecord
  * @param {Array<any>|null} debugMinerPathToMiner
  * @param {boolean} landed
  * @param {boolean} guidePathUsable
  * @returns {void}
  */
-export function updateMinerPathDebugState(loop, minerPathDebugRecord, debugMinerPathToMiner, landed, guidePathUsable){
-  updateMinerPathDebugStateImpl.call(loop, minerPathDebugRecord, debugMinerPathToMiner, landed, guidePathUsable);
+export function updateMinerPathDebugState(game, minerPathDebugRecord, debugMinerPathToMiner, landed, guidePathUsable){
+  updateMinerPathDebugStateImpl.call(game, minerPathDebugRecord, debugMinerPathToMiner, landed, guidePathUsable);
 }
 
 /**
- * @param {any} loop
+ * @param {Game} game
  * @returns {void}
  */
-export function updateLandingDebug(loop){
-  updateLandingDebugImpl.call(loop);
+export function updateLandingDebug(game){
+  updateLandingDebugImpl.call(game);
 }
 
 /**
@@ -130,19 +202,20 @@ export function updateLandingDebug(loop){
  * @returns {void}
  */
 function applyBenchmarkSetupImpl(){
+  const perfState = this.perfState;
   this.pendingBootJumpdriveIntro = false;
-  this.startTitleSeen = true;
-  this.startTitleFade = true;
-  this.startTitleAlpha = 0;
-  this.newGameHelpPromptT = 0;
-  this.newGameHelpPromptArmed = false;
+  this.titleState.seen = true;
+  this.titleState.fade = true;
+  this.titleState.alpha = 0;
+  this.titleState.newGameHelpPromptT = 0;
+  this.titleState.newGameHelpPromptArmed = false;
   setDevHudVisible(this, true);
   if (BENCH_CONFIG.start === "orbit"){
-    this._putShipInLowOrbit();
+    dropship.putShipInLowOrbit(this);
     this.hasLaunchedPlayerShip = true;
   }
-  const perfText = this.perfFlags.length ? ` | ${this.perfFlags.join(",")}` : "";
-  this._showStatusCue(`Benchmark warmup ${Math.ceil(BENCH_CONFIG.warmupMs / 1000)}s${perfText}`, 2.5);
+  const perfText = perfState.flags.length ? ` | ${perfState.flags.join(",")}` : "";
+  feedback.showStatusCue(this, `Benchmark warmup ${Math.ceil(BENCH_CONFIG.warmupMs / 1000)}s${perfText}`, 2.5);
 }
 
 /**
@@ -152,43 +225,44 @@ function applyBenchmarkSetupImpl(){
  * @returns {void}
  */
 function recordFrameTimingImpl(now, frameMs){
-  this.frameStatsTracker.record(frameMs);
-  if (!this.frameStats || (now - this.frameStatsUpdatedAt) >= 500){
-    this.frameStats = this.frameStatsTracker.snapshot();
-    this.frameStatsUpdatedAt = now;
+  const perfState = this.perfState;
+  perfState.frameStatsTracker.record(frameMs);
+  if (!perfState.frameStats || (now - perfState.frameStatsUpdatedAt) >= 500){
+    perfState.frameStats = perfState.frameStatsTracker.snapshot();
+    perfState.frameStatsUpdatedAt = now;
   }
 
-  if (!this.benchmarkRun || this.benchmarkRun.finished) return;
-  if (!this.benchmarkRun.startedAtMs){
-    this.benchmarkRun.startedAtMs = now;
-    this.benchmarkRun.sampleStartAtMs = now + BENCH_CONFIG.warmupMs;
-    this.benchmarkRun.sampleEndAtMs = this.benchmarkRun.sampleStartAtMs + BENCH_CONFIG.durationMs;
+  if (!perfState.benchmarkRun || perfState.benchmarkRun.finished) return;
+  if (!perfState.benchmarkRun.startedAtMs){
+    perfState.benchmarkRun.startedAtMs = now;
+    perfState.benchmarkRun.sampleStartAtMs = now + BENCH_CONFIG.warmupMs;
+    perfState.benchmarkRun.sampleEndAtMs = perfState.benchmarkRun.sampleStartAtMs + BENCH_CONFIG.durationMs;
   }
-  if (now < this.benchmarkRun.sampleStartAtMs){
-    this.benchmarkRun.stateText = `warmup ${Math.max(0, Math.ceil((this.benchmarkRun.sampleStartAtMs - now) / 1000))}s`;
+  if (now < perfState.benchmarkRun.sampleStartAtMs){
+    perfState.benchmarkRun.stateText = `warmup ${Math.max(0, Math.ceil((perfState.benchmarkRun.sampleStartAtMs - now) / 1000))}s`;
     return;
   }
-  if (!this.benchmarkRun.active){
-    this.benchmarkRun.active = true;
-    this.benchmarkRun.tracker.reset();
-    this._showStatusCue(`Benchmark recording ${Math.ceil(BENCH_CONFIG.durationMs / 1000)}s`, 1.5);
+  if (!perfState.benchmarkRun.active){
+    perfState.benchmarkRun.active = true;
+    perfState.benchmarkRun.tracker.reset();
+    feedback.showStatusCue(this, `Benchmark recording ${Math.ceil(BENCH_CONFIG.durationMs / 1000)}s`, 1.5);
   }
-  this.benchmarkRun.tracker.record(frameMs);
-  const remainingMs = this.benchmarkRun.sampleEndAtMs - now;
+  perfState.benchmarkRun.tracker.record(frameMs);
+  const remainingMs = perfState.benchmarkRun.sampleEndAtMs - now;
   if (remainingMs > 0){
-    this.benchmarkRun.stateText = `run ${Math.max(0, Math.ceil(remainingMs / 1000))}s`;
+    perfState.benchmarkRun.stateText = `run ${Math.max(0, Math.ceil(remainingMs / 1000))}s`;
     return;
   }
-  this.benchmarkRun.finished = true;
-  this.benchmarkRun.stateText = "done";
-  this.benchmarkRun.result = this.benchmarkRun.tracker.snapshot();
+  perfState.benchmarkRun.finished = true;
+  perfState.benchmarkRun.stateText = "done";
+  perfState.benchmarkRun.result = perfState.benchmarkRun.tracker.snapshot();
   reportBenchmarkResult({
     bench: BENCH_CONFIG,
-    stats: this.benchmarkRun.result,
-    perfFlags: this.perfFlags,
+    stats: perfState.benchmarkRun.result,
+    perfFlags: perfState.flags,
     planetSeed: this.planet.getSeed(),
   });
-  this._showStatusCue("Benchmark complete; see console", 3.5);
+  feedback.showStatusCue(this, "Benchmark complete; see console", 3.5);
 }
 
 /**
@@ -200,8 +274,8 @@ function logLevelInitImpl(planetConfig){
   console.log("[Level] init", {
     level: this.level,
     planetId: planetConfig.id,
-    enemies: this._totalEnemiesForLevel(this.level),
-    miners: this._targetMinersForLevel(),
+    enemies: levels.totalEnemiesForLevel(this, this.level),
+    miners: levels.targetMinersForLevel(this),
     platformCount: planetConfig.platformCount,
     props: (this.planet.props || []).length,
   });
@@ -252,8 +326,8 @@ function logLevelBeginImpl(bundle){
   console.log("[Level] begin", {
     level: this.level,
     planetId: bundle.planetConfig.id,
-    enemies: this._totalEnemiesForLevel(this.level),
-    miners: this._targetMinersForLevel(),
+    enemies: levels.totalEnemiesForLevel(this, this.level),
+    miners: levels.targetMinersForLevel(this),
     platformCount: bundle.planetConfig.platformCount,
     props: (this.planet.props || []).length,
   });
@@ -270,44 +344,45 @@ function logLevelBeginImpl(bundle){
  * @returns {void}
  */
 function handleFrameDebugInputImpl(inputState, transitionActive){
+  const debugState = this.debugState;
   if (!transitionActive && inputState.regen){
     const nextSeed = this.planet.getSeed() + 1;
-    this._beginLevel(nextSeed, this.level);
+    levels.beginLevel(this, nextSeed, this.level);
   }
   if (!transitionActive && inputState.promptLevelJump){
     promptDevJumpToLevelImpl.call(this);
   }
   if (!transitionActive && inputState.prevLevel){
     if (this.level > 1){
-      this._devJumpToLevel(this.level - 1);
+      levels.devJumpToLevel(this, this.level - 1);
     }
   } else if (!transitionActive && inputState.nextLevel){
     if (this.planet){
       const nextSeed = this.planet.getSeed() + 1;
-      this._startJumpdriveTransition(nextSeed, this.level + 1);
+      levels.startJumpdriveTransition(this, nextSeed, this.level + 1);
     }
   }
   if (inputState.toggleDebug){
-    this.debugCollisions = !this.debugCollisions;
+    debugState.collisions = !debugState.collisions;
   }
   if (inputState.toggleDevHud){
-    setDevHudVisible(this, !this.devHudVisible);
+    setDevHudVisible(this, !debugState.devHudVisible);
   }
   if (inputState.toggleRingVertices){
-    this.debugRingVertices = !this.debugRingVertices;
-    this._showStatusCue(this.debugRingVertices ? "Ring vertex debug on" : "Ring vertex debug off");
+    debugState.ringVertices = !debugState.ringVertices;
+    feedback.showStatusCue(this, debugState.ringVertices ? "Ring vertex debug on" : "Ring vertex debug off");
   }
   if (inputState.togglePlanetTriangles){
-    this.debugPlanetTriangles = !this.debugPlanetTriangles;
-    this._showStatusCue(this.debugPlanetTriangles ? "Planet triangle outlines on" : "Planet triangle outlines off");
+    debugState.planetTriangles = !debugState.planetTriangles;
+    feedback.showStatusCue(this, debugState.planetTriangles ? "Planet triangle outlines on" : "Planet triangle outlines off");
   }
   if (inputState.toggleCollisionContours){
-    this.debugCollisionContours = !this.debugCollisionContours;
-    this._showStatusCue(this.debugCollisionContours ? "Collision contour debug on" : "Collision contour debug off");
+    debugState.collisionContours = !debugState.collisionContours;
+    feedback.showStatusCue(this, debugState.collisionContours ? "Collision contour debug on" : "Collision contour debug off");
   }
   if (inputState.toggleMinerGuidePath){
-    this.debugMinerGuidePath = !this.debugMinerGuidePath;
-    this._showStatusCue(this.debugMinerGuidePath ? "Miner guide path debug on" : "Miner guide path debug off");
+    debugState.minerGuidePath = !debugState.minerGuidePath;
+    feedback.showStatusCue(this, debugState.minerGuidePath ? "Miner guide path debug on" : "Miner guide path debug off");
   }
   if (inputState.rescueAll){
     rescueAllImpl.call(this);
@@ -356,10 +431,11 @@ function handleSpawnEnemyTypeImpl(spawnEnemyType){
  * @returns {void}
  */
 function updateMinerPathDebugStateImpl(minerPathDebugRecord, debugMinerPathToMiner, landed, guidePathUsable){
-  this.debugMinerPathToMiner = (landed && guidePathUsable) ? debugMinerPathToMiner : null;
-  if (this.debugMinerGuidePath && this._minerPathDebugCooldown <= 0 && minerPathDebugRecord){
+  const debugState = this.debugState;
+  debugState.minerPathToMiner = (landed && guidePathUsable) ? debugMinerPathToMiner : null;
+  if (debugState.minerGuidePath && debugState.minerPathDebugCooldown <= 0 && minerPathDebugRecord){
     console.log("[minerDbg]", minerPathDebugRecord);
-    this._minerPathDebugCooldown = 0.35;
+    debugState.minerPathDebugCooldown = 0.35;
   }
 }
 
@@ -368,14 +444,15 @@ function updateMinerPathDebugStateImpl(minerPathDebugRecord, debugMinerPathToMin
  * @returns {void}
  */
 function updateLandingDebugImpl(){
-  const landingDbg = this.devHudVisible ? this.ship._landingDebug : null;
-  if (!this.devHudVisible){
+  const debugState = this.debugState;
+  const landingDbg = debugState.devHudVisible ? this.ship._landingDebug : null;
+  if (!debugState.devHudVisible){
     this.ship._landingDebug = null;
     this.ship._lastMothershipCollisionDiag = null;
-    this._lastLandingDebugConsoleLine = "";
-    this._landingDebugSessionActive = false;
-    this._landingDebugSessionFrame = 0;
-    this._landingDebugSessionSource = "";
+    debugState.lastLandingDebugConsoleLine = "";
+    debugState.landingDebugSessionActive = false;
+    debugState.landingDebugSessionFrame = 0;
+    debugState.landingDebugSessionSource = "";
   } else if (landingDbg){
     /** @param {number|undefined|null} n */
     const fmt = (n) => Number.isFinite(n) ? Number(n).toFixed(2) : "-";
@@ -404,11 +481,11 @@ function updateLandingDebugImpl(){
     const reason = String(landingDbg.reason || "-");
     let mothershipRelatedNoContact = false;
     if (reason === "mothership_no_contact" && landingDbg.source === "mothership" && this.mothership){
-      const shipRadius = this._shipRadius();
+      const shipRadius = collisionDropship.shipRadius(this);
       const dx = this.ship.x - this.mothership.x;
       const dy = this.ship.y - this.mothership.y;
       const nearMothership = (dx * dx + dy * dy) <= Math.pow((this.mothership.bounds || 0) + shipRadius + 0.8, 2);
-      const overlap = nearMothership && this._shipCollidesWithMothershipAt(this.ship.x, this.ship.y);
+      const overlap = nearMothership && collisionDropship.shipCollidesWithMothershipAt(this, this.ship.x, this.ship.y);
       const activeHit = !!(this.ship._collision && this.ship._collision.source === "mothership");
       mothershipRelatedNoContact = overlap || activeHit;
     }
@@ -425,27 +502,27 @@ function updateLandingDebugImpl(){
       || mothershipRelatedNoContact
       || mothershipSessionCandidate
     ));
-    let sessionId = this._landingDebugSessionActive ? this._landingDebugSessionId : 0;
-    let sessionFrame = this._landingDebugSessionActive ? this._landingDebugSessionFrame : 0;
+    let sessionId = debugState.landingDebugSessionActive ? debugState.landingDebugSessionId : 0;
+    let sessionFrame = debugState.landingDebugSessionActive ? debugState.landingDebugSessionFrame : 0;
     if (sessionActive){
-      if (!this._landingDebugSessionActive){
-        this._landingDebugSessionActive = true;
-        this._landingDebugSessionId = this._landingDebugSessionIdNext++;
-        this._landingDebugSessionFrame = 1;
-        this._landingDebugSessionSource = String(landingDbg.source || "");
-        console.log(`[landDbgStart] sid:${this._landingDebugSessionId} src:${landingDbg.source || "-"} r:${reason}`);
+      if (!debugState.landingDebugSessionActive){
+        debugState.landingDebugSessionActive = true;
+        debugState.landingDebugSessionId = debugState.landingDebugSessionIdNext++;
+        debugState.landingDebugSessionFrame = 1;
+        debugState.landingDebugSessionSource = String(landingDbg.source || "");
+        console.log(`[landDbgStart] sid:${debugState.landingDebugSessionId} src:${landingDbg.source || "-"} r:${reason}`);
       } else {
-        this._landingDebugSessionFrame += 1;
+        debugState.landingDebugSessionFrame += 1;
       }
-      sessionId = this._landingDebugSessionId;
-      sessionFrame = this._landingDebugSessionFrame;
-    } else if (this._landingDebugSessionActive){
+      sessionId = debugState.landingDebugSessionId;
+      sessionFrame = debugState.landingDebugSessionFrame;
+    } else if (debugState.landingDebugSessionActive){
       console.log(
-        `[landDbgEnd] sid:${this._landingDebugSessionId} frames:${this._landingDebugSessionFrame} end:${reason}`
+        `[landDbgEnd] sid:${debugState.landingDebugSessionId} frames:${debugState.landingDebugSessionFrame} end:${reason}`
       );
-      this._landingDebugSessionActive = false;
-      this._landingDebugSessionFrame = 0;
-      this._landingDebugSessionSource = "";
+      debugState.landingDebugSessionActive = false;
+      debugState.landingDebugSessionFrame = 0;
+      debugState.landingDebugSessionSource = "";
       sessionId = 0;
       sessionFrame = 0;
     }
@@ -453,7 +530,7 @@ function updateLandingDebugImpl(){
       landingDbg.collisionDiag.session = {
         id: sessionId,
         frame: sessionFrame,
-        active: this._landingDebugSessionActive,
+        active: debugState.landingDebugSessionActive,
         reason,
       };
     }
@@ -507,37 +584,37 @@ function updateLandingDebugImpl(){
       : "";
     const combinedLine = line + detailLine;
     const idleNoContact = (!sessionActive && reason === "mothership_no_contact" && !mothershipRelatedNoContact);
-    const shouldLog = !idleNoContact && (sessionActive || line !== this._lastLandingDebugConsoleLine);
+    const shouldLog = !idleNoContact && (sessionActive || line !== debugState.lastLandingDebugConsoleLine);
     if (shouldLog){
       console.log(combinedLine);
-      this._lastLandingDebugConsoleLine = line;
+      debugState.lastLandingDebugConsoleLine = line;
     }
-  } else if (this.devHudVisible && this.mothership){
-    const shipRadius = this._shipRadius();
+  } else if (debugState.devHudVisible && this.mothership){
+    const shipRadius = collisionDropship.shipRadius(this);
     const dx = this.ship.x - this.mothership.x;
     const dy = this.ship.y - this.mothership.y;
     const nearMothership = (dx * dx + dy * dy) <= Math.pow((this.mothership.bounds || 0) + shipRadius + 0.8, 2);
-    const overlap = nearMothership && this._shipCollidesWithMothershipAt(this.ship.x, this.ship.y);
-    if (this._landingDebugSessionActive && this._landingDebugSessionSource !== "mothership"){
+    const overlap = nearMothership && collisionDropship.shipCollidesWithMothershipAt(this, this.ship.x, this.ship.y);
+    if (debugState.landingDebugSessionActive && debugState.landingDebugSessionSource !== "mothership"){
       console.log(
-        `[landDbgEnd] sid:${this._landingDebugSessionId} frames:${this._landingDebugSessionFrame} end:no_debug`
+        `[landDbgEnd] sid:${debugState.landingDebugSessionId} frames:${debugState.landingDebugSessionFrame} end:no_debug`
       );
-      this._landingDebugSessionActive = false;
-      this._landingDebugSessionFrame = 0;
-      this._landingDebugSessionSource = "";
+      debugState.landingDebugSessionActive = false;
+      debugState.landingDebugSessionFrame = 0;
+      debugState.landingDebugSessionSource = "";
     }
-    if (!this._landingDebugSessionActive && overlap){
-      this._landingDebugSessionActive = true;
-      this._landingDebugSessionId = this._landingDebugSessionIdNext++;
-      this._landingDebugSessionFrame = 0;
-      this._landingDebugSessionSource = "mothership";
-      console.log(`[landDbgStart] sid:${this._landingDebugSessionId} src:mothership r:mothership_trace_overlap`);
+    if (!debugState.landingDebugSessionActive && overlap){
+      debugState.landingDebugSessionActive = true;
+      debugState.landingDebugSessionId = debugState.landingDebugSessionIdNext++;
+      debugState.landingDebugSessionFrame = 0;
+      debugState.landingDebugSessionSource = "mothership";
+      console.log(`[landDbgStart] sid:${debugState.landingDebugSessionId} src:mothership r:mothership_trace_overlap`);
     }
-    if (this._landingDebugSessionActive && this._landingDebugSessionSource === "mothership"){
+    if (debugState.landingDebugSessionActive && debugState.landingDebugSessionSource === "mothership"){
       if (nearMothership){
-        this._landingDebugSessionFrame += 1;
-        const sid = this._landingDebugSessionId;
-        const sf = this._landingDebugSessionFrame;
+        debugState.landingDebugSessionFrame += 1;
+        const sid = debugState.landingDebugSessionId;
+        const sf = debugState.landingDebugSessionFrame;
         const c = Math.cos(-this.mothership.angle);
         const s = Math.sin(-this.mothership.angle);
         const lx = c * dx - s * dy;
@@ -554,26 +631,26 @@ function updateLandingDebugImpl(){
           + `relW:${relVx.toFixed(2)},${relVy.toFixed(2)}@${Math.hypot(relVx, relVy).toFixed(2)} `
           + `relL:${relLx.toFixed(2)},${relLy.toFixed(2)}@${Math.hypot(relLx, relLy).toFixed(2)} `
           + `overlap:${overlap ? 1 : 0}`;
-        if (traceLine !== this._lastLandingDebugConsoleLine){
+        if (traceLine !== debugState.lastLandingDebugConsoleLine){
           console.log(traceLine);
-          this._lastLandingDebugConsoleLine = traceLine;
+          debugState.lastLandingDebugConsoleLine = traceLine;
         }
       } else {
         console.log(
-          `[landDbgEnd] sid:${this._landingDebugSessionId} frames:${this._landingDebugSessionFrame} end:trace_far`
+          `[landDbgEnd] sid:${debugState.landingDebugSessionId} frames:${debugState.landingDebugSessionFrame} end:trace_far`
         );
-        this._landingDebugSessionActive = false;
-        this._landingDebugSessionFrame = 0;
-        this._landingDebugSessionSource = "";
+        debugState.landingDebugSessionActive = false;
+        debugState.landingDebugSessionFrame = 0;
+        debugState.landingDebugSessionSource = "";
       }
     }
-  } else if (this.devHudVisible && this._landingDebugSessionActive){
+  } else if (debugState.devHudVisible && debugState.landingDebugSessionActive){
     console.log(
-      `[landDbgEnd] sid:${this._landingDebugSessionId} frames:${this._landingDebugSessionFrame} end:no_debug`
+      `[landDbgEnd] sid:${debugState.landingDebugSessionId} frames:${debugState.landingDebugSessionFrame} end:no_debug`
     );
-    this._landingDebugSessionActive = false;
-    this._landingDebugSessionFrame = 0;
-    this._landingDebugSessionSource = "";
+    debugState.landingDebugSessionActive = false;
+    debugState.landingDebugSessionFrame = 0;
+    debugState.landingDebugSessionSource = "";
   }
 }
 
@@ -587,10 +664,10 @@ function promptDevJumpToLevelImpl(){
   if (raw === null) return;
   const targetLevel = Number.parseInt(raw.trim(), 10);
   if (!Number.isFinite(targetLevel) || targetLevel < 1){
-    this._showStatusCue("Invalid level number");
+    feedback.showStatusCue(this, "Invalid level number");
     return;
   }
-  this._devJumpToLevel(targetLevel);
+  levels.devJumpToLevel(this, targetLevel);
 }
 
 /**
@@ -613,10 +690,10 @@ function rescueAllImpl(){
     this.miners.splice(i, 1);
   }
 
-  if (this._isDockedWithMothership()){
-    this._onSuccessfullyDocked();
+  if (dropship.isDockedWithMothership(this)){
+    dropship.onSuccessfullyDocked(this);
   }
-  this._showStatusCue(rescued > 0 ? `Debug rescue: ${rescued} collected` : "Debug rescue: no miners left");
+  feedback.showStatusCue(this, rescued > 0 ? `Debug rescue: ${rescued} collected` : "Debug rescue: no miners left");
 }
 
 /**
@@ -634,7 +711,7 @@ function killAllEnemiesImpl(){
     if (this.enemies.explosions) this.enemies.explosions.length = 0;
     if (this.enemies.debris) this.enemies.debris.length = 0;
   }
-  this._showStatusCue(enemyCount > 0 ? `Debug clear: ${enemyCount} enemies` : "Debug clear: no enemies alive");
+  feedback.showStatusCue(this, enemyCount > 0 ? `Debug clear: ${enemyCount} enemies` : "Debug clear: no enemies alive");
 }
 
 /**
@@ -653,21 +730,23 @@ function killAllEnemiesAndFactoriesImpl(){
     if (this.enemies.debris) this.enemies.debris.length = 0;
   }
 
-  let factories = 0;
+  let factoryCount = 0;
   if (this.planet && this.planet.props){
     for (const p of this.planet.props){
       if (p.type !== "factory") continue;
       if (p.dead || (typeof p.hp === "number" && p.hp <= 0)) continue;
-      this._destroyFactoryProp(p);
-      factories++;
+      factories.destroyFactoryProp(this, p);
+      factoryCount++;
     }
   }
-  if (factories > 0){
-    this._syncTetherProtectionStates();
+  if (factoryCount > 0){
+    tether.syncTetherProtectionStates(this);
   }
-  if (enemyCount > 0 || factories > 0){
-    this._showStatusCue(`Debug clear: ${enemyCount} enemies, ${factories} factories`);
+  if (enemyCount > 0 || factoryCount > 0){
+    feedback.showStatusCue(this, `Debug clear: ${enemyCount} enemies, ${factoryCount} factories`);
   } else {
-    this._showStatusCue("Debug clear: no enemies or factories alive");
+    feedback.showStatusCue(this, "Debug clear: no enemies or factories alive");
   }
 }
+
+

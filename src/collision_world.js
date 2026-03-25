@@ -1,8 +1,10 @@
 // @ts-check
+/** @typedef {import("./game.js").Game} Game */
 
 import { mothershipAirAtWorld } from "./mothership.js";
 import { findMothershipCollisionExactAtPose, resolveMothershipCollisionResponse } from "./collision_mothership.js";
 import { findPlanetCollisionExactAt, resolvePlanetCollisionResponse, stabilizePlanetPenetration } from "./collision_planet.js";
+import * as collisionDropship from "./collision_dropship.js";
 
 /**
  * @typedef {Object} CollisionResponseArgs
@@ -382,3 +384,65 @@ export function createCollisionRouter(planet, getMothership){
     sampleCollisionPoints,
   };
 }
+
+/**
+ * Conservative line-of-sight check against planet terrain for short miner
+ * approach steps to a guide path attach point.
+ * @param {Game} game
+ * @param {number} x0
+ * @param {number} y0
+ * @param {number} x1
+ * @param {number} y1
+ * @param {number} [sidePad]
+ * @returns {boolean}
+ */
+export function segmentPlanetAirClear(game, x0, y0, x1, y1, sidePad = 0.02){
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  const len = Math.hypot(dx, dy);
+  if (len < 1e-6){
+    return game.collision.planetAirValueAtWorld(x0, y0) > 0.5;
+  }
+  const tx = dx / len;
+  const ty = dy / len;
+  const nx = -ty;
+  const ny = tx;
+  const steps = Math.max(2, Math.min(24, Math.ceil(len / 0.06) + 1));
+  for (let i = 0; i < steps; i++){
+    const t = (steps <= 1) ? 1 : (i / (steps - 1));
+    const sx = x0 + dx * t;
+    const sy = y0 + dy * t;
+    if (game.collision.planetAirValueAtWorld(sx, sy) <= 0.5) return false;
+    if (sidePad > 1e-6){
+      if (game.collision.planetAirValueAtWorld(sx + nx * sidePad, sy + ny * sidePad) <= 0.5) return false;
+      if (game.collision.planetAirValueAtWorld(sx - nx * sidePad, sy - ny * sidePad) <= 0.5) return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Treat water entry as "submerged" only when there is meaningful radial
+ * clearance below the ship, so a paper-thin surface water layer does not
+ * bleed off a lethal rock impact.
+ * @param {Game} game
+ * @param {number} waterR
+ * @param {number} shipX
+ * @param {number} shipY
+ * @returns {boolean}
+ */
+export function shipCountsAsSubmergedInWater(game, waterR, shipX, shipY){
+  if (!(waterR > 0) || !game.planet) return false;
+  const sr = Math.hypot(shipX, shipY);
+  if (!(sr <= waterR + 0.02)) return false;
+  if (!(game.planet.airValueAtWorld(shipX, shipY) > 0.5)) return false;
+  const ux = sr > 1e-6 ? (shipX / sr) : 1;
+  const uy = sr > 1e-6 ? (shipY / sr) : 0;
+  const probeDepth = Math.max(0.16, Math.min(0.32, collisionDropship.shipRadius(game) * 0.55));
+  const sampleCollisionAir = (typeof game.planet.airValueAtWorldForCollision === "function")
+    ? game.planet.airValueAtWorldForCollision(shipX - ux * probeDepth, shipY - uy * probeDepth)
+    : game.planet.airValueAtWorld(shipX - ux * probeDepth, shipY - uy * probeDepth);
+  return sampleCollisionAir > 0.5;
+}
+
+

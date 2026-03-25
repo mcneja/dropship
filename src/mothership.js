@@ -1,4 +1,5 @@
 // @ts-check
+/** @typedef {import("./game.js").Game} Game */
 
 /**
  * @typedef {{x:number,y:number,air:number}} MothershipPoint
@@ -195,6 +196,30 @@ export function updateMothership(mothership, planet, dt){
 }
 
 /**
+ * @param {Game} game
+ * @param {number} dt
+ * @returns {{prevPose:{x:number,y:number,angle:number}|null, angularVel:number}}
+ */
+export function updateLoopMothership(game, dt){
+  if (!game.mothership){
+    return { prevPose: null, angularVel: 0 };
+  }
+  const prevPose = {
+    x: game.mothership.x,
+    y: game.mothership.y,
+    angle: game.mothership.angle,
+  };
+  updateMothership(game.mothership, game.planet, dt);
+  let da = game.mothership.angle - prevPose.angle;
+  while (da > Math.PI) da -= Math.PI * 2;
+  while (da < -Math.PI) da += Math.PI * 2;
+  return {
+    prevPose,
+    angularVel: da / Math.max(1e-6, dt),
+  };
+}
+
+/**
  * @param {number} px
  * @param {number} py
  * @param {number} ax
@@ -379,3 +404,5 @@ function mothershipAirAtLocalGrid(mothership, lx, ly){
   const vx1 = v01 + (v11 - v01) * tx;
   return vx0 + (vx1 - vx0) * ty;
 }
+
+

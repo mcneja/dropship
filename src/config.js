@@ -1,4 +1,4 @@
-﻿// @ts-check
+// @ts-check
 
 export const CFG = Object.freeze({
   seed: 1337,
@@ -151,3 +151,4 @@ export const TOUCH_UI = Object.freeze({
   aimRadius: 0.09,
   activationScale: 1.4,
 });
+

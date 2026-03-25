@@ -604,3 +604,4 @@ export class HelpPopup {
     }
   }
 }
+

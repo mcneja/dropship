@@ -1,4 +1,5 @@
 // @ts-check
+/** @typedef {import("./game.js").Game} Game */
 
 /**
  * @param {string} key
@@ -233,6 +234,45 @@ export class RollingFrameStats {
 }
 
 /**
+ * @param {Game} game
+ * @param {number} now
+ * @returns {void}
+ */
+export function updateFps(game, now){
+  const perfState = game.perfState;
+  perfState.fpsFrames++;
+  if (now - perfState.fpsTime < 500) return;
+  perfState.fps = Math.round((perfState.fpsFrames * 1000) / (now - perfState.fpsTime));
+  perfState.fpsFrames = 0;
+  perfState.fpsTime = now;
+}
+
+export class PerfState {
+  /**
+   * @param {number} nowMs
+   */
+  constructor(nowMs){
+    this.fpsTime = nowMs;
+    this.fpsFrames = 0;
+    this.fps = 0;
+    this.frameStats = null;
+    this.frameStatsTracker = new RollingFrameStats(BENCH_CONFIG.enabled ? 2400 : 600);
+    this.frameStatsUpdatedAt = nowMs;
+    this.flags = ACTIVE_PERF_FLAGS;
+    this.benchmarkRun = BENCH_CONFIG.enabled ? {
+      startedAtMs: 0,
+      sampleStartAtMs: 0,
+      sampleEndAtMs: 0,
+      active: false,
+      finished: false,
+      stateText: `warmup ${Math.ceil(BENCH_CONFIG.warmupMs / 1000)}s`,
+      tracker: new RollingFrameStats(Math.max(600, Math.ceil((BENCH_CONFIG.durationMs / 1000) * 180))),
+      result: null,
+    } : null;
+  }
+}
+
+/**
  * @param {{
  *  bench:{seed:number, level:number, start:string, warmupMs:number, durationMs:number},
  *  stats:{
@@ -289,3 +329,5 @@ if (typeof window !== "undefined"){
   /** @type {any} */ (window).__dropshipPerfConfig = PERF_FLAGS;
   /** @type {any} */ (window).__dropshipBenchConfig = BENCH_CONFIG;
 }
+
+

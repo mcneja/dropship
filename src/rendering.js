@@ -1,4 +1,4 @@
-﻿// @ts-check
+// @ts-check
 
 import { CFG, TOUCH_UI } from "./config.js";
 import { PERF_FLAGS, getEffectiveDevicePixelRatio } from "./perf.js";
@@ -1814,9 +1814,9 @@ function drawFrameImpl(renderer, state, planet){
       triVerts += 6;
     }
   }
-  const tremorLavaParticles = featureParticles ? featureParticles.tremorLava : null;
-  if (tremorLavaParticles && tremorLavaParticles.length){
-    for (const p of tremorLavaParticles){
+  const ventPlumeParticles = featureParticles ? featureParticles.ventPlume : null;
+  if (ventPlumeParticles && ventPlumeParticles.length){
+    for (const p of ventPlumeParticles){
       if (!visibleEntityNow(p.x, p.y)) continue;
       const life = p.life ?? 0;
       const lifeN = (p.maxLife && p.maxLife > 0) ? Math.max(0, Math.min(1, life / p.maxLife)) : 1;
@@ -1826,10 +1826,10 @@ function drawFrameImpl(renderer, state, planet){
       triVerts += 12;
     }
   }
-  const mushroomParticles = featureParticles ? featureParticles.mushroom : null;
-  if (mushroomParticles && mushroomParticles.length){
+  const sporeParticles = featureParticles ? featureParticles.spores : null;
+  if (sporeParticles && sporeParticles.length){
     const size = 0.12;
-    for (const p of mushroomParticles){
+    for (const p of sporeParticles){
       if (!visibleEntityNow(p.x, p.y)) continue;
       pushDiamond(pos, col, p.x, p.y, size, 0.95, 0.45, 0.75, 0.95);
       triVerts += 6;
@@ -3856,3 +3856,4 @@ export class Renderer {
     drawFrameImpl(this, state, planet);
   }
 }
+
