@@ -1,4 +1,4 @@
-// @ts-check
+﻿// @ts-check
 
 import { CFG, TOUCH_UI } from "./config.js";
 import { PERF_FLAGS, getEffectiveDevicePixelRatio } from "./perf.js";
@@ -3554,26 +3554,75 @@ export class Renderer {
   uniform vec3 uSurfaceRockLight;
   uniform vec3 uAirDark;
   uniform vec3 uAirLight;
-    uniform float uMaxR;
-    uniform float uRmax;
-    uniform float uMeshRmax;
+  uniform float uMaxR;
+  uniform float uRmax;
+  uniform float uMeshRmax;
   uniform float uSurfaceBand;
   uniform vec3 uFogColor;
+  uniform float uEdgeAirOcclusion;
+  uniform float uEdgeAirBandWorld;
+  uniform float uEdgeAirHardness;
+  uniform float uEdgeRockLight;
+  uniform float uEdgeRockBandWorld;
+  uniform float uEdgeRockHardness;
+  uniform float uEdgeOutwardBias;
 
   vec3 lerp(vec3 a, vec3 b, float t){ return a + (b-a)*t; }
 
-    void main(){
-      float r = length(vWorld);
-      if (r > uMaxR){
-        discard;
-      }
-      float t = clamp(vShade, 0.0, 1.0);
-      float band = uSurfaceBand * uRmax;
-      bool useSurface = (uSurfaceBand > 0.0) && (length(vWorld) > (uRmax - band));
+  float edgeBandMask(float dist, float band, float hardness){
+    float t = clamp(dist / max(band, 1e-5), 0.0, 1.0);
+    float soft = 1.0 - smoothstep(0.0, 1.0, t);
+    float hard = 1.0 - step(1.0, t);
+    return mix(soft, hard, clamp(hardness, 0.0, 1.0));
+  }
+
+  vec2 airGradientWorld(){
+    vec2 wx = dFdx(vWorld);
+    vec2 wy = dFdy(vWorld);
+    float ax = dFdx(vAir);
+    float ay = dFdy(vAir);
+    float det = wx.x * wy.y - wx.y * wy.x;
+    if (abs(det) < 1e-6){
+      return vec2(0.0);
+    }
+    return vec2(
+      (ax * wy.y - wx.y * ay) / det,
+      (wx.x * ay - ax * wy.x) / det
+    );
+  }
+
+  void main(){
+    float r = length(vWorld);
+    if (r > uMaxR){
+      discard;
+    }
+    float t = clamp(vShade, 0.0, 1.0);
+    float band = uSurfaceBand * uRmax;
+    bool useSurface = (uSurfaceBand > 0.0) && (r > (uRmax - band));
     vec3 rockDark = useSurface ? uSurfaceRockDark : uRockDark;
     vec3 rockLight = useSurface ? uSurfaceRockLight : uRockLight;
     vec3 c = (vAir > 0.5) ? lerp(uAirDark,  uAirLight,  t)
                           : lerp(rockDark, rockLight, t);
+    bool airEdgeEnabled = (uEdgeAirOcclusion > 0.0) && (uEdgeAirBandWorld > 0.0);
+    bool rockEdgeEnabled = (uEdgeRockLight > 0.0) && (uEdgeRockBandWorld > 0.0);
+    if (airEdgeEnabled || rockEdgeEnabled){
+      float signedAir = vAir - 0.5;
+      vec2 gradAirWorld = airGradientWorld();
+      float gradLen = length(gradAirWorld);
+      float airBand = max(gradLen * uEdgeAirBandWorld, 1e-5);
+      float rockBand = max(gradLen * uEdgeRockBandWorld, 1e-5);
+      float airStrip = step(0.0, signedAir) * edgeBandMask(signedAir, airBand, uEdgeAirHardness);
+      float rockStrip = step(0.0, -signedAir) * edgeBandMask(-signedAir, rockBand, uEdgeRockHardness);
+      vec2 boundaryNormal = (gradLen > 1e-5) ? (gradAirWorld / gradLen) : vec2(0.0, 1.0);
+      vec2 radialOut = (r > 1e-5) ? (vWorld / r) : vec2(0.0, 1.0);
+      float outward = clamp(dot(boundaryNormal, radialOut), 0.0, 1.0);
+      float outwardMask = mix(1.0, outward, clamp(uEdgeOutwardBias, 0.0, 1.0));
+      if (airEdgeEnabled && signedAir >= 0.0){
+        c *= (1.0 - uEdgeAirOcclusion * airStrip);
+      } else if (rockEdgeEnabled && signedAir < 0.0){
+        c = mix(c, vec3(1.0), uEdgeRockLight * rockStrip * outwardMask);
+      }
+    }
     vec3 fogged = mix(c, uFogColor, clamp(vFog, 0.0, 1.0));
     outColor = vec4(fogged, 1.0);
   }`;
@@ -3729,6 +3778,13 @@ export class Renderer {
     this.uMeshRmax = gl.getUniformLocation(prog, "uMeshRmax");
     this.uSurfaceBand = gl.getUniformLocation(prog, "uSurfaceBand");
     this.uFogColor = gl.getUniformLocation(prog, "uFogColor");
+    this.uEdgeAirOcclusion = gl.getUniformLocation(prog, "uEdgeAirOcclusion");
+    this.uEdgeAirBandWorld = gl.getUniformLocation(prog, "uEdgeAirBandWorld");
+    this.uEdgeAirHardness = gl.getUniformLocation(prog, "uEdgeAirHardness");
+    this.uEdgeRockLight = gl.getUniformLocation(prog, "uEdgeRockLight");
+    this.uEdgeRockBandWorld = gl.getUniformLocation(prog, "uEdgeRockBandWorld");
+    this.uEdgeRockHardness = gl.getUniformLocation(prog, "uEdgeRockHardness");
+    this.uEdgeOutwardBias = gl.getUniformLocation(prog, "uEdgeOutwardBias");
 
     gl.uniform3fv(this.uRockDark, CFG.ROCK_DARK);
     gl.uniform3fv(this.uRockLight,CFG.ROCK_LIGHT);
@@ -3741,6 +3797,13 @@ export class Renderer {
     if (this.uMeshRmax) gl.uniform1f(this.uMeshRmax, CFG.RMAX);
     if (this.uSurfaceBand) gl.uniform1f(this.uSurfaceBand, 0);
     gl.uniform3fv(this.uFogColor, game.FOG_COLOR);
+    if (this.uEdgeAirOcclusion) gl.uniform1f(this.uEdgeAirOcclusion, CFG.TERRAIN_EDGE_AIR_OCCLUSION ?? 0);
+    if (this.uEdgeAirBandWorld) gl.uniform1f(this.uEdgeAirBandWorld, CFG.TERRAIN_EDGE_AIR_BAND_WORLD ?? 0);
+    if (this.uEdgeAirHardness) gl.uniform1f(this.uEdgeAirHardness, CFG.TERRAIN_EDGE_AIR_HARDNESS ?? 0);
+    if (this.uEdgeRockLight) gl.uniform1f(this.uEdgeRockLight, CFG.TERRAIN_EDGE_ROCK_LIGHT ?? 0);
+    if (this.uEdgeRockBandWorld) gl.uniform1f(this.uEdgeRockBandWorld, CFG.TERRAIN_EDGE_ROCK_BAND_WORLD ?? 0);
+    if (this.uEdgeRockHardness) gl.uniform1f(this.uEdgeRockHardness, CFG.TERRAIN_EDGE_ROCK_HARDNESS ?? 0);
+    if (this.uEdgeOutwardBias) gl.uniform1f(this.uEdgeOutwardBias, CFG.TERRAIN_EDGE_OUTWARD_BIAS ?? 0);
 
     gl.bindVertexArray(oVao);
     /** @type {WebGLBuffer|null} */
