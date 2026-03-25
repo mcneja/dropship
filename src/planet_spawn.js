@@ -1,8 +1,17 @@
 // @ts-check
 
-import { GAME } from "./config.js";
+import { CFG, GAME } from "./config.js";
+import { dijkstraMap } from "./navigation.js";
 import { mulberry32 } from "./rng.js";
-import { collectSupportNodeIndices, setSupportAnchor, setSupportNodeIndices } from "./terrain_support.js";
+import {
+  buildStandablePoints,
+  collectSupportNodeIndices,
+  findStandableSupportNodeIndex,
+  getStandablePoints,
+  refreshTerrainPropSupportNodes,
+  setSupportAnchor,
+  setSupportNodeIndices,
+} from "./terrain_support.js";
 
 /** @typedef {import("./planet.js").Planet} Planet */
 /** @typedef {import("./types.d.js").StandablePoint} StandablePoint */
@@ -129,15 +138,15 @@ export function alignTurretPadSpawnProps(planet){
   }
   if (!pads.length) return;
   if (!planet._standablePoints || !planet._standablePoints.length){
-    planet._standablePoints = planet._buildStandablePoints();
+    planet._standablePoints = buildStandablePoints(planet);
   }
   const seed = (planet.getSeed() | 0) + 913;
   const minDist = GAME.MINER_MIN_SEP;
   /** @type {Array<any>} */
   let placed = [];
   if (forceHorizontalPads){
-    const lookup = planet._buildBarrenPadLookup(seed);
-    placed = lookup ? planet._pickBarrenCandidates(lookup.inner, pads.length, minDist) : [];
+    const lookup = buildBarrenPadLookup(planet, seed);
+    placed = lookup ? pickBarrenCandidates(lookup.inner, pads.length, minDist) : [];
   } else {
     const standable = planet._standablePoints || [];
     const flatPool = standable.filter((pt) => {
@@ -163,11 +172,11 @@ export function alignTurretPadSpawnProps(planet){
     if (pool !== standable){
       const saved = planet._standablePoints;
       planet._standablePoints = pool;
-      placed = planet.sampleStandablePoints(pads.length, seed, "uniform", minDist, false)
+      placed = sampleStandablePoints(planet, pads.length, seed, "uniform", minDist, false)
         .map((pt) => ({ x: pt[0], y: pt[1] }));
       planet._standablePoints = saved;
     } else {
-      placed = planet.sampleStandablePoints(pads.length, seed, "uniform", minDist, false)
+      placed = sampleStandablePoints(planet, pads.length, seed, "uniform", minDist, false)
         .map((pt) => ({ x: pt[0], y: pt[1] }));
     }
   }
@@ -203,7 +212,7 @@ export function alignTurretPadSpawnProps(planet){
         [],
         (pt.sourceKind === "rock" && Number.isFinite(pt.sourceIndex))
           ? Number(pt.sourceIndex)
-          : planet._findStandableSupportNodeIndex(p.x, p.y),
+          : findStandableSupportNodeIndex(planet, p.x, p.y),
       );
       const up = planet._upDirAt(p.x, p.y);
       if (up){
@@ -218,7 +227,7 @@ export function alignTurretPadSpawnProps(planet){
       delete p.padSourceKind;
       delete p.padSourceRing;
       delete p.padSourceIndex;
-      setSupportNodeIndices(p, [], planet._findStandableSupportNodeIndex(p.x, p.y));
+      setSupportNodeIndices(p, [], findStandableSupportNodeIndex(planet, p.x, p.y));
     }
     const normal = planet.normalAtWorld(p.x, p.y);
     if (normal){
@@ -319,7 +328,7 @@ function buildMinerSpawnPlacementFromStandablePoint(planet, pt){
  */
 function pickFallbackMinerSpawnPoints(planet, count, seed, minDist, minR = 0, existing = []){
   if (!(count > 0)) return [];
-  const standable = planet.getStandablePoints()
+  const standable = getStandablePoints(planet)
     .filter((pt) => !minR || pt[3] >= minR)
     .slice()
     .sort((a, b) => a[2] - b[2]);
@@ -387,9 +396,7 @@ export function planMinerSpawnPlacements(planet, count, seed, minDist = GAME.MIN
   const cfg = planet.getPlanetConfig ? planet.getPlanetConfig() : null;
   const barrenPerimeter = !!(cfg && cfg.flags && cfg.flags.barrenPerimeter);
   if (barrenPerimeter){
-    if (typeof planet.reserveBarrenPadsForMiners === "function"){
-      planet.reserveBarrenPadsForMiners(count, seed, minDist);
-    }
+    reserveBarrenPadsForMiners(planet, count, seed, minDist);
     const reservedPads = [];
     for (const p of (planet.props || [])){
       if (p.type !== "turret_pad" || p.dead || p.padReservedFor !== "miner") continue;
@@ -426,7 +433,7 @@ export function planMinerSpawnPlacements(planet, count, seed, minDist = GAME.MIN
     };
   }
 
-  const standable = planet.getStandablePoints();
+  const standable = getStandablePoints(planet);
   const protectedR = (planet && typeof planet.getProtectedTerrainRadius === "function")
     ? planet.getProtectedTerrainRadius()
     : 0;
@@ -435,7 +442,7 @@ export function planMinerSpawnPlacements(planet, count, seed, minDist = GAME.MIN
     ? params.MOLTEN_RING_OUTER
     : 0;
   const minR = Math.max(0, Math.max(protectedR, moltenOuter) + 0.6);
-  placements = planet.sampleStandablePoints(count, seed, "uniform", minDist, true, minR)
+  placements = sampleStandablePoints(planet, count, seed, "uniform", minDist, true, minR)
     .map((pt) => buildMinerSpawnPlacement(planet, Number(pt[0]), Number(pt[1])));
   if (placements.length < count){
     const extra = pickFallbackMinerSpawnPoints(planet, count - placements.length, seed + 17, minDist, minR, placements);
@@ -443,10 +450,8 @@ export function planMinerSpawnPlacements(planet, count, seed, minDist = GAME.MIN
       placements.push(...extra);
     }
   }
-  const availability = planet.debugAvailableStandableCount
-    ? planet.debugAvailableStandableCount(minDist)
-    : { standable: standable.length, available: standable.length, reservations: 0 };
-  const propCounts = planet.debugPropCounts ? planet.debugPropCounts() : null;
+  const availability = debugAvailableStandableCount(planet, minDist);
+  const propCounts = debugPropCounts(planet);
   return {
     placements,
     debug: {
@@ -473,7 +478,7 @@ export function alignVentSpawnProps(planet){
   const vents = props.filter((p) => p.type === "vent");
   if (!vents.length) return;
   const seed = (planet.getSeed() | 0) + 1721;
-  const points = planet.sampleLandablePoints(vents.length, seed, 0.30, 0.2, "random");
+  const points = sampleLandablePoints(planet, vents.length, seed, 0.30, 0.2, "random");
   if (!points.length) return;
   for (let i = 0; i < vents.length; i++){
     const p = vents[i];
@@ -482,7 +487,7 @@ export function alignVentSpawnProps(planet){
     p.x = pt[0];
     p.y = pt[1];
     setSupportAnchor(p, pt[0], pt[1]);
-    setSupportNodeIndices(p, [], planet._findStandableSupportNodeIndex(pt[0], pt[1]));
+    setSupportNodeIndices(p, [], findStandableSupportNodeIndex(planet, pt[0], pt[1]));
   }
 }
 
@@ -506,7 +511,7 @@ export function alignGaiaSpawnProps(planet){
     const rand = mulberry32(seed);
     const standable = (planet._standablePoints && planet._standablePoints.length)
       ? planet._standablePoints
-      : planet._buildStandablePoints();
+      : buildStandablePoints(planet);
     const bandPoints = standable.filter((p) => p[3] >= surfaceR && p[3] <= rMax);
     const flatPoints = bandPoints.filter((p) => {
       const normal = planet.normalAtWorld(p[0], p[1]);
@@ -564,7 +569,7 @@ export function alignGaiaSpawnProps(planet){
   }
   if (mush.length){
     const seed = (planet.getSeed() | 0) + 877;
-    const points = planet.sampleUndergroundPoints(mush.length, seed, "random");
+    const points = sampleUndergroundPoints(planet, mush.length, seed, "random");
     for (let i = 0; i < mush.length && i < points.length; i++){
       const p = mush[i];
       const pt = points[i];
@@ -587,12 +592,12 @@ export function alignSurfaceDebrisSpawnProps(planet){
   const debris = props.filter((p) => p.type === "boulder" || p.type === "ridge_spike");
   if (!debris.length) return;
   if (!planet._standablePoints || !planet._standablePoints.length){
-    planet._standablePoints = planet._buildStandablePoints();
+    planet._standablePoints = buildStandablePoints(planet);
   }
   const seed = (planet.getSeed() | 0) + ((cfg.id === "no_caves") ? 1207 : 1239);
   const placement = (cfg.id === "no_caves") ? "uniform" : "random";
   const minDist = (cfg.id === "no_caves") ? 0.5 : 0.4;
-  const points = planet.sampleStandablePoints(debris.length, seed, placement, minDist, false);
+  const points = sampleStandablePoints(planet, debris.length, seed, placement, minDist, false);
   for (let i = 0; i < debris.length; i++){
     const p = debris[i];
     const pt = points[i];
@@ -602,7 +607,7 @@ export function alignSurfaceDebrisSpawnProps(planet){
       continue;
     }
     setSupportAnchor(p, pt[0], pt[1]);
-    setSupportNodeIndices(p, [], planet._findStandableSupportNodeIndex(pt[0], pt[1]));
+    setSupportNodeIndices(p, [], findStandableSupportNodeIndex(planet, pt[0], pt[1]));
     p.x = pt[0];
     p.y = pt[1];
     const info = planet.normalAtWorld(p.x, p.y);
@@ -683,7 +688,7 @@ export function alignMechanizedStructureSpawnProps(planet){
   }
   if (!factories.length && !gates.length && !tethers.length) return;
   if (!planet._standablePoints || !planet._standablePoints.length){
-    planet._standablePoints = planet._buildStandablePoints();
+    planet._standablePoints = buildStandablePoints(planet);
   }
   const seed = (planet.getSeed() | 0) + 1907;
   const rand = mulberry32(seed + 31);
@@ -694,7 +699,7 @@ export function alignMechanizedStructureSpawnProps(planet){
     }
     const innerR = Math.max(0.6, coreR + 0.55);
     const outerCap = Math.max(innerR + 0.8, planet.planetParams.RMAX - 0.5);
-    const standable = planet._filterReachableStandable(planet.getStandablePoints())
+    const standable = filterReachableStandable(planet, getStandablePoints(planet))
       .filter((p) => p[3] >= innerR + 0.9);
     const landableStandable = standable.filter((p) => planet.isLandableAtWorld(p[0], p[1], 0.32, 0.2, 0.18));
     const factorySites = landableStandable.length ? landableStandable : standable;
@@ -873,7 +878,7 @@ export function alignMechanizedStructureSpawnProps(planet){
     return;
   }
 
-  const factoryPts = planet.sampleStandablePoints(factories.length, seed, "uniform", 1.5, false);
+  const factoryPts = sampleStandablePoints(planet, factories.length, seed, "uniform", 1.5, false);
   for (let i = 0; i < factories.length; i++){
     const p = factories[i];
     if (!p) continue;
@@ -883,7 +888,7 @@ export function alignMechanizedStructureSpawnProps(planet){
       continue;
     }
     setSupportAnchor(p, pt[0], pt[1]);
-    setSupportNodeIndices(p, [], planet._findStandableSupportNodeIndex(pt[0], pt[1]));
+    setSupportNodeIndices(p, [], findStandableSupportNodeIndex(planet, pt[0], pt[1]));
     p.x = pt[0];
     p.y = pt[1];
     const normal = planet.normalAtWorld(p.x, p.y);
@@ -900,7 +905,7 @@ export function alignMechanizedStructureSpawnProps(planet){
     p.spawnT = rand() * p.spawnCd;
   }
 
-  const gatePts = planet.sampleStandablePoints(gates.length, seed + 97, "clusters", 2.0, false);
+  const gatePts = sampleStandablePoints(planet, gates.length, seed + 97, "clusters", 2.0, false);
   for (let i = 0; i < gates.length; i++){
     const p = gates[i];
     if (!p) continue;
@@ -919,6 +924,1279 @@ export function alignMechanizedStructureSpawnProps(planet){
       p.y -= normal.ny * (0.03 * (p.scale || 1));
       p.rot = Math.atan2(normal.ny, normal.nx) - Math.PI * 0.5;
     }
+  }
+}
+
+/**
+ * Constructor-time prop placement and spawn reservation setup.
+ * @param {Planet} planet
+ * @returns {void}
+ */
+export function initializePlanetProps(planet){
+  rebuildSpawnReachabilityMask(planet);
+  spreadIceShardsUniform(planet);
+  snapIceShardsToSurface(planet);
+  alignTurretPadSpawnProps(planet);
+  alignVentSpawnProps(planet);
+  alignGaiaSpawnProps(planet);
+  alignSurfaceDebrisSpawnProps(planet);
+  alignCavernDebrisSpawnProps(planet);
+  refreshTerrainPropSupportNodes(planet);
+  alignMechanizedStructureSpawnProps(planet);
+  reserveSpawnPointsFromProps(planet);
+  if (!planet._standablePoints || !planet._standablePoints.length){
+    planet._standablePoints = buildStandablePoints(planet);
+  }
+}
+
+/**
+ * @param {Planet} planet
+ * @param {number} count
+ * @param {number} seed
+ * @param {"uniform"|"random"|"clusters"} [placement]
+ * @returns {Array<[number,number]>}
+ */
+export function sampleUndergroundPoints(planet, count, seed, placement = "random"){
+  if (count <= 0) return [];
+  const rand = mulberry32(seed);
+  /** @type {Array<[number,number]>} */
+  const points = [];
+  const rMax = planet.planetParams.RMAX * 0.9;
+  const attempts = Math.max(200, count * 140);
+  /** @param {number} i */
+  const angleAt = (i) => {
+    if (placement === "uniform"){
+      const base = (i / count) * Math.PI * 2;
+      return base + (rand() - 0.5) * 0.35;
+    }
+    return rand() * Math.PI * 2;
+  };
+  for (let i = 0; i < attempts && points.length < count; i++){
+    const ang = angleAt(points.length);
+    const r = Math.sqrt(rand()) * rMax;
+    const x = Math.cos(ang) * r;
+    const y = Math.sin(ang) * r;
+    if (planet.airValueAtWorld(x, y) > 0.5) continue;
+    const eps = 0.18;
+    if (planet.airValueAtWorld(x + eps, y) > 0.5) continue;
+    if (planet.airValueAtWorld(x - eps, y) > 0.5) continue;
+    if (planet.airValueAtWorld(x, y + eps) > 0.5) continue;
+    if (planet.airValueAtWorld(x, y - eps) > 0.5) continue;
+    points.push([x, y]);
+  }
+  return points;
+}
+
+/**
+ * @param {Planet} planet
+ * @param {number} count
+ * @param {number} seed
+ * @param {"uniform"|"random"|"clusters"} [placement]
+ * @returns {Array<[number,number]>}
+ */
+export function sampleSurfacePoints(planet, count, seed, placement = "random"){
+  if (count <= 0) return [];
+  const rand = mulberry32(seed);
+  /** @type {Array<[number,number]>} */
+  const points = [];
+  const rMin = 1.0;
+  const shell = (planet.planetParams.NO_CAVES && planet.mapgen && planet.mapgen.grid)
+    ? Math.max(planet.mapgen.grid.cell * 1.5, 0.35)
+    : 0;
+  const rMax = Math.max(rMin + 0.5, planet.planetParams.RMAX - shell - 0.15);
+  const attempts = Math.max(200, count * 120);
+  /** @param {number} i */
+  const angleAt = (i) => {
+    if (placement === "uniform"){
+      const base = (i / count) * Math.PI * 2;
+      return base + (rand() - 0.5) * 0.35;
+    }
+    return rand() * Math.PI * 2;
+  };
+  for (let i = 0; i < attempts && points.length < count; i++){
+    const ang = angleAt(points.length);
+    const surf = findSurfaceAtAngle(planet, ang, rMin, rMax);
+    if (!surf) continue;
+    points.push([surf.x, surf.y]);
+  }
+  return points;
+}
+
+/**
+ * @param {Planet} planet
+ * @param {number} count
+ * @param {number} seed
+ * @param {number} rMin
+ * @param {number} rMax
+ * @param {"uniform"|"random"|"clusters"} [placement]
+ * @returns {Array<[number,number]>}
+ */
+export function sampleAirPoints(planet, count, seed, rMin, rMax, placement = "random"){
+  if (rMin >= rMax || count <= 0) return [];
+  const rand = mulberry32(seed);
+  const restrictReachability = !!planet._spawnReachableMask;
+  /** @type {Array<[number,number]>} */
+  const points = [];
+  const attempts = Math.max(200, count * 80);
+  if (placement === "uniform"){
+    const jitter = 0.35;
+    for (let i = 0; i < count; i++){
+      const base = (i / count) * Math.PI * 2;
+      const ang = base + (rand() - 0.5) * jitter;
+      const rr = rMin * rMin + rand() * (rMax * rMax - rMin * rMin);
+      const r = Math.sqrt(Math.max(0, rr));
+      const x = r * Math.cos(ang);
+      const y = r * Math.sin(ang);
+      if (planet.airValueAtWorld(x, y) <= 0.5) continue;
+      if (restrictReachability && !isSpawnReachableAt(planet, x, y)) continue;
+      points.push([x, y]);
+    }
+    return points;
+  }
+  for (let i = 0; i < attempts && points.length < count; i++){
+    const ang = rand() * Math.PI * 2;
+    const r = Math.sqrt(rMin * rMin + rand() * (rMax * rMax - rMin * rMin));
+    const x = r * Math.cos(ang);
+    const y = r * Math.sin(ang);
+    if (planet.airValueAtWorld(x, y) <= 0.5) continue;
+    if (restrictReachability && !isSpawnReachableAt(planet, x, y)) continue;
+    points.push([x, y]);
+  }
+  return points;
+}
+
+/**
+ * @param {Planet} planet
+ * @param {number} count
+ * @param {number} seed
+ * @param {number} maxSlope
+ * @param {number} clearance
+ * @param {"uniform"|"random"|"clusters"} [placement]
+ * @returns {Array<[number,number]>}
+ */
+export function sampleLandablePoints(planet, count, seed, maxSlope = 0.28, clearance = 0.2, placement = "random"){
+  if (count <= 0) return [];
+  const rand = mulberry32(seed);
+  /** @type {Array<[number,number]>} */
+  const points = [];
+  const rMin = 1.0;
+  const rMax = planet.planetParams.RMAX + 1.2;
+  const attempts = Math.max(200, count * 120);
+  /** @param {number} i */
+  const angleAt = (i) => {
+    if (placement === "uniform"){
+      const base = (i / count) * Math.PI * 2;
+      return base + (rand() - 0.5) * 0.35;
+    }
+    return rand() * Math.PI * 2;
+  };
+  for (let i = 0; i < attempts && points.length < count; i++){
+    const ang = angleAt(points.length);
+    const surf = findSurfaceAtAngle(planet, ang, rMin, rMax);
+    if (!surf) continue;
+    const nx = surf.x / (Math.hypot(surf.x, surf.y) || 1);
+    const ny = surf.y / (Math.hypot(surf.x, surf.y) || 1);
+    const x = surf.x + nx * 0.02;
+    const y = surf.y + ny * 0.02;
+    if (!planet.isLandableAtWorld(x, y, maxSlope, clearance, 0.18)) continue;
+    points.push([x, y]);
+  }
+  return points;
+}
+
+/**
+ * @param {Planet} planet
+ * @returns {void}
+ */
+function snapIceShardsToSurface(planet){
+  if (!planet.props || !planet.props.length) return;
+  for (const prop of planet.props){
+    if (prop.type !== "ice_shard") continue;
+    if (prop.dead || (typeof prop.hp === "number" && prop.hp <= 0)) continue;
+    let normal = planet.normalAtWorld(prop.x, prop.y);
+    if (!normal){
+      prop.dead = true;
+      prop.hp = 0;
+      continue;
+    }
+    if (planet.airValueAtWorld(prop.x, prop.y) > 0.5){
+      for (let i = 0; i < 6; i++){
+        prop.x -= normal.nx * 0.06;
+        prop.y -= normal.ny * 0.06;
+        if (planet.airValueAtWorld(prop.x, prop.y) <= 0.5) break;
+      }
+    } else {
+      const res = planet.nudgeOutOfTerrain(prop.x, prop.y, 0.8, 0.08, 0.18);
+      if (res.ok){
+        prop.x = res.x;
+        prop.y = res.y;
+      }
+    }
+    normal = planet.normalAtWorld(prop.x, prop.y);
+    if (!normal){
+      prop.dead = true;
+      prop.hp = 0;
+      continue;
+    }
+    prop.x -= normal.nx * 0.03;
+    prop.y -= normal.ny * 0.03;
+  }
+}
+
+/**
+ * @param {Planet} planet
+ * @returns {void}
+ */
+function spreadIceShardsUniform(planet){
+  const cfg = planet.getPlanetConfig ? planet.getPlanetConfig() : null;
+  if (!cfg || cfg.id !== "ice") return;
+  if (!planet.props || !planet.props.length) return;
+  const shards = [];
+  for (const prop of planet.props){
+    if (prop.type === "ice_shard") shards.push(prop);
+  }
+  if (!shards.length) return;
+  const seed = (planet.mapgen.getWorld().seed | 0) + 331;
+  const points = sampleSurfacePoints(planet, shards.length, seed, "uniform");
+  if (!points.length) return;
+  const rand = mulberry32(seed + 17);
+  for (let i = 0; i < shards.length; i++){
+    const prop = shards[i];
+    if (!prop) continue;
+    const pt = points[i % points.length];
+    if (!pt) continue;
+    prop.x = pt[0];
+    prop.y = pt[1];
+    const normal = planet.normalAtWorld(prop.x, prop.y);
+    if (normal){
+      const tx = -normal.ny;
+      const ty = normal.nx;
+      const base = Math.atan2(ty, tx);
+      prop.rot = base + (rand() - 0.5) * 0.6;
+    } else {
+      prop.rot = rand() * Math.PI * 2;
+    }
+  }
+}
+
+/**
+ * @param {Planet} planet
+ * @param {number} minerCount
+ * @param {number} turretCount
+ * @param {number} seed
+ * @param {number} [minDist]
+ * @returns {void}
+ */
+export function layoutBarrenPadsForRoles(planet, minerCount, turretCount, seed, minDist = GAME.MINER_MIN_SEP){
+  const cfg = planet.getPlanetConfig ? planet.getPlanetConfig() : null;
+  if (!(cfg && cfg.flags && cfg.flags.barrenPerimeter)) return;
+  const pads = (planet.props || []).filter((p) => p.type === "turret_pad");
+  if (!pads.length) return;
+  const lookup = buildBarrenPadLookup(planet, seed);
+  if (!lookup) return;
+  /** @type {Array<any>} */
+  const chosenMiners = [];
+  /** @type {Array<any>} */
+  const chosenTurrets = [];
+  /** @type {Set<any>} */
+  const used = new Set();
+  const pairedTarget = Math.min(Math.max(0, minerCount | 0), Math.max(0, turretCount | 0));
+  if (pairedTarget > 0){
+    for (const candidate of lookup.inner){
+      if (chosenMiners.length >= pairedTarget) break;
+      if (used.has(candidate)) continue;
+      if (!barrenCandidateHasSpacing(candidate, chosenMiners, minDist)) continue;
+      const overwatch = findBarrenOverwatchCandidate(planet, candidate, lookup, used, chosenTurrets, minDist);
+      if (!overwatch) continue;
+      used.add(candidate);
+      used.add(overwatch);
+      chosenMiners.push(candidate);
+      chosenTurrets.push(overwatch);
+    }
+  }
+  for (const candidate of lookup.inner){
+    if (chosenMiners.length >= minerCount) break;
+    if (used.has(candidate)) continue;
+    if (!barrenCandidateHasSpacing(candidate, chosenMiners, minDist)) continue;
+    used.add(candidate);
+    chosenMiners.push(candidate);
+  }
+  if (chosenTurrets.length < turretCount){
+    for (const miner of chosenMiners){
+      if (chosenTurrets.length >= turretCount) break;
+      const overwatch = findBarrenOverwatchCandidate(planet, miner, lookup, used, chosenTurrets, minDist);
+      if (!overwatch) continue;
+      used.add(overwatch);
+      chosenTurrets.push(overwatch);
+    }
+  }
+  if (chosenTurrets.length < turretCount){
+    for (const candidate of lookup.outer){
+      if (chosenTurrets.length >= turretCount) break;
+      if (used.has(candidate)) continue;
+      if (!barrenCandidateHasSpacing(candidate, chosenTurrets, minDist)) continue;
+      used.add(candidate);
+      chosenTurrets.push(candidate);
+    }
+  }
+  /** @type {Array<{candidate:any,reservedFor:"miner"|"turret"|null}>} */
+  const placements = [];
+  for (const candidate of chosenMiners){
+    placements.push({ candidate, reservedFor: "miner" });
+  }
+  for (const candidate of chosenTurrets){
+    placements.push({ candidate, reservedFor: null });
+  }
+  for (let i = 0; i < pads.length; i++){
+    const prop = pads[i];
+    if (!prop) continue;
+    const placement = placements[i] || null;
+    if (!placement){
+      prop.dead = true;
+      prop.hp = 0;
+      delete prop.padRing;
+      delete prop.padDepth;
+      delete prop.padAnchorKind;
+      delete prop.padSourceKind;
+      delete prop.padSourceRing;
+      delete prop.padSourceIndex;
+      prop.padReservedFor = null;
+      continue;
+    }
+    applyBarrenPadCandidateToProp(planet, placement.candidate, prop, placement.reservedFor);
+  }
+}
+
+/**
+ * @param {Planet} planet
+ * @param {number} seed
+ * @param {boolean} [innerFirst=true]
+ * @returns {Array<any>}
+ */
+export function orderedBarrenPadProps(planet, seed, innerFirst = true){
+  const pads = (planet.props || []).filter((prop) => (
+    prop.type === "turret_pad"
+    && !prop.dead
+    && typeof prop.padRing === "number"
+  ));
+  return orderBarrenByRing(pads, seed, innerFirst, (pad) => Number(pad.padRing));
+}
+
+/**
+ * @param {Planet} planet
+ * @param {number} count
+ * @param {number} seed
+ * @param {number} [minDist]
+ * @returns {Array<[number,number]>}
+ */
+export function reserveBarrenPadsForMiners(planet, count, seed, minDist = GAME.MINER_MIN_SEP){
+  const cfg = planet.getPlanetConfig ? planet.getPlanetConfig() : null;
+  if (!(cfg && cfg.flags && cfg.flags.barrenPerimeter) || count <= 0) return [];
+  const ordered = orderedBarrenPadProps(planet, seed, true);
+  const existing = ordered.filter((pad) => pad.padReservedFor === "miner");
+  if (existing.length >= count){
+    return existing.slice(0, count).map((pad) => [pad.x, pad.y]);
+  }
+  /** @type {Array<any>} */
+  const chosen = existing.slice();
+  for (const pad of ordered){
+    if (chosen.length >= count) break;
+    if (pad.padReservedFor) continue;
+    if (!isFarFromReservations(pad.x, pad.y, minDist, planet._spawnReservations)) continue;
+    let ok = true;
+    for (const cur of chosen){
+      const dx = pad.x - cur.x;
+      const dy = pad.y - cur.y;
+      if (dx * dx + dy * dy < minDist * minDist){
+        ok = false;
+        break;
+      }
+    }
+    if (!ok) continue;
+    pad.padReservedFor = "miner";
+    chosen.push(pad);
+  }
+  if (chosen.length > existing.length){
+    reserveSpawnPoints(planet, chosen.slice(existing.length).map((pad) => ({ x: pad.x, y: pad.y })), minDist);
+  }
+  return chosen.map((pad) => [pad.x, pad.y]);
+}
+
+/**
+ * @param {Planet} planet
+ * @param {Array<{x:number,y:number}>} points
+ * @param {number} [minDist=0]
+ * @returns {void}
+ */
+export function reserveSpawnPoints(planet, points, minDist = 0){
+  if (!points || !points.length) return;
+  const r = Math.max(0, minDist);
+  for (const point of points){
+    planet._spawnReservations.push({ x: point.x, y: point.y, r });
+  }
+}
+
+/**
+ * @param {Planet} planet
+ * @param {number} count
+ * @param {number} seed
+ * @param {"uniform"|"random"|"clusters"} [placement]
+ * @param {number} [minDist]
+ * @param {boolean} [reserve]
+ * @param {number} [minR]
+ * @returns {Array<[number,number]>}
+ */
+export function sampleStandablePoints(planet, count, seed, placement = "random", minDist = 0, reserve = false, minR = 0){
+  if (count <= 0) return [];
+  const basePoints = filterReachableStandable(planet, getStandablePoints(planet));
+  const points = (minR > 0) ? basePoints.filter((p) => p[3] >= minR) : basePoints;
+  if (!points.length) return [];
+  const rand = mulberry32(seed);
+  const rMax = (planet.planetParams.RMAX || CFG.RMAX) || 1;
+  const bias = 0.35;
+  const take = Math.min(count, points.length);
+  /** @type {Array<[number,number]>} */
+  const out = [];
+  /** @type {Array<number>} */
+  const indices = points.map((_, i) => i);
+  const used = new Set();
+  /** @type {Array<{x:number,y:number,r:number}>} */
+  const reservations = planet._spawnReservations || [];
+  if (placement === "uniform"){
+    indices.sort((a, b) => expectDefined(points[a])[2] - expectDefined(points[b])[2]);
+    const offset = rand();
+    const step = (Math.PI * 2) / take;
+    const window = step * 0.65;
+    for (let i = 0; i < take; i++){
+      const target = (i + offset) * step;
+      let picked = -1;
+      let pickedScore = Infinity;
+      for (const idx of indices){
+        const p = points[idx];
+        if (!p) continue;
+        const ang = p[2];
+        let d = Math.abs(ang - target);
+        d = Math.min(d, Math.abs(d - Math.PI * 2));
+        if (d > window) continue;
+        if (used.has(idx)) continue;
+        if (!isFarFromReservations(p[0], p[1], minDist, reservations)) continue;
+        let ok = true;
+        for (const q of out){
+          const dx = p[0] - q[0];
+          const dy = p[1] - q[1];
+          if (dx * dx + dy * dy < minDist * minDist){
+            ok = false;
+            break;
+          }
+        }
+        if (!ok) continue;
+        const r = p[3];
+        const biasScore = (r / rMax) * bias;
+        const score = d / window + biasScore;
+        if (score < pickedScore){
+          pickedScore = score;
+          picked = idx;
+        }
+      }
+      if (picked >= 0){
+        const p = points[picked];
+        if (!p) continue;
+        used.add(picked);
+        out.push([p[0], p[1]]);
+        if (out.length >= take) break;
+      }
+    }
+  } else if (placement === "clusters"){
+    const clusterCount = Math.max(1, Math.floor(Math.sqrt(take)));
+    /** @type {number[]} */
+    const centers = [];
+    for (let i = 0; i < indices.length && centers.length < clusterCount; i++){
+      const idx = indices[Math.floor(rand() * indices.length)];
+      if (idx === undefined) continue;
+      const p = points[idx];
+      if (!p) continue;
+      centers.push(p[2]);
+    }
+    if (!centers.length) return out;
+    let clusterIndex = 0;
+    const window = (Math.PI * 2) / Math.max(6, clusterCount * 2);
+    for (let i = 0; i < take; i++){
+      const target = centers[clusterIndex % centers.length];
+      if (target === undefined) continue;
+      clusterIndex++;
+      let picked = -1;
+      let pickedScore = Infinity;
+      for (const idx of indices){
+        if (used.has(idx)) continue;
+        const p = points[idx];
+        if (!p) continue;
+        let d = Math.abs(p[2] - target);
+        d = Math.min(d, Math.abs(d - Math.PI * 2));
+        if (d > window) continue;
+        if (!isFarFromReservations(p[0], p[1], minDist, reservations)) continue;
+        let ok = true;
+        for (const q of out){
+          const dx = p[0] - q[0];
+          const dy = p[1] - q[1];
+          if (dx * dx + dy * dy < minDist * minDist){
+            ok = false;
+            break;
+          }
+        }
+        if (!ok) continue;
+        const r = p[3];
+        const biasScore = (r / rMax) * bias;
+        const score = d / window + biasScore;
+        if (score < pickedScore){
+          pickedScore = score;
+          picked = idx;
+        }
+      }
+      if (picked >= 0){
+        const p = points[picked];
+        if (!p) continue;
+        used.add(picked);
+        out.push([p[0], p[1]]);
+        if (out.length >= take) break;
+      }
+    }
+  } else {
+    for (let i = indices.length - 1; i > 0; i--){
+      const j = Math.floor(rand() * (i + 1));
+      const tmp = expectDefined(indices[i]);
+      indices[i] = expectDefined(indices[j]);
+      indices[j] = tmp;
+    }
+    for (const idx of indices){
+      const p = points[idx];
+      if (!p) continue;
+      if (used.has(idx)) continue;
+      if (!isFarFromReservations(p[0], p[1], minDist, reservations)) continue;
+      let ok = true;
+      for (const q of out){
+        const dx = p[0] - q[0];
+        const dy = p[1] - q[1];
+        if (dx * dx + dy * dy < minDist * minDist){
+          ok = false;
+          break;
+        }
+      }
+      if (!ok) continue;
+      const r = p[3];
+      const w = 1 + bias * Math.max(0, 1 - r / rMax);
+      const maxW = 1 + bias;
+      if (rand() > (w / maxW)) continue;
+      used.add(idx);
+      out.push([p[0], p[1]]);
+      if (out.length >= take) break;
+    }
+  }
+  if (out.length < take){
+    for (const idx of indices){
+      if (out.length >= take) break;
+      if (used.has(idx)) continue;
+      const p = points[idx];
+      if (!p) continue;
+      if (!isFarFromReservations(p[0], p[1], minDist, reservations)) continue;
+      let ok = true;
+      for (const q of out){
+        const dx = p[0] - q[0];
+        const dy = p[1] - q[1];
+        if (dx * dx + dy * dy < minDist * minDist){
+          ok = false;
+          break;
+        }
+      }
+      if (!ok) continue;
+      used.add(idx);
+      out.push([p[0], p[1]]);
+    }
+  }
+  if (reserve && out.length){
+    reserveSpawnPoints(planet, out.map((p) => ({ x: p[0], y: p[1] })), minDist);
+  }
+  return out;
+}
+
+/**
+ * @param {Planet} planet
+ * @param {number} minDist
+ * @returns {{standable:number, available:number, reservations:number}}
+ */
+export function debugAvailableStandableCount(planet, minDist = 0){
+  const points = getStandablePoints(planet);
+  const reservations = planet._spawnReservations || [];
+  let available = 0;
+  for (const p of points){
+    if (isFarFromReservations(p[0], p[1], minDist, reservations)){
+      available++;
+    }
+  }
+  return { standable: points.length, available, reservations: reservations.length };
+}
+
+/**
+ * @param {Planet} planet
+ * @returns {Record<string, number>}
+ */
+export function debugPropCounts(planet){
+  /** @type {Record<string, number>} */
+  const counts = {};
+  if (!planet.props || !planet.props.length) return counts;
+  for (const prop of planet.props){
+    const key = prop.type || "unknown";
+    counts[key] = (counts[key] || 0) + 1;
+  }
+  return counts;
+}
+
+/**
+ * @param {Planet} planet
+ * @param {number} count
+ * @param {number} seed
+ * @param {"uniform"|"random"|"clusters"} [placement]
+ * @param {number} [minDist]
+ * @param {boolean} [reserve]
+ * @returns {Array<[number,number]>}
+ */
+export function sampleTurretPoints(planet, count, seed, placement = "random", minDist = 0, reserve = false){
+  const cfg = planet.getPlanetConfig ? planet.getPlanetConfig() : null;
+  if (cfg && cfg.flags && cfg.flags.barrenPerimeter){
+    const pads = orderedBarrenPadProps(planet, seed, false).filter((pad) => !pad.padReservedFor);
+    if (pads.length){
+      /** @type {Array<any>} */
+      const chosen = [];
+      for (const pad of pads){
+        if (chosen.length >= count) break;
+        if (!isFarFromReservations(pad.x, pad.y, minDist, planet._spawnReservations)) continue;
+        let ok = true;
+        for (const cur of chosen){
+          const dx = pad.x - cur.x;
+          const dy = pad.y - cur.y;
+          if (dx * dx + dy * dy < minDist * minDist){
+            ok = false;
+            break;
+          }
+        }
+        if (!ok) continue;
+        chosen.push(pad);
+      }
+      if (reserve && chosen.length){
+        for (const pad of chosen){
+          if (!pad.padReservedFor) pad.padReservedFor = "turret";
+        }
+        reserveSpawnPoints(planet, chosen.map((pad) => ({ x: pad.x, y: pad.y })), minDist);
+      }
+      return chosen.map((pad) => [pad.x, pad.y]);
+    }
+  }
+  const pool = sampleStandablePoints(planet, Math.max(count * 3, count), seed, placement, minDist, false);
+  const coreR = planet.getCoreRadius ? planet.getCoreRadius() : 0;
+  const moltenOuter = planet.planetParams && typeof planet.planetParams.MOLTEN_RING_OUTER === "number"
+    ? planet.planetParams.MOLTEN_RING_OUTER
+    : 0;
+  const minR = Math.max(0, Math.max(coreR, moltenOuter) + 0.6);
+  const out = (minR > 0)
+    ? pool.filter((p) => (Math.hypot(p[0], p[1]) >= minR)).slice(0, count)
+    : pool.slice(0, count);
+  if (reserve && out.length){
+    reserveSpawnPoints(planet, out.map((pt) => ({ x: pt[0], y: pt[1] })), minDist);
+  }
+  return out;
+}
+
+/**
+ * @param {Planet} planet
+ * @returns {void}
+ */
+export function rebuildSpawnReachabilityMask(planet){
+  if (!restrictToReachableSpawns(planet)){
+    planet._spawnReachableMask = null;
+    return;
+  }
+  const graph = planet.radialGraph;
+  const passable = planet.airNodesBitmap;
+  if (!graph || !graph.nodes || !graph.nodes.length || !passable || passable.length !== graph.nodes.length){
+    planet._spawnReachableMask = null;
+    return;
+  }
+  const nearSurfaceR = Math.max(0, (planet.planetParams.RMAX || planet.planetRadius || 0) - 0.9);
+  /** @type {number[]} */
+  const sources = [];
+  for (let i = 0; i < graph.nodes.length; i++){
+    if (!passable[i]) continue;
+    const node = graph.nodes[i];
+    if (!node) continue;
+    const r = Math.hypot(node.x, node.y);
+    if (r >= nearSurfaceR){
+      sources.push(i);
+    }
+  }
+  if (!sources.length){
+    for (let i = 0; i < passable.length; i++){
+      if (passable[i]){
+        sources.push(i);
+        break;
+      }
+    }
+  }
+  if (!sources.length){
+    planet._spawnReachableMask = null;
+    return;
+  }
+  const dist = dijkstraMap(graph, sources, passable);
+  const mask = new Uint8Array(passable.length);
+  for (let i = 0; i < passable.length; i++){
+    if (!passable[i]) continue;
+    if (Number.isFinite(dist[i])) mask[i] = 1;
+  }
+  planet._spawnReachableMask = mask;
+}
+
+/**
+ * @param {Planet} planet
+ * @param {number} x
+ * @param {number} y
+ * @returns {boolean}
+ */
+export function isSpawnReachableAt(planet, x, y){
+  if (!planet._spawnReachableMask) return true;
+  const iNode = planet.nearestRadialNodeInAir(x, y);
+  if (iNode < 0 || iNode >= planet._spawnReachableMask.length) return false;
+  return !!planet._spawnReachableMask[iNode];
+}
+
+/**
+ * @param {Planet} planet
+ * @param {StandablePoint[]} points
+ * @returns {StandablePoint[]}
+ */
+export function filterReachableStandable(planet, points){
+  if (!planet._spawnReachableMask) return points;
+  /** @type {StandablePoint[]} */
+  const out = [];
+  for (const point of points){
+    if (!isSpawnReachableAt(planet, point[0], point[1])) continue;
+    out.push(point);
+  }
+  return out;
+}
+
+/**
+ * @param {number} x
+ * @param {number} y
+ * @param {number} minDist
+ * @param {Array<{x:number,y:number,r:number}>} reservations
+ * @returns {boolean}
+ */
+export function isFarFromReservations(x, y, minDist, reservations){
+  if (minDist <= 0 || !reservations.length) return true;
+  for (const reservation of reservations){
+    const dx = x - reservation.x;
+    const dy = y - reservation.y;
+    const rr = Math.max(minDist, reservation.r || 0);
+    if (dx * dx + dy * dy < rr * rr) return false;
+  }
+  return true;
+}
+
+/**
+ * @param {Planet} planet
+ * @returns {void}
+ */
+function reserveSpawnPointsFromProps(planet){
+  if (!planet.props || !planet.props.length) return;
+  const base = Math.max(0.4, GAME.MINER_MIN_SEP * 0.6);
+  for (const prop of planet.props){
+    if (prop.dead) continue;
+    if (prop.type === "turret_pad") continue;
+    planet._spawnReservations.push({ x: prop.x, y: prop.y, r: base });
+  }
+}
+
+/**
+ * @param {Planet} planet
+ * @returns {boolean}
+ */
+function restrictToReachableSpawns(planet){
+  const cfg = planet.getPlanetConfig ? planet.getPlanetConfig() : null;
+  return !!(cfg && cfg.flags && cfg.flags.disableTerrainDestruction);
+}
+
+/**
+ * @param {Planet} planet
+ * @param {number} ang
+ * @param {number} rMin
+ * @param {number} rMax
+ * @param {number} [steps=64]
+ * @returns {{x:number,y:number,r:number}|null}
+ */
+function findSurfaceAtAngle(planet, ang, rMin, rMax, steps = 64){
+  const cx = Math.cos(ang);
+  const cy = Math.sin(ang);
+  let prevR = rMin;
+  let prevAir = planet.airValueAtWorld(cx * prevR, cy * prevR) > 0.5;
+  for (let i = 1; i <= steps; i++){
+    const r = rMin + (i / steps) * (rMax - rMin);
+    const curAir = planet.airValueAtWorld(cx * r, cy * r) > 0.5;
+    if (curAir !== prevAir){
+      let lo = prevR;
+      let hi = r;
+      const loAir = prevAir;
+      for (let it = 0; it < 8; it++){
+        const mid = (lo + hi) * 0.5;
+        const midAir = planet.airValueAtWorld(cx * mid, cy * mid) > 0.5;
+        if (midAir === loAir){
+          lo = mid;
+        } else {
+          hi = mid;
+        }
+      }
+      const baseR = (lo + hi) * 0.5;
+      return { x: cx * baseR, y: cy * baseR, r: baseR };
+    }
+    prevR = r;
+    prevAir = curAir;
+  }
+  return null;
+}
+
+/**
+ * @param {number} a
+ * @returns {number}
+ */
+function normalizeAngle(a){
+  const tau = Math.PI * 2;
+  let out = a % tau;
+  if (out < 0) out += tau;
+  return out;
+}
+
+/**
+ * @param {Planet} planet
+ * @param {number} ringIndex
+ * @param {number} angle
+ * @returns {{ring:Array<{x:number,y:number,air:number}>,minusIdx:number,plusIdx:number,minusVertex:{x:number,y:number,air:number},plusVertex:{x:number,y:number,air:number}}|null}
+ */
+function ringVerticesAroundAngle(planet, ringIndex, angle){
+  const rings = planet.radial && planet.radial.rings ? planet.radial.rings : null;
+  if (!rings || ringIndex < 0 || ringIndex >= rings.length) return null;
+  const ring = rings[ringIndex];
+  if (!ring || !ring.length) return null;
+  const target = normalizeAngle(angle);
+  let plusIdx = 0;
+  let plusDiff = Infinity;
+  for (let i = 0; i < ring.length; i++){
+    const v = ring[i];
+    if (!v) continue;
+    const ang = normalizeAngle(Math.atan2(v.y, v.x));
+    let diff = ang - target;
+    if (diff < 0) diff += Math.PI * 2;
+    if (diff < plusDiff){
+      plusDiff = diff;
+      plusIdx = i;
+    }
+  }
+  const minusIdx = (plusIdx - 1 + ring.length) % ring.length;
+  return {
+    ring,
+    minusIdx,
+    plusIdx,
+    minusVertex: expectDefined(ring[minusIdx]),
+    plusVertex: expectDefined(ring[plusIdx]),
+  };
+}
+
+/**
+ * @param {Planet} planet
+ * @returns {Uint8Array}
+ */
+function buildOuterAirReachableMask(planet){
+  const graph = planet.radialGraph;
+  const rings = planet.radial && planet.radial.rings ? planet.radial.rings : null;
+  if (!graph || !graph.nodes || !graph.neighbors || !graph.nodeOfRef || !rings || !rings.length){
+    return new Uint8Array(0);
+  }
+  const reachable = new Uint8Array(graph.nodes.length);
+  /** @type {number[]} */
+  const queue = [];
+  const outerRing = rings[rings.length - 1] || [];
+  for (const vertex of outerRing){
+    if (!vertex || vertex.air <= 0.5) continue;
+    const idx = graph.nodeOfRef.get(vertex);
+    if (idx === undefined || reachable[idx]) continue;
+    reachable[idx] = 1;
+    queue.push(idx);
+  }
+  for (let q = 0; q < queue.length; q++){
+    const idx = expectDefined(queue[q]);
+    const neigh = graph.neighbors[idx] || [];
+    for (const edge of neigh){
+      const next = edge.to;
+      if (reachable[next]) continue;
+      const node = graph.nodes[next];
+      if (!node) continue;
+      const ring = rings[node.r];
+      const vertex = ring && ring[node.i];
+      if (!vertex || vertex.air <= 0.5) continue;
+      reachable[next] = 1;
+      queue.push(next);
+    }
+  }
+  return reachable;
+}
+
+/**
+ * @template T
+ * @param {T[]} items
+ * @param {number} seed
+ * @returns {T[]}
+ */
+function shuffleDeterministic(items, seed){
+  const out = items.slice();
+  const rand = mulberry32(seed | 0);
+  for (let i = out.length - 1; i > 0; i--){
+    const j = Math.floor(rand() * (i + 1));
+    const tmp = expectDefined(out[i]);
+    out[i] = expectDefined(out[j]);
+    out[j] = tmp;
+  }
+  return out;
+}
+
+/**
+ * @param {number} ring
+ * @param {number} seed
+ * @returns {number}
+ */
+function ringShuffleSeed(ring, seed){
+  return ((seed | 0) ^ (((ring + 1) * 2654435761) | 0)) | 0;
+}
+
+/**
+ * @param {Planet} planet
+ * @returns {Array<{x:number,y:number,angle:number,r:number,ring:number,depth:number,anchorKind:"outer_rock"|"under_air",sourceKind:"rock"|"air",sourceRing:number,sourceIndex:number}>}
+ */
+function buildBarrenPadCandidates(planet){
+  const graph = planet.radialGraph;
+  const rings = planet.radial && planet.radial.rings ? planet.radial.rings : null;
+  if (!graph || !graph.nodes || !graph.neighbors || !graph.nodeOfRef || !rings || !rings.length){
+    return [];
+  }
+  const outerRingIndex = rings.length - 1;
+  const reachableAir = buildOuterAirReachableMask(planet);
+  /** @type {Array<{x:number,y:number,angle:number,r:number,ring:number,depth:number,anchorKind:"outer_rock"|"under_air",sourceKind:"rock"|"air",sourceRing:number,sourceIndex:number}>} */
+  const out = [];
+  const seen = new Set();
+  const outerRing = rings[outerRingIndex] || [];
+  for (let i = 0; i < outerRing.length; i++){
+    const vertex = outerRing[i];
+    if (!vertex || vertex.air > 0.5) continue;
+    const key = `outer:${outerRingIndex}:${i}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      x: vertex.x,
+      y: vertex.y,
+      angle: Math.atan2(vertex.y, vertex.x),
+      r: Math.hypot(vertex.x, vertex.y),
+      ring: outerRingIndex,
+      depth: 0,
+      anchorKind: "outer_rock",
+      sourceKind: "rock",
+      sourceRing: outerRingIndex,
+      sourceIndex: i,
+    });
+  }
+  for (let ringIndex = outerRingIndex - 1; ringIndex >= 0; ringIndex--){
+    const upperRing = rings[ringIndex + 1] || [];
+    for (let airIndex = 0; airIndex < upperRing.length; airIndex++){
+      const airVertex = upperRing[airIndex];
+      if (!airVertex || airVertex.air <= 0.5) continue;
+      const airNode = graph.nodeOfRef.get(airVertex);
+      if (airNode === undefined || !reachableAir[airNode]) continue;
+      const around = ringVerticesAroundAngle(planet, ringIndex, Math.atan2(airVertex.y, airVertex.x));
+      if (!around) continue;
+      if (around.minusVertex.air > 0.5 || around.plusVertex.air > 0.5) continue;
+      const minusNode = graph.nodeOfRef.get(around.minusVertex);
+      const plusNode = graph.nodeOfRef.get(around.plusVertex);
+      if (minusNode === undefined || plusNode === undefined) continue;
+      let minusLinked = false;
+      let plusLinked = false;
+      for (const edge of (graph.neighbors[airNode] || [])){
+        if (edge.to === minusNode) minusLinked = true;
+        if (edge.to === plusNode) plusLinked = true;
+        if (minusLinked && plusLinked) break;
+      }
+      if (!minusLinked || !plusLinked) continue;
+      const angle = Math.atan2(airVertex.y, airVertex.x);
+      const supportRadius = (Math.hypot(around.minusVertex.x, around.minusVertex.y) + Math.hypot(around.plusVertex.x, around.plusVertex.y)) * 0.5;
+      const airRadius = Math.hypot(airVertex.x, airVertex.y);
+      const radius = (supportRadius + airRadius) * 0.5;
+      const key = `inner:${ringIndex}:${airIndex}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({
+        x: Math.cos(angle) * radius,
+        y: Math.sin(angle) * radius,
+        angle,
+        r: radius,
+        ring: ringIndex,
+        depth: outerRingIndex - ringIndex,
+        anchorKind: "under_air",
+        sourceKind: "air",
+        sourceRing: ringIndex + 1,
+        sourceIndex: airIndex,
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * @param {{x:number,y:number}} candidate
+ * @param {Array<{x:number,y:number}>} picked
+ * @param {number} minDist
+ * @returns {boolean}
+ */
+function barrenCandidateHasSpacing(candidate, picked, minDist){
+  for (const cur of picked){
+    const dx = candidate.x - cur.x;
+    const dy = candidate.y - cur.y;
+    if (dx * dx + dy * dy < minDist * minDist){
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * @template T
+ * @param {T[]} items
+ * @param {number} seed
+ * @param {boolean} innerFirst
+ * @param {(item:T)=>number} getRing
+ * @returns {T[]}
+ */
+function orderBarrenByRing(items, seed, innerFirst, getRing){
+  const groups = new Map();
+  for (const item of items){
+    const ring = getRing(item);
+    const group = groups.get(ring);
+    if (group) group.push(item);
+    else groups.set(ring, [item]);
+  }
+  const ringOrder = Array.from(groups.keys()).sort((a, b) => innerFirst ? (a - b) : (b - a));
+  /** @type {T[]} */
+  const out = [];
+  for (const ring of ringOrder){
+    out.push(...shuffleDeterministic(groups.get(ring) || [], ringShuffleSeed(ring, seed)));
+  }
+  return out;
+}
+
+/**
+ * @param {Array<any>} ordered
+ * @param {number} count
+ * @param {number} minDist
+ * @returns {Array<any>}
+ */
+function pickBarrenCandidates(ordered, count, minDist){
+  if (count <= 0 || !ordered.length) return [];
+  /** @type {Array<any>} */
+  const picked = [];
+  for (const spacing of [Math.max(0, minDist), Math.max(0.18, minDist * 0.55)]){
+    for (const candidate of ordered){
+      if (picked.length >= count) break;
+      if (picked.includes(candidate)) continue;
+      if (!barrenCandidateHasSpacing(candidate, picked, spacing)) continue;
+      picked.push(candidate);
+    }
+    if (picked.length >= count) break;
+  }
+  return picked;
+}
+
+/**
+ * @param {Planet} planet
+ * @param {number} seed
+ * @returns {{inner:Array<any>,outer:Array<any>,outerRockByIndex:Map<number, any>,underAirByNode:Map<number, Array<any>>,outerRingIndex:number}|null}
+ */
+function buildBarrenPadLookup(planet, seed){
+  const graph = planet.radialGraph;
+  const rings = planet.radial && planet.radial.rings ? planet.radial.rings : null;
+  if (!graph || !graph.nodeOfRef || !rings || !rings.length){
+    return null;
+  }
+  const candidates = buildBarrenPadCandidates(planet);
+  const outerRingIndex = rings.length - 1;
+  const outerRockByIndex = new Map();
+  const underAirByNode = new Map();
+  for (const candidate of candidates){
+    if (candidate.anchorKind === "outer_rock" && candidate.sourceRing === outerRingIndex){
+      outerRockByIndex.set(candidate.sourceIndex, candidate);
+      continue;
+    }
+    if (candidate.anchorKind !== "under_air") continue;
+    const ring = rings[candidate.sourceRing];
+    const vertex = ring && ring[candidate.sourceIndex];
+    const nodeIdx = vertex ? graph.nodeOfRef.get(vertex) : undefined;
+    if (nodeIdx === undefined) continue;
+    const bucket = underAirByNode.get(nodeIdx);
+    if (bucket) bucket.push(candidate);
+    else underAirByNode.set(nodeIdx, [candidate]);
+  }
+  return {
+    inner: orderBarrenByRing(candidates, seed, true, (item) => item.ring),
+    outer: orderBarrenByRing(candidates, seed + 17, false, (item) => item.ring),
+    outerRockByIndex,
+    underAirByNode,
+    outerRingIndex,
+  };
+}
+
+/**
+ * @param {Planet} planet
+ * @param {{x:number,y:number,angle:number,r:number,ring:number,depth:number,anchorKind:"outer_rock"|"under_air",sourceKind:"rock"|"air",sourceRing:number,sourceIndex:number}} candidate
+ * @param {{underAirByNode:Map<number, Array<any>>,outerRockByIndex:Map<number, any>,outerRingIndex:number}|null} lookup
+ * @param {Set<any>} used
+ * @param {Array<any>} chosenTurrets
+ * @param {number} minDist
+ * @returns {any|null}
+ */
+function findBarrenOverwatchCandidate(planet, candidate, lookup, used, chosenTurrets, minDist){
+  const graph = planet.radialGraph;
+  const rings = planet.radial && planet.radial.rings ? planet.radial.rings : null;
+  if (!lookup || !graph || !graph.nodes || !graph.neighbors || !graph.nodeOfRef || !rings || !rings.length){
+    return null;
+  }
+  const { underAirByNode, outerRockByIndex, outerRingIndex } = lookup;
+  /** @param {any} cand */
+  const canUseCandidate = (cand) => (
+    cand
+    && cand !== candidate
+    && !used.has(cand)
+    && barrenCandidateHasSpacing(cand, chosenTurrets, minDist)
+  );
+  /** @param {number} baseIndex */
+  const searchOuterRing = (baseIndex) => {
+    const outerRing = rings[outerRingIndex] || [];
+    const n = outerRing.length;
+    if (!n || !Number.isFinite(baseIndex)) return null;
+    for (let off = 1; off < n; off++){
+      const left = ((baseIndex - off) % n + n) % n;
+      const right = (baseIndex + off) % n;
+      for (const idx of [left, right]){
+        const cand = outerRockByIndex.get(idx);
+        if (!canUseCandidate(cand)) continue;
+        return cand;
+      }
+    }
+    return null;
+  };
+  /** @param {number} nodeIdx */
+  const isAirNode = (nodeIdx) => {
+    const node = graph.nodes[nodeIdx];
+    if (!node) return false;
+    const ring = rings[node.r];
+    const vertex = ring && ring[node.i];
+    return !!(vertex && vertex.air > 0.5);
+  };
+  if (candidate.anchorKind === "outer_rock"){
+    return searchOuterRing(candidate.sourceIndex);
+  }
+  if (candidate.sourceKind !== "air"){
+    return null;
+  }
+  const sourceRing = rings[candidate.sourceRing] || null;
+  const sourceVertex = sourceRing && sourceRing[candidate.sourceIndex];
+  const startNode = sourceVertex ? graph.nodeOfRef.get(sourceVertex) : undefined;
+  if (startNode === undefined) return null;
+  const start = graph.nodes[startNode];
+  if (!start) return null;
+  const visited = new Set([startNode]);
+  /** @type {number[]} */
+  let frontier = [startNode];
+  for (let nextRing = start.r + 1; nextRing <= outerRingIndex; nextRing++){
+    /** @type {number[]} */
+    const ringAir = [];
+    /** @type {number[]} */
+    const queue = [];
+    for (const nodeIdx of frontier){
+      const neigh = graph.neighbors[nodeIdx] || [];
+      for (const edge of neigh){
+        const nextIdx = edge.to;
+        if (visited.has(nextIdx)) continue;
+        const nextNode = graph.nodes[nextIdx];
+        if (!nextNode || nextNode.r !== nextRing || !isAirNode(nextIdx)) continue;
+        visited.add(nextIdx);
+        queue.push(nextIdx);
+      }
+    }
+    for (let qi = 0; qi < queue.length; qi++){
+      const nodeIdx = expectDefined(queue[qi]);
+      ringAir.push(nodeIdx);
+      const neigh = graph.neighbors[nodeIdx] || [];
+      for (const edge of neigh){
+        const nextIdx = edge.to;
+        if (visited.has(nextIdx)) continue;
+        const nextNode = graph.nodes[nextIdx];
+        if (!nextNode || nextNode.r !== nextRing || !isAirNode(nextIdx)) continue;
+        visited.add(nextIdx);
+        queue.push(nextIdx);
+      }
+    }
+    if (!ringAir.length) return null;
+    if (nextRing < outerRingIndex){
+      for (const nodeIdx of ringAir){
+        for (const cand of (underAirByNode.get(nodeIdx) || [])){
+          if (cand.ring <= candidate.ring) continue;
+          if (!canUseCandidate(cand)) continue;
+          return cand;
+        }
+      }
+      frontier = ringAir;
+      continue;
+    }
+    for (const nodeIdx of ringAir){
+      const node = graph.nodes[nodeIdx];
+      if (!node) continue;
+      const overwatch = searchOuterRing(node.i);
+      if (overwatch) return overwatch;
+    }
+    return null;
+  }
+  return null;
+}
+
+/**
+ * @param {Planet} planet
+ * @param {{x:number,y:number,angle:number,r:number,ring:number,depth:number,anchorKind:"outer_rock"|"under_air",sourceKind:"rock"|"air",sourceRing:number,sourceIndex:number}} candidate
+ * @param {any} prop
+ * @param {"miner"|"turret"|null} reservedFor
+ * @returns {void}
+ */
+function applyBarrenPadCandidateToProp(planet, candidate, prop, reservedFor){
+  prop.dead = false;
+  prop.x = candidate.x;
+  prop.y = candidate.y;
+  prop.padRing = candidate.ring;
+  prop.padDepth = candidate.depth;
+  prop.padAnchorKind = candidate.anchorKind;
+  prop.padSourceKind = candidate.sourceKind;
+  prop.padSourceRing = candidate.sourceRing;
+  prop.padSourceIndex = candidate.sourceIndex;
+  prop.padReservedFor = reservedFor;
+  const up = planet._upDirAt(prop.x, prop.y);
+  if (up){
+    prop.padNx = up.ux;
+    prop.padNy = up.uy;
+    return;
+  }
+  const normal = planet.normalAtWorld(prop.x, prop.y);
+  if (normal){
+    prop.padNx = normal.nx;
+    prop.padNy = normal.ny;
   }
 }
 

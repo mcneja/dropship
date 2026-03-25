@@ -7,6 +7,7 @@ import * as stats from "./stats.js";
 import * as tether from "./tether.js";
 import * as levels from "./levels.js";
 import { BENCH_CONFIG } from "./perf.js";
+import * as planetFog from "./planet_fog.js";
 
 export const SAVE_SCHEMA_VERSION = 1;
 const STORAGE_KEY_BASE = "dropship.save";
@@ -165,7 +166,7 @@ export function clearSavedGame(){
 export function createGameSaveSnapshot(game){
   const nowMs = performance.now();
   const cfg = game.planet && game.planet.getPlanetConfig ? game.planet.getPlanetConfig() : null;
-  const planetRuntime = game.planet.exportRuntimeState();
+  const planetRuntime = exportPlanetRuntimeState(game.planet);
   const missionState = game.missionState;
   const feedbackState = game.feedbackState;
   const titleState = game.titleState;
@@ -264,7 +265,7 @@ export function restoreGameFromSaveSnapshot(game, snapshot){
 
     const runtimeState = decodePlanetRuntimeState(snapshot.planetRuntime);
     if (runtimeState){
-      const newAir = game.planet.importRuntimeState(runtimeState);
+      const newAir = importPlanetRuntimeState(game.planet, runtimeState);
       if (newAir) game.renderer.updateAir(newAir);
     }
 
@@ -395,7 +396,7 @@ export function restoreGameFromSaveSnapshot(game, snapshot){
       miners: game.miners,
     });
     game.renderer.setPlanet(game.planet);
-    game.planet.syncRenderFog(game.renderer, game.ship.x, game.ship.y);
+    planetFog.syncRenderFog(game.planet, game.renderer, game.ship.x, game.ship.y);
     audioState.setThrustLoopActive(game, false);
     audioState.setCombatActive(game, false);
     return true;
@@ -442,6 +443,81 @@ function encodePlanetRuntimeState(state){
       cursor: state.fog.cursor | 0,
     },
   };
+}
+
+/**
+ * @param {import("./planet.js").Planet} planet
+ * @returns {{
+ *  air:Uint8Array,
+ *  props:Array<any>,
+ *  fog:{
+ *    alpha:Float32Array,
+ *    visible:Uint8Array,
+ *    seen:Uint8Array,
+ *    hold:Uint8Array,
+ *    cursor:number
+ *  }
+ * }}
+ */
+function exportPlanetRuntimeState(planet){
+  const world = planet.mapgen.getWorld();
+  const srcAir = (world && world.air instanceof Uint8Array) ? world.air : new Uint8Array(0);
+  const air = new Uint8Array(srcAir);
+  const props = Array.isArray(planet.props) ? planet.props.map((prop) => cloneSaveData(prop)) : [];
+  const fog = planet.radial.exportFogState();
+  return { air, props, fog };
+}
+
+/**
+ * @param {import("./planet.js").Planet} planet
+ * @param {{
+ *  air:Uint8Array,
+ *  props?:Array<any>,
+ *  fog?:{
+ *    alpha:Float32Array,
+ *    visible:Uint8Array,
+ *    seen:Uint8Array,
+ *    hold:Uint8Array,
+ *    cursor:number
+ *  }
+ * }|null|undefined} state
+ * @returns {Float32Array|undefined}
+ */
+function importPlanetRuntimeState(planet, state){
+  if (!state || !(state.air instanceof Uint8Array)){
+    return undefined;
+  }
+  const world = planet.mapgen.getWorld();
+  if (!world || !(world.air instanceof Uint8Array) || world.air.length !== state.air.length){
+    return undefined;
+  }
+  world.air.set(state.air);
+  const newAir = planet._refreshAirAfterEdit();
+
+  if (Array.isArray(state.props) && Array.isArray(planet.props)){
+    const count = Math.min(planet.props.length, state.props.length);
+    for (let i = 0; i < count; i++){
+      const src = state.props[i];
+      const dst = planet.props[i];
+      if (!src || typeof src !== "object" || !dst || typeof dst !== "object") continue;
+      /** @type {Record<string, any>} */
+      const srcRecord = /** @type {Record<string, any>} */ (src);
+      /** @type {Record<string, any>} */
+      const dstRecord = /** @type {Record<string, any>} */ (dst);
+      for (const key of Object.keys(dstRecord)){
+        if (!Object.prototype.hasOwnProperty.call(srcRecord, key)){
+          delete dstRecord[key];
+        }
+      }
+      for (const key of Object.keys(srcRecord)){
+        dstRecord[key] = cloneSaveData(srcRecord[key]);
+      }
+    }
+  }
+  if (state.fog){
+    planet.radial.importFogState(state.fog);
+  }
+  return newAir;
 }
 
 /**

@@ -8,6 +8,7 @@ import { drawGameOverlay } from "./overlay.js";
 import * as feedback from "./feedback.js";
 import { PERF_FLAGS } from "./perf.js";
 import * as planetVisuals from "./planet_visuals.js";
+import * as planetFog from "./planet_fog.js";
 import { copyGameplayScreenshotToClipboard } from "./screenshot.js";
 
 /** @typedef {import("./types.d.js").RenderState} RenderState */
@@ -35,9 +36,9 @@ export function syncRenderFog(game, transitionActive, transitionFogOrigin){
   const fogSyncEnabled = !PERF_FLAGS.disableFogSync;
   if (!game.planet || !game.renderer || !fogSyncEnabled) return fogSyncEnabled;
   if (!transitionActive){
-    game.planet.syncRenderFog(game.renderer, game.ship.x, game.ship.y);
+    planetFog.syncRenderFog(game.planet, game.renderer, game.ship.x, game.ship.y);
   } else if (transitionFogOrigin){
-    game.planet.syncRenderFog(game.renderer, transitionFogOrigin.x, transitionFogOrigin.y);
+    planetFog.syncRenderFog(game.planet, game.renderer, transitionFogOrigin.x, transitionFogOrigin.y);
   }
   return fogSyncEnabled;
 }

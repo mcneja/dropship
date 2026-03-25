@@ -17,6 +17,7 @@ import { Planet } from "./planet.js";
 import { pickPlanetConfig, pickPlanetConfigById, resolveLevelProgression, resolvePlanetParams } from "./planet_config.js";
 import * as mechanized from "./mechanized.js";
 import * as missions from "./missions.js";
+import * as planetSpawn from "./planet_spawn.js";
 import * as sessionTitle from "./title.js";
 import * as stats from "./stats.js";
 import * as tether from "./tether.js";
@@ -81,11 +82,11 @@ function prepareBarrenMinerPadReservations(game, planet, cfg, level){
   const minerTarget = minerTargetForConfig(game, cfg, level);
   const turretTarget = enemyTotalForConfig(game, cfg, level);
   const seed = planet.getSeed() + level * 97;
-  if (typeof planet.layoutBarrenPadsForRoles === "function" && (minerTarget > 0 || turretTarget > 0)){
-    planet.layoutBarrenPadsForRoles(minerTarget, turretTarget, seed, GAME.MINER_MIN_SEP);
+  if (minerTarget > 0 || turretTarget > 0){
+    planetSpawn.layoutBarrenPadsForRoles(planet, minerTarget, turretTarget, seed, GAME.MINER_MIN_SEP);
   }
-  if (minerTarget <= 0 || typeof planet.reserveBarrenPadsForMiners !== "function") return;
-  planet.reserveBarrenPadsForMiners(minerTarget, seed, GAME.MINER_MIN_SEP);
+  if (minerTarget <= 0) return;
+  planetSpawn.reserveBarrenPadsForMiners(planet, minerTarget, seed, GAME.MINER_MIN_SEP);
 }
 
 /**

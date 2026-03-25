@@ -14,6 +14,7 @@ import {
 import { buildStarfieldMesh } from "./starfield.js";
 import { dijkstraMap, findPathAStar, nearestRadialNode } from "./navigation.js";
 import { fragmentBaseColor } from "./fragment_fx.js";
+import * as planetFog from "./planet_fog.js";
 import {
   closestPointOnSegment,
   getMothershipBoundaryEdges,
@@ -1023,9 +1024,9 @@ function drawFrameImpl(renderer, state, planet){
    */
   const visibleEntityNow = (x, y) => {
     if (!state.fogEnabled) return true;
-    if (planet.fogSeenAt(x, y)) return true;
+    if (planetFog.fogSeenAt(planet, x, y)) return true;
     if (!state.showVisibleOuterRingEntities) return false;
-    if (!planet.fogVisibleAt(x, y)) return false;
+    if (!planetFog.fogVisibleAt(planet, x, y)) return false;
     return Math.hypot(x, y) >= outerRingRadius - outerRingEntityBand;
   };
 
@@ -1898,8 +1899,7 @@ function drawFrameImpl(renderer, state, planet){
 
   const coreR = planet.getCoreRadius ? planet.getCoreRadius() : 0;
   const coreOverlayVisible = !state.fogEnabled
-    || !planet.hasSeenCoreOverlay
-    || planet.hasSeenCoreOverlay();
+    || planetFog.hasSeenCoreOverlay(planet);
   if (coreR > 0 && coreOverlayVisible){
     const params = planet.getPlanetParams ? planet.getPlanetParams() : null;
     const moltenOuter = params && typeof params.MOLTEN_RING_OUTER === "number" ? params.MOLTEN_RING_OUTER : 0;

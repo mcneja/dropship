@@ -4,6 +4,7 @@
 import { GAME } from "./config.js";
 import * as dropship from "./dropship.js";
 import { lineOfSightAir } from "./navigation.js";
+import * as planetSpawn from "./planet_spawn.js";
 import { mulberry32 } from "./rng.js";
 
 /** @typedef {{x:number,y:number,r:number,i:number,navPadded?:boolean}} RadialNode */
@@ -778,19 +779,19 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
 
   placeMoltenVents(planet, props || []);
   const ventReserve = (props || []).filter((p) => p.type === "vent").map((p) => ({ x: p.x, y: p.y }));
-  if (ventReserve.length && planet.reserveSpawnPoints){
+  if (ventReserve.length){
     const minDist = Math.max(0.4, GAME.MINER_MIN_SEP * 0.6);
-    planet.reserveSpawnPoints(ventReserve, minDist);
+    planetSpawn.reserveSpawnPoints(planet, ventReserve, minDist);
   }
   placeIceShards(planet, props || []);
   const iceReserve = (props || []).filter((p) => p.type === "ice_shard").map((p) => ({ x: p.x, y: p.y }));
-  if (iceReserve.length && planet.reserveSpawnPoints){
-    planet.reserveSpawnPoints(iceReserve, 0.5);
+  if (iceReserve.length){
+    planetSpawn.reserveSpawnPoints(planet, iceReserve, 0.5);
   }
   placeMushrooms(planet, props || []);
   const mushReserve = (props || []).filter((p) => p.type === "mushroom").map((p) => ({ x: p.x, y: p.y }));
-  if (mushReserve.length && planet.reserveSpawnPoints){
-    planet.reserveSpawnPoints(mushReserve, 0.5);
+  if (mushReserve.length){
+    planetSpawn.reserveSpawnPoints(planet, mushReserve, 0.5);
   }
   let ventsPruned = false;
   const waterCfg = planet.getPlanetConfig ? planet.getPlanetConfig() : null;

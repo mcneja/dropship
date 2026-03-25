@@ -5,6 +5,7 @@ import { GAME } from "./config.js";
 import * as dropship from "./dropship.js";
 import * as meltdown from "./meltdown.js";
 import * as missions from "./missions.js";
+import * as planetFog from "./planet_fog.js";
 import * as planetVisuals from "./planet_visuals.js";
 import * as stats from "./stats.js";
 import * as tether from "./tether.js";
@@ -251,8 +252,14 @@ export function renderHudPanels(game, inputState, now, renderState, opts){
           missionStatus,
           planetLabel: cfg ? cfg.label : `Level ${game.level}`,
           planetNote: dashboardPlanetDescription(cfg),
-          planetPreview: {
-            planet: game.planet,
+            planetPreview: {
+              planet: {
+                airValueAtWorld: (/** @type {number} */ x, /** @type {number} */ y) => game.planet.airValueAtWorld(x, y),
+                shadeAtWorld: (/** @type {number} */ x, /** @type {number} */ y) => game.planet.shadeAtWorld(x, y),
+                fogSeenAt: (/** @type {number} */ x, /** @type {number} */ y) => planetFog.fogSeenAt(game.planet, x, y),
+                fogAlphaAtWorld: (/** @type {number} */ x, /** @type {number} */ y) => planetFog.fogAlphaAtWorld(game.planet, x, y),
+                getSeed: () => game.planet.getSeed(),
+              },
             palette: planetVisuals.planetPalette(game),
             worldRadius: game.planetParams.RMAX,
             surfaceRadius: game.planetParams.RMAX,

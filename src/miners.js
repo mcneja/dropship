@@ -6,6 +6,7 @@ import * as audioState from "./audio.js";
 import * as collisionDropship from "./collision_dropship.js";
 import * as collisionWorld from "./collision_world.js";
 import * as debug from "./debug.js";
+import * as planetSpawn from "./planet_spawn.js";
 import * as stats from "./stats.js";
 import * as weapons from "./weapons.js";
 import {
@@ -15,6 +16,7 @@ import {
   setSupportAnchor,
   setSupportNodeIndices,
 } from "./terrain_support.js";
+import * as terrainSupport from "./terrain_support.js";
 
 /**
  * @param {Game} game
@@ -180,7 +182,7 @@ function spawnMiners(game){
   const count = Math.min(cap, base + Math.max(0, game.level - 1) * per);
   const seed = game.planet.getSeed() + game.level * 97;
   const barrenPerimeter = !!(cfg && cfg.flags && cfg.flags.barrenPerimeter);
-  const spawnPlan = game.planet.planMinerSpawnPlacements(count, seed, GAME.MINER_MIN_SEP);
+  const spawnPlan = planetSpawn.planMinerSpawnPlacements(game.planet, count, seed, GAME.MINER_MIN_SEP);
   const placed = spawnPlan.placements;
   debug.logMinerSpawnDiagnostics(game, spawnPlan, count);
   game.minerCandidates = placed.length;
@@ -291,8 +293,8 @@ function collectMinerSupportFootprint(game, x, y, preferredIndex = -1){
  * @returns {import("./types.d.js").StandablePoint|null}
  */
 function nearestMinerStandablePoint(game, x, y, maxDist = Infinity, minR = 0){
-  if (!game.planet || typeof game.planet.getStandablePoints !== "function") return null;
-  const points = game.planet.getStandablePoints();
+  if (!game.planet) return null;
+  const points = terrainSupport.getStandablePoints(game.planet);
   if (!points || !points.length) return null;
   const maxDistSq = Number.isFinite(maxDist) ? (Number(maxDist) * Number(maxDist)) : Infinity;
   /** @type {import("./types.d.js").StandablePoint|null} */

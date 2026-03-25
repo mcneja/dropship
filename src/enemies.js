@@ -6,6 +6,8 @@ import { collidesAtOffsets, isAir } from "./collision_world.js";
 import { GAME } from "./config.js";
 import { spawnFragmentBurst, updateFragmentDebris } from "./fragment_fx.js";
 import { PERF_FLAGS } from "./perf.js";
+import * as planetSpawn from "./planet_spawn.js";
+import * as terrainSupport from "./terrain_support.js";
 
 /** @typedef {import("./types.d.js").Vec2} Vec2 */
 /** @typedef {import("./types.d.js").EnemyType} EnemyType */
@@ -372,12 +374,12 @@ export class Enemies {
     if (!allowedSet.has("orbitingTurret")) orbitingTurrets = 0;
 
     const rHunterRangerMax = this.params.RMAX - 1.0;
-    const hunterPts = planet.sampleAirPoints(hunters, seed + 1, rHunterRangerMax * 0.5, rHunterRangerMax, placement);
-    const rangerPts = planet.sampleAirPoints(rangers, seed + 2, rHunterRangerMax * 0.75, rHunterRangerMax, placement);
-    const crawlerPts = planet.sampleAirPoints(crawlers, seed + 3, 0.0, this.params.RMAX - 0.6, placement);
-    const turretPts = planet.sampleTurretPoints(turrets, seed + 4, placement, GAME.MINER_MIN_SEP, true);
+    const hunterPts = planetSpawn.sampleAirPoints(planet, hunters, seed + 1, rHunterRangerMax * 0.5, rHunterRangerMax, placement);
+    const rangerPts = planetSpawn.sampleAirPoints(planet, rangers, seed + 2, rHunterRangerMax * 0.75, rHunterRangerMax, placement);
+    const crawlerPts = planetSpawn.sampleAirPoints(planet, crawlers, seed + 3, 0.0, this.params.RMAX - 0.6, placement);
+    const turretPts = planetSpawn.sampleTurretPoints(planet, turrets, seed + 4, placement, GAME.MINER_MIN_SEP, true);
     if (turrets > 0 && turretPts.length < turrets){
-      const standable = (planet.getStandablePoints && planet.getStandablePoints()) || [];
+      const standable = terrainSupport.getStandablePoints(planet);
       console.error("[Level] turrets spawn insufficient standable points", {
         level,
         target: turrets,

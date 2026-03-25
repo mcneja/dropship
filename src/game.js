@@ -25,6 +25,7 @@ import * as titleScreen from "./title.js";
 import * as weapons from "./weapons.js";
 import { Mothership, updateLoopMothership } from "./mothership.js";
 import { Planet } from "./planet.js";
+import * as planetFog from "./planet_fog.js";
 import { resolvePlanetParams } from "./planet_config.js";
 import { createGameSaveSnapshot, restoreGameFromSaveSnapshot } from "./save_state.js";
 import { JumpdriveTransition } from "./jumpdrive_transition.js";
@@ -359,7 +360,7 @@ export class Game {
           mothership: this.mothership,
           view: this.camera.autoView(camera.cameraScene(this)),
         });
-        this.planet.primeRenderFog(this.renderer, this.ship.x, this.ship.y);
+        planetFog.primeRenderFog(this.planet, this.renderer, this.ship.x, this.ship.y);
       }
       return;
     }
@@ -553,4 +554,3 @@ export class Game {
   }
 
 }
-
