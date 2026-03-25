@@ -345,10 +345,10 @@ export class Game {
 
   /**
    * @param {number} dt
-   * @param {ReturnType<import("./input.js").Input["update"]>} inputState
+   * @param {ReturnType<typeof controls.readFrameCommandInput>} frameCommandInput
    * @returns {void}
   */
-  _step(dt, inputState){
+  _step(dt, frameCommandInput){
     const titleState = this.titleState;
     if (this.jumpdriveTransition.isActive()){
       audioState.setThrustLoopActive(this, false);
@@ -365,28 +365,9 @@ export class Game {
       return;
     }
 
-    const stepInput = controls.normalizeStepInput(this, inputState, dt);
-
-    if (controls.handleStepCommands(this, stepInput, inputState)){
-      audioState.setThrustLoopActive(this, false);
-      return;
-    }
-
+    const simInput = controls.deriveSimInput(this, frameCommandInput, dt);
     tether.update(this, dt);
-
-    // Cancel lateral movement while docked to avoid interpreting perk selection
-    // as thrust. This is less than ideal; the thruster graphics still display.
-    // The ideal would be that once a perk selection is made the left/right
-    // inputs are ignored until they have been released, after which they would
-    // resume being interpreted as thrust.
-    if (dropship.isDockedWithMothership(this)){
-      stepInput.left = false;
-      stepInput.right = false;
-      stepInput.stickThrust.x = 0;
-      if (stepInput.stickThrust.y < 0.25){
-        stepInput.stickThrust.y = 0;
-      }
-    }
+    const flightInput = controls.suppressDockedFlightInput(this, simInput);
 
     let {
       stickThrust,
@@ -405,7 +386,7 @@ export class Game {
       aimBombFrom,
       aimBombTo,
       spawnEnemyType,
-    } = stepInput;
+    } = flightInput;
 
     const mothershipMotion = updateLoopMothership(this, dt);
     debug.handleSpawnEnemyType(this, spawnEnemyType);
@@ -496,15 +477,25 @@ export class Game {
     debug.handleFrameDebugInput(this, inputState, transitionActive);
     controls.applyFrameToggles(this, inputState);
     audioState.handleHotkeys(this, inputState);
+    const frameCommandInput = controls.readFrameCommandInput(inputState);
     const maxSteps = 4;
     let steps = 0;
-    while (this.accumulator >= fixed && steps < maxSteps){
-      this._step(fixed, inputState);
-      // One-shot actions are generated once per rendered frame. Consume them
-      // after the first fixed step so catch-up substeps cannot replay them.
-      controls.consumeFrameOneShots(inputState);
-      this.accumulator -= fixed;
-      steps++;
+    if (controls.handleFrameCommands(this, frameCommandInput, inputState)){
+      audioState.setThrustLoopActive(this, false);
+      controls.consumeFrameOneShots(inputState, frameCommandInput);
+      while (this.accumulator >= fixed && steps < maxSteps){
+        this.accumulator -= fixed;
+        steps++;
+      }
+    } else {
+      while (this.accumulator >= fixed && steps < maxSteps){
+        this._step(fixed, frameCommandInput);
+        // One-shot actions are generated once per rendered frame. Consume them
+        // after the first fixed step so catch-up substeps cannot replay them.
+        controls.consumeFrameOneShots(inputState, frameCommandInput);
+        this.accumulator -= fixed;
+        steps++;
+      }
     }
     if (steps === 0){
       camera.updateLoopCamera(this, rawDt);

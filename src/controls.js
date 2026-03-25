@@ -23,21 +23,27 @@ export function applyFrameToggles(game, inputState){
 
 /**
  * @param {ReturnType<import("./input.js").Input["update"]>} inputState
+ * @param {ReturnType<typeof readFrameCommandInput>|null} [frameCommandInput]
  * @returns {void}
  */
-export function consumeFrameOneShots(inputState){
+export function consumeFrameOneShots(inputState, frameCommandInput = null){
   inputState.reset = false;
   inputState.abandonRun = false;
   inputState.shootPressed = false;
   inputState.shoot = false;
   inputState.bomb = false;
   inputState.spawnEnemyType = null;
+  if (!frameCommandInput) return;
+  frameCommandInput.reset = false;
+  frameCommandInput.abandonRun = false;
+  frameCommandInput.shootPressed = false;
+  frameCommandInput.shoot = false;
+  frameCommandInput.bomb = false;
+  frameCommandInput.spawnEnemyType = null;
 }
 
 /**
- * @param {Game} game
  * @param {ReturnType<import("./input.js").Input["update"]>} inputState
- * @param {number} dt
  * @returns {{
  *   stickThrust:{x:number,y:number},
  *   left:boolean,
@@ -57,10 +63,11 @@ export function consumeFrameOneShots(inputState){
  *   aimShootTo:any,
  *   aimBombFrom:any,
  *   aimBombTo:any,
+ *   inputType:any,
  *   spawnEnemyType:any,
  * }}
  */
-export function normalizeStepInput(game, inputState, dt){
+export function readFrameCommandInput(inputState){
   /** @type {{x:number,y:number}} */
   const stickThrust = {
     x: Number(inputState.stickThrust?.x) || 0,
@@ -81,7 +88,54 @@ export function normalizeStepInput(game, inputState, dt){
   if (!shootPressed && shoot){
     shootPressed = true;
   }
-  if (inputState.inputType === "gamepad"){
+  return {
+    stickThrust,
+    left,
+    right,
+    thrust,
+    down,
+    reset: !!inputState.reset,
+    abandonRun: !!inputState.abandonRun,
+    shootHeld,
+    shootPressed,
+    shoot,
+    bomb,
+    aim,
+    aimShoot,
+    aimBomb,
+    aimShootFrom: inputState.aimShootFrom || null,
+    aimShootTo: inputState.aimShootTo || null,
+    aimBombFrom: inputState.aimBombFrom || null,
+    aimBombTo: inputState.aimBombTo || null,
+    inputType: inputState.inputType || null,
+    spawnEnemyType: inputState.spawnEnemyType || null,
+  };
+}
+
+/**
+ * @param {Game} game
+ * @param {ReturnType<typeof readFrameCommandInput>} frameCommandInput
+ * @param {number} dt
+ * @returns {ReturnType<typeof readFrameCommandInput>}
+ */
+export function deriveSimInput(game, frameCommandInput, dt){
+  const stickThrust = {
+    x: frameCommandInput.stickThrust.x,
+    y: frameCommandInput.stickThrust.y,
+  };
+  let left = frameCommandInput.left;
+  let right = frameCommandInput.right;
+  let thrust = frameCommandInput.thrust;
+  let down = frameCommandInput.down;
+  const shootHeld = frameCommandInput.shootHeld;
+  const shootPressed = frameCommandInput.shootPressed;
+  const shoot = frameCommandInput.shoot;
+  const bomb = frameCommandInput.bomb;
+  let aim = frameCommandInput.aim;
+  let aimShoot = frameCommandInput.aimShoot;
+  let aimBomb = frameCommandInput.aimBomb;
+
+  if (frameCommandInput.inputType === "gamepad"){
     const aimAdjusted = camera.aimScreenAroundShip(game, aim);
     aim = aimAdjusted;
     aimShoot = aimAdjusted;
@@ -116,8 +170,8 @@ export function normalizeStepInput(game, inputState, dt){
     right,
     thrust,
     down,
-    reset: !!inputState.reset,
-    abandonRun: !!inputState.abandonRun,
+    reset: frameCommandInput.reset,
+    abandonRun: frameCommandInput.abandonRun,
     shootHeld,
     shootPressed,
     shoot,
@@ -125,22 +179,23 @@ export function normalizeStepInput(game, inputState, dt){
     aim,
     aimShoot,
     aimBomb,
-    aimShootFrom: inputState.aimShootFrom || null,
-    aimShootTo: inputState.aimShootTo || null,
-    aimBombFrom: inputState.aimBombFrom || null,
-    aimBombTo: inputState.aimBombTo || null,
-    spawnEnemyType: inputState.spawnEnemyType || null,
+    aimShootFrom: frameCommandInput.aimShootFrom,
+    aimShootTo: frameCommandInput.aimShootTo,
+    aimBombFrom: frameCommandInput.aimBombFrom,
+    aimBombTo: frameCommandInput.aimBombTo,
+    inputType: frameCommandInput.inputType,
+    spawnEnemyType: frameCommandInput.spawnEnemyType,
   };
 }
 
 /**
  * @param {Game} game
- * @param {ReturnType<typeof normalizeStepInput>} controls
+ * @param {ReturnType<typeof readFrameCommandInput>} frameCommandInput
  * @param {ReturnType<import("./input.js").Input["update"]>} inputState
  * @returns {boolean}
  */
-export function handleStepCommands(game, controls, inputState){
-  if (controls.abandonRun){
+export function handleFrameCommands(game, frameCommandInput, inputState){
+  if (frameCommandInput.abandonRun){
     session.abandonRunAndRestart(game);
     inputState.abandonRun = false;
     inputState.abandonHoldActive = false;
@@ -148,7 +203,7 @@ export function handleStepCommands(game, controls, inputState){
     return true;
   }
 
-  if (controls.reset){
+  if (frameCommandInput.reset){
     if (game.ship.state === "crashed"){
       if (game.ship.mothershipPilots > 0){
         session.restartWithNewPilot(game);
@@ -156,14 +211,18 @@ export function handleStepCommands(game, controls, inputState){
         const nextSeed = game.planet.getSeed() + 1;
         levels.beginNewGameWithIntro(game, nextSeed);
       }
+      return true;
     } else if (dropship.isDockedWithMothership(game)) {
       if (game.pendingPerkChoice === null && game.ship.mothershipEngineers > 0){
         dashboardUi.presentNextPerkChoice(game);
+        return false;
       } else if (game.missionState.levelAdvanceReady){
         const nextSeed = game.planet.getSeed() + 1;
         levels.startJumpdriveTransition(game, nextSeed, game.level + 1);
+        return true;
       } else if (game.ship.planetScanner){
         game.planetView = !game.planetView;
+        return false;
       }
     } else {
       dropship.resetShip(game);
@@ -174,13 +233,34 @@ export function handleStepCommands(game, controls, inputState){
   if (game.pendingPerkChoice !== null){
     dashboardUi.handlePerkChoiceInput(
       game,
-      controls.left || controls.stickThrust.x < -0.5,
-      controls.right || controls.stickThrust.x > 0.5
+      frameCommandInput.left || frameCommandInput.stickThrust.x < -0.5,
+      frameCommandInput.right || frameCommandInput.stickThrust.x > 0.5
     );
-    return true;
+    return false;
   }
 
   return false;
+}
+
+/**
+ * @param {Game} game
+ * @param {ReturnType<typeof deriveSimInput>} simInput
+ * @returns {ReturnType<typeof deriveSimInput>}
+ */
+export function suppressDockedFlightInput(game, simInput){
+  if (!dropship.isDockedWithMothership(game)){
+    return simInput;
+  }
+
+  return {
+    ...simInput,
+    left: false,
+    right: false,
+    stickThrust: {
+      x: 0,
+      y: simInput.stickThrust.y < 0.25 ? 0 : simInput.stickThrust.y,
+    },
+  };
 }
 
 
