@@ -1288,7 +1288,10 @@ export function resolvePlanetCollisionResponse(args){
       pointIndex: -10,
       entryVn: ship.vx * avgHitContact.nx + ship.vy * avgHitContact.ny,
     } : null;
-    const contactImpact = hitImpactContact || pickImpactContact(contacts);
+    // Prefer the earliest swept entry feature when available. Averaging the
+    // whole manifold is useful for support/landing diagnostics, but around
+    // sharp corners it can produce a bisector normal that traps the hull.
+    const contactImpact = pickImpactContact(contacts) || hitImpactContact;
     let impactX = hx;
     let impactY = hy;
     let impactTri = null;
