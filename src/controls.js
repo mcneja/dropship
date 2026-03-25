@@ -93,15 +93,6 @@ export function normalizeStepInput(game, inputState, dt){
   if (!aimShoot) aimShoot = aim;
   if (!aimBomb) aimBomb = aimShoot || aim;
 
-  if (dropship.isDockedWithMothership(game)){
-    left = false;
-    right = false;
-    stickThrust.x = 0;
-    if (stickThrust.y < 0.25){
-      stickThrust.y = 0;
-    }
-  }
-
   if (game.planetView){
     left = false;
     right = false;

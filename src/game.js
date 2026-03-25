@@ -366,6 +366,28 @@ export class Game {
     }
 
     const stepInput = controls.normalizeStepInput(this, inputState, dt);
+
+    if (controls.handleStepCommands(this, stepInput, inputState)){
+      audioState.setThrustLoopActive(this, false);
+      return;
+    }
+
+    tether.update(this, dt);
+
+    // Cancel lateral movement while docked to avoid interpreting perk selection
+    // as thrust. This is less than ideal; the thruster graphics still display.
+    // The ideal would be that once a perk selection is made the left/right
+    // inputs are ignored until they have been released, after which they would
+    // resume being interpreted as thrust.
+    if (dropship.isDockedWithMothership(this)){
+      stepInput.left = false;
+      stepInput.right = false;
+      stepInput.stickThrust.x = 0;
+      if (stepInput.stickThrust.y < 0.25){
+        stepInput.stickThrust.y = 0;
+      }
+    }
+
     let {
       stickThrust,
       left,
@@ -384,11 +406,6 @@ export class Game {
       aimBombTo,
       spawnEnemyType,
     } = stepInput;
-    if (controls.handleStepCommands(this, stepInput, inputState)){
-      audioState.setThrustLoopActive(this, false);
-      return;
-    }
-    tether.update(this, dt);
 
     const mothershipMotion = updateLoopMothership(this, dt);
     debug.handleSpawnEnemyType(this, spawnEnemyType);
