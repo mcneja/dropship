@@ -3272,35 +3272,6 @@ function drawFrameImpl(renderer, state, planet){
 
   /*
   if (state.aimWorld) {
-    const radialGraph = planet.radialGraph;
-    const nodeCursor = planet.nearestRadialNodeInAir(state.aimWorld.x, state.aimWorld.y);
-    const nodeDistances = planet.distanceToTarget;
-    let node = nodeCursor;
-    let cOverflow = 100;
-    while (cOverflow > 0) {
-      let nodeNext = undefined;
-      let distMin = Infinity;
-      for (const n of radialGraph.neighbors[node]) {
-        if (nodeDistances[n.to] < distMin) {
-          distMin = nodeDistances[n.to];
-          nodeNext = n.to;
-        }
-      }
-      if (nodeNext === undefined) break;
-
-      const node0 = radialGraph.nodes[node];
-      const node1 = radialGraph.nodes[nodeNext];
-      pushLine(pos, col, node0.x, node0.y, node1.x, node1.y, 0, 1, 0, 1);
-      lineVerts += 2;
-
-      node = nodeNext;
-      --cOverflow;
-    }
-  }
-  */
-
-  /*
-  if (state.aimWorld) {
     const nodeShip = planet.nearestRadialNodeInAir(state.ship.x, state.ship.y);
     const nodeCursor = planet.nearestRadialNodeInAir(state.aimWorld.x, state.aimWorld.y);
     const radialGraph = planet.radialGraph;
