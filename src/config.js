@@ -1,4 +1,4 @@
-// @ts-check
+﻿// @ts-check
 
 export const CFG = Object.freeze({
   seed: 1337,
@@ -45,6 +45,20 @@ export const CFG = Object.freeze({
   TERRAIN_EDGE_ROCK_BAND_WORLD: 0.05,
   TERRAIN_EDGE_ROCK_HARDNESS: 0.0,
   TERRAIN_EDGE_OUTWARD_BIAS: 0.8,
+  DROPSHIP_OUTLINE_WORLD: 0.05, // ship silhouette shell thickness in world units; ~0.01-0.08 typical
+  DROPSHIP_OUTLINE_TOP: [0x16/255, 0x16/255, 0x18/255], // top color for the dark outer shell; normalized RGB
+  DROPSHIP_OUTLINE_BOTTOM: [0x16/255, 0x16/255, 0x18/255], // bottom color for the dark outer shell; normalized RGB
+  DROPSHIP_OUTLINE_ALPHA_TOP: 0.1, // top opacity for the dark outer shell; ~0.02-0.3 typical
+  DROPSHIP_OUTLINE_ALPHA_BOTTOM: 0.4, // bottom opacity for the dark outer shell; ~0.1-0.5 typical
+  DROPSHIP_HULL_TOP: [0.70, 0.72, 0.75], // top-of-hull gradient color; normalized RGB
+  DROPSHIP_HULL_BOTTOM: [0.52, 0.55, 0.60], // bottom-of-hull gradient color; normalized RGB
+  DROPSHIP_WINDOW_COLOR: [0.08, 0.10, 0.13], // cockpit/window fill color; normalized RGB
+  DROPSHIP_GUN_TOP: [0.42, 0.45, 0.50], // top-of-gun gradient color; normalized RGB
+  DROPSHIP_GUN_BOTTOM: [0.18, 0.20, 0.24], // bottom-of-gun gradient color; normalized RGB
+  DROPSHIP_GUN_OUTLINE_TOP: [0x2a/255, 0x2a/255, 0x2d/255], // top outline color for the gun; normalized RGB
+  DROPSHIP_GUN_OUTLINE_BOTTOM: [0x10/255, 0x10/255, 0x12/255], // bottom outline color for the gun; normalized RGB
+  DROPSHIP_HULL_SHEEN_ALPHA: 0.10, // centerline highlight strength; ~0-0.25 typical
+  DROPSHIP_HULL_SHEEN_FALLOFF: 8.0, // centerline highlight tightness across X; ~3-14 typical
   STAR_SATURATION: 2, //1 = baseline, >1 more intense colors
 });
 

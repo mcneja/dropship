@@ -31,6 +31,11 @@ import {
 /** @typedef {[number, number, number]} Rgb */
 /** @typedef {[number, number, number, number]} Rgba */
 /** @typedef {{a:Vec2,b:Vec2,c:Vec2,col:Rgba,outline?:boolean}} ColoredTri */
+/** @typedef {{a:Vec2,b:Vec2,c:Vec2,material:number,outline:boolean}} ActorTri */
+
+const ACTOR_MATERIAL_HULL = 0;
+const ACTOR_MATERIAL_WINDOW = 1;
+const ACTOR_MATERIAL_GUN = 2;
 
 /**
  * @template T
@@ -144,6 +149,121 @@ function pushTriColored(pos, col, ax, ay, bx, by, cx, cy, ca, cb, cc){
   col.push(ca[0], ca[1], ca[2], ca[3]);
   col.push(cb[0], cb[1], cb[2], cb[3]);
   col.push(cc[0], cc[1], cc[2], cc[3]);
+}
+
+/**
+ * @param {number} ax
+ * @param {number} ay
+ * @param {number} bx
+ * @param {number} by
+ * @returns {string}
+ */
+function actorEdgeKey(ax, ay, bx, by){
+  const a = `${ax.toFixed(6)},${ay.toFixed(6)}`;
+  const b = `${bx.toFixed(6)},${by.toFixed(6)}`;
+  return (a < b) ? `${a}|${b}` : `${b}|${a}`;
+}
+
+/**
+ * @param {number} x
+ * @param {number} y
+ * @returns {string}
+ */
+function actorVertexKey(x, y){
+  return `${x.toFixed(6)},${y.toFixed(6)}`;
+}
+
+/**
+ * Build non-indexed actor mesh data for shader-driven actor rendering.
+ * @param {ActorTri[]} tris
+ * @returns {{local:Float32Array,bary:Float32Array,edgeMask:Float32Array,outlineDir:Float32Array,material:Float32Array,vertCount:number}}
+ */
+function buildActorMeshData(tris){
+  const edgeCounts = new Map();
+  for (const tri of tris){
+    const edges = [
+      actorEdgeKey(tri.b[0], tri.b[1], tri.c[0], tri.c[1]),
+      actorEdgeKey(tri.c[0], tri.c[1], tri.a[0], tri.a[1]),
+      actorEdgeKey(tri.a[0], tri.a[1], tri.b[0], tri.b[1]),
+    ];
+    for (const key of edges){
+      edgeCounts.set(key, (edgeCounts.get(key) || 0) + 1);
+    }
+  }
+  /** @type {number[]} */
+  const local = [];
+  /** @type {number[]} */
+  const bary = [];
+  /** @type {number[]} */
+  const edgeMask = [];
+  /** @type {Map<string,{x:number,y:number}>} */
+  const outlineDirByVertex = new Map();
+  for (const tri of tris){
+    if (!tri.outline) continue;
+    const area2 = (tri.b[0] - tri.a[0]) * (tri.c[1] - tri.a[1]) - (tri.b[1] - tri.a[1]) * (tri.c[0] - tri.a[0]);
+    const winding = area2 >= 0 ? 1 : -1;
+    const triVerts = [tri.a, tri.b, tri.c];
+    for (let i = 0; i < 3; i++){
+      const p0 = /** @type {Vec2} */ (triVerts[i]);
+      const p1 = /** @type {Vec2} */ (triVerts[(i + 1) % 3]);
+      const edgeKey = actorEdgeKey(p0[0], p0[1], p1[0], p1[1]);
+      if ((edgeCounts.get(edgeKey) || 0) !== 1) continue;
+      const ex = p1[0] - p0[0];
+      const ey = p1[1] - p0[1];
+      const len = Math.hypot(ex, ey);
+      if (len < 1e-6) continue;
+      const nx = (winding > 0 ? ey : -ey) / len;
+      const ny = (winding > 0 ? -ex : ex) / len;
+      for (const p of [p0, p1]){
+        const key = actorVertexKey(p[0], p[1]);
+        const acc = outlineDirByVertex.get(key) || { x: 0, y: 0 };
+        acc.x += nx;
+        acc.y += ny;
+        outlineDirByVertex.set(key, acc);
+      }
+    }
+  }
+  /** @type {number[]} */
+  const outlineDir = [];
+  /** @type {number[]} */
+  const material = [];
+  for (const tri of tris){
+    const outlineMask = tri.outline
+      ? /** @type {[number,number,number]} */ ([
+          (edgeCounts.get(actorEdgeKey(tri.b[0], tri.b[1], tri.c[0], tri.c[1])) || 0) === 1 ? 1 : 0,
+          (edgeCounts.get(actorEdgeKey(tri.c[0], tri.c[1], tri.a[0], tri.a[1])) || 0) === 1 ? 1 : 0,
+          (edgeCounts.get(actorEdgeKey(tri.a[0], tri.a[1], tri.b[0], tri.b[1])) || 0) === 1 ? 1 : 0,
+        ])
+      : /** @type {[number,number,number]} */ ([0, 0, 0]);
+    const verts = [tri.a, tri.b, tri.c];
+    const baryCoords = [
+      [1, 0, 0],
+      [0, 1, 0],
+      [0, 0, 1],
+    ];
+    for (let i = 0; i < 3; i++){
+      const v = /** @type {Vec2} */ (verts[i]);
+      const b = /** @type {[number,number,number]} */ (baryCoords[i]);
+      local.push(v[0], v[1]);
+      bary.push(b[0], b[1], b[2]);
+      edgeMask.push(outlineMask[0], outlineMask[1], outlineMask[2]);
+      const outlineAcc = outlineDirByVertex.get(actorVertexKey(v[0], v[1])) || { x: 0, y: 0 };
+      const outlineLen = Math.hypot(outlineAcc.x, outlineAcc.y);
+      outlineDir.push(
+        outlineLen > 1e-6 ? (outlineAcc.x / outlineLen) : 0,
+        outlineLen > 1e-6 ? (outlineAcc.y / outlineLen) : 0
+      );
+      material.push(tri.material);
+    }
+  }
+  return {
+    local: new Float32Array(local),
+    bary: new Float32Array(bary),
+    edgeMask: new Float32Array(edgeMask),
+    outlineDir: new Float32Array(outlineDir),
+    material: new Float32Array(material),
+    vertCount: tris.length * 3,
+  };
 }
 
 /**
@@ -932,6 +1052,9 @@ function drawFrameImpl(renderer, state, planet){
     uRockDark, uRockLight, uSurfaceRockDark, uSurfaceRockLight,
       uAirDark, uAirLight, uSurfaceBand, uRmax, uMeshRmax,
     ouScale, ouCam, ouRot, oPos, oCol,
+    shipProg, shipVao, shipScale, shipCam, shipViewRot, shipPos, shipRot: shipRotLoc,
+    shipOutlineExpandWorld, shipHullTop, shipHullBottom, shipWindowColor, shipGunTop, shipGunBottom, shipOutlineTop, shipOutlineBottom, shipGunOutlineTop, shipGunOutlineBottom, shipTopY, shipBottomY, shipHullSheenAlpha, shipHullSheenFalloff,
+    shipRenderOutline, shipOutlineAlphaTop, shipOutlineAlphaBottom, shipLocalBuf, shipBaryBuf, shipEdgeBuf, shipMatBuf, shipOutlineDirBuf,
     planetWireVao, planetWireVertCount,
     starProg, starVao, starRot, starTime, starAspect, starSpan, starSaturation,
     starVertCount,
@@ -1057,6 +1180,9 @@ function drawFrameImpl(renderer, state, planet){
   let triVerts = 0;
   let lineVerts = 0;
   let pointVerts = 0;
+  let shipTriSplit = -1;
+  let aimLineStartVert = -1;
+  let aimLineVertCount = 0;
   const planetCfg = planet.getPlanetConfig ? planet.getPlanetConfig() : null;
 
   // Atmosphere ring around the planet (configurable per-planet).
@@ -1173,34 +1299,6 @@ function drawFrameImpl(renderer, state, planet){
     }
     return [outR, outG, outB];
   };
-  /**
-   * @param {number} lx
-   * @param {number} ly
-   * @returns {Vec2}
-   */
-  const toShipWorldLocal = (lx, ly) => {
-    const rotated = rot2(lx, ly, shipRot);
-    const wx = expectDefined(rotated[0]);
-    const wy = expectDefined(rotated[1]);
-    return [state.ship.x + wx, state.ship.y + wy];
-  };
-  // Normalized ship-local coords: x,y in [-0.5..0.5], liftN in ship heights.
-  /**
-   * @param {number} x
-   * @param {number} y
-   * @param {number} [liftN]
-   * @returns {Vec2}
-   */
-  const L = (x, y, liftN = 0) => {
-    return toShipWorldLocal(x * shipWWorld, (y + liftN) * shipHWorld);
-  };
-  const shipOutlineSize = 1/16;
-  /** @type {ColoredTri[]} */
-  const shipTris = [];
-  /** @type {ColoredTri[]} */
-  const gunTris = [];
-  /** @type {ColoredTri[]} */
-  const windowTris = [];
   const upLen = Math.hypot(state.ship.x, state.ship.y) || 1;
   const upx = state.ship.x / upLen;
   const upy = state.ship.y / upLen;
@@ -1211,51 +1309,27 @@ function drawFrameImpl(renderer, state, planet){
   /** @type {Rgb} */
   const silverBottom = [0.55, 0.58, 0.62];
   /**
-   * @param {ColoredTri[]} list
-   * @param {number} ax
-   * @param {number} ay
-   * @param {number} bx
-   * @param {number} by
-   * @param {number} cx
-   * @param {number} cy
-   * @param {number} cr
-   * @param {number} cg
-   * @param {number} cb
-   * @param {number} [ca]
-   * @param {boolean} [outline]
-   * @returns {void}
+   * Normalized ship-local coords converted into local world units before ship rotation/translation.
+   * @param {number} x
+   * @param {number} y
+   * @param {number} [liftN]
+   * @returns {Vec2}
    */
-  const addTri = (list, ax, ay, bx, by, cx, cy, cr, cg, cb, ca = 1, outline = true) => {
-    const tinted = applyTint(cr, cg, cb);
-    list.push({
-      a: [ax, ay],
-      b: [bx, by],
-      c: [cx, cy],
-      col: [tinted[0], tinted[1], tinted[2], ca],
-      outline,
-    });
+  const LS = (x, y, liftN = 0) => {
+    return [x * shipWWorld, (y + liftN) * shipHWorld];
   };
+  /** @type {ActorTri[]} */
+  const shipActorTris = [];
   /**
-   * @param {ColoredTri[]} list
-   * @param {number} ax
-   * @param {number} ay
-   * @param {number} bx
-   * @param {number} by
-   * @param {number} cx
-   * @param {number} cy
-   * @param {number} [ly]
+   * @param {Vec2} a
+   * @param {Vec2} b
+   * @param {Vec2} c
+   * @param {number} material
    * @param {boolean} [outline]
    * @returns {void}
    */
-  const addShipTri = (list, ax, ay, bx, by, cx, cy, ly, outline = true) => {
-    const mx = (ax + bx + cx) / 3;
-    const my = (ay + by + cy) / 3;
-    const localY = ly ?? ((mx - state.ship.x) * upx + (my - state.ship.y) * upy);
-    const t = Math.max(0, Math.min(1, (localY - bottomY) / Math.max(1e-6, topY - bottomY)));
-    const cr = silverBottom[0] + (silverTop[0] - silverBottom[0]) * t;
-    const cg = silverBottom[1] + (silverTop[1] - silverBottom[1]) * t;
-    const cb = silverBottom[2] + (silverTop[2] - silverBottom[2]) * t;
-    addTri(list, ax, ay, bx, by, cx, cy, cr, cg, cb, 1, outline);
+  const addShipActorTri = (a, b, c, material, outline = true) => {
+    shipActorTris.push({ a, b, c, material, outline });
   };
   /**
    * @param {{x:number,y:number,scale?:number,padNx?:number,padNy?:number}} p
@@ -1321,34 +1395,36 @@ function drawFrameImpl(renderer, state, planet){
     {
       const bottomHalfW = dropshipGeomN.bodyBottomHalfWRenderN;
       const topHalfW = dropshipGeomN.bodyTopHalfWRenderN;
-      const lb = L(-bottomHalfW, cargoBottomN, bodyLiftN);
-      const rb = L(bottomHalfW, cargoBottomN, bodyLiftN);
-      const rt = L(topHalfW, cargoTopN, bodyLiftN);
-      const lt = L(-topHalfW, cargoTopN, bodyLiftN);
-      addShipTri(shipTris, lb[0], lb[1], rb[0], rb[1], rt[0], rt[1]);
-      addShipTri(shipTris, lb[0], lb[1], rt[0], rt[1], lt[0], lt[1]);
+      const lb = LS(-bottomHalfW, cargoBottomN, bodyLiftN);
+      const rb = LS(bottomHalfW, cargoBottomN, bodyLiftN);
+      const rt = LS(topHalfW, cargoTopN, bodyLiftN);
+      const lt = LS(-topHalfW, cargoTopN, bodyLiftN);
+      addShipActorTri(lb, rb, rt, ACTOR_MATERIAL_HULL, true);
+      addShipActorTri(lb, rt, lt, ACTOR_MATERIAL_HULL, true);
 
       const cabOffset = dropshipGeomN.cabinOffsetN * cabinSide;
       const cabHalfW = dropshipGeomN.cabinHalfWBaseN * dropshipGeomN.cabinHalfWScale;
       const cabBaseY = cargoBottomN;
       const cabTipY = cargoTopN;
-      const cabTip = L(cabOffset, cabTipY, bodyLiftN);
-      const cabBL = L(cabOffset - cabHalfW, cabBaseY, bodyLiftN);
-      const cabBR = L(cabOffset + cabHalfW, cabBaseY, bodyLiftN);
-      addShipTri(shipTris, cabBL[0], cabBL[1], cabBR[0], cabBR[1], cabTip[0], cabTip[1]);
+      const cabTip = LS(cabOffset, cabTipY, bodyLiftN);
+      const cabBL = LS(cabOffset - cabHalfW, cabBaseY, bodyLiftN);
+      const cabBR = LS(cabOffset + cabHalfW, cabBaseY, bodyLiftN);
+      addShipActorTri(cabBL, cabBR, cabTip, ACTOR_MATERIAL_HULL, true);
 
       const winHalfW = cabHalfW * dropshipGeomN.windowHalfWScale;
       const winBaseY = cabBaseY + (cabTipY - cabBaseY) * dropshipGeomN.windowBaseT;
       const winTipY = cabBaseY + (cabTipY - cabBaseY) * dropshipGeomN.windowTipT;
-      const winTip = L(cabOffset, winTipY, bodyLiftN);
-      const winBL = L(cabOffset - winHalfW, winBaseY, bodyLiftN);
-      const winBR = L(cabOffset + winHalfW, winBaseY, bodyLiftN);
-      addTri(windowTris, winBL[0], winBL[1], winBR[0], winBR[1], winTip[0], winTip[1], 0.05, 0.05, 0.05, 1, false);
+      const winTip = LS(cabOffset, winTipY, bodyLiftN);
+      const winBL = LS(cabOffset - winHalfW, winBaseY, bodyLiftN);
+      const winBR = LS(cabOffset + winHalfW, winBaseY, bodyLiftN);
+      addShipActorTri(winBL, winBR, winTip, ACTOR_MATERIAL_WINDOW, false);
 
       const gunLen = shipHWorld * dropshipGeomN.gunLenH;
       const gunHalfW = shipWWorld * dropshipGeomN.gunHalfWW;
       const mountOffset = gunLen * dropshipGeomN.gunMountBackOffsetLen;
-      const [mountCx, mountCy] = L(0, cargoTopN + dropshipGeomN.gunPivotYInsetN, bodyLiftN);
+      const mount = LS(0, cargoTopN + dropshipGeomN.gunPivotYInsetN, bodyLiftN);
+      const mountCx = mount[0];
+      const mountCy = mount[1];
       let dirx = 0;
       let diry = 0;
       if (state.aimWorld){
@@ -1373,6 +1449,12 @@ function drawFrameImpl(renderer, state, planet){
         dirx = state.ship.x / r;
         diry = state.ship.y / r;
       }
+      const localDir = rot2(dirx, diry, -shipRot);
+      dirx = expectDefined(localDir[0]);
+      diry = expectDefined(localDir[1]);
+      const dirLen = Math.hypot(dirx, diry) || 1;
+      dirx /= dirLen;
+      diry /= dirLen;
       const px = -diry;
       const py = dirx;
       const gmx = mountCx;
@@ -1381,6 +1463,14 @@ function drawFrameImpl(renderer, state, planet){
       const backCy = gmy - diry * mountOffset;
       const frontCx = backCx + dirx * gunLen;
       const frontCy = backCy + diry * gunLen;
+      // Gun strut/platform should sit behind the gun body in draw order.
+      const gstrutW = dropshipGeomN.gunStrutHalfW;
+      const gsb0 = LS(-gstrutW, cargoTopN, bodyLiftN);
+      const gsb1 = LS(gstrutW, cargoTopN, bodyLiftN);
+      const gst0 = LS(-gstrutW, cargoTopN + DROPSHIP_MODEL.gunStrutHeightN, bodyLiftN);
+      const gst1 = LS(gstrutW, cargoTopN + DROPSHIP_MODEL.gunStrutHeightN, bodyLiftN);
+      addShipActorTri(gsb0, gsb1, gst1, ACTOR_MATERIAL_HULL, false);
+      addShipActorTri(gsb0, gst1, gst0, ACTOR_MATERIAL_HULL, false);
       /** @type {Vec2} */
       const backL = [backCx + px * gunHalfW, backCy + py * gunHalfW];
       /** @type {Vec2} */
@@ -1389,52 +1479,46 @@ function drawFrameImpl(renderer, state, planet){
       const frontL = [frontCx + px * gunHalfW, frontCy + py * gunHalfW];
       /** @type {Vec2} */
       const frontR = [frontCx - px * gunHalfW, frontCy - py * gunHalfW];
-      addShipTri(gunTris, backL[0], backL[1], backR[0], backR[1], frontR[0], frontR[1], undefined, true);
-      addShipTri(gunTris, backL[0], backL[1], frontR[0], frontR[1], frontL[0], frontL[1], undefined, true);
-      // Gun strut (vertical post from cargo top to pivot)
-      const gstrutW = dropshipGeomN.gunStrutHalfW;
-      const gsb0 = L(-gstrutW, cargoTopN, bodyLiftN);
-      const gsb1 = L(gstrutW, cargoTopN, bodyLiftN);
-      const gst0 = L(-gstrutW, cargoTopN + DROPSHIP_MODEL.gunStrutHeightN, bodyLiftN);
-      const gst1 = L(gstrutW, cargoTopN + DROPSHIP_MODEL.gunStrutHeightN, bodyLiftN);
-      addShipTri(shipTris, gsb0[0], gsb0[1], gsb1[0], gsb1[1], gst1[0], gst1[1], undefined, false);
-      addShipTri(shipTris, gsb0[0], gsb0[1], gst1[0], gst1[1], gst0[0], gst0[1], undefined, false);
+      addShipActorTri(backL, backR, frontR, ACTOR_MATERIAL_GUN, true);
+      addShipActorTri(backL, frontR, frontL, ACTOR_MATERIAL_GUN, true);
 
       // Landing skis under cargo
       const skiY0 = cargoBottomN;
       const skiY1 = dropshipGeomN.skiTopYRenderN;
       const skiHalfW = dropshipGeomN.skiHalfWRenderN;
       const skiOffset = dropshipGeomN.skiOffsetRenderN;
-      const skiL0 = L(-skiOffset - skiHalfW, skiY0, skiLiftN);
-      const skiL1 = L(-skiOffset + skiHalfW, skiY0, skiLiftN);
-      const skiL2 = L(-skiOffset + skiHalfW, skiY1, skiLiftN);
-      const skiL3 = L(-skiOffset - skiHalfW, skiY1, skiLiftN);
-      addShipTri(shipTris, skiL0[0], skiL0[1], skiL1[0], skiL1[1], skiL2[0], skiL2[1]);
-      addShipTri(shipTris, skiL0[0], skiL0[1], skiL2[0], skiL2[1], skiL3[0], skiL3[1]);
-      const skiR0 = L(skiOffset - skiHalfW, skiY0, skiLiftN);
-      const skiR1 = L(skiOffset + skiHalfW, skiY0, skiLiftN);
-      const skiR2 = L(skiOffset + skiHalfW, skiY1, skiLiftN);
-      const skiR3 = L(skiOffset - skiHalfW, skiY1, skiLiftN);
-      addShipTri(shipTris, skiR0[0], skiR0[1], skiR1[0], skiR1[1], skiR2[0], skiR2[1]);
-      addShipTri(shipTris, skiR0[0], skiR0[1], skiR2[0], skiR2[1], skiR3[0], skiR3[1]);
+      const skiL0 = LS(-skiOffset - skiHalfW, skiY0, skiLiftN);
+      const skiL1 = LS(-skiOffset + skiHalfW, skiY0, skiLiftN);
+      const skiL2 = LS(-skiOffset + skiHalfW, skiY1, skiLiftN);
+      const skiL3 = LS(-skiOffset - skiHalfW, skiY1, skiLiftN);
+      addShipActorTri(skiL0, skiL1, skiL2, ACTOR_MATERIAL_HULL, true);
+      addShipActorTri(skiL0, skiL2, skiL3, ACTOR_MATERIAL_HULL, true);
+      const skiR0 = LS(skiOffset - skiHalfW, skiY0, skiLiftN);
+      const skiR1 = LS(skiOffset + skiHalfW, skiY0, skiLiftN);
+      const skiR2 = LS(skiOffset + skiHalfW, skiY1, skiLiftN);
+      const skiR3 = LS(skiOffset - skiHalfW, skiY1, skiLiftN);
+      addShipActorTri(skiR0, skiR1, skiR2, ACTOR_MATERIAL_HULL, true);
+      addShipActorTri(skiR0, skiR2, skiR3, ACTOR_MATERIAL_HULL, true);
       // Ski struts
       const strutW = 0.05;
       const strutTop = cargoBottomN;
       const strutBot = skiY1 + 0.01;
-      const sL0 = L(-skiOffset - strutW, strutBot, skiLiftN);
-      const sL1 = L(-skiOffset + strutW, strutBot, skiLiftN);
-      const sL2 = L(-skiOffset + strutW, strutTop, bodyLiftN);
-      const sL3 = L(-skiOffset - strutW, strutTop, bodyLiftN);
-      addShipTri(shipTris, sL0[0], sL0[1], sL1[0], sL1[1], sL2[0], sL2[1], undefined, false);
-      addShipTri(shipTris, sL0[0], sL0[1], sL2[0], sL2[1], sL3[0], sL3[1], undefined, false);
-      const sR0 = L(skiOffset - strutW, strutBot, skiLiftN);
-      const sR1 = L(skiOffset + strutW, strutBot, skiLiftN);
-      const sR2 = L(skiOffset + strutW, strutTop, bodyLiftN);
-      const sR3 = L(skiOffset - strutW, strutTop, bodyLiftN);
-      addShipTri(shipTris, sR0[0], sR0[1], sR1[0], sR1[1], sR2[0], sR2[1], undefined, false);
-      addShipTri(shipTris, sR0[0], sR0[1], sR2[0], sR2[1], sR3[0], sR3[1], undefined, false);
+      const sL0 = LS(-skiOffset - strutW, strutBot, skiLiftN);
+      const sL1 = LS(-skiOffset + strutW, strutBot, skiLiftN);
+      const sL2 = LS(-skiOffset + strutW, strutTop, bodyLiftN);
+      const sL3 = LS(-skiOffset - strutW, strutTop, bodyLiftN);
+      addShipActorTri(sL0, sL1, sL2, ACTOR_MATERIAL_HULL, false);
+      addShipActorTri(sL0, sL2, sL3, ACTOR_MATERIAL_HULL, false);
+      const sR0 = LS(skiOffset - strutW, strutBot, skiLiftN);
+      const sR1 = LS(skiOffset + strutW, strutBot, skiLiftN);
+      const sR2 = LS(skiOffset + strutW, strutTop, bodyLiftN);
+      const sR3 = LS(skiOffset - strutW, strutTop, bodyLiftN);
+      addShipActorTri(sR0, sR1, sR2, ACTOR_MATERIAL_HULL, false);
+      addShipActorTri(sR0, sR2, sR3, ACTOR_MATERIAL_HULL, false);
     }
   };
+  appendShipGeometry();
+  const shipMeshData = shipActorTris.length ? buildActorMeshData(shipActorTris) : null;
 
   if (state.enemies && state.enemies.length){
     const tNow = performance.now() * 0.001;
@@ -1627,68 +1711,7 @@ function drawFrameImpl(renderer, state, planet){
       }
     }
   }
-
-  appendShipGeometry();
-  if (shipTris.length){
-    for (const t of shipTris){
-      if (!t.outline) continue;
-      const ax = t.a[0], ay = t.a[1];
-      const bx = t.b[0], by = t.b[1];
-      const cx = t.c[0], cy = t.c[1];
-      const cxm = (ax + bx + cx) / 3;
-      const cym = (ay + by + cy) / 3;
-      const da = Math.hypot(ax - cxm, ay - cym);
-      const db = Math.hypot(bx - cxm, by - cym);
-      const dc = Math.hypot(cx - cxm, cy - cym);
-      const maxd = Math.max(da, db, dc);
-      const scaleO = maxd > 1e-6 ? (maxd + shipOutlineSize) / maxd : 1;
-      const sax = cxm + (ax - cxm) * scaleO;
-      const say = cym + (ay - cym) * scaleO;
-      const sbx = cxm + (bx - cxm) * scaleO;
-      const sby = cym + (by - cym) * scaleO;
-      const scx = cxm + (cx - cxm) * scaleO;
-      const scy = cym + (cy - cym) * scaleO;
-      pushTri(pos, col, sax, say, sbx, sby, scx, scy, t.col[0] * 0.55, t.col[1] * 0.55, t.col[2] * 0.55, t.col[3]);
-      triVerts += 3;
-    }
-    for (const t of shipTris){
-      pushTri(pos, col, t.a[0], t.a[1], t.b[0], t.b[1], t.c[0], t.c[1], t.col[0], t.col[1], t.col[2], t.col[3]);
-      triVerts += 3;
-    }
-  }
-  if (windowTris.length){
-    for (const t of windowTris){
-      pushTri(pos, col, t.a[0], t.a[1], t.b[0], t.b[1], t.c[0], t.c[1], t.col[0], t.col[1], t.col[2], t.col[3]);
-      triVerts += 3;
-    }
-  }
-  if (gunTris.length){
-    for (const t of gunTris){
-      if (!t.outline) continue;
-      const ax = t.a[0], ay = t.a[1];
-      const bx = t.b[0], by = t.b[1];
-      const cx = t.c[0], cy = t.c[1];
-      const cxm = (ax + bx + cx) / 3;
-      const cym = (ay + by + cy) / 3;
-      const da = Math.hypot(ax - cxm, ay - cym);
-      const db = Math.hypot(bx - cxm, by - cym);
-      const dc = Math.hypot(cx - cxm, cy - cym);
-      const maxd = Math.max(da, db, dc);
-      const scaleO = maxd > 1e-6 ? (maxd + shipOutlineSize) / maxd : 1;
-      const sax = cxm + (ax - cxm) * scaleO;
-      const say = cym + (ay - cym) * scaleO;
-      const sbx = cxm + (bx - cxm) * scaleO;
-      const sby = cym + (by - cym) * scaleO;
-      const scx = cxm + (cx - cxm) * scaleO;
-      const scy = cym + (cy - cym) * scaleO;
-      pushTri(pos, col, sax, say, sbx, sby, scx, scy, t.col[0] * 0.55, t.col[1] * 0.55, t.col[2] * 0.55, t.col[3]);
-      triVerts += 3;
-    }
-    for (const t of gunTris){
-      pushTri(pos, col, t.a[0], t.a[1], t.b[0], t.b[1], t.c[0], t.c[1], t.col[0], t.col[1], t.col[2], t.col[3]);
-      triVerts += 3;
-    }
-  }
+  shipTriSplit = triVerts;
 
   if (state.miners && state.miners.length){
     for (const miner of state.miners){
@@ -2688,7 +2711,9 @@ function drawFrameImpl(renderer, state, planet){
 
   if (showGameplayIndicators && state.aimWorld){
     const ao = state.aimOrigin || state.ship;
+    aimLineStartVert = pos.length / 2;
     pushLine(pos, col, ao.x, ao.y, state.aimWorld.x, state.aimWorld.y, 0.85, 0.9, 1.0, 0.65);
+    aimLineVertCount = 2;
     lineVerts += 2;
   }
 
@@ -3369,12 +3394,105 @@ function drawFrameImpl(renderer, state, planet){
   gl.bindBuffer(gl.ARRAY_BUFFER, oCol);
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(col), gl.DYNAMIC_DRAW);
 
+    const drawShipPass = () => {
+      if (!(shipMeshData && shipProg && shipVao && shipLocalBuf && shipBaryBuf && shipEdgeBuf && shipMatBuf && shipOutlineDirBuf)) return;
+      const hullTopBase = /** @type {Rgb} */ (expectDefined(CFG.DROPSHIP_HULL_TOP));
+      const hullBottomBase = /** @type {Rgb} */ (expectDefined(CFG.DROPSHIP_HULL_BOTTOM));
+      const windowBase = /** @type {Rgb} */ (expectDefined(CFG.DROPSHIP_WINDOW_COLOR));
+      const gunTopBase = /** @type {Rgb} */ (expectDefined(CFG.DROPSHIP_GUN_TOP));
+      const gunBottomBase = /** @type {Rgb} */ (expectDefined(CFG.DROPSHIP_GUN_BOTTOM));
+      const outlineTopBase = /** @type {Rgb} */ (expectDefined(CFG.DROPSHIP_OUTLINE_TOP));
+      const outlineBottomBase = /** @type {Rgb} */ (expectDefined(CFG.DROPSHIP_OUTLINE_BOTTOM));
+      const gunOutlineTopBase = /** @type {Rgb} */ (expectDefined(CFG.DROPSHIP_GUN_OUTLINE_TOP));
+      const gunOutlineBottomBase = /** @type {Rgb} */ (expectDefined(CFG.DROPSHIP_GUN_OUTLINE_BOTTOM));
+      const hullTopCol = applyTint(hullTopBase[0], hullTopBase[1], hullTopBase[2]);
+      const hullBottomCol = applyTint(hullBottomBase[0], hullBottomBase[1], hullBottomBase[2]);
+      const windowCol = applyTint(windowBase[0], windowBase[1], windowBase[2]);
+      const gunTopCol = applyTint(gunTopBase[0], gunTopBase[1], gunTopBase[2]);
+      const gunBottomCol = applyTint(gunBottomBase[0], gunBottomBase[1], gunBottomBase[2]);
+      const outlineTopCol = applyTint(outlineTopBase[0], outlineTopBase[1], outlineTopBase[2]);
+      const outlineBottomCol = applyTint(outlineBottomBase[0], outlineBottomBase[1], outlineBottomBase[2]);
+      const gunOutlineTopCol = applyTint(gunOutlineTopBase[0], gunOutlineTopBase[1], gunOutlineTopBase[2]);
+      const gunOutlineBottomCol = applyTint(gunOutlineBottomBase[0], gunOutlineBottomBase[1], gunOutlineBottomBase[2]);
+    gl.useProgram(shipProg);
+    gl.bindVertexArray(shipVao);
+    if (shipScale) gl.uniform2f(shipScale, sx, sy);
+    if (shipCam) gl.uniform2f(shipCam, state.view.xCenter, state.view.yCenter);
+    if (shipViewRot) gl.uniform1f(shipViewRot, camRot);
+    if (shipPos) gl.uniform2f(shipPos, state.ship.x, state.ship.y);
+      if (shipRotLoc) gl.uniform1f(shipRotLoc, shipRot);
+      if (shipHullTop) gl.uniform3fv(shipHullTop, hullTopCol);
+      if (shipHullBottom) gl.uniform3fv(shipHullBottom, hullBottomCol);
+      if (shipWindowColor) gl.uniform3fv(shipWindowColor, windowCol);
+      if (shipGunTop) gl.uniform3fv(shipGunTop, gunTopCol);
+      if (shipGunBottom) gl.uniform3fv(shipGunBottom, gunBottomCol);
+      if (shipOutlineTop) gl.uniform3fv(shipOutlineTop, outlineTopCol);
+      if (shipOutlineBottom) gl.uniform3fv(shipOutlineBottom, outlineBottomCol);
+      if (shipGunOutlineTop) gl.uniform3fv(shipGunOutlineTop, gunOutlineTopCol);
+      if (shipGunOutlineBottom) gl.uniform3fv(shipGunOutlineBottom, gunOutlineBottomCol);
+      if (shipOutlineAlphaTop) gl.uniform1f(shipOutlineAlphaTop, CFG.DROPSHIP_OUTLINE_ALPHA_TOP ?? 1);
+      if (shipOutlineAlphaBottom) gl.uniform1f(shipOutlineAlphaBottom, CFG.DROPSHIP_OUTLINE_ALPHA_BOTTOM ?? 1);
+    if (shipHullSheenAlpha) gl.uniform1f(shipHullSheenAlpha, CFG.DROPSHIP_HULL_SHEEN_ALPHA ?? 0);
+    if (shipHullSheenFalloff) gl.uniform1f(shipHullSheenFalloff, CFG.DROPSHIP_HULL_SHEEN_FALLOFF ?? 0);
+    if (shipTopY) gl.uniform1f(shipTopY, topY);
+    if (shipBottomY) gl.uniform1f(shipBottomY, bottomY);
+    gl.bindBuffer(gl.ARRAY_BUFFER, shipLocalBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, shipMeshData.local, gl.DYNAMIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, shipBaryBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, shipMeshData.bary, gl.DYNAMIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, shipEdgeBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, shipMeshData.edgeMask, gl.DYNAMIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, shipMatBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, shipMeshData.material, gl.DYNAMIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, shipOutlineDirBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, shipMeshData.outlineDir, gl.DYNAMIC_DRAW);
+      if (shipOutlineExpandWorld) gl.uniform1f(shipOutlineExpandWorld, CFG.DROPSHIP_OUTLINE_WORLD ?? 0);
+      if (shipRenderOutline) gl.uniform1f(shipRenderOutline, 1);
+      gl.drawArrays(gl.TRIANGLES, 0, shipMeshData.vertCount);
+    if (shipOutlineExpandWorld) gl.uniform1f(shipOutlineExpandWorld, 0);
+    if (shipRenderOutline) gl.uniform1f(shipRenderOutline, 0);
+    gl.drawArrays(gl.TRIANGLES, 0, shipMeshData.vertCount);
+    gl.bindVertexArray(oVao);
+    gl.useProgram(oprog);
+    gl.uniform2f(ouScale, sx, sy);
+    gl.uniform2f(ouCam, state.view.xCenter, state.view.yCenter);
+    gl.uniform1f(ouRot, camRot);
+  };
   if (triVerts > 0){
-    gl.drawArrays(gl.TRIANGLES, 0, triVerts);
+    const split = Math.max(0, Math.min(triVerts, shipTriSplit));
+    if (split > 0){
+      gl.drawArrays(gl.TRIANGLES, 0, split);
+    }
+    if (aimLineVertCount > 0){
+      gl.drawArrays(gl.LINES, aimLineStartVert, aimLineVertCount);
+    }
+    if (shipMeshData){
+      drawShipPass();
+    }
+    if (triVerts > split){
+      gl.drawArrays(gl.TRIANGLES, split, triVerts - split);
+    }
+  } else if (shipMeshData){
+    if (aimLineVertCount > 0){
+      gl.drawArrays(gl.LINES, aimLineStartVert, aimLineVertCount);
+    }
+    drawShipPass();
   }
   let offset = triVerts;
   if (lineVerts > 0){
-    gl.drawArrays(gl.LINES, offset, lineVerts);
+    if (aimLineVertCount > 0 && aimLineStartVert >= triVerts){
+      const preAimVerts = aimLineStartVert - triVerts;
+      if (preAimVerts > 0){
+        gl.drawArrays(gl.LINES, offset, preAimVerts);
+      }
+      const postAimOffset = aimLineStartVert + aimLineVertCount;
+      const postAimVerts = lineVerts - preAimVerts - aimLineVertCount;
+      if (postAimVerts > 0){
+        gl.drawArrays(gl.LINES, postAimOffset, postAimVerts);
+      }
+    } else {
+      gl.drawArrays(gl.LINES, offset, lineVerts);
+    }
     offset += lineVerts;
   }
   if (pointVerts > 0){
@@ -3506,6 +3624,7 @@ export class Renderer {
     this.planetWirePosBuf = null;
     this.planetWireColBuf = null;
     this.planetWireVertCount = 0;
+    this.shipVertCount = 0;
 
     const vs = `#version 300 es
   precision highp float;
@@ -3659,6 +3778,101 @@ export class Renderer {
     outColor = vColor;
   }`;
 
+    const shipVs = `#version 300 es
+  precision highp float;
+  layout(location=0) in vec2 aLocal;
+  layout(location=1) in vec3 aBary;
+  layout(location=2) in vec3 aEdgeMask;
+  layout(location=3) in float aMaterial;
+  layout(location=4) in vec2 aOutlineDir;
+
+  uniform vec2 uScale;
+  uniform vec2 uCam;
+  uniform float uViewRot;
+  uniform vec2 uShipPos;
+  uniform float uShipRot;
+  uniform float uOutlineExpandWorld;
+
+  out vec2 vLocal;
+  out vec3 vBary;
+  flat out vec3 vEdgeMask;
+  flat out float vMaterial;
+
+  vec2 rot(vec2 p, float a){
+    float c = cos(a), s = sin(a);
+    return vec2(c * p.x - s * p.y, s * p.x + c * p.y);
+  }
+
+  void main(){
+    vec2 local = aLocal;
+    if (uOutlineExpandWorld > 0.0 && dot(aOutlineDir, aOutlineDir) > 1e-8){
+      local += aOutlineDir * uOutlineExpandWorld;
+    }
+    vec2 world = rot(local, uShipRot) + uShipPos;
+    vec2 p = rot(world - uCam, uViewRot);
+    gl_Position = vec4(p * uScale, 0.0, 1.0);
+    vLocal = aLocal;
+    vBary = aBary;
+    vEdgeMask = aEdgeMask;
+    vMaterial = aMaterial;
+  }`;
+
+    const shipFs = `#version 300 es
+  precision highp float;
+
+  in vec2 vLocal;
+  in vec3 vBary;
+  flat in vec3 vEdgeMask;
+  flat in float vMaterial;
+  out vec4 outColor;
+
+  uniform vec3 uHullTop;
+  uniform vec3 uHullBottom;
+  uniform vec3 uWindowColor;
+  uniform vec3 uGunTop;
+  uniform vec3 uGunBottom;
+  uniform vec3 uOutlineTop;
+  uniform vec3 uOutlineBottom;
+  uniform vec3 uGunOutlineTop;
+  uniform vec3 uGunOutlineBottom;
+  uniform float uTopY;
+  uniform float uBottomY;
+  uniform float uRenderOutline;
+  uniform float uOutlineAlphaTop;
+  uniform float uOutlineAlphaBottom;
+  uniform float uHullSheenAlpha;
+  uniform float uHullSheenFalloff;
+
+  vec3 shipBaseColor(){
+    float t = clamp((vLocal.y - uBottomY) / max(1e-5, uTopY - uBottomY), 0.0, 1.0);
+    vec3 hull = mix(uHullBottom, uHullTop, t);
+    vec3 gun = mix(uGunBottom, uGunTop, t);
+    float centerSheen = exp(-max(0.0, uHullSheenFalloff) * abs(vLocal.x));
+    hull = mix(hull, vec3(1.0), clamp(uHullSheenAlpha, 0.0, 1.0) * centerSheen * smoothstep(uBottomY, uTopY, vLocal.y));
+    if (vMaterial < 0.5){
+      return hull;
+    }
+    if (vMaterial < 1.5){
+      return uWindowColor;
+    }
+    return gun;
+  }
+
+  vec3 outlineColor(){
+    float t = clamp((vLocal.y - uBottomY) / max(1e-5, uTopY - uBottomY), 0.0, 1.0);
+    if (vMaterial > 1.5){
+      return mix(uGunOutlineBottom, uGunOutlineTop, t);
+    }
+    return mix(uOutlineBottom, uOutlineTop, t);
+  }
+
+  void main(){
+    vec3 col = (uRenderOutline > 0.5) ? outlineColor() : shipBaseColor();
+    float t = clamp((vLocal.y - uBottomY) / max(1e-5, uTopY - uBottomY), 0.0, 1.0);
+    float alpha = (uRenderOutline > 0.5) ? mix(uOutlineAlphaBottom, uOutlineAlphaTop, t) : 1.0;
+    outColor = vec4(col, alpha);
+  }`;
+
     const starVs = `#version 300 es
   precision highp float;
   layout(location=0) in vec2 aPos;
@@ -3738,6 +3952,17 @@ export class Renderer {
     this.oprog = oprog;
 
     /** @type {WebGLProgram|null} */
+    const shipProg = gl.createProgram();
+    if (!shipProg) throw new Error("Failed to create ship program");
+    gl.attachShader(shipProg, compile(gl, gl.VERTEX_SHADER, shipVs));
+    gl.attachShader(shipProg, compile(gl, gl.FRAGMENT_SHADER, shipFs));
+    gl.linkProgram(shipProg);
+    if (!gl.getProgramParameter(shipProg, gl.LINK_STATUS)){
+      throw new Error(gl.getProgramInfoLog(shipProg) || "Ship program link failed");
+    }
+    this.shipProg = shipProg;
+
+    /** @type {WebGLProgram|null} */
     const starProg = gl.createProgram();
     if (!starProg) throw new Error("Failed to create starfield program");
     gl.attachShader(starProg, compile(gl, gl.VERTEX_SHADER, starVs));
@@ -3753,12 +3978,15 @@ export class Renderer {
     /** @type {WebGLVertexArrayObject|null} */
     const oVao = gl.createVertexArray();
     /** @type {WebGLVertexArrayObject|null} */
+    const shipVao = gl.createVertexArray();
+    /** @type {WebGLVertexArrayObject|null} */
     const planetWireVao = gl.createVertexArray();
     /** @type {WebGLVertexArrayObject|null} */
     const starVao = gl.createVertexArray();
-    if (!vao || !oVao || !planetWireVao || !starVao) throw new Error("Failed to create VAO");
+    if (!vao || !oVao || !shipVao || !planetWireVao || !starVao) throw new Error("Failed to create VAO");
     this.vao = vao;
     this.oVao = oVao;
+    this.shipVao = shipVao;
     this.planetWireVao = planetWireVao;
     this.starVao = starVao;
 
@@ -3847,6 +4075,53 @@ export class Renderer {
     this.ouScale = gl.getUniformLocation(oprog, "uScale");
     this.ouCam = gl.getUniformLocation(oprog, "uCam");
     this.ouRot = gl.getUniformLocation(oprog, "uRot");
+
+    gl.useProgram(shipProg);
+    this.shipScale = gl.getUniformLocation(shipProg, "uScale");
+    this.shipCam = gl.getUniformLocation(shipProg, "uCam");
+    this.shipViewRot = gl.getUniformLocation(shipProg, "uViewRot");
+    this.shipPos = gl.getUniformLocation(shipProg, "uShipPos");
+    this.shipRot = gl.getUniformLocation(shipProg, "uShipRot");
+    this.shipOutlineExpandWorld = gl.getUniformLocation(shipProg, "uOutlineExpandWorld");
+    this.shipHullTop = gl.getUniformLocation(shipProg, "uHullTop");
+    this.shipHullBottom = gl.getUniformLocation(shipProg, "uHullBottom");
+    this.shipWindowColor = gl.getUniformLocation(shipProg, "uWindowColor");
+    this.shipGunTop = gl.getUniformLocation(shipProg, "uGunTop");
+    this.shipGunBottom = gl.getUniformLocation(shipProg, "uGunBottom");
+    this.shipOutlineTop = gl.getUniformLocation(shipProg, "uOutlineTop");
+    this.shipOutlineBottom = gl.getUniformLocation(shipProg, "uOutlineBottom");
+    this.shipGunOutlineTop = gl.getUniformLocation(shipProg, "uGunOutlineTop");
+    this.shipGunOutlineBottom = gl.getUniformLocation(shipProg, "uGunOutlineBottom");
+    this.shipTopY = gl.getUniformLocation(shipProg, "uTopY");
+    this.shipBottomY = gl.getUniformLocation(shipProg, "uBottomY");
+    this.shipHullSheenAlpha = gl.getUniformLocation(shipProg, "uHullSheenAlpha");
+    this.shipHullSheenFalloff = gl.getUniformLocation(shipProg, "uHullSheenFalloff");
+    this.shipRenderOutline = gl.getUniformLocation(shipProg, "uRenderOutline");
+    this.shipOutlineAlphaTop = gl.getUniformLocation(shipProg, "uOutlineAlphaTop");
+    this.shipOutlineAlphaBottom = gl.getUniformLocation(shipProg, "uOutlineAlphaBottom");
+
+    gl.bindVertexArray(shipVao);
+    this.shipLocalBuf = expectDefined(gl.createBuffer());
+    this.shipBaryBuf = expectDefined(gl.createBuffer());
+    this.shipEdgeBuf = expectDefined(gl.createBuffer());
+    this.shipMatBuf = expectDefined(gl.createBuffer());
+    this.shipOutlineDirBuf = expectDefined(gl.createBuffer());
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.shipLocalBuf);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.shipBaryBuf);
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.shipEdgeBuf);
+    gl.enableVertexAttribArray(2);
+    gl.vertexAttribPointer(2, 3, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.shipMatBuf);
+    gl.enableVertexAttribArray(3);
+    gl.vertexAttribPointer(3, 1, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.shipOutlineDirBuf);
+    gl.enableVertexAttribArray(4);
+    gl.vertexAttribPointer(4, 2, gl.FLOAT, false, 0, 0);
+    gl.bindVertexArray(null);
   }
 
   /**
