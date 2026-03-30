@@ -111,6 +111,33 @@ function rot2(x, y, a){
 }
 
 /**
+ * @param {number} v
+ * @returns {number}
+ */
+function clamp01(v){
+  return Math.max(0, Math.min(1, v));
+}
+
+/**
+ * @param {number} t
+ * @returns {number}
+ */
+function smoothstep01(t){
+  const u = clamp01(t);
+  return u * u * (3 - 2 * u);
+}
+
+/**
+ * Approximates the terrain's air-side edge fade for nested dropship outline shells.
+ * Input is normalized shell radius 0..1 where 0 is the hull edge and 1 is the outer fade limit.
+ * @param {number} t
+ * @returns {number}
+ */
+function terrainAirFade01(t){
+  return 1 - smoothstep01(t);
+}
+
+/**
  * @param {number[]} pos
  * @param {number[]} col
  * @param {number} ax
@@ -3401,8 +3428,6 @@ function drawFrameImpl(renderer, state, planet){
       if (shipOutlineBottom) gl.uniform3fv(shipOutlineBottom, outlineBottomCol);
       if (shipGunOutlineTop) gl.uniform3fv(shipGunOutlineTop, gunOutlineTopCol);
       if (shipGunOutlineBottom) gl.uniform3fv(shipGunOutlineBottom, gunOutlineBottomCol);
-      if (shipOutlineAlphaTop) gl.uniform1f(shipOutlineAlphaTop, CFG.DROPSHIP_OUTLINE_ALPHA_TOP ?? 1);
-      if (shipOutlineAlphaBottom) gl.uniform1f(shipOutlineAlphaBottom, CFG.DROPSHIP_OUTLINE_ALPHA_BOTTOM ?? 1);
     if (shipHullSheenAlpha) gl.uniform1f(shipHullSheenAlpha, CFG.DROPSHIP_HULL_SHEEN_ALPHA ?? 0);
     if (shipHullSheenFalloff) gl.uniform1f(shipHullSheenFalloff, CFG.DROPSHIP_HULL_SHEEN_FALLOFF ?? 0);
     if (shipTopY) gl.uniform1f(shipTopY, topY);
@@ -3417,9 +3442,28 @@ function drawFrameImpl(renderer, state, planet){
     gl.bufferData(gl.ARRAY_BUFFER, shipMeshData.material, gl.DYNAMIC_DRAW);
     gl.bindBuffer(gl.ARRAY_BUFFER, shipOutlineDirBuf);
     gl.bufferData(gl.ARRAY_BUFFER, shipMeshData.outlineDir, gl.DYNAMIC_DRAW);
-      if (shipOutlineExpandWorld) gl.uniform1f(shipOutlineExpandWorld, CFG.DROPSHIP_OUTLINE_WORLD ?? 0);
-      if (shipRenderOutline) gl.uniform1f(shipRenderOutline, 1);
-      gl.drawArrays(gl.TRIANGLES, 0, shipMeshData.vertCount);
+      const outlineWorld = Math.max(0, CFG.DROPSHIP_OUTLINE_WORLD ?? 0);
+      if (outlineWorld > 0 && shipRenderOutline && shipOutlineExpandWorld && shipOutlineAlphaTop && shipOutlineAlphaBottom){
+        const shellFractions = [0.9, 0.7, 0.5, 0.3, 0.12];
+        let prevFade = 0;
+        gl.uniform1f(shipRenderOutline, 1);
+        for (const frac of shellFractions){
+          const fade = terrainAirFade01(frac);
+          const alphaScale = Math.max(0, fade - prevFade);
+          prevFade = fade;
+          if (!(alphaScale > 1e-4)) continue;
+          gl.uniform1f(shipOutlineExpandWorld, outlineWorld * frac);
+          gl.uniform1f(shipOutlineAlphaTop, (CFG.DROPSHIP_OUTLINE_ALPHA_TOP ?? 1) * alphaScale);
+          gl.uniform1f(shipOutlineAlphaBottom, (CFG.DROPSHIP_OUTLINE_ALPHA_BOTTOM ?? 1) * alphaScale);
+          gl.drawArrays(gl.TRIANGLES, 0, shipMeshData.vertCount);
+        }
+      } else {
+        if (shipOutlineExpandWorld) gl.uniform1f(shipOutlineExpandWorld, outlineWorld);
+        if (shipOutlineAlphaTop) gl.uniform1f(shipOutlineAlphaTop, CFG.DROPSHIP_OUTLINE_ALPHA_TOP ?? 1);
+        if (shipOutlineAlphaBottom) gl.uniform1f(shipOutlineAlphaBottom, CFG.DROPSHIP_OUTLINE_ALPHA_BOTTOM ?? 1);
+        if (shipRenderOutline) gl.uniform1f(shipRenderOutline, 1);
+        gl.drawArrays(gl.TRIANGLES, 0, shipMeshData.vertCount);
+      }
     if (shipOutlineExpandWorld) gl.uniform1f(shipOutlineExpandWorld, 0);
     if (shipRenderOutline) gl.uniform1f(shipRenderOutline, 0);
     gl.drawArrays(gl.TRIANGLES, 0, shipMeshData.vertCount);

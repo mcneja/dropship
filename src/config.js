@@ -1,5 +1,7 @@
 ﻿// @ts-check
 
+const PLANET_SHADOW_THICKNESS = 0.05;
+
 export const CFG = Object.freeze({
   seed: 1337,
   RMAX: 18,
@@ -33,19 +35,19 @@ export const CFG = Object.freeze({
   ENTRANCE_ANGLE_JITTER: 0.35,
 
   // render
-  ROCK_DARK: [0x5f/255, 0x3a/255, 0x20/255],
-  ROCK_LIGHT:[0x8a/255, 0x56/255, 0x31/255],
-  AIR_DARK:  [0x2b/255, 0x2b/255, 0x2b/255],
-  AIR_LIGHT: [0x4a/255, 0x4a/255, 0x4a/255],
-  EDGE_DARK: [0x14/255, 0x14/255, 0x14/255],
-  TERRAIN_EDGE_AIR_OCCLUSION: 0.24,
-  TERRAIN_EDGE_AIR_BAND_WORLD: 0.05,
-  TERRAIN_EDGE_AIR_HARDNESS: 0.0,
-  TERRAIN_EDGE_ROCK_LIGHT: 0.14,
-  TERRAIN_EDGE_ROCK_BAND_WORLD: 0.05,
-  TERRAIN_EDGE_ROCK_HARDNESS: 0.0,
-  TERRAIN_EDGE_OUTWARD_BIAS: 0.8,
-  DROPSHIP_OUTLINE_WORLD: 0.05, // ship silhouette shell thickness in world units; ~0.01-0.08 typical
+  ROCK_DARK: [0x5f/255, 0x3a/255, 0x20/255], // darker end of the interior rock gradient; normalized RGB
+  ROCK_LIGHT:[0x8a/255, 0x56/255, 0x31/255], // lighter end of the interior rock gradient; normalized RGB
+  AIR_DARK:  [0x2b/255, 0x2b/255, 0x2b/255], // darker end of the cave-air gradient away from lit/open areas; normalized RGB
+  AIR_LIGHT: [0x4a/255, 0x4a/255, 0x4a/255], // lighter end of the cave-air gradient; normalized RGB
+  EDGE_DARK: [0x14/255, 0x14/255, 0x14/255], // legacy dark edge color constant; normalized RGB
+  TERRAIN_EDGE_AIR_OCCLUSION: 0.24, // strength of the rock-casts-into-air darkening band along cave walls
+  TERRAIN_EDGE_AIR_BAND_WORLD: PLANET_SHADOW_THICKNESS, // world-space thickness of the air-side wall darkening band
+  TERRAIN_EDGE_AIR_HARDNESS: 0.0, // 0 = soft falloff, 1 = hard cutoff for the air-side wall darkening
+  TERRAIN_EDGE_ROCK_LIGHT: 0.14, // strength of the lightened highlight band on the rock side of the boundary
+  TERRAIN_EDGE_ROCK_BAND_WORLD: 0.05, // world-space thickness of the rock-side highlight band
+  TERRAIN_EDGE_ROCK_HARDNESS: 0.0, // 0 = soft falloff, 1 = hard cutoff for the rock-side highlight
+  TERRAIN_EDGE_OUTWARD_BIAS: 0.8, // biases rock-side highlighting toward outward-facing walls near the surface
+  DROPSHIP_OUTLINE_WORLD: PLANET_SHADOW_THICKNESS, // ship silhouette shell thickness in world units; ~0.01-0.08 typical
   DROPSHIP_OUTLINE_TOP: [0x16/255, 0x16/255, 0x18/255], // top color for the dark outer shell; normalized RGB
   DROPSHIP_OUTLINE_BOTTOM: [0x16/255, 0x16/255, 0x18/255], // bottom color for the dark outer shell; normalized RGB
   DROPSHIP_OUTLINE_ALPHA_TOP: 0.1, // top opacity for the dark outer shell; ~0.02-0.3 typical
