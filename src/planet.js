@@ -116,6 +116,32 @@ export class Planet {
   }
 
   /**
+   * Configured world radius (RMAX).
+   * @returns {number}
+   */
+  getWorldRadius(){
+    return this.planetRadius;
+  }
+
+  /**
+   * Terrain shell radius where air/rock boundary is interpreted.
+   * Outer ring is reserved as air; shell is the midpoint to the next inner ring.
+   * @returns {number}
+   */
+  getSurfaceShellRadius(){
+    return this.radial.outerSurfaceRadius();
+  }
+
+  /**
+   * Outer radius where atmospheric drag reaches zero.
+   * @returns {number}
+   */
+  getAtmosphereOuterRadius(){
+    const h = Math.max(0, this.planetParams?.ATMOSPHERE_HEIGHT || 0);
+    return this.getSurfaceShellRadius() + h;
+  }
+
+  /**
    * @returns {{
    *  iceShard:Array<{x:number,y:number,vx:number,vy:number,life:number,maxLife:number,size:number}>,
    *  lava:Array<{x:number,y:number,vx:number,vy:number,life:number}>,
@@ -639,15 +665,15 @@ export class Planet {
     if (this._triStraddlesBoundary(tri)){
       return this._triGradientNormal(tri);
     }
-    const rOuter = this._outerShellRadius();
-    if (!(rOuter > 0)) return null;
+    const shellR = this._surfaceShellRadius();
+    if (!(shellR > 0)) return null;
     const r = Math.hypot(x, y);
     if (r <= 1e-6) return null;
     const ux = x / r;
     const uy = y / r;
     const probe = 0.08;
     const shellGap = Math.max(0.08, probe * 1.5);
-    if (Math.abs(r - rOuter) > shellGap) return null;
+    if (Math.abs(r - shellR) > shellGap) return null;
     const airOut = this.airValueAtWorld(x + ux * probe, y + uy * probe);
     const airIn = this.airValueAtWorld(x - ux * probe, y - uy * probe);
     if (!(airOut > 0.5 && airIn <= 0.5)) return null;
@@ -745,10 +771,15 @@ export class Planet {
   /**
    * @returns {number}
    */
+  _surfaceShellRadius(){
+    return this.getSurfaceShellRadius();
+  }
+
+  /**
+   * @returns {number}
+   */
   _outerShellRadius(){
-    return (this.radial && this.radial.rings && this.radial.rings.length)
-      ? (this.radial.rings.length - 1)
-      : this.planetRadius;
+    return this._surfaceShellRadius();
   }
 
   /**
@@ -759,14 +790,14 @@ export class Planet {
    * @returns {number|null}
    */
   _segmentOuterShellHitT(ax, ay, bx, by){
-    const rOuter = this._outerShellRadius();
-    if (!(rOuter > 0)) return null;
+    const shellR = this._surfaceShellRadius();
+    if (!(shellR > 0)) return null;
     const dx = bx - ax;
     const dy = by - ay;
     const qa = dx * dx + dy * dy;
     if (qa <= 1e-10) return null;
     const qb = 2 * (ax * dx + ay * dy);
-    const qc = ax * ax + ay * ay - rOuter * rOuter;
+    const qc = ax * ax + ay * ay - shellR * shellR;
     const disc = qb * qb - 4 * qa * qc;
     if (disc < 0) return null;
     const root = Math.sqrt(disc);

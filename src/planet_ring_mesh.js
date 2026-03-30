@@ -17,9 +17,6 @@ export class RingMesh {
     this._params = params;
     this._map = map;
     this._OUTER_PAD = 0.0;
-    // Keep the outer shell purely space so mapgen raster noise cannot create
-    // phantom rock/collision slivers at the mesh boundary.
-    this._OUTER_FORCED_AIR_RINGS = 0;
     this._R_MESH = Math.max(0, Math.floor(params.RMAX)) + 1;
 
     /**
@@ -104,15 +101,12 @@ export class RingMesh {
     this._R_MESH = rings.length - 1;
     this.rings = rings;
 
-      for (let r = 0; r < rings.length; r++){
-        const ring = /** @type {MeshRing} */ (rings[r]);
+      for (const ring of rings){
         for (const v of ring){
-          v.air = this._sampleAirAtWorldExtended(v.x, v.y);
+          v.air = this._sampleAirAtWorld(v.x, v.y);
         }
       }
       this._applyMoltenOverrides();
-      this._forceOuterShellAir();
-      this._cleanupOuterRimSpikeArtifacts();
 
       for (let r=0;r<this._R_MESH;r++){
         const inner = /** @type {MeshRing} */ (rings[r]);
@@ -238,17 +232,12 @@ export class RingMesh {
    * @param {number} y
    * @returns {number}
    */
-  _sampleAirAtWorldExtended(x, y){
+  _sampleAirAtWorld(x, y){
     const r = Math.hypot(x, y);
     const coreR = (this._params.CORE_RADIUS > 1)
       ? this._params.CORE_RADIUS
       : (this._params.CORE_RADIUS * this._params.RMAX);
     if (coreR > 0 && r <= coreR) return 0;
-    const forcedRings = Math.max(0, this._OUTER_FORCED_AIR_RINGS | 0);
-    if (forcedRings > 0){
-      const outerShellMinR = Math.max(0, this._R_MESH - forcedRings);
-      if (r >= outerShellMinR) return 1;
-    }
     if (r > this._params.RMAX) return 1;
     return this._map.airBinaryAtWorld(x, y);
   }
@@ -302,10 +291,29 @@ export class RingMesh {
    */
   airValueAtWorld(x, y){
     const r = Math.hypot(x, y);
-    const rOuter = this.rings ? (this.rings.length - 1) : this._params.RMAX;
+    const rOuter = this.outerRingRadius();
     if (r > rOuter + this._OUTER_PAD) return 1;
     if (r > this._params.RMAX + this._OUTER_PAD) return 1;
     return this._airValueAtWorldNoOuterClamp(x, y);
+  }
+
+  /**
+   * @returns {number}
+   */
+  outerRingRadius(){
+    return this.rings && this.rings.length
+      ? (this.rings.length - 1)
+      : this._params.RMAX;
+  }
+
+  /**
+   * Radius of the gameplay surface shell.
+   * This is the barycentric midpoint band between the outer ring and its
+   * inward neighbor.
+   * @returns {number}
+   */
+  outerSurfaceRadius(){
+    return Math.max(0, this.outerRingRadius() - 0.5);
   }
 
   /**
@@ -460,36 +468,16 @@ export class RingMesh {
     if (resampleFromMap){
       for (const ring of this.rings){
         for (const v of ring){
-          v.air = this._sampleAirAtWorldExtended(v.x, v.y);
+          v.air = this._sampleAirAtWorld(v.x, v.y);
         }
       }
     }
     this._applyMoltenOverrides();
-    this._forceOuterShellAir();
-    this._cleanupOuterRimSpikeArtifacts();
     for (let i = 0; i < this.vertCount; i++){
       this.airFlag[i] = /** @type {MeshVertex} */ (this._vertRefs[i]).air;
     }
     miners.invalidateSurfaceGuidePathCache(this);
     return new Float32Array(this.airFlag);
-  }
-
-  /**
-   * Force outer shell rings to air.
-   * @returns {void}
-   */
-  _forceOuterShellAir(){
-    if (!this.rings.length) return;
-    const ringCount = this.rings.length;
-    const forceCount = Math.max(0, Math.min(ringCount, this._OUTER_FORCED_AIR_RINGS | 0));
-    if (forceCount <= 0) return;
-    const start = Math.max(0, ringCount - forceCount);
-    for (let r = start; r < ringCount; r++){
-      const ring = /** @type {MeshRing} */ (this.rings[r]);
-      for (const v of ring){
-        v.air = 1;
-      }
-    }
   }
 
   /**
@@ -510,104 +498,6 @@ export class RingMesh {
         if (inBand) v.air = 1;
         if (inCore) v.air = 0;
       }
-    }
-  }
-
-  /**
-   * Remove isolated rock spikes in the penultimate ring that have no inward support.
-   * This trims likely outer-rim raster artifacts while preserving actual thin terrain.
-   * @returns {void}
-   */
-  _cleanupOuterRimSpikeArtifacts(){
-    const outer = this.rings.length - 1;
-    if (outer < 2) return;
-    const rim = this.rings[outer - 1];
-    const inner = this.rings[outer - 2];
-    if (!rim || !inner || rim.length < 3 || inner.length < 3) return;
-    /**
-     * @param {number} i
-     * @param {number} n
-     * @returns {number}
-     */
-    const wrap = (i, n) => {
-      let out = i % n;
-      if (out < 0) out += n;
-      return out;
-    };
-    /**
-     * @param {number} i
-     * @returns {boolean}
-     */
-    const hasInwardSupport = (i) => {
-      const v = /** @type {MeshVertex} */ (rim[i]);
-      const len = Math.hypot(v.x, v.y) || 1;
-      const ux = v.x / len;
-      const uy = v.y / len;
-      let best = 0;
-      let bestDot = -2;
-      for (let j = 0; j < inner.length; j++){
-        const iv = /** @type {MeshVertex} */ (inner[j]);
-        const ilen = Math.hypot(iv.x, iv.y) || 1;
-        const dot = (iv.x / ilen) * ux + (iv.y / ilen) * uy;
-        if (dot > bestDot){
-          bestDot = dot;
-          best = j;
-        }
-      }
-      const jl = wrap(best - 1, inner.length);
-      const jr = wrap(best + 1, inner.length);
-      return (/** @type {MeshVertex} */ (inner[best])).air <= 0.5 || (/** @type {MeshVertex} */ (inner[jl])).air <= 0.5 || (/** @type {MeshVertex} */ (inner[jr])).air <= 0.5;
-    };
-
-    /** @type {number[]} */
-    const clear = [];
-    /** @type {boolean[]} */
-    const support = new Array(rim.length).fill(false);
-    for (let i = 0; i < rim.length; i++){
-      support[i] = hasInwardSupport(i);
-    }
-
-    // Clear isolated unsupported spikes.
-    for (let i = 0; i < rim.length; i++){
-      const v = /** @type {MeshVertex} */ (rim[i]);
-      if (v.air > 0.5) continue;
-      const prev = /** @type {MeshVertex} */ (rim[wrap(i - 1, rim.length)]);
-      const next = /** @type {MeshVertex} */ (rim[wrap(i + 1, rim.length)]);
-      if (prev.air <= 0.5 || next.air <= 0.5) continue;
-      if (!support[i]){
-        clear.push(i);
-      }
-    }
-
-    // Also clear unsupported runs bounded by air (common in outer-shell artifacts).
-    /** @type {boolean[]} */
-    const visited = new Array(rim.length).fill(false);
-    for (let i = 0; i < rim.length; i++){
-      if (visited[i]) continue;
-      if ((/** @type {MeshVertex} */ (rim[i])).air > 0.5 || support[i]){
-        visited[i] = true;
-        continue;
-      }
-      let lenRun = 0;
-      let j = i;
-      while (!visited[j] && (/** @type {MeshVertex} */ (rim[j])).air <= 0.5 && !support[j]){
-        visited[j] = true;
-        lenRun++;
-        j = wrap(j + 1, rim.length);
-      }
-      const start = i;
-      const end = wrap(j - 1, rim.length);
-      const before = /** @type {MeshVertex} */ (rim[wrap(start - 1, rim.length)]);
-      const after = /** @type {MeshVertex} */ (rim[wrap(end + 1, rim.length)]);
-      if (before.air > 0.5 && after.air > 0.5){
-        for (let k = 0; k < lenRun; k++){
-          clear.push(wrap(start + k, rim.length));
-        }
-      }
-    }
-
-    for (const i of clear){
-      /** @type {MeshVertex} */ (rim[i]).air = 1;
     }
   }
 

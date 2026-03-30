@@ -1000,9 +1000,9 @@ export function updateFlyingState(game, dt, input, planetCfg, mothershipPrevPose
   audioState.setThrustLoopActive(game, hasDropshipThrustInput(controls));
 
   const isWaterWorld = !!(planetCfg && planetCfg.id === "water");
-  const outerRingR = (game.planet && game.planet.radial && game.planet.radial.rings && game.planet.radial.rings.length)
-    ? (game.planet.radial.rings.length - 1)
-    : Math.floor(game.planetParams.RMAX || 0);
+  const surfaceShellR = game.planet.getSurfaceShellRadius
+    ? game.planet.getSurfaceShellRadius()
+    : game.planet.radial.outerSurfaceRadius();
   const thrustMax = game.planetParams.THRUST * (1 + game.ship.thrust * 0.1);
   const inertialDriveThrust = getInertialDriveThrust(GAME, game.ship.inertialDrive);
   const thrustAccel = computeDropshipAcceleration(game.ship, controls, thrustMax);
@@ -1022,7 +1022,7 @@ export function updateFlyingState(game, dt, input, planetCfg, mothershipPrevPose
   const controlAccelY = ay;
   const thrustInputActive = hasDropshipThrustInput(controls);
   const { rx, ry } = thrustAccel;
-  const waterR = isWaterWorld ? Math.max(0, outerRingR) : 0;
+  const waterR = isWaterWorld ? Math.max(0, surfaceShellR) : 0;
   const shipInWaterBefore = !!(isWaterWorld && collisionWorld.shipCountsAsSubmergedInWater(game, waterR, game.ship.x, game.ship.y));
 
   if (isWaterWorld && shipInWaterBefore){
@@ -1087,7 +1087,7 @@ export function updateFlyingState(game, dt, input, planetCfg, mothershipPrevPose
     const atmosphereDensity = flightPhysics.sampleAtmosphereDensity(
       game.planet,
       game.planetParams,
-      outerRingR,
+      surfaceShellR,
       game.ship.x,
       game.ship.y
     );

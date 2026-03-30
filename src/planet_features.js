@@ -511,8 +511,7 @@ function collectWaterBubbleSources(planet, target){
   const air = planet.airNodesBitmap || null;
   if (!air || air.length !== nodes.length) return [];
 
-  const rings = (planet && planet.radial && planet.radial.rings) ? planet.radial.rings : null;
-  const outerRingR = (rings && rings.length) ? (rings.length - 1) : Math.floor(params.RMAX);
+  const outerRingR = planet.radial.outerSurfaceRadius();
   const mediumR = Math.max(0.8, outerRingR - 0.5);
   const rMin = Math.max(0.7, params.RMAX * 0.12);
   const minDist = 0.65;
@@ -796,10 +795,7 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
   let ventsPruned = false;
   const waterCfg = planet.getPlanetConfig ? planet.getPlanetConfig() : null;
   const isWater = !!(waterCfg && waterCfg.id === "water");
-  const waterParams = planet.getPlanetParams ? planet.getPlanetParams() : null;
-  const outerRingR = (planet && planet.radial && planet.radial.rings && planet.radial.rings.length)
-    ? (planet.radial.rings.length - 1)
-    : ((waterParams && typeof waterParams.RMAX === "number") ? Math.floor(waterParams.RMAX) : 0);
+  const outerRingR = planet.radial.outerSurfaceRadius();
   const waterRadius = isWater ? Math.max(0, outerRingR) : 0;
   const bubbleSources = isWater ? collectWaterBubbleSources(planet, 36) : [];
   if (isWater && bubbleSources.length && props){

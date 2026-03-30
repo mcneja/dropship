@@ -1133,8 +1133,11 @@ function drawFrameImpl(renderer, state, planet){
   if (uSurfaceBand) gl.uniform1f(uSurfaceBand, band);
   const params = planet.getPlanetParams ? planet.getPlanetParams() : null;
   const rMax = (params && params.RMAX) ? params.RMAX : CFG.RMAX;
-    if (uRmax) gl.uniform1f(uRmax, rMax);
-    if (uMeshRmax) gl.uniform1f(uMeshRmax, planet.radial ? (planet.radial.rings.length - 1) : rMax);
+  const surfaceShellRadius = planet.getSurfaceShellRadius
+    ? planet.getSurfaceShellRadius()
+    : (planet.radial ? planet.radial.outerSurfaceRadius() : Math.max(0, rMax - 0.5));
+  if (uRmax) gl.uniform1f(uRmax, surfaceShellRadius);
+  if (uMeshRmax) gl.uniform1f(uMeshRmax, planet.radial.outerRingRadius());
   if (renderer.uMaxR) gl.uniform1f(renderer.uMaxR, rMax + 0.5);
   gl.drawArrays(gl.TRIANGLES, 0, vertCount);
   gl.bindVertexArray(null);
@@ -1150,10 +1153,7 @@ function drawFrameImpl(renderer, state, planet){
    * @param {number} y
    * @returns {boolean}
    */
-  const outerRingRadius = planet.radial && planet.radial.rings && planet.radial.rings.length
-    ? (planet.radial.rings.length - 1)
-    : rMax;
-  const outerRingEntityBand = Math.max(1.1, Math.min(2.0, outerRingRadius * 0.035));
+  const shellEntityBand = Math.max(1.1, Math.min(2.0, surfaceShellRadius * 0.035));
 
   /**
    * @param {number} x
@@ -1165,7 +1165,7 @@ function drawFrameImpl(renderer, state, planet){
     if (planetFog.fogSeenAt(planet, x, y)) return true;
     if (!state.showVisibleOuterRingEntities) return false;
     if (!planetFog.fogVisibleAt(planet, x, y)) return false;
-    return Math.hypot(x, y) >= outerRingRadius - outerRingEntityBand;
+    return Math.hypot(x, y) >= surfaceShellRadius - shellEntityBand;
   };
 
   /**
@@ -3716,6 +3716,11 @@ export class Renderer {
   void main(){
     float r = length(vWorld);
     if (r > uMaxR){
+      discard;
+    }
+    // Outer air ring: suppress drawing the air-side half of the outermost
+    // barycentric band so "space" remains unrendered there.
+    if (r > (uMeshRmax - 0.5) && vAir > 0.5){
       discard;
     }
     float t = clamp(vShade, 0.0, 1.0);

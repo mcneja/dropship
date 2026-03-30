@@ -263,6 +263,12 @@ export function renderHudPanels(game, inputState, now, renderState, opts){
         || previewRotationDelta > 0.005
       ){
         const cfg = game.planet && game.planet.getPlanetConfig ? game.planet.getPlanetConfig() : null;
+        const worldRadius = game.planet && game.planet.getWorldRadius
+          ? game.planet.getWorldRadius()
+          : game.planetParams.RMAX;
+        const surfaceRadius = game.planet && game.planet.getSurfaceShellRadius
+          ? game.planet.getSurfaceShellRadius()
+          : Math.max(0, worldRadius - 0.5);
         game.ui.updateMothershipDashboard(game.dashboard, {
           open: true,
           shipRows: dashboardShipRows(game),
@@ -284,8 +290,8 @@ export function renderHudPanels(game, inputState, now, renderState, opts){
                 getSeed: () => game.planet.getSeed(),
               },
             palette: planetVisuals.planetPalette(game),
-            worldRadius: game.planetParams.RMAX,
-            surfaceRadius: game.planetParams.RMAX,
+            worldRadius,
+            surfaceRadius,
             fogEnabled: game.fogEnabled,
             rotation: previewRotation,
           },

@@ -62,6 +62,7 @@ export class MapGen {
 
     if (prebuiltWorld){
       this._current = normalizeMapWorld(prebuiltWorld, G, seed);
+      this._overwriteOuterAirRing(this._current.air);
     } else {
       this.regenWorld(seed);
     }
@@ -124,6 +125,8 @@ export class MapGen {
     const r2 = radius*radius;
     const coreR = (this.params.CORE_RADIUS > 1) ? this.params.CORE_RADIUS : (this.params.CORE_RADIUS * this.params.RMAX);
     const coreR2 = coreR * coreR;
+    const shellR = this._surfaceShellRadius();
+    const shellR2 = shellR * shellR;
     const [ix0,iy0] = toGrid(cx-radius, cy-radius);
     const [ix1,iy1] = toGrid(cx+radius, cy+radius);
     const x0=Math.max(0,ix0), y0=Math.max(0,iy0);
@@ -133,6 +136,7 @@ export class MapGen {
       if (!inside[k]) continue;
       const [x,y] = toWorld(i,j);
       if (coreR > 0 && (x*x + y*y) <= coreR2) continue;
+      if (!val && (x*x + y*y) >= shellR2) continue;
       const dx=x-cx, dy=y-cy;
       if (dx*dx+dy*dy <= r2) field[k]=val;
     }
@@ -296,6 +300,7 @@ export class MapGen {
       if (p.EXCAVATE_RINGS && p.EXCAVATE_RING_THICKNESS > 0){
         this._carveRings(air, rand, p.EXCAVATE_RINGS, p.EXCAVATE_RING_THICKNESS);
       }
+      this._overwriteOuterAirRing(air);
       this._current = { seed, air, entrances: [], finalAir: 0 };
       return this._current;
     }
@@ -386,6 +391,7 @@ export class MapGen {
     if (p.EXCAVATE_RINGS && p.EXCAVATE_RING_THICKNESS > 0){
       this._carveRings(airFinal, rand, p.EXCAVATE_RINGS, p.EXCAVATE_RING_THICKNESS);
     }
+    this._overwriteOuterAirRing(airFinal);
     this._current = { seed, air: airFinal, entrances: bestWorld ? bestWorld.entrances : [], finalAir };
     return this._current;
   }
@@ -421,6 +427,34 @@ export class MapGen {
           air[k] = 1;
           break;
         }
+      }
+    }
+  }
+
+  /**
+   * @returns {number}
+   */
+  _surfaceShellRadius(){
+    return Math.max(0, this.params.RMAX - 0.5);
+  }
+
+  /**
+   * Keep the top half of the outermost radial band as air so the render/collision
+   * shell sits at the barycentric midpoint between the outer two mesh rings.
+   * @param {Uint8Array} air
+   * @returns {void}
+   */
+  _overwriteOuterAirRing(air){
+    const shellR = this._surfaceShellRadius();
+    if (!(shellR > 0)) return;
+    const shellR2 = shellR * shellR;
+    const { G, idx, inside, toWorld } = this.grid;
+    for (let j = 0; j < G; j++) for (let i = 0; i < G; i++){
+      const k = idx(i, j);
+      if (!inside[k]) continue;
+      const [x, y] = toWorld(i, j);
+      if (x * x + y * y >= shellR2){
+        air[k] = 1;
       }
     }
   }
@@ -512,6 +546,8 @@ export class MapGen {
    */
   airBinaryAtWorld(x, y){
     const { G, idx, inside, toGrid } = this.grid;
+    const shellR = this._surfaceShellRadius();
+    if ((x * x + y * y) >= shellR * shellR) return 1;
     const [i, j] = toGrid(x, y);
     if (i < 0 || i >= G || j < 0 || j >= G) return 1;
     const k = idx(i, j);
@@ -531,6 +567,13 @@ export class MapGen {
     if (i < 0 || i >= G || j < 0 || j >= G) return false;
     const k = idx(i, j);
     if (!inside[k]) return false;
+    if (!val){
+      const shellR = this._surfaceShellRadius();
+      if (x * x + y * y >= shellR * shellR){
+        this._current.air[k] = 1;
+        return true;
+      }
+    }
     this._current.air[k] = val ? 1 : 0;
     return true;
   }

@@ -31,8 +31,8 @@ const planetPreviewCacheByCanvas = new WeakMap();
  * @typedef {Object} PlanetPreview
  * @property {PlanetPreviewPlanet} planet
  * @property {PlanetPreviewPalette|null} [palette]
- * @property {number} worldRadius
- * @property {number} surfaceRadius
+ * @property {number} worldRadius Configured planet radius (RMAX).
+ * @property {number} surfaceRadius Terrain shell radius (air/rock boundary).
  * @property {boolean} fogEnabled
  * @property {number} [rotation]
  */
@@ -40,8 +40,8 @@ const planetPreviewCacheByCanvas = new WeakMap();
  * @typedef {Object} NullablePlanetPreview
  * @property {PlanetPreviewPlanet|null} planet
  * @property {PlanetPreviewPalette|null} [palette]
- * @property {number} worldRadius
- * @property {number} surfaceRadius
+ * @property {number} worldRadius Configured planet radius (RMAX).
+ * @property {number} surfaceRadius Terrain shell radius (air/rock boundary).
  * @property {boolean} fogEnabled
  * @property {number} [rotation]
  */

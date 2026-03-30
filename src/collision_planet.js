@@ -95,117 +95,42 @@ function rockPolygonFromTri(tri){
 }
 
 /**
- * @param {import("./planet.js").Planet} planet
- * @returns {number}
- */
-function planetOuterShellRadius(planet){
-  return (planet && planet.radial && planet.radial.rings && planet.radial.rings.length)
-    ? (planet.radial.rings.length - 1)
-    : planet.planetRadius;
-}
-
-/**
- * @param {{x:number,y:number,air:number}|null|undefined} v
- * @param {number} rOuter
- * @returns {boolean}
- */
-function isOuterRingVertex(v, rOuter){
-  if (!v || !(rOuter > 0)) return false;
-  return Math.abs(Math.hypot(v.x, v.y) - rOuter) <= 1e-4;
-}
-
-/**
- * @param {Array<{x:number,y:number,air:number}>|null|undefined} tri
- * @param {number} rOuter
- * @returns {Array<{p0:[number,number],p1:[number,number],outerCap:true}>}
- */
-function outerBoundarySegmentsFromTri(tri, rOuter){
-  /** @type {Array<{p0:[number,number],p1:[number,number],outerCap:true}>} */
-  const out = [];
-  if (!tri || tri.length < 3 || !(rOuter > 0)) return out;
-  for (let i = 0; i < 3; i++){
-    const a = tri[i];
-    const b = tri[(i + 1) % 3];
-    if (!a || !b) continue;
-    if (!isOuterRingVertex(a, rOuter) || !isOuterRingVertex(b, rOuter)) continue;
-    const aRock = a.air <= 0.5;
-    const bRock = b.air <= 0.5;
-    if (!aRock && !bRock) continue;
-    if (aRock && bRock){
-      out.push({ p0: [a.x, a.y], p1: [b.x, b.y], outerCap: true });
-      continue;
-    }
-    const cut = boundaryPointOnEdge(a, b);
-    if (aRock){
-      out.push({ p0: [a.x, a.y], p1: cut, outerCap: true });
-    } else {
-      out.push({ p0: cut, p1: [b.x, b.y], outerCap: true });
-    }
-  }
-  return out;
-}
-
-/**
  * Return explicit boundary edge defs for a triangle.
  * @param {Array<{x:number,y:number,air:number}>|null|undefined} tri
- * @param {number} [rOuter]
- * @returns {Array<{p0:[number,number],p1:[number,number],outerCap:boolean}>}
+ * @returns {Array<{p0:[number,number],p1:[number,number]}>}
  */
-function boundaryEdgeDefsFromTri(tri, rOuter = Number.NaN){
-  /** @type {Array<{p0:[number,number],p1:[number,number],outerCap:boolean}>} */
+function boundaryEdgeDefsFromTri(tri){
+  /** @type {Array<{p0:[number,number],p1:[number,number]}>} */
   const out = [];
   if (!tri || tri.length < 3) return out;
   /** @type {Array<[number, number]>} */
   const pts = [];
   const eps = 1e-6;
+  /**
+   * @param {[number, number]} p
+   * @returns {void}
+   */
+  const pushUnique = (p) => {
+    for (const q of pts){
+      if (samePointTuple(p, q)) return;
+    }
+    pts.push(p);
+  };
   for (let i = 0; i < 3; i++){
     const a = tri[i];
     const b = tri[(i + 1) % 3];
     if (!a || !b) continue;
     const da = a.air - 0.5;
     const db = b.air - 0.5;
-    if (Math.abs(da) <= eps && Math.abs(db) <= eps){
-      pts.push([a.x, a.y], [b.x, b.y]);
-      continue;
-    }
-    if (Math.abs(da) <= eps){
-      pts.push([a.x, a.y]);
-      continue;
-    }
-    if (Math.abs(db) <= eps){
-      pts.push([b.x, b.y]);
-      continue;
-    }
-    if (da * db < 0){
-      pts.push(boundaryPointOnEdge(a, b));
-    }
+    if (Math.abs(da) <= eps) pushUnique([a.x, a.y]);
+    if (Math.abs(db) <= eps) pushUnique([b.x, b.y]);
+    if (da * db < 0) pushUnique(boundaryPointOnEdge(a, b));
   }
   if (pts.length >= 2){
-    let iBest = 0;
-    let jBest = 1;
-    let bestD2 = -1;
-    for (let i = 0; i < pts.length; i++){
-      for (let j = i + 1; j < pts.length; j++){
-        const pi = /** @type {[number, number]} */ (pts[i]);
-        const pj = /** @type {[number, number]} */ (pts[j]);
-        const dx = pj[0] - pi[0];
-        const dy = pj[1] - pi[1];
-        const d2 = dx * dx + dy * dy;
-        if (d2 > bestD2){
-          bestD2 = d2;
-          iBest = i;
-          jBest = j;
-        }
-      }
-    }
     out.push({
-      p0: /** @type {[number, number]} */ (pts[iBest]),
-      p1: /** @type {[number, number]} */ (pts[jBest]),
-      outerCap: false,
+      p0: /** @type {[number, number]} */ (pts[0]),
+      p1: /** @type {[number, number]} */ (pts[1]),
     });
-  }
-  for (const seg of outerBoundarySegmentsFromTri(tri, rOuter)){
-    out.push(seg);
   }
   return out;
 }
@@ -258,10 +183,9 @@ function boundaryEdgeKey(p0, p1){
  * @param {(x:number,y:number)=>number} airAt
  * @param {[number, number]} p0
  * @param {[number, number]} p1
- * @param {boolean} outerCap
  * @returns {void}
  */
-function pushBoundaryEdge(edges, byKey, airAt, p0, p1, outerCap){
+function pushBoundaryEdge(edges, byKey, airAt, p0, p1){
   if (samePointTuple(p0, p1)) return;
   const key = boundaryEdgeKey(p0, p1);
   if (byKey.has(key)) return;
@@ -273,24 +197,17 @@ function pushBoundaryEdge(edges, byKey, airAt, p0, p1, outerCap){
   const my = (p0[1] + p1[1]) * 0.5;
   let nx = ey / len;
   let ny = -ex / len;
-  if (outerCap){
-    if (nx * mx + ny * my < 0){
+  const probe = 0.06;
+  const front = airAt(mx + nx * probe, my + ny * probe);
+  const back = airAt(mx - nx * probe, my - ny * probe);
+  if (back > front){
+    nx = -nx;
+    ny = -ny;
+  } else if (Math.abs(front - back) <= 1e-6){
+    const rr = Math.hypot(mx, my) || 1;
+    if (nx * (mx / rr) + ny * (my / rr) < 0){
       nx = -nx;
       ny = -ny;
-    }
-  } else {
-    const probe = 0.06;
-    const front = airAt(mx + nx * probe, my + ny * probe);
-    const back = airAt(mx - nx * probe, my - ny * probe);
-    if (back > front){
-      nx = -nx;
-      ny = -ny;
-    } else if (Math.abs(front - back) <= 1e-6){
-      const rr = Math.hypot(mx, my) || 1;
-      if (nx * (mx / rr) + ny * (my / rr) < 0){
-        nx = -nx;
-        ny = -ny;
-      }
     }
   }
   const edge = { ax: p0[0], ay: p0[1], bx: p1[0], by: p1[1], mx, my, nx, ny };
@@ -303,10 +220,9 @@ function pushBoundaryEdge(edges, byKey, airAt, p0, p1, outerCap){
  * @param {(x:number,y:number)=>number} airAt
  * @param {number} b0
  * @param {number} b1
- * @param {number} rOuter
  * @returns {BoundaryEdge[]}
  */
-function collectBoundaryEdges(radial, airAt, b0, b1, rOuter){
+function collectBoundaryEdges(radial, airAt, b0, b1){
   /** @type {BoundaryEdge[]} */
   const edges = [];
   /** @type {Map<string, BoundaryEdge>} */
@@ -316,9 +232,9 @@ function collectBoundaryEdges(radial, airAt, b0, b1, rOuter){
     const tris = radial.bandTris ? radial.bandTris[bi] : null;
     if (!tris) continue;
     for (const tri of tris){
-      const defs = boundaryEdgeDefsFromTri(tri, rOuter);
+      const defs = boundaryEdgeDefsFromTri(tri);
       for (const def of defs){
-        pushBoundaryEdge(edges, byKey, airAt, def.p0, def.p1, def.outerCap);
+        pushBoundaryEdge(edges, byKey, airAt, def.p0, def.p1);
       }
     }
   }
@@ -527,7 +443,6 @@ export function resolvePlanetCollisionResponse(args){
     const shipUpY = ship.y / shipR;
 
     const radial = planet && planet.radial;
-    const rOuter = planetOuterShellRadius(planet);
     let queryRMin = Math.min(Math.hypot(hx, hy), shipR) - shipRadius - 0.5;
     let queryRMax = Math.max(Math.hypot(hx, hy), shipR) + shipRadius + 0.5;
     /** @param {[number, number]|null|undefined} p */
@@ -548,8 +463,7 @@ export function resolvePlanetCollisionResponse(args){
         radial,
         (x, y) => collision.planetAirValueAtWorld(x, y),
         Math.floor(queryRMin) - 3,
-        Math.ceil(queryRMax) + 3,
-        rOuter
+        Math.ceil(queryRMax) + 3
       )
       : [];
 
