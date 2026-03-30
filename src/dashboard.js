@@ -118,16 +118,16 @@ export function dashboardMissionStatus(game, inputType, now){
 export function dashboardMissionCompleteText(game){
   if (game.objective && game.objective.type === "destroy_core"){
     return game.coreMeltdownActive
-      ? "Mission complete. Core collapse confirmed. Break orbit and return to the mothership."
-      : "Mission complete. Core defenses are down. Return to the mothership.";
+      ? "Mission complete. Core collapse confirmed."
+      : "Mission complete. Core defenses are down.";
   }
   if (game.objective && game.objective.type === "destroy_factories"){
-    return "Mission complete. Factory production has been silenced. Return to the mothership.";
+    return "Mission complete. Factory production has been silenced.";
   }
   if (game.objective && game.objective.type === "clear"){
-    return "Mission complete. Local hostile resistance has been cleared. Return to the mothership.";
+    return "Mission complete. Local hostile resistance has been cleared.";
   }
-  return "Mission complete. Survivors are accounted for. Return to the mothership.";
+  return "Mission complete. Survivors are accounted for.";
 }
 
 /**
@@ -220,7 +220,8 @@ export function renderHudPanels(game, inputState, now, renderState, opts){
   const titleState = game.titleState;
   const perfState = game.perfState;
   const perkChoiceVisible = game.pendingPerkChoice !== null;
-  const worldHudSuppressed = titleShowing || transitionActive || dashboardOpen || perkChoiceVisible;
+  const cornerHudSuppressed = titleShowing || transitionActive || dashboardOpen || perkChoiceVisible;
+  const objectiveHudSuppressed = transitionActive || perkChoiceVisible;
 
   if (hudVisible){
     game.ui.updateHud(game.hud, {
@@ -309,7 +310,7 @@ export function renderHudPanels(game, inputState, now, renderState, opts){
   }
 
   const heat = game.ship.heat || 0;
-  const showHeat = !hudVisible && !worldHudSuppressed && meltdown.heatMechanicsActive(game);
+  const showHeat = !hudVisible && !cornerHudSuppressed && meltdown.heatMechanicsActive(game);
   const heating = showHeat && (heat > game.lastHeat + 0.1);
   game.lastHeat = heat;
   if (game.heatMeter && game.ui.updateHeatMeter){
@@ -317,8 +318,8 @@ export function renderHudPanels(game, inputState, now, renderState, opts){
   }
 
   if (game.planetLabel){
-    game.planetLabel.style.visibility = worldHudSuppressed ? "hidden" : "visible";
-    if (!worldHudSuppressed && game.ui.updatePlanetLabel){
+    game.planetLabel.style.visibility = cornerHudSuppressed ? "hidden" : "visible";
+    if (!cornerHudSuppressed && game.ui.updatePlanetLabel){
       const cfg = game.planet.getPlanetConfig();
       const label = cfg ? cfg.label : "";
       const prefix = `Level ${game.level}: `;
@@ -327,14 +328,14 @@ export function renderHudPanels(game, inputState, now, renderState, opts){
   }
 
   if (game.objectiveLabel){
-    game.objectiveLabel.style.visibility = worldHudSuppressed ? "hidden" : "visible";
+    game.objectiveLabel.style.visibility = objectiveHudSuppressed ? "hidden" : "visible";
     game.objectiveLabel.classList.toggle("objective-centered", !!dashboardOpen);
     const abandonHoldActive = !!inputState.abandonHoldActive;
     const abandonHoldRemainingMs = (typeof inputState.abandonHoldRemainingMs === "number")
       ? inputState.abandonHoldRemainingMs
       : 0;
     game.objectiveLabel.style.color = abandonHoldActive ? "rgb(255, 72, 72)" : "";
-    if (!worldHudSuppressed && game.ui.updateObjectiveLabel){
+    if (!objectiveHudSuppressed && game.ui.updateObjectiveLabel){
       if (abandonHoldActive){
         game.ui.updateObjectiveLabel(game.objectiveLabel, abandonHoldCountdownText(abandonHoldRemainingMs));
       } else {
@@ -358,8 +359,8 @@ export function renderHudPanels(game, inputState, now, renderState, opts){
   }
 
   if (game.shipStatusLabel){
-    game.shipStatusLabel.style.visibility = worldHudSuppressed ? "hidden" : "visible";
-    if (!worldHudSuppressed && game.ui.updateShipStatusLabel){
+    game.shipStatusLabel.style.visibility = cornerHudSuppressed ? "hidden" : "visible";
+    if (!cornerHudSuppressed && game.ui.updateShipStatusLabel){
       game.ui.updateShipStatusLabel(game.shipStatusLabel, {
         shipHp: game.ship.hpCur,
         shipHpMax: game.ship.hpMax,
@@ -370,7 +371,7 @@ export function renderHudPanels(game, inputState, now, renderState, opts){
   }
 
   if (game.signalMeter && game.ui.updateSignalMeter){
-    game.ui.updateSignalMeter(game.signalMeter, signalStrength(game), !hudVisible && !worldHudSuppressed);
+    game.ui.updateSignalMeter(game.signalMeter, signalStrength(game), !hudVisible && !cornerHudSuppressed);
   }
 }
 
