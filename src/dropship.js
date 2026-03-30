@@ -1011,7 +1011,7 @@ export function updateFlyingState(game, dt, input, planetCfg, mothershipPrevPose
   const controlAccelX = ax;
   const controlAccelY = ay;
   const thrustInputActive = hasDropshipThrustInput(controls);
-  const { r, rx, ry } = thrustAccel;
+  const { rx, ry } = thrustAccel;
   const waterR = isWaterWorld ? Math.max(0, outerRingR) : 0;
   const shipInWaterBefore = !!(isWaterWorld && collisionWorld.shipCountsAsSubmergedInWater(game, waterR, game.ship.x, game.ship.y));
 
