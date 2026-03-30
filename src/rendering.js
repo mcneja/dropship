@@ -15,8 +15,8 @@ import { buildStarfieldMesh } from "./starfield.js";
 import { dijkstraMap, findPathAStar, nearestRadialNode } from "./navigation.js";
 import { fragmentBaseColor } from "./fragment_fx.js";
 import * as planetFog from "./planet_fog.js";
+import { closestPointOnSegment } from "./collision_helpers.js";
 import {
-  closestPointOnSegment,
   getMothershipBoundaryEdges,
   mothershipLocalDirToWorld,
   mothershipLocalToWorld,

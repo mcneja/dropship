@@ -1,6 +1,9 @@
 // @ts-check
 /** @typedef {import("./game.js").Game} Game */
 
+import {
+  sampleBodyCollisionAt,
+} from "./collision_helpers.js";
 import { mothershipAirAtWorld } from "./mothership.js";
 import { findMothershipCollisionExactAtPose, resolveMothershipCollisionResponse } from "./collision_mothership.js";
 import { findPlanetCollisionExactAt, resolvePlanetCollisionResponse, stabilizePlanetPenetration } from "./collision_planet.js";
@@ -13,7 +16,7 @@ import * as collisionDropship from "./collision_dropship.js";
  * @property {import("./planet.js").Planet} planet
  * @property {import("./mothership.js").Mothership|null} mothership
  * @property {{CRASH_SPEED:number,LAND_SPEED:number,LAND_FRICTION:number}} planetParams
- * @property {{SURFACE_DOT:number,BOUNCE_RESTITUTION:number,MOTHERSHIP_FRICTION:number,MOTHERSHIP_RESTITUTION:number,LAND_SPEED:number}} game
+ * @property {{SURFACE_DOT:number,BOUNCE_RESTITUTION:number,MOTHERSHIP_FRICTION:number,MOTHERSHIP_RESTITUTION:number,LAND_SPEED:number,LAND_MAX_TANGENT_SPEED?:number}} game
  * @property {number} dt
  * @property {number} eps
  * @property {boolean} [debugEnabled]
@@ -28,66 +31,15 @@ import * as collisionDropship from "./collision_dropship.js";
  * @property {number} [shipStartY]
  * @property {number} [shipEndX]
  * @property {number} [shipEndY]
+ * @property {boolean} [thrustInputActive]
+ * @property {number} [controlAccelX]
+ * @property {number} [controlAccelY]
  * @property {Array<[number,number]>} [prevPoints]
  * @property {Array<[number,number]>} [currPoints]
  * @property {()=>void} onCrash
  * @property {()=>boolean} isDockedWithMothership
  * @property {()=>void} onSuccessfullyDocked
  */
-
-/**
- * @param {{ airValueAtWorld:(x:number,y:number)=>number }} mesh
- * @param {number} x
- * @param {number} y
- * @returns {boolean}
- */
-export function isAir(mesh, x, y){
-  return mesh.airValueAtWorld(x, y) > 0.5;
-}
-
-/**
- * @param {{ airValueAtWorld:(x:number,y:number)=>number }} mesh
- * @param {Array<[number, number]>} points
- * @returns {boolean}
- */
-export function collidesAtWorldPoints(mesh, points){
-  for (const [x, y] of points){
-    if (mesh.airValueAtWorld(x, y) <= 0.5) return true;
-  }
-  return false;
-}
-
-/**
- * @param {{ airValueAtWorld:(x:number,y:number)=>number }} mesh
- * @param {number} x
- * @param {number} y
- * @param {Array<[number, number]>} offsets
- * @returns {boolean}
- */
-export function collidesAtOffsets(mesh, x, y, offsets){
-  for (const [dx, dy] of offsets){
-    if (mesh.airValueAtWorld(x + dx, y + dy) <= 0.5) return true;
-  }
-  return false;
-}
-
-/**
- * Sample collision at body pose using local/world sample points.
- * Adds center point by default.
- * @param {import("./types.d.js").CollisionQuery} collision
- * @param {(x:number,y:number)=>Array<[number, number]>} pointsAt
- * @param {number} x
- * @param {number} y
- * @param {boolean} [includeCenter]
- * @returns {{samples:Array<[number, number, boolean, number]>, hit:import("./types.d.js").CollisionHit|null, hitSource:"mothership"|"planet"|null}}
- */
-export function sampleBodyCollisionAt(collision, pointsAt, x, y, includeCenter = true){
-  const pts = pointsAt(x, y);
-  if (includeCenter){
-    pts.push([x, y]);
-  }
-  return collision.sampleCollisionPoints(pts);
-}
 
 /**
  * @param {CollisionResponseArgs} args

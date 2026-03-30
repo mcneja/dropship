@@ -2,7 +2,7 @@
 
 import { mulberry32 } from "./rng.js";
 import { findPathAStar, lineOfSightAir } from "./navigation.js";
-import { collidesAtOffsets, isAir } from "./collision_world.js";
+import { collidesAtOffsets, isAir } from "./collision_helpers.js";
 import { GAME } from "./config.js";
 import { spawnFragmentBurst, updateFragmentDebris } from "./fragment_fx.js";
 import { PERF_FLAGS } from "./perf.js";

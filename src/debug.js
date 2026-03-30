@@ -478,6 +478,22 @@ function updateLandingDebugImpl(){
         return `${kind}[e${edge}/h${hull}]`;
       }).join(",");
     };
+    /** @param {Array<{ax:number,ay:number,bx:number,by:number,nx:number,ny:number,d2:number,u:number,preferVn:number,fallbackDot:number,chosen:boolean}>|null|undefined} edges */
+    const fmtEdges = (edges) => {
+      if (!Array.isArray(edges) || !edges.length) return "-";
+      return edges.map((e, idx) => {
+        if (!e) return `e${idx}:?`;
+        return `e${idx}${e.chosen ? "*" : ""}[${fmt(e.ax)},${fmt(e.ay)}>${fmt(e.bx)},${fmt(e.by)} n:${fmt(e.nx)},${fmt(e.ny)} d2:${fmt(e.d2)} u:${fmt(e.u)} pv:${fmt(e.preferVn)} fd:${fmt(e.fallbackDot)}]`;
+      }).join("|");
+    };
+    /** @param {Array<{pointIndex:number,t:number,entryVn:number,x:number,y:number,nx:number,ny:number}>|null|undefined} contacts */
+    const fmtImpactContacts = (contacts) => {
+      if (!Array.isArray(contacts) || !contacts.length) return "-";
+      return contacts.map((c) => (
+        `p${fmtI(c.pointIndex)}@${fmt(c.t)} vn:${fmt(c.entryVn)} `
+        + `pt:${fmt(c.x)},${fmt(c.y)} n:${fmt(c.nx)},${fmt(c.ny)}`
+      )).join("|");
+    };
     const reason = String(landingDbg.reason || "-");
     let mothershipRelatedNoContact = false;
     if (reason === "mothership_no_contact" && landingDbg.source === "mothership" && this.mothership){
@@ -543,11 +559,15 @@ function updateLandingDebugImpl(){
       + `ok:${landingDbg.landable ? 1 : 0} `
       + `c:${landingDbg.contactsCount ?? -1} bd:${fmt(landingDbg.bestDotUpAny)}/${fmt(landingDbg.bestDotUpUnder)} `
       + `ip:${landingDbg.impactPoint ?? -1}@${fmt(landingDbg.impactT)} sp:${landingDbg.supportPoint ?? -1}@${fmt(landingDbg.supportT)} `
-      + `tri:o${landingDbg.supportTriOuterCount ?? -1} a:${fmt(landingDbg.supportTriAirMin)}-${fmt(landingDbg.supportTriAirMax)} `
-      + `r:${fmt(landingDbg.supportTriRMin)}-${fmt(landingDbg.supportTriRMax)} `
       + `ov:${fmtI(landingDbg.overlapBeforeCount)}>${fmtI(landingDbg.overlapAfterCount)} `
       + `ovm:${fmt(landingDbg.overlapBeforeMin)}>${fmt(landingDbg.overlapAfterMin)} `
-      + `dep:${fmt(landingDbg.depenPush)} csh:${fmt(landingDbg.depenCushion)} d:${fmtI(landingDbg.depenDir)} i:${fmtI(landingDbg.depenIter)} clr:${landingDbg.depenCleared ? 1 : 0}`;
+      + `dep:${fmt(landingDbg.depenPush)} csh:${fmt(landingDbg.depenCushion)} d:${fmtI(landingDbg.depenDir)} i:${fmtI(landingDbg.depenIter)} clr:${landingDbg.depenCleared ? 1 : 0}`
+      + ` ship:${fmt(landingDbg.shipX)},${fmt(landingDbg.shipY)} v:${fmt(landingDbg.shipVx)},${fmt(landingDbg.shipVy)} `
+      + `start:${fmt(landingDbg.shipStartX)},${fmt(landingDbg.shipStartY)} end:${fmt(landingDbg.shipEndX)},${fmt(landingDbg.shipEndY)} `
+      + `in:L${landingDbg.inputLeft ? 1 : 0} R${landingDbg.inputRight ? 1 : 0} T${landingDbg.inputThrust ? 1 : 0} D${landingDbg.inputDown ? 1 : 0} `
+      + `stick:${fmt(landingDbg.inputStickX)},${fmt(landingDbg.inputStickY)} a:${fmt(landingDbg.inputAccelX)},${fmt(landingDbg.inputAccelY)} g:${fmt(landingDbg.inputGravityX)},${fmt(landingDbg.inputGravityY)} `
+      + `impN:${fmt(landingDbg.impactNormalX)},${fmt(landingDbg.impactNormalY)} `
+      + `relI:${fmt(landingDbg.impactRelX)},${fmt(landingDbg.impactRelY)} relS:${fmt(landingDbg.supportRelX)},${fmt(landingDbg.supportRelY)}`;
     const diag = landingDbg.collisionDiag || null;
     const detailLine = diag
       ? ` phase:${diag.phase || "-"}`
@@ -582,7 +602,11 @@ function updateLandingDebugImpl(){
         + ` backoff:${diag.backoff ? `${fmt(diag.backoff.dist)} dir:${fmt(diag.backoff.dirX)},${fmt(diag.backoff.dirY)} clear:${diag.backoff.cleared ? 1 : 0}` : "-"}`
         + ` overlapNow:${diag.overlap ? `${diag.overlap.before ? 1 : 0}->${diag.overlap.after ? 1 : 0}` : "-"}`
       : "";
-    const combinedLine = line + detailLine;
+    const planetDetailLine = landingDbg.source === "planet"
+      ? ` edges:${fmtEdges(landingDbg.impactEdges)}`
+        + ` contacts:${fmtImpactContacts(landingDbg.impactContacts)}`
+      : "";
+    const combinedLine = line + detailLine + planetDetailLine;
     const idleNoContact = (!sessionActive && reason === "mothership_no_contact" && !mothershipRelatedNoContact);
     const shouldLog = !idleNoContact && (sessionActive || line !== debugState.lastLandingDebugConsoleLine);
     if (shouldLog){

@@ -2,13 +2,14 @@
 /** @typedef {import("./game.js").Game} Game */
 
 import { lerpAngleShortest } from "./collision_mothership.js";
+import { sampleBodyCollisionAt } from "./collision_helpers.js";
 import { GAME } from "./config.js";
 import { spawnFragmentBurst } from "./fragment_fx.js";
 import * as audioState from "./audio.js";
 import * as camera from "./camera.js";
 import * as collisionDropship from "./collision_dropship.js";
 import * as collisionWorld from "./collision_world.js";
-import { resolveCollisionResponse, sampleBodyCollisionAt } from "./collision_world.js";
+import { resolveCollisionResponse } from "./collision_world.js";
 import * as flightPhysics from "./flight_physics.js";
 import { mothershipCollisionInfo } from "./mothership.js";
 import * as stats from "./stats.js";
@@ -1007,6 +1008,9 @@ export function updateFlyingState(game, dt, input, planetCfg, mothershipPrevPose
   );
   ax += inertialDriveAccel.ax;
   ay += inertialDriveAccel.ay;
+  const controlAccelX = ax;
+  const controlAccelY = ay;
+  const thrustInputActive = hasDropshipThrustInput(controls);
   const { r, rx, ry } = thrustAccel;
   const waterR = isWaterWorld ? Math.max(0, outerRingR) : 0;
   const shipInWaterBefore = !!(isWaterWorld && collisionWorld.shipCountsAsSubmergedInWater(game, waterR, game.ship.x, game.ship.y));
@@ -1093,6 +1097,18 @@ export function updateFlyingState(game, dt, input, planetCfg, mothershipPrevPose
   const shipRadius = collisionDropship.shipRadius(game);
   const attemptedShipX = game.ship.x;
   const attemptedShipY = game.ship.y;
+  game.ship._debugFlightInput = game.debugState.devHudVisible ? {
+    left: controls.left,
+    right: controls.right,
+    thrust: controls.thrust,
+    down: controls.down,
+    stickX: controls.stickThrust.x,
+    stickY: controls.stickThrust.y,
+    accelX: ax,
+    accelY: ay,
+    gravityX: gx,
+    gravityY: gy,
+  } : null;
   const travelDist = Math.hypot(attemptedShipX - prevShipX, attemptedShipY - prevShipY);
   const sweepStep = Math.max(0.03, Math.min(0.05, shipRadius * 0.2));
   const sweepMaxSteps = Math.max(18, Math.min(96, Math.ceil(travelDist / sweepStep) + 2));
@@ -1189,6 +1205,9 @@ export function updateFlyingState(game, dt, input, planetCfg, mothershipPrevPose
     shipStartY: prevShipY,
     shipEndX: attemptedShipX,
     shipEndY: attemptedShipY,
+    thrustInputActive,
+    controlAccelX,
+    controlAccelY,
     mothershipAngularVel,
     mothershipPrevPose,
     prevPoints: prevCollider.points,

@@ -1,6 +1,12 @@
 // @ts-check
 
-import { mothershipAirAtWorld } from "./mothership.js";
+import {
+  closestPointOnSegment,
+  convexPolysOverlap,
+  depenetrateAlongNormal,
+  extractHullBoundaryContacts,
+  sampleGradientNormal,
+} from "./collision_helpers.js";
 
 /**
  * @template T
@@ -12,6 +18,29 @@ function expectDefined(value){
     throw new Error("Expected value to be defined");
   }
   return value;
+}
+
+/**
+ * @param {[number, number]} a
+ * @param {[number, number]} b
+ * @returns {boolean}
+ */
+function samePointTuple(a, b){
+  return Math.hypot(a[0] - b[0], a[1] - b[1]) <= 1e-6;
+}
+
+/**
+ * @param {{x:number,y:number,air:number}} a
+ * @param {{x:number,y:number,air:number}} b
+ * @returns {[number, number]}
+ */
+function boundaryPointOnEdge(a, b){
+  const denom = (b.air - a.air) || 1e-6;
+  const t = Math.max(0, Math.min(1, (0.5 - a.air) / denom));
+  return [
+    a.x + (b.x - a.x) * t,
+    a.y + (b.y - a.y) * t,
+  ];
 }
 
 /**
@@ -50,602 +79,6 @@ function triAirNormalFromTri(tri, fallbackNx, fallbackNy){
 }
 
 /**
- * @param {import("./mothership.js").Mothership} mothership
- * @param {number} x
- * @param {number} y
- * @returns {{x:number,y:number}}
- */
-function worldToMothershipLocal(mothership, x, y){
-  const dx = x - mothership.x;
-  const dy = y - mothership.y;
-  const c = Math.cos(-mothership.angle);
-  const s = Math.sin(-mothership.angle);
-  return {
-    x: c * dx - s * dy,
-    y: s * dx + c * dy,
-  };
-}
-
-/**
- * @param {import("./mothership.js").Mothership} mothership
- * @param {number} x
- * @param {number} y
- * @returns {{x:number,y:number}}
- */
-function mothershipLocalToWorld(mothership, x, y){
-  const c = Math.cos(mothership.angle);
-  const s = Math.sin(mothership.angle);
-  return {
-    x: mothership.x + c * x - s * y,
-    y: mothership.y + s * x + c * y,
-  };
-}
-
-/**
- * @param {import("./mothership.js").Mothership} mothership
- * @param {number} nx
- * @param {number} ny
- * @returns {{x:number,y:number}}
- */
-function mothershipLocalDirToWorld(mothership, nx, ny){
-  const c = Math.cos(mothership.angle);
-  const s = Math.sin(mothership.angle);
-  return {
-    x: c * nx - s * ny,
-    y: s * nx + c * ny,
-  };
-}
-
-/**
- * @param {number} px
- * @param {number} py
- * @param {number} ax
- * @param {number} ay
- * @param {number} bx
- * @param {number} by
- * @param {number} cx
- * @param {number} cy
- * @returns {boolean}
- */
-function pointInTriLocal(px, py, ax, ay, bx, by, cx, cy){
-  const v0x = cx - ax;
-  const v0y = cy - ay;
-  const v1x = bx - ax;
-  const v1y = by - ay;
-  const v2x = px - ax;
-  const v2y = py - ay;
-  const dot00 = v0x * v0x + v0y * v0y;
-  const dot01 = v0x * v1x + v0y * v1y;
-  const dot02 = v0x * v2x + v0y * v2y;
-  const dot11 = v1x * v1x + v1y * v1y;
-  const dot12 = v1x * v2x + v1y * v2y;
-  const invDen = 1 / (dot00 * dot11 - dot01 * dot01 || 1);
-  const u = (dot11 * dot02 - dot01 * dot12) * invDen;
-  const v = (dot00 * dot12 - dot01 * dot02) * invDen;
-  return (u >= -1e-6) && (v >= -1e-6) && (u + v <= 1 + 1e-6);
-}
-
-/**
- * @param {import("./mothership.js").Mothership} mothership
- * @param {number} lx
- * @param {number} ly
- * @returns {number|null}
- */
-function mothershipAirAtLocalExact(mothership, lx, ly){
-  const points = mothership.points;
-  const tris = mothership.tris;
-  const triAir = mothership.triAir || [];
-  let hit = false;
-  let maxAir = -Infinity;
-  for (let i = 0; i < tris.length; i++){
-    const tri = tris[i];
-    if (!tri) continue;
-    const a = points[tri[0]];
-    const b = points[tri[1]];
-    const c = points[tri[2]];
-    if (!a || !b || !c) continue;
-    if (!pointInTriLocal(lx, ly, a.x, a.y, b.x, b.y, c.x, c.y)) continue;
-    const triAirValue = triAir[i];
-    const air = (typeof triAirValue === "number" && Number.isFinite(triAirValue)) ? triAirValue : 1;
-    if (!hit || air > maxAir){
-      maxAir = air;
-      hit = true;
-    }
-  }
-  return hit ? maxAir : null;
-}
-
-/**
- * @param {number} ax
- * @param {number} ay
- * @param {number} bx
- * @param {number} by
- * @returns {number}
- */
-function cross2(ax, ay, bx, by){
-  return ax * by - ay * bx;
-}
-
-/**
- * @param {number} px
- * @param {number} py
- * @param {number} rx
- * @param {number} ry
- * @param {number} qx
- * @param {number} qy
- * @param {number} sx
- * @param {number} sy
- * @returns {{t:number,u:number}|null}
- */
-function segmentIntersectionParams(px, py, rx, ry, qx, qy, sx, sy){
-  const den = cross2(rx, ry, sx, sy);
-  if (Math.abs(den) < 1e-9) return null;
-  const qpx = qx - px;
-  const qpy = qy - py;
-  const t = cross2(qpx, qpy, sx, sy) / den;
-  const u = cross2(qpx, qpy, rx, ry) / den;
-  if (t < -1e-6 || t > 1 + 1e-6 || u < -1e-6 || u > 1 + 1e-6) return null;
-  return { t, u };
-}
-
-/**
- * @param {number} ax
- * @param {number} ay
- * @param {number} bx
- * @param {number} by
- * @param {number} px
- * @param {number} py
- * @returns {{x:number,y:number,u:number,d2:number}}
- */
-function closestPointOnSegment(ax, ay, bx, by, px, py){
-  const ex = bx - ax;
-  const ey = by - ay;
-  const e2 = ex * ex + ey * ey;
-  if (e2 < 1e-10){
-    const dx = px - ax;
-    const dy = py - ay;
-    return { x: ax, y: ay, u: 0, d2: dx * dx + dy * dy };
-  }
-  let u = ((px - ax) * ex + (py - ay) * ey) / e2;
-  u = Math.max(0, Math.min(1, u));
-  const x = ax + ex * u;
-  const y = ay + ey * u;
-  const dx = px - x;
-  const dy = py - y;
-  return { x, y, u, d2: dx * dx + dy * dy };
-}
-
-/**
- * Build exact solid-air boundary edges in mothership local space.
- * Outward normal points from solid toward air.
- * @param {import("./mothership.js").Mothership} mothership
- * @returns {Array<{ax:number,ay:number,bx:number,by:number,nx:number,ny:number}>}
- */
-function getMothershipBoundaryEdges(mothership){
-  // @ts-ignore dynamic cache on runtime object
-  if (Array.isArray(mothership._collisionBoundaryEdgesExact)){
-    // @ts-ignore dynamic cache on runtime object
-    return mothership._collisionBoundaryEdgesExact;
-  }
-  const points = mothership.points;
-  const tris = mothership.tris;
-  const triAir = mothership.triAir || [];
-  /** @type {Map<string,{i:number,j:number,solidCount:number,airCount:number,solidThird:number}>} */
-  const edgeMap = new Map();
-  for (let ti = 0; ti < tris.length; ti++){
-    const tri = tris[ti];
-    if (!tri) continue;
-    const triAirValue = triAir[ti];
-    const solid = ((typeof triAirValue === "number" && Number.isFinite(triAirValue)) ? triAirValue : 1) <= 0.5;
-    for (let e = 0; e < 3; e++){
-      const i0 = tri[e];
-      const i1 = tri[(e + 1) % 3];
-      const ik = tri[(e + 2) % 3];
-      if (i0 === undefined || i1 === undefined || ik === undefined) continue;
-      const i = Math.min(i0, i1);
-      const j = Math.max(i0, i1);
-      const key = `${i},${j}`;
-      let rec = edgeMap.get(key);
-      if (!rec){
-        rec = { i, j, solidCount: 0, airCount: 0, solidThird: -1 };
-        edgeMap.set(key, rec);
-      }
-      if (solid){
-        rec.solidCount++;
-        if (rec.solidThird < 0) rec.solidThird = ik;
-      } else {
-        rec.airCount++;
-      }
-    }
-  }
-
-  /** @type {Array<{ax:number,ay:number,bx:number,by:number,nx:number,ny:number}>} */
-  const edges = [];
-  for (const rec of edgeMap.values()){
-    if (rec.solidCount <= 0) continue;
-    if (rec.solidCount >= 2 && rec.airCount === 0) continue;
-    const a = points[rec.i];
-    const b = points[rec.j];
-    if (!a || !b) continue;
-    const ex = b.x - a.x;
-    const ey = b.y - a.y;
-    const len = Math.hypot(ex, ey);
-    if (len < 1e-8) continue;
-    let nx = ey / len;
-    let ny = -ex / len;
-    const mx = (a.x + b.x) * 0.5;
-    const my = (a.y + b.y) * 0.5;
-    if (rec.solidCount === 1 && rec.solidThird >= 0){
-      // Deterministic orientation for normal manifold boundary edges:
-      // normal must point away from solid-triangle interior.
-      const c = points[rec.solidThird];
-      if (!c) continue;
-      const toSolidX = c.x - mx;
-      const toSolidY = c.y - my;
-      if (toSolidX * nx + toSolidY * ny > 0){
-        nx = -nx;
-        ny = -ny;
-      }
-    } else {
-      // Non-manifold fallback: orient by local air probe.
-      const eps = Math.max(0.01, (mothership.spacing || 0.4) * 0.18);
-      const n2x = -nx;
-      const n2y = -ny;
-      const av1Raw = mothershipAirAtLocalExact(mothership, mx + nx * eps, my + ny * eps);
-      const av2Raw = mothershipAirAtLocalExact(mothership, mx + n2x * eps, my + n2y * eps);
-      const av1 = (av1Raw === null) ? 1 : av1Raw;
-      const av2 = (av2Raw === null) ? 1 : av2Raw;
-      if (av2 > av1 + 1e-6){
-        nx = n2x;
-        ny = n2y;
-      } else if (Math.abs(av1 - av2) <= 1e-6 && rec.solidThird >= 0){
-        const c = points[rec.solidThird];
-        if (!c) continue;
-        const toSolidX = c.x - mx;
-        const toSolidY = c.y - my;
-        if (toSolidX * nx + toSolidY * ny > 0){
-          nx = -nx;
-          ny = -ny;
-        }
-      }
-    }
-    edges.push({
-      ax: a.x,
-      ay: a.y,
-      bx: b.x,
-      by: b.y,
-      nx,
-      ny,
-    });
-  }
-  // @ts-ignore dynamic cache on runtime object
-  mothership._collisionBoundaryEdgesExact = edges;
-  return edges;
-}
-
-/**
- * @param {Array<[number,number]>|undefined} points
- * @returns {Array<[number,number]>}
- */
-function hullLoopFromCollisionPoints(points){
-  if (!Array.isArray(points) || points.length <= 0) return [];
-  if (points.length >= 4) return points.slice(0, -1);
-  return points.slice();
-}
-
-/**
- * Collect actual mothership wall contacts from the attempted hull pose.
- * Priority is: swept vertex crossings, attempted-pose hull-edge crossings,
- * then true penetrating hull vertices.
- * @param {import("./mothership.js").Mothership} mothership
- * @param {Array<[number,number]>|undefined} prevPoints
- * @param {Array<[number,number]>|undefined} currPoints
- * @returns {{mode:"sweep_vertex"|"pose_edge"|"inside_vertex",count:number,avgX:number,avgY:number,avgNx:number,avgNy:number,hits:Array<{kind:string,edgeIdx:number,hullIdx:number,x:number,y:number,nx:number,ny:number,av?:number|null}>}|null}
- */
-function collectMothershipCollisionEvidence(mothership, prevPoints, currPoints){
-  const edges = getMothershipBoundaryEdges(mothership);
-  if (!edges.length) return null;
-  const currHull = hullLoopFromCollisionPoints(currPoints);
-  if (currHull.length < 2) return null;
-  const prevHull = hullLoopFromCollisionPoints(prevPoints);
-  const boundarySkin = Math.max(0.002, (mothership.spacing || 0.4) * 0.01);
-  const nearTol = Math.max(1e-3, (mothership.spacing || 0.4) * 0.08);
-  const nearTol2 = nearTol * nearTol;
-
-  /**
-   * @param {Array<{kind:string,edgeIdx:number,hullIdx:number,x:number,y:number,nx:number,ny:number,av?:number|null}>} hits
-   * @param {"sweep_vertex"|"pose_edge"|"inside_vertex"} mode
-   * @returns {{mode:"sweep_vertex"|"pose_edge"|"inside_vertex",count:number,avgX:number,avgY:number,avgNx:number,avgNy:number,hits:Array<{kind:string,edgeIdx:number,hullIdx:number,x:number,y:number,nx:number,ny:number,av?:number|null}>}|null}
-   */
-  const finalize = (hits, mode) => {
-    if (!hits.length) return null;
-    let sx = 0;
-    let sy = 0;
-    let snx = 0;
-    let sny = 0;
-    for (const hit of hits){
-      sx += hit.x;
-      sy += hit.y;
-      snx += hit.nx;
-      sny += hit.ny;
-    }
-    let nLen = Math.hypot(snx, sny);
-    if (nLen < 1e-8){
-      const first = expectDefined(hits[0]);
-      snx = first.nx;
-      sny = first.ny;
-      nLen = Math.hypot(snx, sny) || 1;
-    }
-    return {
-      mode,
-      count: hits.length,
-      avgX: sx / hits.length,
-      avgY: sy / hits.length,
-      avgNx: snx / nLen,
-      avgNy: sny / nLen,
-      hits,
-    };
-  };
-
-  /** @type {Array<{kind:string,edgeIdx:number,hullIdx:number,x:number,y:number,nx:number,ny:number,av?:number|null}>} */
-  const sweepHits = [];
-  if (prevHull.length === currHull.length && prevHull.length >= 2){
-    for (let i = 0; i < currHull.length; i++){
-      const prev = prevHull[i];
-      const curr = currHull[i];
-      if (!prev || !curr) continue;
-      const p0 = worldToMothershipLocal(mothership, prev[0], prev[1]);
-      const p1 = worldToMothershipLocal(mothership, curr[0], curr[1]);
-      const dx = p1.x - p0.x;
-      const dy = p1.y - p0.y;
-      if (dx * dx + dy * dy < 1e-12) continue;
-      for (let edgeIdx = 0; edgeIdx < edges.length; edgeIdx++){
-        const edge = edges[edgeIdx];
-        if (!edge) continue;
-        const hit = segmentIntersectionParams(
-          p0.x, p0.y, dx, dy,
-          edge.ax, edge.ay, edge.bx - edge.ax, edge.by - edge.ay
-        );
-        if (!hit) continue;
-        if (dx * edge.nx + dy * edge.ny >= -1e-6) continue;
-        const hx = p0.x + dx * hit.t;
-        const hy = p0.y + dy * hit.t;
-        const wp = mothershipLocalToWorld(mothership, hx, hy);
-        const wn = mothershipLocalDirToWorld(mothership, edge.nx, edge.ny);
-        sweepHits.push({
-          kind: "sweep_vertex",
-          edgeIdx,
-          hullIdx: i,
-          x: wp.x,
-          y: wp.y,
-          nx: wn.x,
-          ny: wn.y,
-          av: null,
-        });
-      }
-    }
-  }
-  const sweepEvidence = finalize(sweepHits, "sweep_vertex");
-  if (sweepEvidence) return sweepEvidence;
-
-  /** @type {Array<{kind:string,edgeIdx:number,hullIdx:number,x:number,y:number,nx:number,ny:number,av?:number|null}>} */
-  const edgeHits = [];
-  for (let i = 0; i < currHull.length; i++){
-    const p0 = currHull[i];
-    const p1 = currHull[(i + 1) % currHull.length];
-    if (!p0 || !p1) continue;
-    const a = worldToMothershipLocal(mothership, p0[0], p0[1]);
-    const b = worldToMothershipLocal(mothership, p1[0], p1[1]);
-    const dx = b.x - a.x;
-    const dy = b.y - a.y;
-    if (dx * dx + dy * dy < 1e-12) continue;
-    for (let edgeIdx = 0; edgeIdx < edges.length; edgeIdx++){
-      const edge = edges[edgeIdx];
-      if (!edge) continue;
-      const hit = segmentIntersectionParams(
-        a.x, a.y, dx, dy,
-        edge.ax, edge.ay, edge.bx - edge.ax, edge.by - edge.ay
-      );
-      if (!hit) continue;
-      const hx = a.x + dx * hit.t;
-      const hy = a.y + dy * hit.t;
-      const wp = mothershipLocalToWorld(mothership, hx, hy);
-      const wn = mothershipLocalDirToWorld(mothership, edge.nx, edge.ny);
-      edgeHits.push({
-        kind: "pose_edge",
-        edgeIdx,
-        hullIdx: i,
-        x: wp.x,
-        y: wp.y,
-        nx: wn.x,
-        ny: wn.y,
-        av: null,
-      });
-    }
-  }
-  const edgeEvidence = finalize(edgeHits, "pose_edge");
-  if (edgeEvidence) return edgeEvidence;
-
-  /** @type {Array<{kind:string,edgeIdx:number,hullIdx:number,x:number,y:number,nx:number,ny:number,av?:number|null}>} */
-  const insideHits = [];
-  for (let i = 0; i < currHull.length; i++){
-    const p = currHull[i];
-    if (!p) continue;
-    const lp = worldToMothershipLocal(mothership, p[0], p[1]);
-    const av = mothershipAirAtLocalExact(mothership, lp.x, lp.y);
-    if (av === null || av > 0.5) continue;
-    let minD2 = Infinity;
-    /** @type {Array<{edgeIdx:number,edge:{ax:number,ay:number,bx:number,by:number,nx:number,ny:number},cp:{x:number,y:number,u:number,d2:number}}>} */
-    let nearest = [];
-    for (let edgeIdx = 0; edgeIdx < edges.length; edgeIdx++){
-      const edge = edges[edgeIdx];
-      if (!edge) continue;
-      const cp = closestPointOnSegment(edge.ax, edge.ay, edge.bx, edge.by, lp.x, lp.y);
-      if (cp.d2 < minD2 - nearTol2){
-        minD2 = cp.d2;
-        nearest = [{ edgeIdx, edge, cp }];
-      } else if (cp.d2 <= minD2 + nearTol2){
-        nearest.push({ edgeIdx, edge, cp });
-      }
-    }
-    if (!nearest.length) continue;
-    if (Math.sqrt(minD2) <= boundarySkin) continue;
-    for (const item of nearest){
-      const wp = mothershipLocalToWorld(mothership, item.cp.x, item.cp.y);
-      const wn = mothershipLocalDirToWorld(mothership, item.edge.nx, item.edge.ny);
-      insideHits.push({
-        kind: "inside_vertex",
-        edgeIdx: item.edgeIdx,
-        hullIdx: i,
-        x: wp.x,
-        y: wp.y,
-        nx: wn.x,
-        ny: wn.y,
-        av,
-      });
-    }
-  }
-  return finalize(insideHits, "inside_vertex");
-}
-
-/**
- * Back off ship along negative relative-velocity direction until strict
- * mothership overlap clears.
- * @param {import("./mothership.js").Mothership} mothership
- * @param {import("./types.d.js").Ship} ship
- * @param {(x:number,y:number)=>boolean} hasOverlapAt
- * @param {(x:number,y:number)=>{vx:number,vy:number}} baseVelocityAt
- * @param {number} shipRadius
- * @returns {{dist:number,cleared:boolean,hadOverlap:boolean,dirX:number,dirY:number}}
- */
-function backoffShipAlongNegativeRelativeVelocity(
-  mothership,
-  ship,
-  hasOverlapAt,
-  baseVelocityAt,
-  shipRadius
-){
-  if (!hasOverlapAt(ship.x, ship.y)){
-    return { dist: 0, cleared: true, hadOverlap: false, dirX: 0, dirY: 0 };
-  }
-  const base = baseVelocityAt(ship.x, ship.y);
-  const rvx = ship.vx - base.vx;
-  const rvy = ship.vy - base.vy;
-  const rLen = Math.hypot(rvx, rvy);
-  if (rLen < 1e-6){
-    return { dist: 0, cleared: false, hadOverlap: true, dirX: 0, dirY: 0 };
-  }
-  const dirX = -rvx / rLen;
-  const dirY = -rvy / rLen;
-  const startX = ship.x;
-  const startY = ship.y;
-  let lo = 0;
-  let hi = Math.max(0.01, shipRadius * 0.08);
-  const maxBack = Math.max(0.5, shipRadius * 1.5);
-  while (hi < maxBack && hasOverlapAt(startX + dirX * hi, startY + dirY * hi)){
-    lo = hi;
-    hi *= 2;
-  }
-  hi = Math.min(hi, maxBack);
-  const cleared = !hasOverlapAt(startX + dirX * hi, startY + dirY * hi);
-  if (cleared){
-    for (let i = 0; i < 14; i++){
-      const mid = (lo + hi) * 0.5;
-      if (hasOverlapAt(startX + dirX * mid, startY + dirY * mid)){
-        lo = mid;
-      } else {
-        hi = mid;
-      }
-    }
-  }
-  ship.x = startX + dirX * hi;
-  ship.y = startY + dirY * hi;
-  return { dist: hi, cleared, hadOverlap: true, dirX, dirY };
-}
-
-/**
- * @param {number} x
- * @param {number} y
- * @param {number} nx
- * @param {number} ny
- * @param {(x:number,y:number)=>boolean} collidesAt
- * @param {number} maxPush
- * @param {number} startPush
- * @returns {{x:number,y:number,push:number,cleared:boolean}}
- */
-function depenetrateAlongNormal(x, y, nx, ny, collidesAt, maxPush, startPush){
-  let lo = 0;
-  let hi = Math.max(1e-3, startPush);
-  while (hi < maxPush && collidesAt(x + nx * hi, y + ny * hi)){
-    lo = hi;
-    hi *= 2;
-  }
-  hi = Math.min(hi, maxPush);
-  if (collidesAt(x + nx * hi, y + ny * hi)){
-    return { x: x + nx * hi, y: y + ny * hi, push: hi, cleared: false };
-  }
-  for (let i = 0; i < 14; i++){
-    const mid = (lo + hi) * 0.5;
-    if (collidesAt(x + nx * mid, y + ny * mid)){
-      lo = mid;
-    } else {
-      hi = mid;
-    }
-  }
-  return { x: x + nx * hi, y: y + ny * hi, push: hi, cleared: true };
-}
-
-/**
- * @param {Array<[number, number]>} poly
- * @param {number} nx
- * @param {number} ny
- * @returns {{min:number,max:number}}
- */
-function projectPolyAxis(poly, nx, ny){
-  let min = Infinity;
-  let max = -Infinity;
-  for (const p of poly){
-    const d = p[0] * nx + p[1] * ny;
-    if (d < min) min = d;
-    if (d > max) max = d;
-  }
-  return { min, max };
-}
-
-/**
- * @param {Array<[number, number]>} a
- * @param {Array<[number, number]>} b
- * @returns {boolean}
- */
-function convexPolysOverlap(a, b){
-  /**
-   * @param {Array<[number, number]>} poly0
-   * @param {Array<[number, number]>} poly1
-   * @returns {boolean}
-   */
-  const testAxes = (poly0, poly1) => {
-    for (let i = 0; i < poly0.length; i++){
-      const p0 = poly0[i];
-      const p1 = poly0[(i + 1) % poly0.length];
-      if (!p0 || !p1) continue;
-      const ex = p1[0] - p0[0];
-      const ey = p1[1] - p0[1];
-      const el = Math.hypot(ex, ey);
-      if (el < 1e-8) continue;
-      const nx = -ey / el;
-      const ny = ex / el;
-      const pa = projectPolyAxis(poly0, nx, ny);
-      const pb = projectPolyAxis(poly1, nx, ny);
-      if (pa.max < pb.min || pb.max < pa.min){
-        return false;
-      }
-    }
-    return true;
-  };
-  return testAxes(a, b) && testAxes(b, a);
-}
-
-/**
  * @param {Array<{x:number,y:number,air:number}>} tri
  * @returns {Array<[number, number]>}
  */
@@ -674,90 +107,292 @@ function rockPolygonFromTri(tri){
 }
 
 /**
- * @param {(x:number,y:number)=>Array<[number, number]>} shipConvexHullWorldVertices
- * @param {number} x
- * @param {number} y
- * @param {(x:number,y:number)=>number} airAt
- * @param {number} [eps]
- * @returns {Array<{x:number,y:number,nx:number,ny:number,av:number}>}
+ * @param {import("./planet.js").Planet} planet
+ * @returns {number}
  */
-function extractHullBoundaryContacts(shipConvexHullWorldVertices, x, y, airAt, eps = 0.03){
-  const hull = shipConvexHullWorldVertices(x, y);
-  if (hull.length < 2) return [];
-  const e = Math.max(1e-3, eps);
-  /** @type {Array<{x:number,y:number,nx:number,ny:number,av:number}>} */
+function planetOuterShellRadius(planet){
+  return (planet && planet.radial && planet.radial.rings && planet.radial.rings.length)
+    ? (planet.radial.rings.length - 1)
+    : planet.planetRadius;
+}
+
+/**
+ * @param {{x:number,y:number,air:number}|null|undefined} v
+ * @param {number} rOuter
+ * @returns {boolean}
+ */
+function isOuterRingVertex(v, rOuter){
+  if (!v || !(rOuter > 0)) return false;
+  return Math.abs(Math.hypot(v.x, v.y) - rOuter) <= 1e-4;
+}
+
+/**
+ * @param {Array<{x:number,y:number,air:number}>|null|undefined} tri
+ * @param {number} rOuter
+ * @returns {Array<{p0:[number,number],p1:[number,number],outerCap:true}>}
+ */
+function outerBoundarySegmentsFromTri(tri, rOuter){
+  /** @type {Array<{p0:[number,number],p1:[number,number],outerCap:true}>} */
   const out = [];
-  /**
-   * @param {number} cx
-   * @param {number} cy
-   * @returns {void}
-   */
-  const addContact = (cx, cy) => {
-    if (!Number.isFinite(cx) || !Number.isFinite(cy)) return;
-    const av = airAt(cx, cy);
-    let nx = airAt(cx + e, cy) - airAt(cx - e, cy);
-    let ny = airAt(cx, cy + e) - airAt(cx, cy - e);
-    let nLen = Math.hypot(nx, ny);
-    if (nLen < 1e-6){
-      nx = cx - x;
-      ny = cy - y;
-      nLen = Math.hypot(nx, ny);
+  if (!tri || tri.length < 3 || !(rOuter > 0)) return out;
+  for (let i = 0; i < 3; i++){
+    const a = tri[i];
+    const b = tri[(i + 1) % 3];
+    if (!a || !b) continue;
+    if (!isOuterRingVertex(a, rOuter) || !isOuterRingVertex(b, rOuter)) continue;
+    const aRock = a.air <= 0.5;
+    const bRock = b.air <= 0.5;
+    if (!aRock && !bRock) continue;
+    if (aRock && bRock){
+      out.push({ p0: [a.x, a.y], p1: [b.x, b.y], outerCap: true });
+      continue;
     }
-    if (nLen < 1e-6) return;
-    nx /= nLen;
-    ny /= nLen;
-    const af = airAt(cx + nx * e * 1.6, cy + ny * e * 1.6);
-    const ab = airAt(cx - nx * e * 1.2, cy - ny * e * 1.2);
-    if (ab > af){
+    const cut = boundaryPointOnEdge(a, b);
+    if (aRock){
+      out.push({ p0: [a.x, a.y], p1: cut, outerCap: true });
+    } else {
+      out.push({ p0: cut, p1: [b.x, b.y], outerCap: true });
+    }
+  }
+  return out;
+}
+
+/**
+ * Return explicit boundary edge defs for a triangle.
+ * @param {Array<{x:number,y:number,air:number}>|null|undefined} tri
+ * @param {number} [rOuter]
+ * @returns {Array<{p0:[number,number],p1:[number,number],outerCap:boolean}>}
+ */
+function boundaryEdgeDefsFromTri(tri, rOuter = Number.NaN){
+  /** @type {Array<{p0:[number,number],p1:[number,number],outerCap:boolean}>} */
+  const out = [];
+  if (!tri || tri.length < 3) return out;
+  /** @type {Array<[number, number]>} */
+  const pts = [];
+  const eps = 1e-6;
+  for (let i = 0; i < 3; i++){
+    const a = tri[i];
+    const b = tri[(i + 1) % 3];
+    if (!a || !b) continue;
+    const da = a.air - 0.5;
+    const db = b.air - 0.5;
+    if (Math.abs(da) <= eps && Math.abs(db) <= eps){
+      pts.push([a.x, a.y], [b.x, b.y]);
+      continue;
+    }
+    if (Math.abs(da) <= eps){
+      pts.push([a.x, a.y]);
+      continue;
+    }
+    if (Math.abs(db) <= eps){
+      pts.push([b.x, b.y]);
+      continue;
+    }
+    if (da * db < 0){
+      pts.push(boundaryPointOnEdge(a, b));
+    }
+  }
+  if (pts.length >= 2){
+    let iBest = 0;
+    let jBest = 1;
+    let bestD2 = -1;
+    for (let i = 0; i < pts.length; i++){
+      for (let j = i + 1; j < pts.length; j++){
+        const pi = expectDefined(pts[i]);
+        const pj = expectDefined(pts[j]);
+        const dx = pj[0] - pi[0];
+        const dy = pj[1] - pi[1];
+        const d2 = dx * dx + dy * dy;
+        if (d2 > bestD2){
+          bestD2 = d2;
+          iBest = i;
+          jBest = j;
+        }
+      }
+    }
+    out.push({
+      p0: expectDefined(pts[iBest]),
+      p1: expectDefined(pts[jBest]),
+      outerCap: false,
+    });
+  }
+  for (const seg of outerBoundarySegmentsFromTri(tri, rOuter)){
+    out.push(seg);
+  }
+  return out;
+}
+
+/**
+ * @typedef {{ax:number,ay:number,bx:number,by:number,mx:number,my:number,nx:number,ny:number}} BoundaryEdge
+ */
+
+/**
+ * @param {number} px
+ * @param {number} py
+ * @param {number} rx
+ * @param {number} ry
+ * @param {number} qx
+ * @param {number} qy
+ * @param {number} sx
+ * @param {number} sy
+ * @returns {{t:number,u:number}|null}
+ */
+function segmentIntersectionParams(px, py, rx, ry, qx, qy, sx, sy){
+  const den = rx * sy - ry * sx;
+  if (Math.abs(den) < 1e-9) return null;
+  const qpx = qx - px;
+  const qpy = qy - py;
+  const t = (qpx * sy - qpy * sx) / den;
+  const u = (qpx * ry - qpy * rx) / den;
+  if (t < -1e-6 || t > 1 + 1e-6 || u < -1e-6 || u > 1 + 1e-6) return null;
+  return { t, u };
+}
+
+/**
+ * @param {[number, number]} p0
+ * @param {[number, number]} p1
+ * @returns {string}
+ */
+function boundaryEdgeKey(p0, p1){
+  const ax = Math.round(p0[0] * 1000);
+  const ay = Math.round(p0[1] * 1000);
+  const bx = Math.round(p1[0] * 1000);
+  const by = Math.round(p1[1] * 1000);
+  if (ax < bx || (ax === bx && ay <= by)){
+    return `${ax},${ay}:${bx},${by}`;
+  }
+  return `${bx},${by}:${ax},${ay}`;
+}
+
+/**
+ * @param {BoundaryEdge[]} edges
+ * @param {Map<string, BoundaryEdge>} byKey
+ * @param {(x:number,y:number)=>number} airAt
+ * @param {[number, number]} p0
+ * @param {[number, number]} p1
+ * @param {boolean} outerCap
+ * @returns {void}
+ */
+function pushBoundaryEdge(edges, byKey, airAt, p0, p1, outerCap){
+  if (samePointTuple(p0, p1)) return;
+  const key = boundaryEdgeKey(p0, p1);
+  if (byKey.has(key)) return;
+  const ex = p1[0] - p0[0];
+  const ey = p1[1] - p0[1];
+  const len = Math.hypot(ex, ey);
+  if (len <= 1e-8) return;
+  const mx = (p0[0] + p1[0]) * 0.5;
+  const my = (p0[1] + p1[1]) * 0.5;
+  let nx = ey / len;
+  let ny = -ex / len;
+  if (outerCap){
+    if (nx * mx + ny * my < 0){
       nx = -nx;
       ny = -ny;
     }
-    for (const c of out){
-      if (Math.hypot(c.x - cx, c.y - cy) <= 0.015){
-        c.nx += nx;
-        c.ny += ny;
-        const nn = Math.hypot(c.nx, c.ny) || 1;
-        c.nx /= nn;
-        c.ny /= nn;
-        c.av = Math.min(c.av, av);
-        return;
+  } else {
+    const probe = 0.06;
+    const front = airAt(mx + nx * probe, my + ny * probe);
+    const back = airAt(mx - nx * probe, my - ny * probe);
+    if (back > front){
+      nx = -nx;
+      ny = -ny;
+    } else if (Math.abs(front - back) <= 1e-6){
+      const rr = Math.hypot(mx, my) || 1;
+      if (nx * (mx / rr) + ny * (my / rr) < 0){
+        nx = -nx;
+        ny = -ny;
       }
     }
-    out.push({ x: cx, y: cy, nx, ny, av });
-  };
-
-  const n = hull.length;
-  for (let i = 0; i < n; i++){
-    const a = hull[i];
-    const b = hull[(i + 1) % n];
-    if (!a || !b) continue;
-    const av0 = airAt(a[0], a[1]);
-    const av1 = airAt(b[0], b[1]);
-    const in0 = av0 <= 0.5;
-    const in1 = av1 <= 0.5;
-    if (in0) addContact(a[0], a[1]);
-    if (in1) addContact(b[0], b[1]);
-    if (in0 === in1) continue;
-    let lo = 0;
-    let hi = 1;
-    for (let k = 0; k < 14; k++){
-      const mid = (lo + hi) * 0.5;
-      const mx = a[0] + (b[0] - a[0]) * mid;
-      const my = a[1] + (b[1] - a[1]) * mid;
-      const avm = airAt(mx, my);
-      const inm = avm <= 0.5;
-      if (inm === in0){
-        lo = mid;
-      } else {
-        hi = mid;
-      }
-    }
-    const t = (lo + hi) * 0.5;
-    const cx = a[0] + (b[0] - a[0]) * t;
-    const cy = a[1] + (b[1] - a[1]) * t;
-    addContact(cx, cy);
   }
-  return out;
+  const edge = { ax: p0[0], ay: p0[1], bx: p1[0], by: p1[1], mx, my, nx, ny };
+  byKey.set(key, edge);
+  edges.push(edge);
+}
+
+/**
+ * @param {{bandTris:Array<Array<Array<{x:number,y:number,air:number}>>|undefined>|undefined}} radial
+ * @param {(x:number,y:number)=>number} airAt
+ * @param {number} b0
+ * @param {number} b1
+ * @param {number} rOuter
+ * @returns {BoundaryEdge[]}
+ */
+function collectBoundaryEdges(radial, airAt, b0, b1, rOuter){
+  /** @type {BoundaryEdge[]} */
+  const edges = [];
+  /** @type {Map<string, BoundaryEdge>} */
+  const byKey = new Map();
+  const bandMax = Math.max(0, (radial.bandTris?.length || 1) - 1);
+  for (let bi = Math.max(0, b0); bi <= Math.min(bandMax, b1); bi++){
+    const tris = radial.bandTris ? radial.bandTris[bi] : null;
+    if (!tris) continue;
+    for (const tri of tris){
+      const defs = boundaryEdgeDefsFromTri(tri, rOuter);
+      for (const def of defs){
+        pushBoundaryEdge(edges, byKey, airAt, def.p0, def.p1, def.outerCap);
+      }
+    }
+  }
+  return edges;
+}
+
+/**
+ * @param {BoundaryEdge[]} edges
+ * @param {number} x
+ * @param {number} y
+ * @param {number} [preferDx]
+ * @param {number} [preferDy]
+ * @param {number} [fallbackNx]
+ * @param {number} [fallbackNy]
+ * @returns {{edge:BoundaryEdge,cp:{x:number,y:number,u:number,d2:number},preferVn:number,fallbackDot:number}|null}
+ */
+function nearestBoundaryEdge(edges, x, y, preferDx = Number.NaN, preferDy = Number.NaN, fallbackNx = Number.NaN, fallbackNy = Number.NaN){
+  if (!edges.length) return null;
+  let minD2 = Infinity;
+  const preferLen = Math.hypot(preferDx, preferDy);
+  /** @type {Array<{edge:BoundaryEdge,cp:{x:number,y:number,u:number,d2:number},preferVn:number,fallbackDot:number}>} */
+  const cands = [];
+  for (const edge of edges){
+    const cp = closestPointOnSegment(edge.ax, edge.ay, edge.bx, edge.by, x, y);
+    if (cp.d2 < minD2) minD2 = cp.d2;
+    cands.push({
+      edge,
+      cp,
+      preferVn: preferLen > 1e-6 ? (preferDx * edge.nx + preferDy * edge.ny) : Number.NaN,
+      fallbackDot: Number.isFinite(fallbackNx) && Number.isFinite(fallbackNy) ? (edge.nx * fallbackNx + edge.ny * fallbackNy) : Number.NaN,
+    });
+  }
+  const d2Tol = 1e-4;
+  /** @type {{edge:BoundaryEdge,cp:{x:number,y:number,u:number,d2:number},preferVn:number,fallbackDot:number}|null} */
+  let best = null;
+  for (const cand of cands){
+    if (cand.cp.d2 > minD2 + d2Tol) continue;
+    if (!best){
+      best = cand;
+      continue;
+    }
+    if (preferLen > 1e-6){
+      if (cand.preferVn < best.preferVn - 1e-6){
+        best = cand;
+        continue;
+      }
+      if (Math.abs(cand.preferVn - best.preferVn) <= 1e-6){
+        if (cand.cp.d2 < best.cp.d2 - 1e-6){
+          best = cand;
+          continue;
+        }
+        if (Math.abs(cand.cp.d2 - best.cp.d2) <= 1e-6 && cand.fallbackDot > best.fallbackDot){
+          best = cand;
+        }
+      }
+    } else if (cand.cp.d2 < best.cp.d2 - 1e-6){
+      best = cand;
+    } else if (Math.abs(cand.cp.d2 - best.cp.d2) <= 1e-6 && cand.fallbackDot > best.fallbackDot){
+      best = cand;
+    }
+  }
+  return best;
 }
 
 /**
@@ -836,26 +471,24 @@ export function findPlanetCollisionExactAt(ctx, x, y){
  * @param {import("./types.d.js").Ship} args.ship
  * @param {import("./types.d.js").CollisionQuery} args.collision
  * @param {import("./planet.js").Planet} args.planet
- * @param {import("./mothership.js").Mothership|null} args.mothership
  * @param {{CRASH_SPEED:number,LAND_SPEED:number,LAND_FRICTION:number,WALL_FRICTION?:number,BOUNCE_RESTITUTION?:number}} args.planetParams
- * @param {{SURFACE_DOT:number,BOUNCE_RESTITUTION:number,MOTHERSHIP_FRICTION:number,MOTHERSHIP_RESTITUTION:number,LAND_SPEED:number}} args.game
+ * @param {{SURFACE_DOT:number,BOUNCE_RESTITUTION:number,MOTHERSHIP_FRICTION:number,MOTHERSHIP_RESTITUTION:number,LAND_SPEED:number,LAND_MAX_TANGENT_SPEED?:number}} args.game
  * @param {number} args.dt
  * @param {number} args.eps
  * @param {boolean} [args.debugEnabled]
  * @param {number} args.shipRadius
  * @param {(x:number,y:number)=>boolean} args.shipCollidesAt
- * @param {(x:number,y:number)=>boolean} [args.shipCollidesMothershipAt]
  * @param {(x:number,y:number)=>Array<[number,number]>} [args.shipCollisionPointsAt]
  * @param {number} [args.shipStartX]
  * @param {number} [args.shipStartY]
  * @param {number} [args.shipEndX]
  * @param {number} [args.shipEndY]
- * @param {number} [args.mothershipAngularVel]
+ * @param {boolean} [args.thrustInputActive]
+ * @param {number} [args.controlAccelX]
+ * @param {number} [args.controlAccelY]
  * @param {Array<[number,number]>} [args.prevPoints]
  * @param {Array<[number,number]>} [args.currPoints]
  * @param {()=>void} args.onCrash
- * @param {()=>boolean} args.isDockedWithMothership
- * @param {()=>void} args.onSuccessfullyDocked
  * @returns {void}
  */
 export function resolvePlanetCollisionResponse(args){
@@ -863,7 +496,6 @@ export function resolvePlanetCollisionResponse(args){
     ship,
     collision,
     planet,
-    mothership,
     planetParams,
     game,
     dt,
@@ -871,18 +503,17 @@ export function resolvePlanetCollisionResponse(args){
     debugEnabled = false,
     shipRadius,
     shipCollidesAt,
-    shipCollidesMothershipAt,
     shipCollisionPointsAt,
     shipStartX,
     shipStartY,
     shipEndX,
     shipEndY,
-    mothershipAngularVel,
+    thrustInputActive = false,
+    controlAccelX = Number.NaN,
+    controlAccelY = Number.NaN,
     prevPoints,
     currPoints,
     onCrash,
-    isDockedWithMothership,
-    onSuccessfullyDocked,
   } = args;
   const hit = ship._collision;
   if (!hit) return;
@@ -899,98 +530,7 @@ export function resolvePlanetCollisionResponse(args){
    * @returns {{nx:number,ny:number}}
    */
   const contactNormal = (sample, cx = hx, cy = hy) => {
-    let nx = sample(cx + eps, cy) - sample(cx - eps, cy);
-    let ny = sample(cx, cy + eps) - sample(cx, cy - eps);
-    let nlen = Math.hypot(nx, ny);
-    if (nlen < 1e-4){
-      nx = ship.x - cx;
-      ny = ship.y - cy;
-      nlen = Math.hypot(nx, ny);
-    }
-    if (nlen < 1e-4){
-      nx = ship.x;
-      ny = ship.y;
-      nlen = Math.hypot(nx, ny) || 1;
-    }
-    nx /= nlen;
-    ny /= nlen;
-    return { nx, ny };
-  };
-
-  /**
-   * @param {Array<{x:number,y:number,nx:number,ny:number,av?:number}>|null|undefined} contacts
-   * @returns {{x:number,y:number,nx:number,ny:number,count:number}|null}
-   */
-  const averageImpactContacts = (contacts) => {
-    if (!Array.isArray(contacts) || !contacts.length) return null;
-    let sx = 0;
-    let sy = 0;
-    let snx = 0;
-    let sny = 0;
-    let sw = 0;
-    let count = 0;
-    for (const c of contacts){
-      if (!c) continue;
-      if (!Number.isFinite(c.x) || !Number.isFinite(c.y)) continue;
-      if (!Number.isFinite(c.nx) || !Number.isFinite(c.ny)) continue;
-      const nLen = Math.hypot(c.nx, c.ny);
-      if (nLen < 1e-8) continue;
-      const nx = c.nx / nLen;
-      const ny = c.ny / nLen;
-      const av = Number.isFinite(c.av) ? Number(c.av) : 0.5;
-      const w = Math.max(0.05, 0.55 - Math.min(1, Math.max(0, av)));
-      sx += c.x * w;
-      sy += c.y * w;
-      snx += nx * w;
-      sny += ny * w;
-      sw += w;
-      count++;
-    }
-    if (count <= 0 || sw <= 1e-8) return null;
-    let nx = snx / sw;
-    let ny = sny / sw;
-    const nLen = Math.hypot(nx, ny);
-    if (nLen < 1e-8) return null;
-    nx /= nLen;
-    ny /= nLen;
-    return {
-      x: sx / sw,
-      y: sy / sw,
-      nx,
-      ny,
-      count,
-    };
-  };
-
-  /**
-   * @param {number} vx
-   * @param {number} vy
-   * @returns {{vx:number,vy:number,speed:number,dirDeg:number}}
-   */
-  const vecDiag = (vx, vy) => ({
-    vx,
-    vy,
-    speed: Math.hypot(vx, vy),
-    dirDeg: Math.atan2(vy, vx) * 180 / Math.PI,
-  });
-
-  /**
-   * @param {any} landingDbg
-   * @param {any} payload
-   */
-  const setMothershipDiag = (landingDbg, payload) => {
-    if (!debugEnabled || !landingDbg) return;
-    const prev = ship._lastMothershipCollisionDiag || null;
-    const outAbs = payload && payload.absOut ? payload.absOut : null;
-    const outRel = payload && payload.relOut ? payload.relOut : null;
-    landingDbg.collisionDiag = {
-      ...payload,
-      prev,
-    };
-    ship._lastMothershipCollisionDiag = {
-      abs: outAbs,
-      rel: outRel,
-    };
+    return sampleGradientNormal(sample, eps, ship.x, ship.y, cx, cy);
   };
 
   {
@@ -998,221 +538,163 @@ export function resolvePlanetCollisionResponse(args){
     const shipUpX = ship.x / shipR;
     const shipUpY = ship.y / shipR;
 
-    /**
-     * @param {Array<{x:number,y:number,air:number}>|null|undefined} tri
-     * @returns {boolean}
-     */
-    const triStraddlesBoundary = (tri) => {
-      if (!tri || tri.length < 3) return false;
-      let minA = Infinity;
-      let maxA = -Infinity;
-      for (const v of tri){
-        minA = Math.min(minA, v.air);
-        maxA = Math.max(maxA, v.air);
-      }
-      return minA <= 0.5 && maxA > 0.5;
+    const radial = planet && planet.radial;
+    const rOuter = planetOuterShellRadius(planet);
+    let queryRMin = Math.min(Math.hypot(hx, hy), shipR) - shipRadius - 0.5;
+    let queryRMax = Math.max(Math.hypot(hx, hy), shipR) + shipRadius + 0.5;
+    /** @param {[number, number]|null|undefined} p */
+    const includeQueryPoint = (p) => {
+      if (!p) return;
+      const pr = Math.hypot(p[0], p[1]);
+      queryRMin = Math.min(queryRMin, pr - shipRadius - 0.5);
+      queryRMax = Math.max(queryRMax, pr + shipRadius + 0.5);
     };
+    if (prevPoints){
+      for (const p of prevPoints) includeQueryPoint(p);
+    }
+    if (currPoints){
+      for (const p of currPoints) includeQueryPoint(p);
+    }
+    const boundaryEdges = (radial && radial.bandTris)
+      ? collectBoundaryEdges(
+        radial,
+        (x, y) => collision.planetAirValueAtWorld(x, y),
+        Math.floor(queryRMin) - 3,
+        Math.ceil(queryRMax) + 3,
+        rOuter
+      )
+      : [];
 
     /**
-     * @param {Array<{x:number,y:number,air:number}>} tri
+     * Resolve exact contact from nearest explicit boundary edge.
      * @param {number} x
      * @param {number} y
-     * @returns {number}
-     */
-    const airInTri = (tri, x, y) => {
-      const a = tri[0];
-      const b = tri[1];
-      const c = tri[2];
-      if (!a || !b || !c) return 1;
-      const det = (b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y);
-      if (Math.abs(det) < 1e-8){
-        return (a.air + b.air + c.air) / 3;
-      }
-      const l1 = ((b.y - c.y) * (x - c.x) + (c.x - b.x) * (y - c.y)) / det;
-      const l2 = ((c.y - a.y) * (x - c.x) + (a.x - c.x) * (y - c.y)) / det;
-      const l3 = 1 - l1 - l2;
-      return a.air * l1 + b.air * l2 + c.air * l3;
-    };
-
-    /**
-     * Choose boundary-relevant triangle at contact.
-     * Uniform rule across all rings: choose the best boundary-straddling tri.
-     * @param {number} x
-     * @param {number} y
-     * @param {number} fallbackNx
-     * @param {number} fallbackNy
-     * @returns {Array<{x:number,y:number,air:number}>|null}
-     */
-    const pickTriAtContact = (x, y, fallbackNx, fallbackNy) => {
-      const radial = planet && planet.radial;
-      if (!radial || !radial.bandTris || typeof radial._pointInTri !== "function"){
-        return (radial && typeof radial.findTriAtWorld === "function") ? radial.findTriAtWorld(x, y) : null;
-      }
-      const r = Math.hypot(x, y);
-      const rMaxBand = Math.max(0, (radial.bandTris.length || 1) - 1);
-      const r0 = Math.max(0, Math.min(rMaxBand, Math.floor(r)));
-      const bands = [r0, r0 - 1, r0 + 1, r0 - 2, r0 + 2];
-      /** @type {Array<{x:number,y:number,air:number}>|null} */
-      let bestTri = null;
-      let bestScore = -Infinity;
-      for (const bi of bands){
-        if (bi < 0 || bi > rMaxBand) continue;
-        const tris = radial.bandTris[bi];
-        if (!tris || !tris.length) continue;
-        for (const tri of tris){
-          if (!tri || tri.length < 3) continue;
-          const a = tri[0], b = tri[1], c = tri[2];
-          if (!a || !b || !c) continue;
-          if (!radial._pointInTri(x, y, a.x, a.y, b.x, b.y, c.x, c.y)) continue;
-          let minA = Infinity;
-          let maxA = -Infinity;
-          for (const v of tri){
-            minA = Math.min(minA, v.air);
-            maxA = Math.max(maxA, v.air);
-          }
-          const boundaryTri = (minA <= 0.5 && maxA > 0.5);
-          if (!boundaryTri) continue;
-          const n = triAirNormalFromTri(/** @type {Array<{x:number,y:number,air:number}>} */ (tri), fallbackNx, fallbackNy);
-          const probe = 0.06;
-          const front = collision.planetAirValueAtWorld(x + n.nx * probe, y + n.ny * probe);
-          const back = collision.planetAirValueAtWorld(x - n.nx * probe, y - n.ny * probe);
-          const av = airInTri(/** @type {Array<{x:number,y:number,air:number}>} */ (tri), x, y);
-          let score = 0;
-          score += 2.0;
-          score -= Math.abs(av - 0.5) * 1.2;
-          score += Math.max(-1, Math.min(1, n.nx * fallbackNx + n.ny * fallbackNy)) * 0.5;
-          score += Math.max(-0.7, Math.min(0.7, front - back)) * 1.4;
-          if (score > bestScore){
-            bestScore = score;
-            bestTri = /** @type {Array<{x:number,y:number,air:number}>} */ (tri);
-          }
-        }
-      }
-      if (bestTri) return bestTri;
-      return (typeof radial.findTriAtWorld === "function") ? radial.findTriAtWorld(x, y) : null;
-    };
-
-    /**
-     * Resolve exact contact normal at a point from its barycentric triangle.
-     * Falls back to field gradient at that point if no triangle is found.
-     * @param {number} x
-     * @param {number} y
-     * @returns {{x:number,y:number,nx:number,ny:number,tri:Array<{x:number,y:number,air:number}>|null}}
-     */
-    const normalAtContact = (x, y) => {
+     * @returns {{x:number,y:number,nx:number,ny:number,diag?:{queryX:number,queryY:number,preferDx:number,preferDy:number,segments:Array<{ax:number,ay:number,bx:number,by:number,nx:number,ny:number,d2:number,u:number,preferVn:number,fallbackDot:number,chosen:boolean}>}|null}}
+      */
+    const normalAtContact = (x, y, preferDx = Number.NaN, preferDy = Number.NaN) => {
       const fallback = contactNormal((sx, sy) => collision.planetAirValueAtWorld(sx, sy), x, y);
-      let cx = x;
-      let cy = y;
-      let tri = pickTriAtContact(cx, cy, fallback.nx, fallback.ny);
-      if (!tri){
-        // Contact can lie exactly on/just outside band coverage near the rim.
-        // Probe locally to recover a boundary tri before falling back to field gradient.
-        const rr = Math.hypot(cx, cy) || 1;
-        const rux = cx / rr;
-        const ruy = cy / rr;
-        /** @type {Array<[number, number]>} */
-        const probeDirs = [
-          [-fallback.nx, -fallback.ny], // toward likely rock side
-          [fallback.nx, fallback.ny], // toward likely air side
-          [-rux, -ruy], // inward radial
-          [rux, ruy], // outward radial
-        ];
-        const probeSteps = [0.03, 0.06, 0.10, 0.16, 0.24];
-        for (const d of probeSteps){
-          let found = null;
-          for (const dir of probeDirs){
-            const probeDir = dir;
-            if (!probeDir) continue;
-            const qx = cx + probeDir[0] * d;
-            const qy = cy + probeDir[1] * d;
-            const t = pickTriAtContact(qx, qy, fallback.nx, fallback.ny);
-            if (t){
-              found = t;
-              cx = qx;
-              cy = qy;
-              break;
-            }
-          }
-          if (found){
-            tri = found;
-            break;
-          }
-        }
+      const near = nearestBoundaryEdge(boundaryEdges, x, y, preferDx, preferDy, fallback.nx, fallback.ny);
+      if (!near){
+        return { x, y, nx: fallback.nx, ny: fallback.ny, diag: null };
       }
-      const rr = Math.hypot(cx, cy) || 1;
-      const rux = cx / rr;
-      const ruy = cy / rr;
-      const radial = planet && planet.radial;
-      const rOuter = (radial && radial.rings && radial.rings.length)
-        ? (radial.rings.length - 1)
-        : ((typeof planet.planetRadius === "number") ? planet.planetRadius : rr);
-      const shellDist = Math.abs(rr - rOuter);
-      const probe = 0.08;
-      const shellAirOut = collision.planetAirValueAtWorld(cx + rux * probe, cy + ruy * probe);
-      const shellAirIn = collision.planetAirValueAtWorld(cx - rux * probe, cy - ruy * probe);
-      const isOuterShellBoundary = (shellDist <= 0.35) && (shellAirOut > 0.5) && (shellAirIn <= 0.5);
-      let n = triAirNormalFromTri(/** @type {Array<{x:number,y:number,air:number}>|null} */(tri), fallback.nx, fallback.ny);
-      // On the top strip, the rendered/collision boundary can be the outer clamp
-      // (air outside the mesh) and not a straddling barycentric tri. In that case,
-      // use the exact shell boundary normal instead of an all-rock tri gradient.
-      if (isOuterShellBoundary && !triStraddlesBoundary(tri)){
-        n = { nx: rux, ny: ruy };
-        if (n.nx * fallback.nx + n.ny * fallback.ny < 0){
-          n.nx = -n.nx;
-          n.ny = -n.ny;
-        }
-      }
-      return { x: cx, y: cy, nx: n.nx, ny: n.ny, tri: /** @type {Array<{x:number,y:number,air:number}>|null} */(tri) };
+      return {
+        x: near.cp.x,
+        y: near.cp.y,
+        nx: near.edge.nx,
+        ny: near.edge.ny,
+        diag: debugEnabled ? {
+          queryX: x,
+          queryY: y,
+          preferDx,
+          preferDy,
+          segments: [{
+            ax: near.edge.ax,
+            ay: near.edge.ay,
+            bx: near.edge.bx,
+            by: near.edge.by,
+            nx: near.edge.nx,
+            ny: near.edge.ny,
+            d2: near.cp.d2,
+            u: near.cp.u,
+            preferVn: near.preferVn,
+            fallbackDot: near.fallbackDot,
+            chosen: true,
+          }],
+        } : null,
+      };
     };
 
     /**
      * Collect collider-point air->rock crossings from previous frame to current frame.
      * Uses all ship sample points as independent swept probes.
-     * @returns {Array<{x:number,y:number,nx:number,ny:number,tri:Array<{x:number,y:number,air:number}>|null,t:number,pointIndex:number,entryVn:number}>}
+     * @returns {Array<any>}
      */
     const sweepContacts = () => {
       if (!prevPoints || !currPoints || !prevPoints.length || !currPoints.length){
         return [];
       }
       const nPts = Math.min(prevPoints.length, currPoints.length);
-      /** @type {Array<{x:number,y:number,nx:number,ny:number,tri:Array<{x:number,y:number,air:number}>|null,t:number,pointIndex:number,entryVn:number}>} */
+      /** @type {Array<any>} */
       const out = [];
       for (let i = 0; i < nPts; i++){
         const p0 = prevPoints[i];
         const p1 = currPoints[i];
         if (!p0 || !p1) continue;
-        const a0 = collision.planetAirValueAtWorld(p0[0], p0[1]);
-        const a1 = collision.planetAirValueAtWorld(p1[0], p1[1]);
-        if (!(a0 > 0.5 && a1 <= 0.5)) continue;
-        let lo = 0;
-        let hi = 1;
-        for (let b = 0; b < 20; b++){
-          const tMid = (lo + hi) * 0.5;
-          const mx = p0[0] + (p1[0] - p0[0]) * tMid;
-          const my = p0[1] + (p1[1] - p0[1]) * tMid;
-          const aMid = collision.planetAirValueAtWorld(mx, my);
-          if (aMid > 0.5){
-            lo = tMid;
-          } else {
-            hi = tMid;
-          }
-        }
-        const tHit = hi;
-        const cx = p0[0] + (p1[0] - p0[0]) * tHit;
-        const cy = p0[1] + (p1[1] - p0[1]) * tHit;
-        const n = normalAtContact(cx, cy);
         const svx = p1[0] - p0[0];
         const svy = p1[1] - p0[1];
-        const entryVn = svx * n.nx + svy * n.ny;
+        let bestHit = null;
+        for (const edge of boundaryEdges){
+          const hitSeg = segmentIntersectionParams(
+            p0[0], p0[1], svx, svy,
+            edge.ax, edge.ay, edge.bx - edge.ax, edge.by - edge.ay
+          );
+          if (!hitSeg) continue;
+          const entryVn = svx * edge.nx + svy * edge.ny;
+          if (entryVn >= -1e-6) continue;
+          if (!bestHit || hitSeg.t < bestHit.t - 1e-6 || (Math.abs(hitSeg.t - bestHit.t) <= 1e-6 && entryVn < bestHit.entryVn)){
+            bestHit = { edge, t: hitSeg.t, u: hitSeg.u, entryVn };
+          }
+        }
+        let n;
+        let entryVn;
+        let tHit;
+        if (bestHit){
+          tHit = bestHit.t;
+          entryVn = bestHit.entryVn;
+          n = {
+            x: bestHit.edge.ax + (bestHit.edge.bx - bestHit.edge.ax) * bestHit.u,
+            y: bestHit.edge.ay + (bestHit.edge.by - bestHit.edge.ay) * bestHit.u,
+            nx: bestHit.edge.nx,
+            ny: bestHit.edge.ny,
+            diag: debugEnabled ? {
+              queryX: p0[0] + svx * bestHit.t,
+              queryY: p0[1] + svy * bestHit.t,
+              preferDx: svx,
+              preferDy: svy,
+              segments: [{
+                ax: bestHit.edge.ax,
+                ay: bestHit.edge.ay,
+                bx: bestHit.edge.bx,
+                by: bestHit.edge.by,
+                nx: bestHit.edge.nx,
+                ny: bestHit.edge.ny,
+                d2: 0,
+                u: bestHit.u,
+                preferVn: bestHit.entryVn,
+                fallbackDot: Number.NaN,
+                chosen: true,
+              }],
+            } : null,
+          };
+        } else {
+          const a0 = collision.planetAirValueAtWorld(p0[0], p0[1]);
+          const a1 = collision.planetAirValueAtWorld(p1[0], p1[1]);
+          if (!(a0 > 0.5 && a1 <= 0.5)) continue;
+          let lo = 0;
+          let hi = 1;
+          for (let b = 0; b < 20; b++){
+            const tMid = (lo + hi) * 0.5;
+            const mx = p0[0] + (p1[0] - p0[0]) * tMid;
+            const my = p0[1] + (p1[1] - p0[1]) * tMid;
+            const aMid = collision.planetAirValueAtWorld(mx, my);
+            if (aMid > 0.5) lo = tMid;
+            else hi = tMid;
+          }
+          tHit = hi;
+          const cx = p0[0] + (p1[0] - p0[0]) * tHit;
+          const cy = p0[1] + (p1[1] - p0[1]) * tHit;
+          n = normalAtContact(cx, cy, svx, svy);
+          entryVn = svx * n.nx + svy * n.ny;
+        }
         out.push({
           x: n.x,
           y: n.y,
           nx: n.nx,
           ny: n.ny,
-          tri: n.tri,
           t: tHit,
           pointIndex: i,
           entryVn,
+          normalDiag: n.diag || null,
         });
       }
 
@@ -1222,10 +704,10 @@ export function resolvePlanetCollisionResponse(args){
     /**
      * Collect contacts from currently colliding hull sample points.
      * This complements swept entry contacts for stable support selection.
-     * @returns {Array<{x:number,y:number,nx:number,ny:number,tri:Array<{x:number,y:number,air:number}>|null,t:number,pointIndex:number,entryVn:number}>}
+     * @returns {Array<any>}
      */
     const poseContacts = () => {
-      /** @type {Array<{x:number,y:number,nx:number,ny:number,tri:Array<{x:number,y:number,air:number}>|null,t:number,pointIndex:number,entryVn:number}>} */
+      /** @type {Array<any>} */
       const out = [];
       if (!currPoints || !currPoints.length){
         return out;
@@ -1240,18 +722,18 @@ export function resolvePlanetCollisionResponse(args){
           y: n.y,
           nx: n.nx,
           ny: n.ny,
-          tri: n.tri,
           t: 1,
           pointIndex: i,
           entryVn: ship.vx * n.nx + ship.vy * n.ny,
+          normalDiag: n.diag || null,
         });
       }
       return out;
     };
 
     /**
-     * @param {Array<{x:number,y:number,nx:number,ny:number,tri:Array<{x:number,y:number,air:number}>|null,t:number,pointIndex:number,entryVn:number}>} contacts
-     * @returns {{x:number,y:number,nx:number,ny:number,tri:Array<{x:number,y:number,air:number}>|null,t:number,pointIndex:number,entryVn:number}|null}
+     * @param {Array<any>} contacts
+     * @returns {any}
      */
     const pickImpactContact = (contacts) => {
       if (!contacts.length) return null;
@@ -1275,100 +757,96 @@ export function resolvePlanetCollisionResponse(args){
     const probeY = ship.y - shipUpY * shipRadius;
     const contacts = sweepContacts();
     const contactsPose = poseContacts();
-    const avgHitContact = averageImpactContacts(
-      /** @type {Array<{x:number,y:number,nx:number,ny:number,av?:number}>|null|undefined} */ (hit.contacts)
-    );
-    const hitImpactContact = avgHitContact ? {
-      x: avgHitContact.x,
-      y: avgHitContact.y,
-      nx: avgHitContact.nx,
-      ny: avgHitContact.ny,
-      tri: /** @type {Array<{x:number,y:number,air:number}>|null} */ (hit.tri || null),
-      t: 0,
-      pointIndex: -10,
-      entryVn: ship.vx * avgHitContact.nx + ship.vy * avgHitContact.ny,
-    } : null;
-    // Prefer the earliest swept entry feature when available. Averaging the
-    // whole manifold is useful for support/landing diagnostics, but around
-    // sharp corners it can produce a bisector normal that traps the hull.
-    const contactImpact = pickImpactContact(contacts) || hitImpactContact;
+    // Prefer the earliest swept entry feature when available. Do not fall back
+    // to an averaged manifold normal for response; around sharp corners it can
+    // produce a bisector normal that traps the hull and cancels forward motion.
+    const contactImpact = pickImpactContact(contacts);
     let impactX = hx;
     let impactY = hy;
-    let impactTri = null;
     let impactNormal = contactNormal((x, y) => collision.planetAirValueAtWorld(x, y), impactX, impactY);
     if (contactImpact){
       impactX = contactImpact.x;
       impactY = contactImpact.y;
       impactNormal = { nx: contactImpact.nx, ny: contactImpact.ny };
-      impactTri = contactImpact.tri;
     } else {
       const nHit = normalAtContact(impactX, impactY);
       impactX = nHit.x;
       impactY = nHit.y;
       impactNormal = { nx: nHit.nx, ny: nHit.ny };
-      impactTri = nHit.tri;
+    }
+    const impactOrientProbeFront = Math.max(
+      Math.max(0.03, Math.min(0.08, eps * 0.5)),
+      Math.max(0.12, shipRadius * 0.45)
+    );
+    const impactOrientProbeBack = Math.max(
+      Math.max(0.03, Math.min(0.08, eps * 0.5)),
+      Math.max(0.10, shipRadius * 0.38)
+    );
+    const impactAirFrontCheck = collision.planetAirValueAtWorld(
+      impactX + impactNormal.nx * impactOrientProbeFront,
+      impactY + impactNormal.ny * impactOrientProbeFront
+    );
+    const impactAirBackCheck = collision.planetAirValueAtWorld(
+      impactX - impactNormal.nx * impactOrientProbeBack,
+      impactY - impactNormal.ny * impactOrientProbeBack
+    );
+    const trustExactImpactNormal = !!(contactImpact && contactImpact.normalDiag && Array.isArray(contactImpact.normalDiag.segments) && contactImpact.normalDiag.segments.length);
+    if (!trustExactImpactNormal && impactAirBackCheck > impactAirFrontCheck){
+      impactNormal.nx = -impactNormal.nx;
+      impactNormal.ny = -impactNormal.ny;
     }
 
     const supportX = impactX;
     const supportY = impactY;
-    const supportTri = impactTri;
-
-    /**
-     * @param {Array<{x:number,y:number,air:number}>|null} tri
-     * @returns {{outerCount:number,airMin:number,airMax:number,rMin:number,rMax:number}|null}
-     */
-    const triMeta = (tri) => {
-      if (!tri || tri.length < 3) return null;
-      let outerCount = 0;
-      let airMin = Infinity;
-      let airMax = -Infinity;
-      let rMin = Infinity;
-      let rMax = -Infinity;
-      const rOuter = (typeof planet.planetRadius === "number")
-        ? planet.planetRadius
-        : (planet.radial && planet.radial.rings ? (planet.radial.rings.length - 1) : Infinity);
-      for (const v of tri){
-        const rv = Math.hypot(v.x, v.y);
-        rMin = Math.min(rMin, rv);
-        rMax = Math.max(rMax, rv);
-        airMin = Math.min(airMin, v.air);
-        airMax = Math.max(airMax, v.air);
-        if (rv >= rOuter - 0.22) outerCount++;
-      }
-      return { outerCount, airMin, airMax, rMin, rMax };
-    };
+    const speedAbs = Math.hypot(ship.vx, ship.vy);
+    const maxSlope = 1 - Math.cos(Math.PI / 8); // 22.5 deg
+    const landSlope = Math.min((1 - game.SURFACE_DOT) + 0.03, maxSlope);
+    const contactPool = contactsPose.length ? contactsPose : contacts;
     let bestDotUpAny = -Infinity;
     let bestDotUpUnder = -Infinity;
-    for (const c of contactsPose.length ? contactsPose : contacts){
+    /** @type {{nx:number,ny:number}|null} */
+    let bestUnderNormal = null;
+    for (const c of contactPool){
       const dot = c.nx * shipUpX + c.ny * shipUpY;
       if (dot > bestDotUpAny) bestDotUpAny = dot;
       const rcx = c.x - ship.x;
       const rcy = c.y - ship.y;
       const rLen = Math.hypot(rcx, rcy);
       const downness = rLen > 1e-6 ? (-(rcx * shipUpX + rcy * shipUpY) / rLen) : -1;
-      if (downness >= 0.1 && dot > bestDotUpUnder) bestDotUpUnder = dot;
+      if (downness >= 0.1 && dot > bestDotUpUnder){
+        bestDotUpUnder = dot;
+        bestUnderNormal = { nx: c.nx, ny: c.ny };
+      }
     }
-    const supportMeta = triMeta(/** @type {Array<{x:number,y:number,air:number}>|null} */(supportTri));
+    const hasUnderSupport = Number.isFinite(bestDotUpUnder) && bestDotUpUnder > 0;
+    const supportDotUp = hasUnderSupport ? bestDotUpUnder : -Infinity;
+    const supportLandable = hasUnderSupport
+      && supportDotUp > 0
+      && Math.max(0, 1 - supportDotUp) <= landSlope;
 
-    if (hit){
-      ship._collision = {
-        x: supportX,
-        y: supportY,
-        source: "planet",
-        tri: supportTri,
-        node: (planet.radial && typeof planet.radial.nearestNodeOnRing === "function")
-          ? planet.radial.nearestNodeOnRing(supportX, supportY)
-          : null,
-      };
-    }
+    ship._collision = {
+      x: supportX,
+      y: supportY,
+      source: "planet",
+      tri: hit.tri || null,
+      node: (planet.radial && typeof planet.radial.nearestNodeOnRing === "function")
+        ? planet.radial.nearestNodeOnRing(supportX, supportY)
+        : null,
+    };
 
     const vnImpact = ship.vx * impactNormal.nx + ship.vy * impactNormal.ny;
-    if (vnImpact < -planetParams.CRASH_SPEED) {
+    const sweptVnImpact = (contactImpact && Number.isFinite(contactImpact.entryVn) && Number.isFinite(dt) && dt > 1e-6)
+      ? (contactImpact.entryVn / dt)
+      : Number.NaN;
+    const vnResponse = Number.isFinite(sweptVnImpact)
+      ? Math.min(vnImpact, sweptVnImpact)
+      : vnImpact;
+    if (vnResponse < -planetParams.CRASH_SPEED) {
       if (debugEnabled){
         ship._landingDebug = {
           source: "planet",
           reason: "planet_crash",
-          vn: vnImpact,
+          vn: vnResponse,
           vt: ship.vx * (-impactNormal.ny) + ship.vy * impactNormal.nx,
           speed: Math.hypot(ship.vx, ship.vy),
           impactX,
@@ -1381,9 +859,6 @@ export function resolvePlanetCollisionResponse(args){
       return;
     }
 
-    const speedAbs = Math.hypot(ship.vx, ship.vy);
-    const maxSlope = 1 - Math.cos(Math.PI / 8); // 22.5 deg
-    const landSlope = Math.min((1 - game.SURFACE_DOT) + 0.03, maxSlope);
     const impactDotUp = impactNormal.nx * shipUpX + impactNormal.ny * shipUpY;
     const impactAirFront = collision.planetAirValueAtWorld(
       impactX + impactNormal.nx * Math.max(0.12, shipRadius * 0.45),
@@ -1396,23 +871,41 @@ export function resolvePlanetCollisionResponse(args){
     const landingInfo = {
       dotUp: impactDotUp,
       slope: Math.max(0, 1 - impactDotUp),
-      vn: vnImpact,
+      vn: vnResponse,
       vt: ship.vx * (-impactNormal.ny) + ship.vy * impactNormal.nx,
       airFront: impactAirFront,
       airBack: impactAirBack,
       supportDist: Math.hypot(impactX - probeX, impactY - probeY),
-      landable: impactDotUp > 0 && Math.max(0, 1 - impactDotUp) <= landSlope,
+      landable: supportLandable,
     };
-    const landVt = Math.max(0.8, planetParams.LAND_SPEED * 0.6);
+    const landVt = Math.max(0, Number(game.LAND_MAX_TANGENT_SPEED) || 0);
+    const controlTangentAccel = Number.isFinite(controlAccelX) && Number.isFinite(controlAccelY)
+      ? (controlAccelX * (-impactNormal.ny) + controlAccelY * impactNormal.nx)
+      : 0;
+    const tangentThrustReinforcing = !!thrustInputActive
+      && Math.abs(landingInfo.vt) > 0.05
+      && Math.abs(controlTangentAccel) > 0.05
+      && Math.sign(controlTangentAccel) === Math.sign(landingInfo.vt);
     let landingSupportRatio = 1;
+    const flightDbg = ship._debugFlightInput || null;
+    const impactRelX = impactX - ship.x;
+    const impactRelY = impactY - ship.y;
+    const supportRelX = supportX - ship.x;
+    const supportRelY = supportY - ship.y;
+    const impactContactsDiag = debugEnabled ? contacts.slice(0, 8).map((c) => ({
+      pointIndex: c.pointIndex,
+      t: c.t,
+      entryVn: c.entryVn,
+      x: c.x,
+      y: c.y,
+      nx: c.nx,
+      ny: c.ny,
+    })) : null;
     if (shipCollisionPointsAt){
       const supportPts = shipCollisionPointsAt(ship.x, ship.y);
       const supportBand = [];
       let bestDownness = -Infinity;
-      const planetOuterRadius = (typeof planet.planetRadius === "number")
-        ? planet.planetRadius
-        : (planet.radial && planet.radial.rings ? (planet.radial.rings.length - 1) : Infinity);
-      const supportCheckNormal = contactImpact ? impactNormal : { nx: shipUpX, ny: shipUpY };
+      const supportCheckNormal = bestUnderNormal || (contactImpact ? impactNormal : { nx: shipUpX, ny: shipUpY });
       for (const p of supportPts){
         const dx = p[0] - ship.x;
         const dy = p[1] - ship.y;
@@ -1430,17 +923,13 @@ export function resolvePlanetCollisionResponse(args){
       for (const p of supportBand){
         if (p.downness < bandThreshold) continue;
         supportTotal++;
-        const pr = Math.hypot(p.x, p.y) || 1;
-        const outerShellSample = pr >= planetOuterRadius - Math.max(0.30, shipRadius * 0.6);
-        const sampleNx = outerShellSample ? (p.x / pr) : supportCheckNormal.nx;
-        const sampleNy = outerShellSample ? (p.y / pr) : supportCheckNormal.ny;
         const airFront = collision.planetAirValueAtWorld(
-          p.x + sampleNx * clearOutside,
-          p.y + sampleNy * clearOutside
+          p.x + supportCheckNormal.nx * clearOutside,
+          p.y + supportCheckNormal.ny * clearOutside
         );
         const airBack = collision.planetAirValueAtWorld(
-          p.x - sampleNx * clearInside,
-          p.y - sampleNy * clearInside
+          p.x - supportCheckNormal.nx * clearInside,
+          p.y - supportCheckNormal.ny * clearInside
         );
         if (airFront > 0.5 && airBack <= 0.52){
           supportCount++;
@@ -1448,7 +937,7 @@ export function resolvePlanetCollisionResponse(args){
       }
       landingSupportRatio = supportTotal > 0 ? (supportCount / supportTotal) : 0;
     }
-    /** @type {{source:string,reason:string,dotUp:number,slope:number,landSlope:number,vn:number,vt:number,speed:number,airFront:number,airBack:number,landable:boolean,landed:boolean,support:boolean,supportDist:number,contactsCount:number,bestDotUpAny:number,bestDotUpUnder:number,impactPoint:number,supportPoint:number,impactT:number,supportT:number,impactX:number,impactY:number,supportX:number,supportY:number,supportTriOuterCount:number,supportTriAirMin:number,supportTriAirMax:number,supportTriRMin:number,supportTriRMax:number,supportRatio?:number,overlapBeforeCount?:number,overlapAfterCount?:number,overlapBeforeMin?:number,overlapAfterMin?:number,depenPush?:number,depenIter?:number,depenCleared?:boolean}|null} */
+    /** @type {{source:string,reason:string,dotUp:number,slope:number,landSlope:number,vn:number,vt:number,speed:number,airFront:number,airBack:number,landable:boolean,landed:boolean,support:boolean,supportDist:number,contactsCount:number,bestDotUpAny:number,bestDotUpUnder:number,impactPoint:number,supportPoint:number,impactT:number,supportT:number,impactX:number,impactY:number,supportX:number,supportY:number,impactNormalX?:number,impactNormalY?:number,shipX?:number,shipY?:number,shipVx?:number,shipVy?:number,shipStartX?:number,shipStartY?:number,shipEndX?:number,shipEndY?:number,impactRelX?:number,impactRelY?:number,supportRelX?:number,supportRelY?:number,inputLeft?:boolean,inputRight?:boolean,inputThrust?:boolean,inputDown?:boolean,inputStickX?:number,inputStickY?:number,inputAccelX?:number,inputAccelY?:number,inputGravityX?:number,inputGravityY?:number,impactEdges?:Array<{ax:number,ay:number,bx:number,by:number,nx:number,ny:number,d2:number,u:number,preferVn:number,fallbackDot:number,chosen:boolean}>|null,impactContacts?:Array<{pointIndex:number,t:number,entryVn:number,x:number,y:number,nx:number,ny:number}>|null,supportRatio?:number,overlapBeforeCount?:number,overlapAfterCount?:number,overlapBeforeMin?:number,overlapAfterMin?:number,depenPush?:number,depenIter?:number,depenCleared?:boolean}|null} */
     const landingDbg = debugEnabled ? {
       source: "planet",
       reason: "planet_eval",
@@ -1475,37 +964,47 @@ export function resolvePlanetCollisionResponse(args){
       impactY,
       supportX,
       supportY,
-      supportTriOuterCount: supportMeta ? supportMeta.outerCount : -1,
-      supportTriAirMin: supportMeta ? supportMeta.airMin : Number.NaN,
-      supportTriAirMax: supportMeta ? supportMeta.airMax : Number.NaN,
-      supportTriRMin: supportMeta ? supportMeta.rMin : Number.NaN,
-      supportTriRMax: supportMeta ? supportMeta.rMax : Number.NaN,
+      impactNormalX: impactNormal.nx,
+      impactNormalY: impactNormal.ny,
+      shipX: ship.x,
+      shipY: ship.y,
+      shipVx: ship.vx,
+      shipVy: ship.vy,
+      shipStartX: Number.isFinite(shipStartX) ? Number(shipStartX) : Number.NaN,
+      shipStartY: Number.isFinite(shipStartY) ? Number(shipStartY) : Number.NaN,
+      shipEndX: Number.isFinite(shipEndX) ? Number(shipEndX) : Number.NaN,
+      shipEndY: Number.isFinite(shipEndY) ? Number(shipEndY) : Number.NaN,
+      impactRelX,
+      impactRelY,
+      supportRelX,
+      supportRelY,
+      inputLeft: !!(flightDbg && flightDbg.left),
+      inputRight: !!(flightDbg && flightDbg.right),
+      inputThrust: !!(flightDbg && flightDbg.thrust),
+      inputDown: !!(flightDbg && flightDbg.down),
+      inputStickX: Number.isFinite(flightDbg && flightDbg.stickX) ? Number(flightDbg && flightDbg.stickX) : Number.NaN,
+      inputStickY: Number.isFinite(flightDbg && flightDbg.stickY) ? Number(flightDbg && flightDbg.stickY) : Number.NaN,
+      inputAccelX: Number.isFinite(flightDbg && flightDbg.accelX) ? Number(flightDbg && flightDbg.accelX) : Number.NaN,
+      inputAccelY: Number.isFinite(flightDbg && flightDbg.accelY) ? Number(flightDbg && flightDbg.accelY) : Number.NaN,
+      inputGravityX: Number.isFinite(flightDbg && flightDbg.gravityX) ? Number(flightDbg && flightDbg.gravityX) : Number.NaN,
+      inputGravityY: Number.isFinite(flightDbg && flightDbg.gravityY) ? Number(flightDbg && flightDbg.gravityY) : Number.NaN,
+      impactEdges: contactImpact && contactImpact.normalDiag ? contactImpact.normalDiag.segments : null,
+      impactContacts: impactContactsDiag,
       supportRatio: landingSupportRatio,
     } : null;
-    const settledLanding = !contactImpact
-      && contactsPose.length > 0
-      && speedAbs <= Math.max(0.08, planetParams.LAND_SPEED * 0.35)
-      && landingSupportRatio >= 0.5;
 
     if (
-      (
-        (landingInfo.landable
-          && landingSupportRatio >= 0.5
-          && landingInfo.vn >= -planetParams.LAND_SPEED
-          && Math.abs(landingInfo.vt) <= landVt
-          && speedAbs <= (planetParams.LAND_SPEED + 0.2))
-        || settledLanding
-      )
+      landingInfo.landable
+      && !tangentThrustReinforcing
+      && landingSupportRatio >= 0.5
+      && landingInfo.vn >= -planetParams.LAND_SPEED
+      && Math.abs(landingInfo.vt) <= landVt
+      && speedAbs <= (planetParams.LAND_SPEED + 0.2)
     ){
       if (landingDbg){
         landingDbg.reason = "planet_landed";
         landingDbg.landed = true;
         landingDbg.landable = true;
-        if (settledLanding){
-          landingDbg.vn = 0;
-          landingDbg.vt = 0;
-          landingDbg.speed = 0;
-        }
         ship._landingDebug = landingDbg;
       }
       ship.state = "landed";
@@ -1514,34 +1013,75 @@ export function resolvePlanetCollisionResponse(args){
       return;
     }
 
-    const restitution = Number.isFinite(planetParams.BOUNCE_RESTITUTION)
-      ? Math.max(0, Math.min(1, Number(planetParams.BOUNCE_RESTITUTION)))
-      : (Number.isFinite(game.BOUNCE_RESTITUTION) ? Math.max(0, Number(game.BOUNCE_RESTITUTION)) : 0.8);
     const wallFriction = Number.isFinite(planetParams.WALL_FRICTION)
       ? Math.max(0, Number(planetParams.WALL_FRICTION))
       : Math.max(0, Number(planetParams.LAND_FRICTION) || 0);
-    if (vnImpact < 0){
-      ship.vx -= (1 + restitution) * vnImpact * impactNormal.nx;
-      ship.vy -= (1 + restitution) * vnImpact * impactNormal.ny;
-      if (wallFriction > 0){
-        const tx = -impactNormal.ny;
-        const ty = impactNormal.nx;
-        const vnAfter = ship.vx * impactNormal.nx + ship.vy * impactNormal.ny;
-        const vtAfter = ship.vx * tx + ship.vy * ty;
-        // Keep wall friction readable across planet materials without reviving sticky slide logic.
-        const damp = Math.max(0, 1 - wallFriction * 0.45 * Math.max(0, dt));
-        const vtDamped = vtAfter * damp;
-        ship.vx = impactNormal.nx * vnAfter + tx * vtDamped;
-        ship.vy = impactNormal.ny * vnAfter + ty * vtDamped;
+    const tx = -impactNormal.ny;
+    const ty = impactNormal.nx;
+    const responseStartOverlap = shipCollidesAt(ship.x, ship.y);
+    if (vnResponse < 0){
+      if (responseStartOverlap){
+        const vnNow = ship.vx * impactNormal.nx + ship.vy * impactNormal.ny;
+        if (vnNow < 0){
+          ship.vx -= impactNormal.nx * vnNow;
+          ship.vy -= impactNormal.ny * vnNow;
+        }
+      } else {
+        const vtImpact = ship.vx * tx + ship.vy * ty;
+        const damp = wallFriction > 0
+          ? Math.max(0, 1 - wallFriction * 0.45 * Math.max(0, dt))
+          : 1;
+        const vtDamped = vtImpact * damp;
+        // Project velocity onto the wall tangent instead of reflecting it so
+        // contact removes inward speed but preserves slide along the surface.
+        ship.vx = tx * vtDamped;
+        ship.vy = ty * vtDamped;
+        ship.x += impactNormal.nx * Math.max(0.002, shipRadius * 0.02);
+        ship.y += impactNormal.ny * Math.max(0.002, shipRadius * 0.02);
       }
-      ship.x += impactNormal.nx * Math.max(0.002, shipRadius * 0.02);
-      ship.y += impactNormal.ny * Math.max(0.002, shipRadius * 0.02);
       if (landingDbg){
-        landingDbg.reason = "planet_reflect";
+        landingDbg.reason = responseStartOverlap ? "planet_clip" : "planet_slide";
         landingDbg.vn = ship.vx * impactNormal.nx + ship.vy * impactNormal.ny;
         landingDbg.vt = ship.vx * (-impactNormal.ny) + ship.vy * impactNormal.nx;
       }
     } else {
+      if (Number.isFinite(shipEndX) && Number.isFinite(shipEndY)){
+        const attemptedBlocked = shipCollidesAt(Number(shipEndX), Number(shipEndY));
+        if (!landingInfo.landable && attemptedBlocked){
+          const startX = ship.x;
+          const startY = ship.y;
+          const remainDx = Number(shipEndX) - startX;
+          const remainDy = Number(shipEndY) - startY;
+          const intoDist = remainDx * impactNormal.nx + remainDy * impactNormal.ny;
+          const slideDist = (Number(shipEndX) - startX) * tx + (Number(shipEndY) - startY) * ty;
+          if (
+            intoDist < -1e-6
+            && Math.abs(slideDist) > Math.max(1e-6, Math.abs(intoDist))
+          ){
+            const targetX = startX + tx * slideDist;
+            const targetY = startY + ty * slideDist;
+            if (!shipCollidesAt(targetX, targetY)){
+              ship.x = targetX;
+              ship.y = targetY;
+            } else {
+              let lo = 0;
+              let hi = 1;
+              for (let b = 0; b < 14; b++){
+                const mid = (lo + hi) * 0.5;
+                const mx = startX + tx * slideDist * mid;
+                const my = startY + ty * slideDist * mid;
+                if (shipCollidesAt(mx, my)){
+                  hi = mid;
+                } else {
+                  lo = mid;
+                }
+              }
+              ship.x = startX + tx * slideDist * lo;
+              ship.y = startY + ty * slideDist * lo;
+            }
+          }
+        }
+      }
       if (landingDbg){
         landingDbg.reason = "planet_graze";
         landingDbg.vn = ship.vx * impactNormal.nx + ship.vy * impactNormal.ny;
@@ -1553,6 +1093,7 @@ export function resolvePlanetCollisionResponse(args){
     let overlapAfter = overlapBefore;
     let depenPush = 0;
     let depenCleared = true;
+    let depenPasses = 0;
     if (overlapBefore){
       const depNow = depenetrateAlongNormal(
         ship.x,
@@ -1567,23 +1108,39 @@ export function resolvePlanetCollisionResponse(args){
       ship.y = depNow.y;
       depenPush = depNow.push;
       depenCleared = depNow.cleared;
+      depenPasses = depNow.push > 0 ? 1 : 0;
       overlapAfter = shipCollidesAt(ship.x, ship.y);
       const vnNow = ship.vx * impactNormal.nx + ship.vy * impactNormal.ny;
       if (vnNow < 0){
         ship.vx -= impactNormal.nx * vnNow;
         ship.vy -= impactNormal.ny * vnNow;
       }
+      if (overlapAfter && shipCollisionPointsAt){
+        const preStabilizeX = ship.x;
+        const preStabilizeY = ship.y;
+        stabilizePlanetPenetration({
+          ship,
+          collision,
+          planet,
+          collisionEps: eps,
+          shipCollisionPointsAt,
+          shipRadius: () => shipRadius,
+        }, 6);
+        overlapAfter = shipCollidesAt(ship.x, ship.y);
+        depenPush += Math.hypot(ship.x - preStabilizeX, ship.y - preStabilizeY);
+        depenCleared = depenCleared || !overlapAfter;
+        depenPasses++;
+      }
     }
     if (
-      vnImpact >= 0
+      vnResponse >= 0
       && !overlapAfter
-      && Number.isFinite(shipStartX)
-      && Number.isFinite(shipStartY)
-      && Number.isFinite(dt)
-      && dt > 1e-6
     ){
-      ship.vx = (ship.x - Number(shipStartX)) / dt;
-      ship.vy = (ship.y - Number(shipStartY)) / dt;
+      const vnNow = ship.vx * impactNormal.nx + ship.vy * impactNormal.ny;
+      if (vnNow < 0){
+        ship.vx -= impactNormal.nx * vnNow;
+        ship.vy -= impactNormal.ny * vnNow;
+      }
       if (landingDbg){
         landingDbg.vn = ship.vx * impactNormal.nx + ship.vy * impactNormal.ny;
         landingDbg.vt = ship.vx * (-impactNormal.ny) + ship.vy * impactNormal.nx;
@@ -1596,7 +1153,7 @@ export function resolvePlanetCollisionResponse(args){
       landingDbg.overlapBeforeMin = overlapBefore ? 0 : 1;
       landingDbg.overlapAfterMin = overlapAfter ? 0 : 1;
       landingDbg.depenPush = depenPush;
-      landingDbg.depenIter = depenPush > 0 ? 1 : 0;
+      landingDbg.depenIter = depenPasses;
       landingDbg.depenCleared = depenCleared && !overlapAfter;
     }
     if (!overlapAfter){
@@ -1612,418 +1169,6 @@ export function resolvePlanetCollisionResponse(args){
     return;
   }
 
-  if (!mothership){
-    ship._collision = null;
-    return;
-  }
-  const activeMothership = expectDefined(mothership);
-
-  const collidesMothershipAt = shipCollidesMothershipAt || shipCollidesAt;
-  const strictEdges = shipCollisionPointsAt ? getMothershipBoundaryEdges(activeMothership) : [];
-  const strictSkin = Math.max(0.002, (activeMothership.spacing || 0.4) * 0.01);
-  /**
-   * @param {number} x
-   * @param {number} y
-   * @returns {boolean}
-   */
-  const hasStrictMothershipOverlapAt = (x, y) => {
-    if (!shipCollisionPointsAt) return collidesMothershipAt(x, y);
-    if (!strictEdges.length) return collidesMothershipAt(x, y);
-    const pts = shipCollisionPointsAt(x, y);
-    pts.push([x, y]);
-    for (const p of pts){
-      const av = mothershipAirAtWorld(activeMothership, p[0], p[1]);
-      if (av === null || av > 0.5) continue;
-      const lp = worldToMothershipLocal(activeMothership, p[0], p[1]);
-      let bestD2 = Infinity;
-      for (const e of strictEdges){
-        const c = closestPointOnSegment(e.ax, e.ay, e.bx, e.by, lp.x, lp.y);
-        if (c.d2 < bestD2) bestD2 = c.d2;
-      }
-      if (Math.sqrt(bestD2) > strictSkin){
-        return true;
-      }
-    }
-    return false;
-  };
-  const overlapNowStrict = hasStrictMothershipOverlapAt(ship.x, ship.y);
-  const absInVx = ship.vx;
-  const absInVy = ship.vy;
-  const omega = Number.isFinite(mothershipAngularVel) ? Number(mothershipAngularVel) : 0;
-  /**
-   * Surface velocity of the rotating/translating mothership at world position.
-   * @param {number} x
-   * @param {number} y
-   * @returns {{vx:number,vy:number}}
-   */
-  const baseVelocityAt = (x, y) => {
-    const rx = x - activeMothership.x;
-    const ry = y - activeMothership.y;
-    return {
-      vx: activeMothership.vx - omega * ry,
-      vy: activeMothership.vy + omega * rx,
-    };
-  };
-  const collisionEvidence = collectMothershipCollisionEvidence(activeMothership, prevPoints, currPoints);
-  let hasEventContact = false;
-  /** @type {Array<{kind:string,edgeIdx:number,hullIdx:number,x:number,y:number,nx:number,ny:number,av?:number|null}>} */
-  let eventHits = [];
-  /** @type {"sweep_vertex"|"pose_edge"|"inside_vertex"|null} */
-  let eventMode = null;
-  let eventCount = 0;
-  let contactX = hx;
-  let contactY = hy;
-  let nx;
-  let ny;
-  let contactsCount = 0;
-  const collisionEvidenceCount = collisionEvidence?.count ?? 0;
-  if (collisionEvidenceCount < 2){
-    const nFallback = contactNormal((x, y) => collision.airValueAtWorld(x, y), hx, hy);
-    nx = nFallback.nx;
-    ny = nFallback.ny;
-  } else {
-    const evidence = /** @type {NonNullable<ReturnType<typeof collectMothershipCollisionEvidence>>} */ (collisionEvidence);
-    hasEventContact = true;
-    eventHits = evidence.hits.slice();
-    eventMode = evidence.mode;
-    eventCount = evidence.count;
-    contactX = evidence.avgX;
-    contactY = evidence.avgY;
-    contactsCount = evidence.count;
-    nx = evidence.avgNx;
-    ny = evidence.avgNy;
-  }
-
-  let base = baseVelocityAt(contactX, contactY);
-  let relVx = ship.vx - base.vx;
-  let relVy = ship.vy - base.vy;
-  let vn = relVx * nx + relVy * ny;
-  let vt = relVx * -ny + relVy * nx;
-  if (vn > 0){
-    nx = -nx;
-    ny = -ny;
-    vn = relVx * nx + relVy * ny;
-    vt = relVx * -ny + relVy * nx;
-  }
-  ship._landingDebug = {
-    source: "mothership",
-    reason: hasEventContact ? "mothership_contact" : "mothership_graze",
-    vn,
-    vt,
-    speed: Math.hypot(relVx, relVy),
-    impactX: contactX,
-    impactY: contactY,
-    supportX: contactX,
-    supportY: contactY,
-    contactsCount,
-    overlapBeforeCount: overlapNowStrict ? 1 : 0,
-    overlapAfterCount: overlapNowStrict ? 1 : 0,
-    overlapBeforeMin: overlapNowStrict ? 0 : 1,
-    overlapAfterMin: overlapNowStrict ? 0 : 1,
-    depenIter: 0,
-    depenPush: 0,
-    depenCushion: 0,
-    depenDir: 0,
-    depenCleared: !overlapNowStrict,
-  };
-  const mothershipDbg = expectDefined(ship._landingDebug);
-
-  if (!hasEventContact && !overlapNowStrict){
-    ship._collision = null;
-    if (mothershipDbg){
-      mothershipDbg.reason = "mothership_no_contact";
-      mothershipDbg.vn = 0;
-      mothershipDbg.vt = 0;
-      mothershipDbg.speed = 0;
-    }
-    setMothershipDiag(mothershipDbg, {
-      mode: "no_contact",
-      absIn: vecDiag(absInVx, absInVy),
-      absOut: vecDiag(ship.vx, ship.vy),
-      relIn: vecDiag(relVx, relVy),
-      relOut: vecDiag(relVx, relVy),
-      vnIn: 0,
-      vtIn: 0,
-      vnOut: 0,
-      vtOut: 0,
-      normalAvg: null,
-      normals: [],
-      evidence: {
-        overlapNowStrict,
-        eventMode: null,
-        eventCount: 0,
-      },
-    });
-    ship._mothershipTrapFrames = 0;
-    return;
-  }
-
-  if (vn < -planetParams.CRASH_SPEED){
-    onCrash();
-    return;
-  }
-
-  const cUp = Math.cos(activeMothership.angle);
-  const sUp = Math.sin(activeMothership.angle);
-  const upx = -sUp;
-  const upy = cUp;
-  const maxSlope = 1 - Math.cos(Math.PI / 8); // 22.5 deg
-  const landSlope = Math.min((1 - game.SURFACE_DOT) + 0.03, maxSlope);
-  const dotUpRaw = nx * upx + ny * upy;
-  const slope = 1 - Math.abs(dotUpRaw);
-  const landable = (dotUpRaw < 0 && slope <= landSlope);
-  const mothershipLandSpeed = Math.max(0, Number(game.LAND_SPEED) || 0);
-  const landVn = Math.max(0.08, mothershipLandSpeed * 3.0);
-  const landVt = Math.max(0.8, mothershipLandSpeed * 0.6);
-  if (!overlapNowStrict && (!hasEventContact || vn >= 0) && !landable){
-    ship._collision = null;
-    if (mothershipDbg){
-      mothershipDbg.reason = "mothership_graze";
-      mothershipDbg.contactsCount = 0;
-      mothershipDbg.vn = 0;
-      mothershipDbg.vt = 0;
-      mothershipDbg.speed = 0;
-      mothershipDbg.overlapBeforeCount = 0;
-      mothershipDbg.overlapAfterCount = 0;
-    }
-    setMothershipDiag(mothershipDbg, {
-      mode: "graze",
-      absIn: vecDiag(absInVx, absInVy),
-      absOut: vecDiag(ship.vx, ship.vy),
-      relIn: vecDiag(relVx, relVy),
-      relOut: vecDiag(relVx, relVy),
-      vnIn: vn,
-      vtIn: vt,
-      vnOut: vn,
-      vtOut: vt,
-      normalAvg: hasEventContact ? { nx, ny } : null,
-      normals: eventHits,
-      evidence: {
-        overlapNowStrict,
-        eventMode,
-        eventCount,
-      },
-    });
-    ship._mothershipTrapFrames = 0;
-    return;
-  }
-
-  if (landable && vn >= -landVn && Math.abs(vt) < landVt){
-    ship.state = "landed";
-    const lift = shipRadius * 0.28;
-    ship.x += nx * lift;
-    ship.y += ny * lift;
-    const clearStep = shipRadius * 0.2;
-    for (let i = 0; i < 8 && collidesMothershipAt(ship.x, ship.y); i++){
-      ship.x += nx * clearStep;
-      ship.y += ny * clearStep;
-    }
-    const dx2 = ship.x - activeMothership.x;
-    const dy2 = ship.y - activeMothership.y;
-    const c2 = Math.cos(-activeMothership.angle);
-    const s2 = Math.sin(-activeMothership.angle);
-    ship._dock = {
-      lx: c2 * dx2 - s2 * dy2,
-      ly: s2 * dx2 + c2 * dy2,
-    };
-    const vDock = baseVelocityAt(ship.x, ship.y);
-    ship.vx = vDock.vx;
-    ship.vy = vDock.vy;
-    if (mothershipDbg){
-      mothershipDbg.reason = "mothership_landed";
-      mothershipDbg.landable = true;
-      mothershipDbg.landed = true;
-    }
-    if (isDockedWithMothership()){
-      onSuccessfullyDocked();
-    }
-    setMothershipDiag(mothershipDbg, {
-      mode: "landed",
-      absIn: vecDiag(absInVx, absInVy),
-      absOut: vecDiag(ship.vx, ship.vy),
-      relIn: vecDiag(relVx, relVy),
-      relOut: vecDiag(0, 0),
-      vnIn: vn,
-      vtIn: vt,
-      vnOut: 0,
-      vtOut: 0,
-      normalAvg: { nx, ny },
-      normals: eventHits,
-      evidence: {
-        overlapNowStrict,
-        eventMode,
-        eventCount,
-      },
-    });
-    ship._mothershipTrapFrames = 0;
-    return;
-  }
-
-  const backoff = backoffShipAlongNegativeRelativeVelocity(
-    activeMothership,
-    ship,
-    hasStrictMothershipOverlapAt,
-    baseVelocityAt,
-    shipRadius
-  );
-  if (mothershipDbg){
-    mothershipDbg.overlapBeforeCount = backoff.hadOverlap ? 1 : 0;
-    mothershipDbg.overlapBeforeMin = backoff.hadOverlap ? 0 : 1;
-    mothershipDbg.depenPush = backoff.dist;
-    mothershipDbg.depenCleared = backoff.cleared;
-    mothershipDbg.depenDir = (backoff.dirX || backoff.dirY) ? 1 : 0;
-    mothershipDbg.depenIter = backoff.hadOverlap ? 1 : 0;
-  }
-  let overlapAfter = hasStrictMothershipOverlapAt(ship.x, ship.y);
-  if (overlapAfter){
-    const depNow = depenetrateAlongNormal(
-      ship.x,
-      ship.y,
-      nx,
-      ny,
-      hasStrictMothershipOverlapAt,
-      Math.max(0.18, shipRadius * 0.7),
-      Math.max(0.02, shipRadius * 0.08)
-    );
-    ship.x = depNow.x;
-    ship.y = depNow.y;
-    overlapAfter = hasStrictMothershipOverlapAt(ship.x, ship.y);
-    if (mothershipDbg){
-      mothershipDbg.depenPush = (mothershipDbg.depenPush || 0) + depNow.push;
-      mothershipDbg.depenIter = (mothershipDbg.depenIter || 0) + (depNow.cleared ? 1 : 0);
-      mothershipDbg.depenCleared = depNow.cleared && !overlapAfter;
-    }
-  }
-  if (mothershipDbg){
-    mothershipDbg.overlapAfterCount = overlapAfter ? 1 : 0;
-    mothershipDbg.overlapAfterMin = overlapAfter ? 0 : 1;
-  }
-  if (!hasEventContact){
-    ship._collision = null;
-    if (mothershipDbg){
-      mothershipDbg.reason = overlapAfter ? "mothership_overlap_only" : "mothership_graze";
-      mothershipDbg.contactsCount = 0;
-      mothershipDbg.vn = 0;
-      mothershipDbg.vt = 0;
-      mothershipDbg.speed = 0;
-    }
-    setMothershipDiag(mothershipDbg, {
-      mode: overlapAfter ? "overlap_only" : "graze",
-      absIn: vecDiag(absInVx, absInVy),
-      absOut: vecDiag(ship.vx, ship.vy),
-      relIn: vecDiag(relVx, relVy),
-      relOut: vecDiag(relVx, relVy),
-      vnIn: 0,
-      vtIn: 0,
-      vnOut: 0,
-      vtOut: 0,
-      normalAvg: null,
-      normals: [],
-      evidence: {
-        overlapNowStrict,
-        overlapAfter,
-        eventMode: null,
-        eventCount: 0,
-      },
-      backoff: { ...backoff },
-    });
-    ship._mothershipTrapFrames = 0;
-    return;
-  }
-
-  base = baseVelocityAt(contactX, contactY);
-  relVx = ship.vx - base.vx;
-  relVy = ship.vy - base.vy;
-  vn = relVx * nx + relVy * ny;
-  vt = relVx * -ny + relVy * nx;
-  if (vn > 0){
-    ship._collision = null;
-    if (mothershipDbg){
-      mothershipDbg.reason = "mothership_graze";
-      mothershipDbg.contactsCount = 0;
-      mothershipDbg.vn = 0;
-      mothershipDbg.vt = 0;
-      mothershipDbg.speed = 0;
-    }
-    setMothershipDiag(mothershipDbg, {
-      mode: "graze",
-      absIn: vecDiag(absInVx, absInVy),
-      absOut: vecDiag(ship.vx, ship.vy),
-      relIn: vecDiag(relVx, relVy),
-      relOut: vecDiag(relVx, relVy),
-      vnIn: vn,
-      vtIn: vt,
-      vnOut: vn,
-      vtOut: vt,
-      normalAvg: hasEventContact ? { nx, ny } : null,
-      normals: eventHits,
-      evidence: {
-        overlapNowStrict,
-        overlapAfter,
-        eventMode,
-        eventCount,
-      },
-      backoff: { ...backoff },
-    });
-    ship._mothershipTrapFrames = 0;
-    return;
-  }
-
-  const tx = -ny;
-  const ty = nx;
-  const e = Number.isFinite(game.MOTHERSHIP_RESTITUTION)
-    ? Math.max(0, Math.min(1, Number(game.MOTHERSHIP_RESTITUTION)))
-    : Math.max(0, Math.min(1, Number(game.BOUNCE_RESTITUTION) || 0));
-  const mothershipFriction = Number.isFinite(game.MOTHERSHIP_FRICTION)
-    ? Math.max(0, Number(game.MOTHERSHIP_FRICTION))
-    : 0;
-  const relInVx = relVx;
-  const relInVy = relVy;
-  const vnIn = vn;
-  const vtIn = vt;
-  const relReflectVx = relInVx - (1 + e) * vnIn * nx;
-  const relReflectVy = relInVy - (1 + e) * vnIn * ny;
-  const vnReflect = relReflectVx * nx + relReflectVy * ny;
-  const vtReflect = relReflectVx * tx + relReflectVy * ty;
-  const damp = Math.max(0, 1 - mothershipFriction * 0.45 * Math.max(0, dt));
-  const vtOut = vtReflect * damp;
-  const relOutVx = vnReflect * nx + vtOut * tx;
-  const relOutVy = vnReflect * ny + vtOut * ty;
-  const vnOut = relOutVx * nx + relOutVy * ny;
-  ship.vx = base.vx + relOutVx;
-  ship.vy = base.vy + relOutVy;
-
-  if (mothershipDbg){
-    const relAfterX = ship.vx - base.vx;
-    const relAfterY = ship.vy - base.vy;
-    mothershipDbg.reason = "mothership_reflect";
-    mothershipDbg.vn = relAfterX * nx + relAfterY * ny;
-    mothershipDbg.vt = relAfterX * tx + relAfterY * ty;
-    mothershipDbg.speed = Math.hypot(relAfterX, relAfterY);
-    mothershipDbg.contactsCount = contactsCount;
-    setMothershipDiag(mothershipDbg, {
-      mode: eventMode || "overlap_only",
-      absIn: vecDiag(absInVx, absInVy),
-      absOut: vecDiag(ship.vx, ship.vy),
-      relIn: vecDiag(relInVx, relInVy),
-      relOut: vecDiag(relAfterX, relAfterY),
-      vnIn,
-      vtIn,
-      vnOut,
-      vtOut,
-      normalAvg: { nx, ny },
-      normals: eventHits,
-      evidence: {
-        overlapNowStrict,
-        overlapAfter,
-        eventMode,
-        eventCount,
-      },
-      backoff: { ...backoff },
-    });
-  }
-
-  ship._mothershipTrapFrames = 0;
 }
 
 /**
@@ -2087,24 +1232,16 @@ export function stabilizePlanetPenetration(ctx, maxIters = 12){
     const planetHit = deepestPlanetHitAt(ship.x, ship.y);
     if (!planetHit) break;
 
-    let nxField = collision.planetAirValueAtWorld(planetHit.x + eps, planetHit.y)
-      - collision.planetAirValueAtWorld(planetHit.x - eps, planetHit.y);
-    let nyField = collision.planetAirValueAtWorld(planetHit.x, planetHit.y + eps)
-      - collision.planetAirValueAtWorld(planetHit.x, planetHit.y - eps);
-    let nlen = Math.hypot(nxField, nyField);
-    if (nlen < 1e-4){
-      nxField = ship.x - planetHit.x;
-      nyField = ship.y - planetHit.y;
-      nlen = Math.hypot(nxField, nyField);
-    }
-    if (nlen < 1e-4){
-      const rr = Math.hypot(ship.x, ship.y) || 1;
-      nxField = ship.x / rr;
-      nyField = ship.y / rr;
-      nlen = 1;
-    }
-    nxField /= nlen;
-    nyField /= nlen;
+    const fieldNormal = sampleGradientNormal(
+      (x, y) => collision.planetAirValueAtWorld(x, y),
+      eps,
+      ship.x,
+      ship.y,
+      planetHit.x,
+      planetHit.y
+    );
+    let nxField = fieldNormal.nx;
+    let nyField = fieldNormal.ny;
     const tri = (planet.radial && typeof planet.radial.findTriAtWorld === "function")
       ? planet.radial.findTriAtWorld(planetHit.x, planetHit.y)
       : null;
@@ -2112,7 +1249,16 @@ export function stabilizePlanetPenetration(ctx, maxIters = 12){
     let nx = nTri.nx;
     let ny = nTri.ny;
 
-    if (nx * ship.x + ny * ship.y < 0){
+    const orientProbe = Math.max(0.03, eps * 0.5);
+    const airFront = collision.planetAirValueAtWorld(
+      planetHit.x + nx * orientProbe,
+      planetHit.y + ny * orientProbe
+    );
+    const airBack = collision.planetAirValueAtWorld(
+      planetHit.x - nx * orientProbe,
+      planetHit.y - ny * orientProbe
+    );
+    if (airBack > airFront){
       nx = -nx;
       ny = -ny;
     }

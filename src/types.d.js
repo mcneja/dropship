@@ -52,11 +52,6 @@
  * @property {number} [impactY]
  * @property {number} [supportX]
  * @property {number} [supportY]
- * @property {number} [supportTriOuterCount]
- * @property {number} [supportTriAirMin]
- * @property {number} [supportTriAirMax]
- * @property {number} [supportTriRMin]
- * @property {number} [supportTriRMax]
  * @property {number} [overlapBeforeCount]
  * @property {number} [overlapAfterCount]
  * @property {number} [overlapBeforeMin]
@@ -148,7 +143,8 @@
  * @property {number} [_shipRadius]
  * @property {number} [_mothershipTrapFrames]
  * @property {{abs?:any,rel?:any}|null} [_lastMothershipCollisionDiag]
- * @property {{source?:string,reason?:string,dotUp?:number,slope?:number,landSlope?:number,vn?:number,vt?:number,speed?:number,airFront?:number,airBack?:number,landable?:boolean,landed?:boolean,support?:boolean,supportDist?:number,contactsCount?:number,bestDotUpAny?:number,bestDotUpUnder?:number,impactPoint?:number,supportPoint?:number,impactT?:number,supportT?:number,impactX?:number,impactY?:number,supportX?:number,supportY?:number,supportTriOuterCount?:number,supportTriAirMin?:number,supportTriAirMax?:number,supportTriRMin?:number,supportTriRMax?:number,overlapBeforeCount?:number,overlapAfterCount?:number,overlapBeforeMin?:number,overlapAfterMin?:number,depenIter?:number,depenPush?:number,depenCushion?:number,depenDir?:number,depenCleared?:boolean,collisionDiag?:any}|null} [_landingDebug]
+ * @property {{left?:boolean,right?:boolean,thrust?:boolean,down?:boolean,stickX?:number,stickY?:number,accelX?:number,accelY?:number,gravityX?:number,gravityY?:number}|null} [_debugFlightInput]
+ * @property {{source?:string,reason?:string,dotUp?:number,slope?:number,landSlope?:number,vn?:number,vt?:number,speed?:number,airFront?:number,airBack?:number,landable?:boolean,landed?:boolean,support?:boolean,supportDist?:number,contactsCount?:number,bestDotUpAny?:number,bestDotUpUnder?:number,impactPoint?:number,supportPoint?:number,impactT?:number,supportT?:number,impactX?:number,impactY?:number,supportX?:number,supportY?:number,impactNormalX?:number,impactNormalY?:number,shipX?:number,shipY?:number,shipVx?:number,shipVy?:number,shipStartX?:number,shipStartY?:number,shipEndX?:number,shipEndY?:number,impactRelX?:number,impactRelY?:number,supportRelX?:number,supportRelY?:number,inputLeft?:boolean,inputRight?:boolean,inputThrust?:boolean,inputDown?:boolean,inputStickX?:number,inputStickY?:number,inputAccelX?:number,inputAccelY?:number,inputGravityX?:number,inputGravityY?:number,impactEdges?:Array<{ax:number,ay:number,bx:number,by:number,nx:number,ny:number,d2:number,u:number,preferVn:number,fallbackDot:number,chosen:boolean}>|null,impactContacts?:Array<{pointIndex:number,t:number,entryVn:number,x:number,y:number,nx:number,ny:number}>|null,overlapBeforeCount?:number,overlapAfterCount?:number,overlapBeforeMin?:number,overlapAfterMin?:number,depenIter?:number,depenPush?:number,depenCushion?:number,depenDir?:number,depenCleared?:boolean,collisionDiag?:any}|null} [_landingDebug]
  */
 
 /**
