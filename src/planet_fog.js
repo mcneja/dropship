@@ -58,15 +58,13 @@ export function fogAlphaAtWorld(planet, x, y){
  * @returns {boolean}
  */
 export function hasSeenCoreOverlay(planet){
-  const coreR = planet.getCoreRadius ? planet.getCoreRadius() : 0;
+  const coreR = planet.getCoreRadius();
   if (!(coreR > 0)) return false;
-  const params = planet.getPlanetParams ? planet.getPlanetParams() : null;
+  const params = planet.getPlanetParams();
   const moltenOuter = params && typeof params.MOLTEN_RING_OUTER === "number"
     ? params.MOLTEN_RING_OUTER
     : 0;
-  return !planet.radial || typeof planet.radial.hasSeenCoreOverlay !== "function"
-    ? true
-    : planet.radial.hasSeenCoreOverlay(coreR, moltenOuter);
+  return planet.radial.hasSeenCoreOverlay(coreR, moltenOuter);
 }
 
 /**
@@ -89,8 +87,6 @@ export function syncRenderFog(planet, renderer, shipX, shipY){
  * @returns {void}
  */
 export function primeRenderFog(planet, renderer, shipX, shipY){
-  const fog = planet.radial && typeof planet.radial.primeFog === "function"
-    ? planet.radial.primeFog(shipX, shipY)
-    : updateFogForRender(planet, shipX, shipY);
+  const fog = planet.radial.primeFog(shipX, shipY);
   if (fog) renderer.updateFog(fog);
 }

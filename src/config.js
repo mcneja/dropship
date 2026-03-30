@@ -87,6 +87,10 @@ export const GAME = Object.freeze({
   ATMOSPHERE_DRAG: 0.2,
   // Thickness of the atmosphere band above the outer surface, in world units.
   ATMOSPHERE_HEIGHT: 0.0,
+  // Encoded vertex-air range used for solid terrain samples (must stay below 0.5).
+  // Keep both at 0 for binary rock. Example: -0.25..0.25 shifts the 0.5 isosurface.
+  ROCK_AIR_MIN: -0.4,
+  ROCK_AIR_MAX: 0.4,
   CRASH_SPEED: 6.0,
   LAND_SPEED: 4.0,
   LAND_MAX_TANGENT_SPEED: 1.0,

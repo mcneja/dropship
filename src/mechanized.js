@@ -34,9 +34,7 @@ export function propBasis(game, p){
  */
 export function mechanizedLarvaSpawnCount(game){
   if (game.level <= 8){
-    const seed = (game.planet && typeof game.planet.getSeed === "function")
-      ? (game.planet.getSeed() | 0)
-      : (game.progressionSeed | 0);
+    const seed = game.planet.getSeed() | 0;
     return 2 + (Math.abs(seed) % 2);
   }
   return Math.max(2, Math.min(7, 2 + Math.floor(Math.max(0, (game.level | 0) - 1) / 3)));

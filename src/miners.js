@@ -992,7 +992,7 @@ export function invalidateSurfaceGuidePathCache(mesh){
  * @returns {string}
  */
 function edgeKeyFromVerts(mesh, a, b){
-  if (mesh && typeof mesh._edgeKeyFromVerts === "function"){
+  if (mesh){
     return mesh._edgeKeyFromVerts(a, b);
   }
   const ax = Math.round(a.x * 1000);
@@ -1181,7 +1181,13 @@ export function ensureSurfaceGuideContour(mesh, threshold = 0.5){
     addSegment(/** @type {number} */ (crossed[0]), /** @type {number} */ (crossed[1]));
   }
 
-  const outer = mesh.rings && mesh.rings.length ? mesh.rings[mesh.rings.length - 1] : null;
+  const outer = (() => {
+    if (mesh) return mesh.outerRing();
+    const rings = mesh && mesh.rings ? mesh.rings : null;
+    if (!rings || !rings.length) return null;
+    const idx = mesh ? Math.max(0, mesh.outerRingIndex()) : (rings.length - 1);
+    return rings[idx] || null;
+  })();
   if (outer && outer.length > 1){
     for (let i = 0; i < outer.length; i++){
       const v0 = /** @type {MeshVertex} */ (outer[i]);

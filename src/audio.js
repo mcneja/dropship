@@ -177,7 +177,7 @@ const SFX_PLACEHOLDER_URLS = {
  * @returns {boolean}
  */
 export function audioPlaybackBypassed(game){
-  return !!(game.audio && typeof game.audio.isPlaybackBypassed === "function" && game.audio.isPlaybackBypassed());
+  return !!game.audio.isPlaybackBypassed();
 }
 
 /**
@@ -188,7 +188,6 @@ export function audioPlaybackBypassed(game){
  */
 export function playSfx(game, id, opts){
   if (audioPlaybackBypassed(game)) return;
-  if (!game.audio || typeof game.audio.playSfx !== "function") return;
   game.audio.playSfx(id, opts);
 }
 
@@ -199,12 +198,11 @@ export function playSfx(game, id, opts){
  */
 export function setThrustLoopActive(game, active){
   if (audioPlaybackBypassed(game)){
-    if (!active && game.audio && typeof game.audio.setThrustLoopActive === "function"){
+    if (!active){
       game.audio.setThrustLoopActive(false);
     }
     return;
   }
-  if (!game.audio || typeof game.audio.setThrustLoopActive !== "function") return;
   game.audio.setThrustLoopActive(active);
 }
 
@@ -215,12 +213,11 @@ export function setThrustLoopActive(game, active){
  */
 export function setCombatActive(game, active){
   if (audioPlaybackBypassed(game)){
-    if (!active && game.audio && typeof game.audio.setCombatActive === "function"){
+    if (!active){
       game.audio.setCombatActive(false);
     }
     return;
   }
-  if (!game.audio || typeof game.audio.setCombatActive !== "function") return;
   game.audio.setCombatActive(active);
 }
 
@@ -243,7 +240,6 @@ export function triggerCombatImmediate(game){
   if (game.ship.state === "crashed") return;
   if (dashboard.objectiveComplete(game)) return;
   if (audioPlaybackBypassed(game)) return;
-  if (!game.audio || typeof game.audio.triggerCombatImmediate !== "function") return;
   game.audio.triggerCombatImmediate();
 }
 
@@ -253,22 +249,22 @@ export function triggerCombatImmediate(game){
  * @returns {void}
  */
 export function handleHotkeys(game, inputState){
-  if (inputState.toggleMusic && game.audio && typeof game.audio.toggleMuted === "function"){
+  if (inputState.toggleMusic){
     game.audio.toggleMuted();
   }
-  if (inputState.toggleCombatMusic && game.audio && typeof game.audio.toggleCombatMusicEnabled === "function"){
+  if (inputState.toggleCombatMusic){
     game.audio.toggleCombatMusicEnabled();
   }
-  if (inputState.musicVolumeDown && game.audio && typeof game.audio.stepMusicVolume === "function"){
+  if (inputState.musicVolumeDown){
     const nextPct = game.audio.stepMusicVolume(-1);
     feedback.showStatusCue(game, `Music volume ${nextPct}%`);
-  } else if (inputState.musicVolumeUp && game.audio && typeof game.audio.stepMusicVolume === "function"){
+  } else if (inputState.musicVolumeUp){
     const nextPct = game.audio.stepMusicVolume(1);
     feedback.showStatusCue(game, `Music volume ${nextPct}%`);
-  } else if (inputState.sfxVolumeDown && game.audio && typeof game.audio.stepSfxVolume === "function"){
+  } else if (inputState.sfxVolumeDown){
     const nextPct = game.audio.stepSfxVolume(-1);
     feedback.showStatusCue(game, `FX volume ${nextPct}%`);
-  } else if (inputState.sfxVolumeUp && game.audio && typeof game.audio.stepSfxVolume === "function"){
+  } else if (inputState.sfxVolumeUp){
     const nextPct = game.audio.stepSfxVolume(1);
     feedback.showStatusCue(game, `FX volume ${nextPct}%`);
   }
@@ -280,7 +276,6 @@ export function handleHotkeys(game, inputState){
  */
 export function triggerVictoryMusic(game){
   if (audioPlaybackBypassed(game)) return;
-  if (!game.audio || typeof game.audio.triggerVictoryMusic !== "function") return;
   game.audio.triggerVictoryMusic();
 }
 

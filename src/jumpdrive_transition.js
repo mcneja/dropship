@@ -576,12 +576,14 @@ export class JumpdriveTransition {
   applyPreparedLevel(applied){
     const finalMothership = cloneMothershipPose(applied.mothership);
     if (!this.active || !finalMothership) return;
+    const planetParams = this.planetParams;
+    if (!planetParams) return;
     this.finalMothership = finalMothership;
     this.visualMothership = cloneMothershipPose(finalMothership);
     const revealAngle = applied.view.angle;
     const revealRadius = Math.max(
       applied.view.radius * (this.cfg.revealZoomMultiplier || 1.85),
-      (this.planetParams && this.planetParams.RMAX ? this.planetParams.RMAX : 0) * 1.5
+      planetParams.RMAX * 1.5
     );
     const revealStartRadius = Math.max(
       applied.view.radius * (this.cfg.revealStartZoomMultiplier || ((this.cfg.revealZoomMultiplier || 1.85) * 1.9)),

@@ -435,7 +435,7 @@ export class MapGen {
    * @returns {number}
    */
   _surfaceShellRadius(){
-    return Math.max(0, this.params.RMAX - 0.5);
+    return Math.max(0, Math.floor(this.params.RMAX) - 0.5);
   }
 
   /**

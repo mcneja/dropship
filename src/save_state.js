@@ -78,7 +78,6 @@ const LEGACY_STORAGE_KEYS = [STORAGE_KEY_BASE];
  * @returns {boolean}
  */
 export function saveGameToStorage(game){
-  if (!game || typeof game.createSaveSnapshot !== "function") return false;
   try {
     purgeUnversionedLegacySaves();
     const snapshot = game.createSaveSnapshot();
@@ -100,7 +99,6 @@ export function saveGameToStorage(game){
  * @returns {boolean}
  */
 export function loadGameFromStorage(game){
-  if (!game || typeof game.restoreFromSaveSnapshot !== "function") return false;
   try {
     purgeUnversionedLegacySaves();
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -385,7 +383,7 @@ export function restoreGameFromSaveSnapshot(game, snapshot){
     game.perfState.fps = 0;
     game.perfState.frameStats = null;
     game.perfState.frameStatsUpdatedAt = nowMs;
-    if (game.perfState.frameStatsTracker && typeof game.perfState.frameStatsTracker.reset === "function"){
+    if (game.perfState.frameStatsTracker){
       game.perfState.frameStatsTracker.reset();
     }
     if (game.perfState.benchmarkRun){
@@ -396,7 +394,7 @@ export function restoreGameFromSaveSnapshot(game, snapshot){
       game.perfState.benchmarkRun.finished = false;
       game.perfState.benchmarkRun.stateText = `warmup ${Math.ceil(BENCH_CONFIG.warmupMs / 1000)}s`;
       game.perfState.benchmarkRun.result = null;
-      if (game.perfState.benchmarkRun.tracker && typeof game.perfState.benchmarkRun.tracker.reset === "function"){
+      if (game.perfState.benchmarkRun.tracker){
         game.perfState.benchmarkRun.tracker.reset();
       }
     }

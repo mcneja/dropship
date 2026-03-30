@@ -79,13 +79,24 @@ export class Enemies {
    * @param {(enemy:Enemy, info?:EnemyDestroyInfo)=>void} [deps.onEnemyDestroyed]
    * @param {SegmentBlocker} [deps.solidPropSegmentBlocked]
    */
-  constructor({ planet, collision, total, level, levelSeed, placement, orbitingTurretCount, onEnemyShot, onEnemyDestroyed, solidPropSegmentBlocked }){
+  constructor({
+    planet,
+    collision,
+    total,
+    level,
+    levelSeed,
+    placement,
+    orbitingTurretCount,
+    onEnemyShot = () => {},
+    onEnemyDestroyed = () => {},
+    solidPropSegmentBlocked = () => false,
+  }){
     this.planet = planet;
     this.collision = collision;
     this.params = planet.getPlanetParams();
-    this.onEnemyShot = (typeof onEnemyShot === "function") ? onEnemyShot : null;
-    this.onEnemyDestroyed = (typeof onEnemyDestroyed === "function") ? onEnemyDestroyed : null;
-    this.solidPropSegmentBlocked = (typeof solidPropSegmentBlocked === "function") ? solidPropSegmentBlocked : null;
+    this.onEnemyShot = onEnemyShot;
+    this.onEnemyDestroyed = onEnemyDestroyed;
+    this.solidPropSegmentBlocked = solidPropSegmentBlocked;
 
     /** @type {Enemy[]} */
     this.enemies = [];
@@ -373,10 +384,11 @@ export class Enemies {
     }
     if (!allowedSet.has("orbitingTurret")) orbitingTurrets = 0;
 
-    const rHunterRangerMax = this.params.RMAX - 1.0;
+    const shellR = planet.getSurfaceShellRadius();
+    const rHunterRangerMax = Math.max(0.8, shellR - 0.5);
     const hunterPts = planetSpawn.sampleAirPoints(planet, hunters, seed + 1, rHunterRangerMax * 0.5, rHunterRangerMax, placement);
     const rangerPts = planetSpawn.sampleAirPoints(planet, rangers, seed + 2, rHunterRangerMax * 0.75, rHunterRangerMax, placement);
-    const crawlerPts = planetSpawn.sampleAirPoints(planet, crawlers, seed + 3, 0.0, this.params.RMAX - 0.6, placement);
+    const crawlerPts = planetSpawn.sampleAirPoints(planet, crawlers, seed + 3, 0.0, Math.max(0.7, shellR - 0.1), placement);
     const turretPts = planetSpawn.sampleTurretPoints(planet, turrets, seed + 4, placement, GAME.MINER_MIN_SEP, true);
     if (turrets > 0 && turretPts.length < turrets){
       const standable = terrainSupport.getStandablePoints(planet);
@@ -409,9 +421,7 @@ export class Enemies {
         tx = res.x;
         ty = res.y;
       }
-      const info = (typeof planet._upAlignedNormalAtWorld === "function")
-        ? planet._upAlignedNormalAtWorld(tx, ty)
-        : planet.normalAtWorld(tx, ty);
+      const info = planet._upAlignedNormalAtWorld(tx, ty);
       if (info){
         const lift = GAME.ENEMY_SCALE * 0.8;
         tx += info.nx * lift;

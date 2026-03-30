@@ -40,7 +40,7 @@ const helpPopup = new HelpPopup({
 const game = new Game({
   renderer,
   input,
-  audio: /** @type {{toggleMuted?:()=>boolean,toggleCombatMusicEnabled?:()=>boolean,stepMusicVolume?:(direction:number)=>number,stepSfxVolume?:(direction:number)=>number,setCombatActive?:(active:boolean)=>boolean,triggerCombatImmediate?:()=>boolean,triggerVictoryMusic?:()=>boolean,returnToAmbient?:(withFade?:boolean)=>void,playSfx?:(id:string,opts?:{volume?:number,rate?:number})=>boolean,setThrustLoopActive?:(active:boolean)=>boolean,isPlaybackBypassed?:()=>boolean,setPlaybackBypassed?:(bypassed:boolean)=>boolean}} */ (bgm),
+  audio: bgm,
   ui: { updateHud, updatePlanetLabel, updateObjectiveLabel, updateShipStatusLabel, updateSignalMeter, updateHeatMeter, updateMothershipDashboard },
   canvas,
   overlay: /** @type {HTMLCanvasElement} */ (document.getElementById("overlay")),

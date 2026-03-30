@@ -243,10 +243,7 @@ export function createCollisionRouter(planet, getMothership){
    * @returns {number}
    */
   function planetAirValueAtWorld(x, y){
-    if (typeof planet.airValueAtWorldForCollision === "function"){
-      return planet.airValueAtWorldForCollision(x, y);
-    }
-    return planet.airValueAtWorld(x, y);
+    return planet.airValueAtWorldForCollision(x, y);
   }
 
   /**
@@ -391,9 +388,10 @@ export function shipCountsAsSubmergedInWater(game, waterR, shipX, shipY){
   const ux = sr > 1e-6 ? (shipX / sr) : 1;
   const uy = sr > 1e-6 ? (shipY / sr) : 0;
   const probeDepth = Math.max(0.16, Math.min(0.32, collisionDropship.shipRadius(game) * 0.55));
-  const sampleCollisionAir = (typeof game.planet.airValueAtWorldForCollision === "function")
-    ? game.planet.airValueAtWorldForCollision(shipX - ux * probeDepth, shipY - uy * probeDepth)
-    : game.planet.airValueAtWorld(shipX - ux * probeDepth, shipY - uy * probeDepth);
+  const sampleCollisionAir = game.planet.airValueAtWorldForCollision(
+    shipX - ux * probeDepth,
+    shipY - uy * probeDepth
+  );
   return sampleCollisionAir > 0.5;
 }
 

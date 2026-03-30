@@ -327,9 +327,7 @@ function applyLevelBundle(game, bundle, previousLevel){
   game.missionState.objectiveCompleteSfxDueAtMs = Number.POSITIVE_INFINITY;
   game.combatThreatUntilMs = 0;
   audioState.setCombatActive(game, false);
-  if (game.audio && typeof game.audio.returnToAmbient === "function"){
-    game.audio.returnToAmbient(true);
-  }
+  game.audio.returnToAmbient(true);
   audioState.setThrustLoopActive(game, false);
   if (previousLevel !== game.level){
     game.missionState.levelAdvanceReady = false;
@@ -406,7 +404,7 @@ function devJumpToLevel(game, level){
  * @returns {import("./types.d.js").MapWorld|null}
  */
 function currentMapWorldClone(game){
-  if (!game.planet || !game.planet.mapgen || typeof game.planet.mapgen.getWorld !== "function") return null;
+  if (!game.planet || !game.planet.mapgen) return null;
   const world = game.planet.mapgen.getWorld();
   if (!world || !world.air) return null;
   return {

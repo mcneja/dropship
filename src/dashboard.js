@@ -182,21 +182,11 @@ export function signalStrength(game){
 export function syncInputUi(game, transitionActive){
   const dockedNow = dropship.isDockedWithMothership(game);
   const touchStartMode = transitionActive ? null : touchStartActionMode(game);
-  if (game.input && typeof game.input.setTouchActionMode === "function"){
-    game.input.setTouchActionMode(touchStartMode);
-  }
-  if (game.input && typeof game.input.setTouchDocked === "function"){
-    game.input.setTouchDocked(!transitionActive && dockedNow);
-  }
-  if (game.input && typeof game.input.setMouseDocked === "function"){
-    game.input.setMouseDocked(!transitionActive && dockedNow);
-  }
-  if (game.input && typeof game.input.setTouchPerkChoiceActive === "function"){
-    game.input.setTouchPerkChoiceActive(game.pendingPerkChoice !== null);
-  }
-  if (game.input && typeof game.input.setGameOver === "function"){
-    game.input.setGameOver(!transitionActive && game.ship.state === "crashed");
-  }
+  game.input.setTouchActionMode(touchStartMode);
+  game.input.setTouchDocked(!transitionActive && dockedNow);
+  game.input.setMouseDocked(!transitionActive && dockedNow);
+  game.input.setTouchPerkChoiceActive(game.pendingPerkChoice !== null);
+  game.input.setGameOver(!transitionActive && game.ship.state === "crashed");
 }
 
 /**
@@ -795,9 +785,7 @@ export function dashboardPerkSummary(game){
  */
 function dashboardPickMissionLine(game, options, tag, cfg){
   if (!Array.isArray(options) || options.length === 0) return "";
-  const planetSeed = (game.planet && typeof game.planet.getSeed === "function")
-    ? (game.planet.getSeed() | 0)
-    : (game.progressionSeed | 0);
+  const planetSeed = game.planet.getSeed() | 0;
   const objType = game.objective ? game.objective.type : "";
   let seed = (planetSeed ^ Math.imul((game.level | 0) + 1, 1103515245)) >>> 0;
   seed ^= dashboardTextHash(tag);
@@ -826,9 +814,7 @@ function dashboardPickReportLine(game, options, tag, cfg){
  * @returns {number}
  */
 function dashboardReportSeed(game, tag, cfg){
-  const planetSeed = (game.planet && typeof game.planet.getSeed === "function")
-    ? (game.planet.getSeed() | 0)
-    : (game.progressionSeed | 0);
+  const planetSeed = game.planet.getSeed() | 0;
   let seed = (planetSeed ^ Math.imul((game.level | 0) + 1, 1103515245)) >>> 0;
   seed ^= dashboardTextHash(tag);
   seed ^= dashboardTextHash(cfg && cfg.id ? cfg.id : "");

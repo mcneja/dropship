@@ -155,16 +155,20 @@ class MinHeap {
 export class RadialGraph {
   /**
    * Build a navigation graph using discrete radial point adjacencies.
-   * @param {{rings: Array<Point[]>, bandTris: Array<Array<Array<Point>>>, airValueAtWorld:(x:number,y:number)=>number}} mesh Mesh rings and band triangles.
+   * @param {{
+   *  rings: Array<Point[]>,
+   *  bandTris: Array<Array<Array<Point>>>,
+   *  airValueAtWorld:(x:number,y:number)=>number,
+   *  outerRingIndex:()=>number,
+   *  outerRingRadius:()=>number
+   * }} mesh Mesh rings and band triangles.
    * @param {{navPadding?:number}} [opts]
    */
   constructor(mesh, opts = {}){
     const { rings, bandTris } = mesh;
-    const outerMeshRingIndex = Math.max(0, rings.length - 1);
+    const outerMeshRingIndex = Math.max(0, mesh.outerRingIndex());
     const outerMeshRing = rings[outerMeshRingIndex] || [];
-    const outerMeshRadius = outerMeshRing.length
-      ? Math.max(...outerMeshRing.map((v) => Math.hypot(v.x, v.y)))
-      : outerMeshRingIndex;
+    const outerMeshRadius = Math.max(0, mesh.outerRingRadius());
     const requestedNavPadding = (typeof opts.navPadding === "number")
       ? Math.max(0, opts.navPadding)
       : 0;

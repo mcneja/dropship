@@ -124,6 +124,22 @@ export class Planet {
   }
 
   /**
+   * Radial-mesh outer ring index (0-based).
+   * @returns {number}
+   */
+  getOuterRingIndex(){
+    return this.radial.outerRingIndex();
+  }
+
+  /**
+   * Radial-mesh outer ring radius in world units.
+   * @returns {number}
+   */
+  getOuterRingRadius(){
+    return this.radial.outerRingRadius();
+  }
+
+  /**
    * Terrain shell radius where air/rock boundary is interpreted.
    * Outer ring is reserved as air; shell is the midpoint to the next inner ring.
    * @returns {number}
@@ -152,14 +168,14 @@ export class Planet {
    * }}
    */
   getFeatureParticles(){
-    return this.features ? this.features.getParticles() : { iceShard: [], lava: [], ventPlume: [], spores: [], bubbles: [], splashes: [] };
+    return this.features.getParticles();
   }
 
   /**
    * @returns {void}
    */
   clearFeatureParticles(){
-    if (this.features) this.features.clearParticles();
+    this.features.clearParticles();
   }
 
   /**
@@ -175,9 +191,9 @@ export class Planet {
    * @returns {number}
    */
   getProtectedTerrainRadius(){
-    const coreR = this.getCoreRadius ? this.getCoreRadius() : 0;
+    const coreR = this.getCoreRadius();
     if (!(coreR > 0)) return 0;
-    const params = this.getPlanetParams ? this.getPlanetParams() : null;
+    const params = this.getPlanetParams();
     const moltenOuter = (params && typeof params.MOLTEN_RING_OUTER === "number")
       ? Math.max(0, params.MOLTEN_RING_OUTER)
       : 0;
@@ -233,9 +249,7 @@ export class Planet {
    * @returns {Uint8Array}
    */
   getEnemyNavigationMask(navPadded = false){
-    const baseMask = (this.features && this.features.getEnemyNavigationMask)
-      ? this.features.getEnemyNavigationMask()
-      : this.airNodesBitmap;
+    const baseMask = this.features.getEnemyNavigationMask();
     if (!navPadded) return baseMask;
     const navPaddedBase = this.airNodesBitmapNavPadded;
     if (!navPaddedBase || baseMask.length === navPaddedBase.length){
@@ -254,7 +268,7 @@ export class Planet {
    * @returns {void}
    */
   reconcileFeatures(state){
-    if (this.features && this.features.reconcile) this.features.reconcile(state);
+    this.features.reconcile(state);
   }
 
   /**
@@ -567,10 +581,7 @@ export class Planet {
    * @returns {number}
    */
   airValueAtWorldForCollision(x, y){
-    if (this.radial && typeof this.radial.airValueAtWorldForCollision === "function"){
-      return this.radial.airValueAtWorldForCollision(x, y);
-    }
-    return this.radial.airValueAtWorld(x, y);
+    return this.radial.airValueAtWorldForCollision(x, y);
   }
 
   /**
@@ -645,9 +656,6 @@ export class Planet {
    * @returns {{path:Array<{x:number, y:number}>, indexClosest: number}|null}
    */
   surfaceGuidePathTo(x, y, maxDistance) {
-    if (!this.radial || typeof this.radial.surfaceGuidePathTo !== "function"){
-      return null;
-    }
     return this.radial.surfaceGuidePathTo(x, y, maxDistance);
   }
 
@@ -659,9 +667,7 @@ export class Planet {
    * @returns {{nx:number, ny:number}|null}
    */
   normalAtWorld(x, y){
-    const tri = this.radial && typeof this.radial.findTriAtWorld === "function"
-      ? this.radial.findTriAtWorld(x, y)
-      : null;
+    const tri = this.radial.findTriAtWorld(x, y);
     if (this._triStraddlesBoundary(tri)){
       return this._triGradientNormal(tri);
     }

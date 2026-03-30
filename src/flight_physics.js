@@ -2,7 +2,7 @@
 
 /**
  * Fade atmosphere density from full strength at/below the terrain shell to zero above the configured height.
- * @param {{airValueAtWorld?:(x:number,y:number)=>number}|null|undefined} planet
+ * @param {{airValueAtWorld:(x:number,y:number)=>number}} planet
  * @param {{ATMOSPHERE_DRAG?:number,ATMOSPHERE_HEIGHT?:number}|null|undefined} planetParams
  * @param {number} shellRadius
  * @param {number} x
@@ -12,7 +12,6 @@
 export function sampleAtmosphereDensity(planet, planetParams, shellRadius, x, y){
   const drag = planetParams?.ATMOSPHERE_DRAG || 0;
   if (!(drag > 0)) return 0;
-  if (!planet || typeof planet.airValueAtWorld !== "function") return 0;
   if (planet.airValueAtWorld(x, y) <= 0.5) return 0;
   const r = Math.hypot(x, y);
   const shell = Math.max(0, shellRadius);

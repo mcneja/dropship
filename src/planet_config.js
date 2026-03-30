@@ -35,6 +35,8 @@
  * @property {Range} SURFACE_G
  * @property {Range} ATMOSPHERE_DRAG_MULT
  * @property {Range} [ATMOSPHERE_HEIGHT]
+ * @property {Range} [ROCK_AIR_MIN]
+ * @property {Range} [ROCK_AIR_MAX]
  * @property {Range} DRAG_MULT
  * @property {Range} THRUST_MULT
  * @property {Range} TURN_RATE_MULT
@@ -117,6 +119,8 @@
  * @property {number} SURFACE_G
  * @property {number} ATMOSPHERE_DRAG
  * @property {number} ATMOSPHERE_HEIGHT
+ * @property {number} ROCK_AIR_MIN
+ * @property {number} ROCK_AIR_MAX
  * @property {number} TARGET_FINAL_AIR
  * @property {number} CA_STEPS
  * @property {number} AIR_KEEP_N8
@@ -162,6 +166,8 @@
  * @typedef {PlanetParams & {
  *   ATMOSPHERE_DRAG_MULT?: number,
  *   ATMOSPHERE_HEIGHT?: number,
+ *   ROCK_AIR_MIN?: number,
+ *   ROCK_AIR_MAX?: number,
  *   DRAG_MULT: number,
  *   THRUST_MULT: number,
  *   TURN_RATE_MULT: number,
@@ -1182,6 +1188,8 @@ export function clampPlanetConfig(sample){
     SURFACE_G: [1.2, 3.2],
     ATMOSPHERE_DRAG_MULT: [0.0, 4.0],
     ATMOSPHERE_HEIGHT: [0.0, 12.0],
+    ROCK_AIR_MIN: [-1.0, 0.49],
+    ROCK_AIR_MAX: [-1.0, 0.49],
     DRAG_MULT: [0.7, 2.0],
     THRUST_MULT: [0.7, 1.4],
     TURN_RATE_MULT: [0.7, 1.4],
@@ -1265,8 +1273,12 @@ export function resolvePlanetParams(seed, level, cfg, baseGame){
   // Mapgen: TARGET_FINAL_AIR, CA_STEPS, AIR_KEEP_N8, ROCK_TO_AIR_N8, ENTRANCES, ENTRANCE_OUTER, ENTRANCE_INNER,
   //         WARP_F, WARP_A, BASE_F, VEIN_F, VEIN_THRESH, VEIN_DILATE
   // Visibility: VIS_RANGE, FOG_SEEN_ALPHA, FOG_UNSEEN_ALPHA, FOG_BUDGET_TRIS
-  // Gameplay: ATMOSPHERE_DRAG, ATMOSPHERE_HEIGHT, DRAG, THRUST, TURN_RATE,
+  // Gameplay: ATMOSPHERE_DRAG, ATMOSPHERE_HEIGHT, ROCK_AIR_MIN, ROCK_AIR_MAX, DRAG, THRUST, TURN_RATE,
   //           LAND_FRICTION, WALL_FRICTION, BOUNCE_RESTITUTION, CRASH_SPEED, LAND_SPEED
+  const rockAirMin = Number.isFinite(roll.ROCK_AIR_MIN) ? Number(roll.ROCK_AIR_MIN) : Number(baseGame.ROCK_AIR_MIN ?? 0);
+  const rockAirMax = Number.isFinite(roll.ROCK_AIR_MAX) ? Number(roll.ROCK_AIR_MAX) : Number(baseGame.ROCK_AIR_MAX ?? 0);
+  const rockMinClamped = Math.max(-1, Math.min(0.49, rockAirMin));
+  const rockMaxClamped = Math.max(rockMinClamped, Math.min(0.49, rockAirMax));
   return {
     RMAX: roll.RMAX,
     PAD: roll.PAD,
@@ -1274,6 +1286,8 @@ export function resolvePlanetParams(seed, level, cfg, baseGame){
     SURFACE_G: roll.SURFACE_G,
     ATMOSPHERE_DRAG: baseGame.ATMOSPHERE_DRAG * (roll.ATMOSPHERE_DRAG_MULT ?? 1),
     ATMOSPHERE_HEIGHT: Number.isFinite(roll.ATMOSPHERE_HEIGHT) ? Math.max(0, Number(roll.ATMOSPHERE_HEIGHT)) : baseGame.ATMOSPHERE_HEIGHT,
+    ROCK_AIR_MIN: rockMinClamped,
+    ROCK_AIR_MAX: rockMaxClamped,
     TARGET_FINAL_AIR: roll.TARGET_FINAL_AIR,
     CA_STEPS: roll.CA_STEPS,
     AIR_KEEP_N8: roll.AIR_KEEP_N8,

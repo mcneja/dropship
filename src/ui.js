@@ -15,7 +15,7 @@ const planetPreviewCacheByCanvas = new WeakMap();
  * @property {(x:number,y:number)=>number} [shadeAtWorld]
  * @property {(x:number,y:number)=>boolean} [fogSeenAt]
  * @property {(x:number,y:number)=>number} [fogAlphaAtWorld]
- * @property {()=>number} [getSeed]
+ * @property {()=>number} getSeed
  */
 /**
  * @typedef {Object} PlanetPreviewPalette
@@ -889,7 +889,7 @@ function drawPlanetPreview(canvas, preview){
   canvas.style.height = `${Math.round(sideCss)}px`;
   const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
   const side = Math.max(96, Math.min(compactPreview ? 256 : 512, Math.round(sideCss * dpr)));
-  const seed = preview.planet && typeof preview.planet.getSeed === "function" ? preview.planet.getSeed() : 0;
+  const seed = preview.planet ? preview.planet.getSeed() : 0;
   const rotation = (typeof preview.rotation === "number" && Number.isFinite(preview.rotation)) ? preview.rotation : 0;
   const rasterKey = `${seed}:${side}:${preview.worldRadius.toFixed(2)}:${preview.surfaceRadius.toFixed(2)}:${preview.fogEnabled ? 1 : 0}`;
   const drawKey = `${rasterKey}:${rotation.toFixed(4)}`;

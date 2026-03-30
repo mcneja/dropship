@@ -47,6 +47,49 @@ import * as worldView from "./world_view.js";
 /** @typedef {import("./help_popup.js").HelpPopup} HelpPopup */
 /** @typedef {import("./save_state.js").GameSaveSnapshot} GameSaveSnapshot */
 /** @typedef {Gamepad & {hapticActuators?: Array<{pulse:(value:number, durationMs:number)=>Promise<void>}>}} LegacyHapticGamepad */
+/**
+ * @typedef {{
+ *  toggleMuted:()=>boolean,
+ *  toggleCombatMusicEnabled:()=>boolean,
+ *  stepMusicVolume:(direction:number)=>number,
+ *  stepSfxVolume:(direction:number)=>number,
+ *  setCombatActive:(active:boolean)=>boolean,
+ *  triggerCombatImmediate:()=>boolean,
+ *  triggerVictoryMusic:()=>boolean,
+ *  returnToAmbient:(withFade?:boolean)=>void,
+ *  playSfx:(id:any,opts?:{volume?:number,rate?:number})=>boolean,
+ *  setThrustLoopActive:(active:boolean)=>boolean,
+ *  isPlaybackBypassed:()=>boolean,
+ *  setPlaybackBypassed:(bypassed:boolean)=>boolean,
+ *  isAudioUnlocked:()=>boolean
+ * }} AudioController
+ */
+/**
+ * @typedef {{setTouchMode:(touchMode:boolean)=>void,isOpen:()=>boolean}} HelpPopupController
+ */
+
+/** @type {AudioController} */
+const NULL_AUDIO = Object.freeze({
+  toggleMuted: () => false,
+  toggleCombatMusicEnabled: () => false,
+  stepMusicVolume: () => 0,
+  stepSfxVolume: () => 0,
+  setCombatActive: () => false,
+  triggerCombatImmediate: () => false,
+  triggerVictoryMusic: () => false,
+  returnToAmbient: () => {},
+  playSfx: () => false,
+  setThrustLoopActive: () => false,
+  isPlaybackBypassed: () => false,
+  setPlaybackBypassed: () => false,
+  isAudioUnlocked: () => true,
+});
+
+/** @type {HelpPopupController} */
+const NULL_HELP_POPUP = Object.freeze({
+  setTouchMode: () => {},
+  isOpen: () => false,
+});
 
 export class Game {
   /**
@@ -55,7 +98,7 @@ export class Game {
    * @param {import("./rendering.js").Renderer} deps.renderer
    * @param {import("./input.js").Input} deps.input
    * @param {Ui} deps.ui
-   * @param {{toggleMuted?:()=>boolean,toggleCombatMusicEnabled?:()=>boolean,stepMusicVolume?:(direction:number)=>number,stepSfxVolume?:(direction:number)=>number,setCombatActive?:(active:boolean)=>boolean,triggerCombatImmediate?:()=>boolean,triggerVictoryMusic?:()=>boolean,returnToAmbient?:(withFade?:boolean)=>void,playSfx?:(id:string,opts?:{volume?:number,rate?:number})=>boolean,setThrustLoopActive?:(active:boolean)=>boolean,isPlaybackBypassed?:()=>boolean,setPlaybackBypassed?:(bypassed:boolean)=>boolean,isAudioUnlocked?:()=>boolean}|null|undefined} [deps.audio]
+   * @param {AudioController|null|undefined} [deps.audio]
    * @param {HTMLCanvasElement} deps.canvas
    * @param {HTMLCanvasElement|null|undefined} deps.overlay
    * @param {HTMLElement} deps.hud
@@ -65,7 +108,7 @@ export class Game {
    * @param {HTMLElement} [deps.shipStatusLabel]
    * @param {HTMLElement} [deps.signalMeter]
    * @param {HTMLElement} [deps.heatMeter]
-   * @param {HelpPopup} [deps.helpPopup]
+   * @param {HelpPopupController|null|undefined} [deps.helpPopup]
    */
   constructor({ renderer, input, ui, audio, canvas, hud, dashboard, overlay, planetLabel, objectiveLabel, shipStatusLabel, signalMeter, heatMeter, helpPopup }){
     this.level = perf.BENCH_CONFIG.enabled ? perf.BENCH_CONFIG.level : 1;
@@ -80,7 +123,8 @@ export class Game {
     this.renderer.setPlanet(this.planet);
     this.input = input;
     this.ui = ui;
-    this.audio = audio || null;
+    /** @type {AudioController} */
+    this.audio = audio || NULL_AUDIO;
     this.canvas = canvas;
     this.hud = hud;
     this.dashboard = dashboard || null;
@@ -89,7 +133,8 @@ export class Game {
     this.shipStatusLabel = shipStatusLabel || null;
     this.signalMeter = signalMeter || null;
     this.heatMeter = heatMeter || null;
-    this.helpPopup = helpPopup || null;
+    /** @type {HelpPopupController} */
+    this.helpPopup = helpPopup || NULL_HELP_POPUP;
     this.overlay = overlay || null;
     this.overlayCtx = this.overlay ? this.overlay.getContext("2d") : null;
     this.jumpdriveTransition = new JumpdriveTransition();
@@ -452,16 +497,10 @@ export class Game {
     debug.recordFrameTiming(this, now, frameMs);
     const transitionActive = this.jumpdriveTransition.isActive();
     dashboardUi.syncInputUi(this, transitionActive);
-    if (this.input && typeof this.input.setDebugCommandsEnabled === "function"){
-      this.input.setDebugCommandsEnabled(debugState.devHudVisible);
-    }
+    this.input.setDebugCommandsEnabled(debugState.devHudVisible);
     const inputState = this.input.update();
     this.activeInputType = inputState.inputType || this.activeInputType;
-    const audioLocked =
-      !!(this.audio
-        && typeof this.audio.isAudioUnlocked === "function"
-        && !this.audio.isAudioUnlocked()
-        && (!this.audio.isPlaybackBypassed || !this.audio.isPlaybackBypassed()));
+    const audioLocked = !this.audio.isAudioUnlocked() && !this.audio.isPlaybackBypassed();
     if (!audioLocked){
       this.nextAudioUnlockCueAtMs = 0;
     } else if (inputState.inputType === "gamepad" && now >= this.nextAudioUnlockCueAtMs){
@@ -470,10 +509,8 @@ export class Game {
     }
     debug.syncFrameStep(this, inputState, transitionActive);
     camera.handleZoomInput(this, inputState, transitionActive);
-    if (this.helpPopup && typeof this.helpPopup.setTouchMode === "function"){
-      this.helpPopup.setTouchMode(inputState.inputType === "touch");
-    }
-    const helpOpen = !!(this.helpPopup && this.helpPopup.isOpen && this.helpPopup.isOpen());
+    this.helpPopup.setTouchMode(inputState.inputType === "touch");
+    const helpOpen = !!this.helpPopup.isOpen();
     const { fixed, dt } = debug.resolveFrameDt(this, rawDt, inputState, helpOpen);
     titleScreen.tickHelpPrompt(this, dt);
 

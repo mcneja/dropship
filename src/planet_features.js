@@ -37,6 +37,23 @@ function isFarFromReservations(x, y, minDist, reservations){
 }
 
 /**
+ * @param {import("./planet.js").Planet} planet
+ * @returns {number}
+ */
+function planetSurfaceShellRadius(planet){
+  return Math.max(0, planet.getSurfaceShellRadius());
+}
+
+/**
+ * @param {import("./planet_config.js").PlanetParams} p
+ * @returns {number}
+ */
+function paramsSurfaceShellRadius(p){
+  if (!p || !Number.isFinite(p.RMAX)) return 0;
+  return Math.max(0, Math.floor(p.RMAX) - 0.5);
+}
+
+/**
  * Place molten vents along cave walls using the radial graph.
  * @param {import("./planet.js").Planet} planet
  * @param {PlanetProp[]} props
@@ -61,8 +78,9 @@ function placeMoltenVents(planet, props){
   const neighbors = planet.radialGraph.neighbors;
   const air = planet.airNodesBitmap;
   const moltenOuter = params.MOLTEN_RING_OUTER || 0;
+  const shellR = planetSurfaceShellRadius(planet);
   const rMin = Math.max(0, moltenOuter + 0.6);
-  const rMax = Math.max(rMin + 0.5, params.RMAX - 0.6);
+  const rMax = Math.max(rMin + 0.5, shellR - 0.1);
   const minDist = 0.9;
   /** @type {Array<{x:number,y:number,r:number}>} */
   const reservations = [];
@@ -193,10 +211,11 @@ function placeIceShards(planet, props){
   /** @type {NavEdgeRef[][]} */
   const neighbors = planet.radialGraph.neighbors;
   const air = planet.airNodesBitmap;
+  const shellR = planetSurfaceShellRadius(planet);
   const surfaceBand = (cfg && cfg.defaults && typeof cfg.defaults.SURFACE_BAND === "number") ? cfg.defaults.SURFACE_BAND : 0;
-  const surfaceR = params.RMAX * (1 - surfaceBand);
-  const surfaceExclude = Math.max(2.0, params.RMAX * 0.08);
-  const rMax = Math.max(0.5, Math.min(params.RMAX - 0.6, surfaceR - surfaceExclude));
+  const surfaceR = shellR * (1 - surfaceBand);
+  const surfaceExclude = Math.max(2.0, shellR * 0.08);
+  const rMax = Math.max(0.5, Math.min(shellR - 0.1, surfaceR - surfaceExclude));
   const minDist = 0.55;
   /** @type {Array<{x:number,y:number,r:number}>} */
   const reservations = [];
@@ -325,8 +344,9 @@ function placeMushrooms(planet, props){
   /** @type {NavEdgeRef[][]} */
   const neighbors = planet.radialGraph.neighbors;
   const air = planet.airNodesBitmap;
+  const shellR = planetSurfaceShellRadius(planet);
   const surfaceBand = (cfg.defaults && typeof cfg.defaults.SURFACE_BAND === "number") ? cfg.defaults.SURFACE_BAND : 0;
-  const surfaceR = params.RMAX * (1 - surfaceBand);
+  const surfaceR = shellR * (1 - surfaceBand);
   const rMax = Math.max(0.5, surfaceR - 0.5);
   const minDist = 0.7;
   /** @type {Array<{x:number,y:number,r:number}>} */
@@ -511,7 +531,7 @@ function collectWaterBubbleSources(planet, target){
   const air = planet.airNodesBitmap || null;
   if (!air || air.length !== nodes.length) return [];
 
-  const outerRingR = planet.radial.outerSurfaceRadius();
+  const outerRingR = planetSurfaceShellRadius(planet);
   const mediumR = Math.max(0.8, outerRingR - 0.5);
   const rMin = Math.max(0.7, params.RMAX * 0.12);
   const minDist = 0.65;
@@ -638,7 +658,7 @@ function collectWaterBubbleSources(planet, target){
  * @param {PlanetProp[]} props
  * @param {{burst:(prop:PlanetProp)=>{x:number,y:number,scale:number,nx:number,ny:number}|null, hitAt:(x:number,y:number,radius:number)=>PlanetProp|null, burstAllInRadius:(x:number,y:number,radius:number)=>Array<{x:number,y:number,scale:number,nx:number,ny:number}>, breakIfExposed:(planet:import("./planet.js").Planet, x:number,y:number,radius:number)=>Array<{x:number,y:number,scale:number,nx:number,ny:number}>}|null} iceShardHazard
  * @param {{burst:(prop:PlanetProp)=>{x:number,y:number,scale:number}|null, hitAt:(x:number,y:number,radius:number)=>PlanetProp|null, burstAllInRadius:(x:number,y:number,radius:number)=>Array<{x:number,y:number,scale:number}>, breakIfExposed:(planet:import("./planet.js").Planet, x:number,y:number,radius:number)=>Array<{x:number,y:number,scale:number}>}|null} ridgeSpikeHazard
- * @param {{burst:(prop:PlanetProp)=>{x:number,y:number,scale:number}|null, hitAt:(x:number,y:number,radius:number)=>PlanetProp|null, listInRadius?:(x:number,y:number,radius:number)=>PlanetProp[], burstAllInRadius:(x:number,y:number,radius:number)=>Array<{x:number,y:number,scale:number}>, breakIfExposed:(planet:import("./planet.js").Planet, x:number,y:number,radius:number)=>Array<{x:number,y:number,scale:number}>}|null} mushroomHazard
+ * @param {{burst:(prop:PlanetProp)=>{x:number,y:number,scale:number}|null, hitAt:(x:number,y:number,radius:number)=>PlanetProp|null, listInRadius:(x:number,y:number,radius:number)=>PlanetProp[], burstAllInRadius:(x:number,y:number,radius:number)=>Array<{x:number,y:number,scale:number}>, breakIfExposed:(planet:import("./planet.js").Planet, x:number,y:number,radius:number)=>Array<{x:number,y:number,scale:number}>}|null} mushroomHazard
  */
 export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHazard, mushroomHazard){
  const tuning = {
@@ -795,7 +815,7 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
   let ventsPruned = false;
   const waterCfg = planet.getPlanetConfig ? planet.getPlanetConfig() : null;
   const isWater = !!(waterCfg && waterCfg.id === "water");
-  const outerRingR = planet.radial.outerSurfaceRadius();
+  const outerRingR = planetSurfaceShellRadius(planet);
   const waterRadius = isWater ? Math.max(0, outerRingR) : 0;
   const bubbleSources = isWater ? collectWaterBubbleSources(planet, 36) : [];
   if (isWater && bubbleSources.length && props){
@@ -1330,8 +1350,9 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
     const params = planet.getPlanetParams ? planet.getPlanetParams() : null;
     if (!params) return null;
     const r = Math.hypot(destroyed.x, destroyed.y);
+    const shellR = planetSurfaceShellRadius(planet);
     const rMin = Math.max(planet.getProtectedTerrainRadius ? planet.getProtectedTerrainRadius() : 0, params.MOLTEN_RING_OUTER || 0) + 0.2;
-    const rMax = Math.max(rMin + 0.3, params.RMAX - 0.45);
+    const rMax = Math.max(rMin + 0.3, shellR);
     if (r < rMin || r > rMax) return null;
     const node = nodes[destroyed.idx];
     if (!node || !air[destroyed.idx]) return null;
@@ -1492,10 +1513,7 @@ export function createPlanetFeatures(planet, props, iceShardHazard, ridgeSpikeHa
    */
   const mushroomCandidatesNear = (x, y) => {
     if (!mushroomHazard || mushroomProximityRadius <= 0) return [];
-    if (typeof mushroomHazard.listInRadius === "function"){
-      return mushroomHazard.listInRadius(x, y, mushroomProximityRadius);
-    }
-    return [];
+    return mushroomHazard.listInRadius(x, y, mushroomProximityRadius);
   };
 
   /**
@@ -2497,6 +2515,9 @@ export function buildPlanetMaterials(mapgen, planetConfig, params){
   const world = mapgen.getWorld();
   const air = world.air;
   const material = new Uint8Array(G * G);
+  const waterSurfaceR = planetConfig.id === "water"
+    ? paramsSurfaceShellRadius(params)
+    : 0;
 
   for (let j = 0; j < G; j++) for (let i = 0; i < G; i++){
     const k = idx(i, j);
@@ -2520,7 +2541,6 @@ export function buildPlanetMaterials(mapgen, planetConfig, params){
         break;
       case "water":
         if (isAir){
-          const waterSurfaceR = Math.max(0, Math.floor(params.RMAX));
           if (r <= waterSurfaceR) mat = 5;
         }
         break;

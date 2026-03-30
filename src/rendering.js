@@ -1206,12 +1206,14 @@ function drawFrameImpl(renderer, state, planet){
     if (!atmo) {
       // no atmosphere for this planet
     } else {
-    const rings = planet.radial && planet.radial.rings ? planet.radial.rings : null;
+    const radial = planet.radial || null;
+    const rings = radial && radial.rings ? radial.rings : null;
     let outerR = rMax;
     let ringStep = 1.0;
     if (rings && rings.length >= 2){
-      const ringOuter = rings[rings.length - 1];
-      const ringInner = rings[rings.length - 2];
+      const outerIdx = Math.max(0, radial.outerRingIndex());
+      const ringOuter = rings[outerIdx];
+      const ringInner = rings[Math.max(0, outerIdx - 1)];
       if (ringOuter && ringOuter.length){
         let acc = 0;
         for (const v of ringOuter) acc += Math.hypot(v.x, v.y);
@@ -3073,7 +3075,7 @@ function drawFrameImpl(renderer, state, planet){
    * @returns {Array<{x:number,y:number,air:number}>|null}
    */
   const findTriAtOrNear = (x, y) => {
-    if (!planet.radial || typeof planet.radial.findTriAtWorld !== "function") return null;
+    if (!planet.radial) return null;
     let tri = planet.radial.findTriAtWorld(x, y);
     if (tri) return tri;
     const r = Math.hypot(x, y) || 1;
@@ -3093,7 +3095,7 @@ function drawFrameImpl(renderer, state, planet){
     return null;
   };
 
-  if (state.debugCollisionContours && debugCollisionSeeds.length && planet.radial && typeof planet.radial.findTriAtWorld === "function"){
+  if (state.debugCollisionContours && debugCollisionSeeds.length && planet.radial){
     /** @type {Array<Array<{x:number,y:number,air:number}>>} */
     const testedTris = [];
     for (const s of debugCollisionSeeds){
@@ -3259,7 +3261,7 @@ function drawFrameImpl(renderer, state, planet){
       else col.push(rockPoint[0], rockPoint[1], rockPoint[2], 0.45);
       pointVerts += 1;
     }
-    const outerRing = planet.radial && planet.radial.rings ? planet.radial.rings[planet.radial.rings.length - 1] : null;
+    const outerRing = planet.radial ? planet.radial.outerRing() : null;
     if (outerRing){
       for (const v of outerRing){
         pos.push(v.x, v.y);

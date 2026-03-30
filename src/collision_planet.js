@@ -731,9 +731,7 @@ export function resolvePlanetCollisionResponse(args){
       y: supportY,
       source: "planet",
       tri: hit.tri || null,
-      node: (planet.radial && typeof planet.radial.nearestNodeOnRing === "function")
-        ? planet.radial.nearestNodeOnRing(supportX, supportY)
-        : null,
+      node: planet.radial.nearestNodeOnRing(supportX, supportY),
     };
 
     const vnImpact = ship.vx * impactNormal.nx + ship.vy * impactNormal.ny;
@@ -1144,9 +1142,7 @@ export function stabilizePlanetPenetration(ctx, maxIters = 12){
     );
     let nxField = fieldNormal.nx;
     let nyField = fieldNormal.ny;
-    const tri = (planet.radial && typeof planet.radial.findTriAtWorld === "function")
-      ? planet.radial.findTriAtWorld(planetHit.x, planetHit.y)
-      : null;
+    const tri = planet.radial.findTriAtWorld(planetHit.x, planetHit.y);
     const nTri = triAirNormalFromTri(/** @type {Array<{x:number,y:number,air:number}>|null} */ (tri), nxField, nyField);
     let nx = nTri.nx;
     let ny = nTri.ny;

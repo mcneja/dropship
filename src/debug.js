@@ -42,9 +42,7 @@ export function setDevHudVisible(game, visible){
   if (game.hud && game.hud.style){
     game.hud.style.display = game.debugState.devHudVisible ? "block" : "none";
   }
-  if (game.input && typeof game.input.setDebugCommandsEnabled === "function"){
-    game.input.setDebugCommandsEnabled(game.debugState.devHudVisible);
-  }
+  game.input.setDebugCommandsEnabled(game.debugState.devHudVisible);
 }
 
 /**
@@ -736,15 +734,13 @@ function rescueAllImpl(){
  */
 function killAllEnemiesImpl(){
   let enemyCount = 0;
-  if (this.enemies && this.enemies.enemies){
-    for (const e of this.enemies.enemies){
-      if (e && (e.hp || 0) > 0) enemyCount++;
-    }
-    this.enemies.enemies.length = 0;
-    if (this.enemies.shots) this.enemies.shots.length = 0;
-    if (this.enemies.explosions) this.enemies.explosions.length = 0;
-    if (this.enemies.debris) this.enemies.debris.length = 0;
+  for (const e of this.enemies.enemies){
+    if (e && (e.hp || 0) > 0) enemyCount++;
   }
+  this.enemies.enemies.length = 0;
+  if (this.enemies.shots) this.enemies.shots.length = 0;
+  if (this.enemies.explosions) this.enemies.explosions.length = 0;
+  if (this.enemies.debris) this.enemies.debris.length = 0;
   feedback.showStatusCue(this, enemyCount > 0 ? `Debug clear: ${enemyCount} enemies` : "Debug clear: no enemies alive");
 }
 
@@ -754,24 +750,20 @@ function killAllEnemiesImpl(){
  */
 function killAllEnemiesAndFactoriesImpl(){
   let enemyCount = 0;
-  if (this.enemies && this.enemies.enemies){
-    for (const e of this.enemies.enemies){
-      if (e && (e.hp || 0) > 0) enemyCount++;
-    }
-    this.enemies.enemies.length = 0;
-    if (this.enemies.shots) this.enemies.shots.length = 0;
-    if (this.enemies.explosions) this.enemies.explosions.length = 0;
-    if (this.enemies.debris) this.enemies.debris.length = 0;
+  for (const e of this.enemies.enemies){
+    if (e && (e.hp || 0) > 0) enemyCount++;
   }
+  this.enemies.enemies.length = 0;
+  if (this.enemies.shots) this.enemies.shots.length = 0;
+  if (this.enemies.explosions) this.enemies.explosions.length = 0;
+  if (this.enemies.debris) this.enemies.debris.length = 0;
 
   let factoryCount = 0;
-  if (this.planet && this.planet.props){
-    for (const p of this.planet.props){
-      if (p.type !== "factory") continue;
-      if (p.dead || (typeof p.hp === "number" && p.hp <= 0)) continue;
-      factories.destroyFactoryProp(this, p);
-      factoryCount++;
-    }
+  for (const p of this.planet.props){
+    if (p.type !== "factory") continue;
+    if (p.dead || (typeof p.hp === "number" && p.hp <= 0)) continue;
+    factories.destroyFactoryProp(this, p);
+    factoryCount++;
   }
   if (factoryCount > 0){
     tether.syncTetherProtectionStates(this);

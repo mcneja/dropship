@@ -17,7 +17,12 @@ export class RingMesh {
     this._params = params;
     this._map = map;
     this._OUTER_PAD = 0.0;
-    this._R_MESH = Math.max(0, Math.floor(params.RMAX)) + 1;
+    const rockMinRaw = Number.isFinite(params?.ROCK_AIR_MIN) ? Number(params.ROCK_AIR_MIN) : 0;
+    const rockMaxRaw = Number.isFinite(params?.ROCK_AIR_MAX) ? Number(params.ROCK_AIR_MAX) : rockMinRaw;
+    this._rockAirMin = Math.max(-1, Math.min(0.49, rockMinRaw));
+    this._rockAirMax = Math.max(this._rockAirMin, Math.min(0.49, rockMaxRaw));
+    this._rockAirNoiseFreq = 0.22;
+    this._R_MESH = 0;
 
     /**
      * @param {number} r
@@ -107,6 +112,12 @@ export class RingMesh {
         }
       }
       this._applyMoltenOverrides();
+      const outerRing = this.outerRing();
+      if (outerRing){
+        for (const v of outerRing){
+          v.air = 1;
+        }
+      }
 
       for (let r=0;r<this._R_MESH;r++){
         const inner = /** @type {MeshRing} */ (rings[r]);
@@ -237,9 +248,26 @@ export class RingMesh {
     const coreR = (this._params.CORE_RADIUS > 1)
       ? this._params.CORE_RADIUS
       : (this._params.CORE_RADIUS * this._params.RMAX);
-    if (coreR > 0 && r <= coreR) return 0;
-    if (r > this._params.RMAX) return 1;
-    return this._map.airBinaryAtWorld(x, y);
+    if (coreR > 0 && r <= coreR) return this._sampleRockAirValue(x, y);
+    if (r >= this.outerSurfaceRadius()) return 1;
+    const air = this._map.airBinaryAtWorld(x, y);
+    if (air > 0.5) return air;
+    return this._sampleRockAirValue(x, y);
+  }
+
+  /**
+   * Encoded rock-side air value used for interpolation along air/rock boundaries.
+   * @param {number} x
+   * @param {number} y
+   * @returns {number}
+   */
+  _sampleRockAirValue(x, y){
+    if (this._rockAirMax <= this._rockAirMin + 1e-6){
+      return this._rockAirMin;
+    }
+    const n = this._map.noise.fbm(x * this._rockAirNoiseFreq, y * this._rockAirNoiseFreq, 2, 0.6, 2.0);
+    const t = Math.max(0, Math.min(1, 0.5 + 0.5 * n));
+    return this._rockAirMin + (this._rockAirMax - this._rockAirMin) * t;
   }
 
   /**
@@ -293,17 +321,28 @@ export class RingMesh {
     const r = Math.hypot(x, y);
     const rOuter = this.outerRingRadius();
     if (r > rOuter + this._OUTER_PAD) return 1;
-    if (r > this._params.RMAX + this._OUTER_PAD) return 1;
     return this._airValueAtWorldNoOuterClamp(x, y);
   }
 
   /**
    * @returns {number}
    */
+  outerRingIndex(){
+    return this.rings.length - 1;
+  }
+
+  /**
+   * @returns {MeshRing}
+   */
+  outerRing(){
+    return this.rings[this.outerRingIndex()] ?? [];
+  }
+
+  /**
+   * @returns {number}
+   */
   outerRingRadius(){
-    return this.rings && this.rings.length
-      ? (this.rings.length - 1)
-      : this._params.RMAX;
+    return this.outerRingIndex();
   }
 
   /**
@@ -395,10 +434,7 @@ export class RingMesh {
    * @returns {number}
    */
   _shadeNoiseAtWorld(x, y){
-    const noise = this._map && this._map.noise;
-    const n = noise && typeof noise.fbm === "function"
-      ? noise.fbm(x * 0.16, y * 0.16, 2, 0.6, 2.0)
-      : 0;
+    const n = this._map.noise.fbm(x * 0.16, y * 0.16, 2, 0.6, 2.0);
     return Math.max(0, Math.min(1, 0.5 + 0.5 * n));
   }
 
@@ -473,6 +509,12 @@ export class RingMesh {
       }
     }
     this._applyMoltenOverrides();
+    const outerRing = this.outerRing();
+    if (outerRing){
+      for (const v of outerRing){
+        v.air = 1;
+      }
+    }
     for (let i = 0; i < this.vertCount; i++){
       this.airFlag[i] = /** @type {MeshVertex} */ (this._vertRefs[i]).air;
     }

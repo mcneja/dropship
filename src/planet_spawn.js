@@ -22,6 +22,30 @@ import {
 
 /**
  * @param {Planet} planet
+ * @returns {number}
+ */
+function planetSurfaceShellRadius(planet){
+  return Math.max(0, planet.getSurfaceShellRadius());
+}
+
+/**
+ * @param {Planet} planet
+ * @returns {number}
+ */
+function planetOuterRingIndex(planet){
+  return Math.max(0, planet.radial.outerRingIndex());
+}
+
+/**
+ * @param {Planet} planet
+ * @returns {Array<{x:number,y:number,air:number}>}
+ */
+function planetOuterRing(planet){
+  return planet.radial.outerRing();
+}
+
+/**
+ * @param {Planet} planet
  * @param {number} count
  * @param {number} seed
  * @param {number} [minDist=0.45]
@@ -40,9 +64,10 @@ export function sampleCaveAttachmentPoints(planet, count, seed, minDist = 0.45){
   const surfaceBand = (cfg && cfg.defaults && typeof cfg.defaults.SURFACE_BAND === "number")
     ? cfg.defaults.SURFACE_BAND
     : 0;
-  const surfaceR = planet.planetParams.RMAX * (1 - surfaceBand);
+  const shellR = planetSurfaceShellRadius(planet);
+  const surfaceR = shellR * (1 - surfaceBand);
   const rMin = Math.max(0.7, planet.planetParams.RMAX * 0.12);
-  const rMax = Math.max(rMin + 0.8, Math.min(planet.planetParams.RMAX - 0.5, surfaceR - 0.25));
+  const rMax = Math.max(rMin + 0.8, Math.min(shellR, surfaceR - 0.25));
   /** @type {Array<{x:number,y:number,nx:number,ny:number,supportNodeIndex:number}>} */
   const candidates = [];
   for (let i = 0; i < nodes.length; i++){
@@ -422,9 +447,7 @@ export function planMinerSpawnPlacements(planet, count, seed, minDist = GAME.MIN
   }
 
   const standable = getStandablePoints(planet);
-  const protectedR = (planet && typeof planet.getProtectedTerrainRadius === "function")
-    ? planet.getProtectedTerrainRadius()
-    : 0;
+  const protectedR = planet.getProtectedTerrainRadius();
   const params = planet.getPlanetParams ? planet.getPlanetParams() : null;
   const moltenOuter = (params && typeof params.MOLTEN_RING_OUTER === "number")
     ? params.MOLTEN_RING_OUTER
@@ -493,8 +516,9 @@ export function alignGaiaSpawnProps(planet){
   if (trees.length){
     const seed = (planet.getSeed() | 0) + 811;
     const surfaceBand = (cfg.defaults && typeof cfg.defaults.SURFACE_BAND === "number") ? cfg.defaults.SURFACE_BAND : 0;
-    const surfaceR = planet.planetParams.RMAX * (1 - surfaceBand);
-    const rMax = planet.planetParams.RMAX - 0.2;
+    const shellR = planetSurfaceShellRadius(planet);
+    const surfaceR = shellR * (1 - surfaceBand);
+    const rMax = Math.max(0.5, shellR - 0.2);
     const minDist = 0.35;
     const rand = mulberry32(seed);
     const standable = (planet._standablePoints && planet._standablePoints.length)
@@ -686,7 +710,7 @@ export function alignMechanizedStructureSpawnProps(planet){
       p.dead = true;
     }
     const innerR = Math.max(0.6, coreR + 0.55);
-    const outerCap = Math.max(innerR + 0.8, planet.planetParams.RMAX - 0.5);
+    const outerCap = Math.max(innerR + 0.8, planetSurfaceShellRadius(planet));
     const standable = filterReachableStandable(planet, getStandablePoints(planet))
       .filter((p) => p[3] >= innerR + 0.9);
     const landableStandable = standable.filter((p) => planet.isLandableAtWorld(p[0], p[1], 0.32, 0.2, 0.18));
@@ -991,7 +1015,7 @@ export function sampleSurfacePoints(planet, count, seed, placement = "random"){
   const shell = (planet.planetParams.NO_CAVES && planet.mapgen && planet.mapgen.grid)
     ? Math.max(planet.mapgen.grid.cell * 1.5, 0.35)
     : 0;
-  const rMax = Math.max(rMin + 0.5, planet.planetParams.RMAX - shell - 0.15);
+  const rMax = Math.max(rMin + 0.5, planetSurfaceShellRadius(planet) - shell - 0.15);
   const attempts = Math.max(200, count * 120);
   /** @param {number} i */
   const angleAt = (i) => {
@@ -1811,7 +1835,7 @@ function buildOuterAirReachableMask(planet){
   const reachable = new Uint8Array(graph.nodes.length);
   /** @type {number[]} */
   const queue = [];
-  const outerRing = rings[rings.length - 1] || [];
+  const outerRing = planetOuterRing(planet);
   for (const vertex of outerRing){
     if (!vertex || vertex.air <= 0.5) continue;
     const idx = graph.nodeOfRef.get(vertex);
@@ -1827,8 +1851,8 @@ function buildOuterAirReachableMask(planet){
       if (reachable[next]) continue;
       const node = graph.nodes[next];
       if (!node) continue;
-      const ring = rings[node.r];
-      const vertex = ring && ring[node.i];
+      const ring = /** @type {Array<{x:number,y:number,air:number}>} */ (rings[node.r]);
+      const vertex = ring[node.i];
       if (!vertex || vertex.air <= 0.5) continue;
       reachable[next] = 1;
       queue.push(next);
@@ -1874,12 +1898,12 @@ function buildBarrenPadCandidates(planet){
   if (!graph || !graph.nodes || !graph.neighbors || !graph.nodeOfRef || !rings || !rings.length){
     return [];
   }
-  const outerRingIndex = rings.length - 1;
+  const outerRingIndex = planetOuterRingIndex(planet);
   const reachableAir = buildOuterAirReachableMask(planet);
   /** @type {Array<{x:number,y:number,angle:number,r:number,ring:number,depth:number,anchorKind:"outer_rock"|"under_air",sourceKind:"rock"|"air",sourceRing:number,sourceIndex:number}>} */
   const out = [];
   const seen = new Set();
-  const outerRing = rings[outerRingIndex] || [];
+  const outerRing = planetOuterRing(planet);
   for (let i = 0; i < outerRing.length; i++){
     const vertex = outerRing[i];
     if (!vertex || vertex.air > 0.5) continue;
@@ -2020,7 +2044,7 @@ function buildBarrenPadLookup(planet, seed){
     return null;
   }
   const candidates = buildBarrenPadCandidates(planet);
-  const outerRingIndex = rings.length - 1;
+  const outerRingIndex = planetOuterRingIndex(planet);
   const outerRockByIndex = new Map();
   const underAirByNode = new Map();
   for (const candidate of candidates){
@@ -2029,8 +2053,8 @@ function buildBarrenPadLookup(planet, seed){
       continue;
     }
     if (candidate.anchorKind !== "under_air") continue;
-    const ring = rings[candidate.sourceRing];
-    const vertex = ring && ring[candidate.sourceIndex];
+    const ring = /** @type {Array<{x:number,y:number,air:number}>} */ (rings[candidate.sourceRing]);
+    const vertex = ring[candidate.sourceIndex];
     const nodeIdx = vertex ? graph.nodeOfRef.get(vertex) : undefined;
     if (nodeIdx === undefined) continue;
     const bucket = underAirByNode.get(nodeIdx);
@@ -2089,8 +2113,8 @@ function findBarrenOverwatchCandidate(planet, candidate, lookup, used, chosenTur
   const isAirNode = (nodeIdx) => {
     const node = graph.nodes[nodeIdx];
     if (!node) return false;
-    const ring = rings[node.r];
-    const vertex = ring && ring[node.i];
+    const ring = /** @type {Array<{x:number,y:number,air:number}>} */ (rings[node.r]);
+    const vertex = ring[node.i];
     return !!(vertex && vertex.air > 0.5);
   };
   if (candidate.anchorKind === "outer_rock"){
@@ -2099,8 +2123,8 @@ function findBarrenOverwatchCandidate(planet, candidate, lookup, used, chosenTur
   if (candidate.sourceKind !== "air"){
     return null;
   }
-  const sourceRing = rings[candidate.sourceRing] || null;
-  const sourceVertex = sourceRing && sourceRing[candidate.sourceIndex];
+  const sourceRing = /** @type {Array<{x:number,y:number,air:number}>} */ (rings[candidate.sourceRing]);
+  const sourceVertex = sourceRing[candidate.sourceIndex];
   const startNode = sourceVertex ? graph.nodeOfRef.get(sourceVertex) : undefined;
   if (startNode === undefined) return null;
   const start = graph.nodes[startNode];
