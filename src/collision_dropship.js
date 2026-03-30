@@ -292,16 +292,6 @@ export function shipCollidesWithMothershipAt(game, x, y){
  * @param {Game} game
  * @param {number} x
  * @param {number} y
- * @returns {any}
- */
-export function shipPlanetCollisionExact(game, x, y){
-  return findPlanetCollisionExactAt(shipCollisionExactCtx(game), x, y);
-}
-
-/**
- * @param {Game} game
- * @param {number} x
- * @param {number} y
  * @param {any} mothershipPose
  * @returns {any}
  */
