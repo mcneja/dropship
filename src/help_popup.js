@@ -15,7 +15,8 @@ const HELP_CONTENT = `
       <div class="help-k">Dropship</div><div class="help-v">The dropship is your active craft for terrain flight, combat, extraction, and docking back at the mothership.</div>
       <div class="help-k">Rescue Flow</div><div class="help-v">Find stranded crew on the surface, pick them up by landing next to them, survive enemies and terrain, then drop them off at the mothership.</div>
       <div class="help-k">Survivor Types</div><div class="help-v"><span class="help-chip">Miners</span> are the primary rescue objective. <span class="help-chip">Pilots</span> let you launch replacement dropships after a crash. <span class="help-chip">Engineers</span> unlock dropship upgrades while docked.</div>
-      <div class="help-k">Upgrades</div><div class="help-v">Engineers can improve ship systems (for example hull, bombs, thrust, firepower, and utility gear). Choose upgrades when prompted at the mothership.</div>
+      <div class="help-k">Tech</div><div class="help-v">Engineers can improve ship systems (for example hull, bombs, thrust, firepower, and utility gear). Choose upgrades when prompted at the mothership.</div>
+      <div class="help-k">Dashboard Scroll</div><div class="help-v">When the Mission Brief or Final Report overflows, use the gamepad right stick to scroll the panel.</div>
     </div>
   </section>
   <section class="help-section">

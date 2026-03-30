@@ -7,6 +7,7 @@ import * as factories from "./factories.js";
 import * as feedback from "./feedback.js";
 import * as levels from "./levels.js";
 import { BENCH_CONFIG, reportBenchmarkResult } from "./perf.js";
+import * as stats from "./stats.js";
 import * as tether from "./tether.js";
 import * as audioState from "./audio.js";
 
@@ -699,25 +700,34 @@ function promptDevJumpToLevelImpl(){
  * @returns {void}
  */
 function rescueAllImpl(){
-  let rescued = 0;
+  let minersDelivered = Math.max(0, this.ship.dropshipMiners | 0);
+  let pilotsDelivered = Math.max(0, this.ship.dropshipPilots | 0);
+  let engineersDelivered = Math.max(0, this.ship.dropshipEngineers | 0);
   for (let i = this.miners.length - 1; i >= 0; i--){
     const miner = this.miners[i];
     if (miner.type === "miner"){
-      ++this.ship.dropshipMiners;
+      ++minersDelivered;
     } else if (miner.type === "pilot"){
-      ++this.ship.dropshipPilots;
+      ++pilotsDelivered;
     } else if (miner.type === "engineer"){
-      ++this.ship.dropshipEngineers;
+      ++engineersDelivered;
     }
-    rescued++;
-    this.minersRemaining = Math.max(0, this.minersRemaining - 1);
     this.miners.splice(i, 1);
   }
+  this.minersRemaining = 0;
 
-  if (dropship.isDockedWithMothership(this)){
-    dropship.onSuccessfullyDocked(this);
+  const rescued = minersDelivered + pilotsDelivered + engineersDelivered;
+  if (rescued > 0){
+    this.ship.mothershipMiners += minersDelivered;
+    this.ship.mothershipPilots += pilotsDelivered;
+    this.ship.mothershipEngineers += engineersDelivered;
+    this.ship.dropshipMiners = 0;
+    this.ship.dropshipPilots = 0;
+    this.ship.dropshipEngineers = 0;
+    stats.recordRescue(this, rescued);
+    stats.markDashboardDirty(this);
   }
-  feedback.showStatusCue(this, rescued > 0 ? `Debug rescue: ${rescued} collected` : "Debug rescue: no miners left");
+  feedback.showStatusCue(this, rescued > 0 ? `Debug rescue: ${rescued} delivered` : "Debug rescue: no miners left");
 }
 
 /**

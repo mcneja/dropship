@@ -523,7 +523,7 @@ export class Game {
     // Gameplay simulation/state mutation for this frame should already be finished.
     const titleShowing = !titleState.seen && titleState.alpha > 0;
     const runEnded = frameMission.runEnded;
-    const hudVisible = debugState.devHudVisible;
+    const hudVisible = debugState.devHudVisible && this.pendingPerkChoice === null;
     this.hud.style.display = hudVisible ? "block" : "none";
     worldView.renderFrame(this, inputState, {
       now,

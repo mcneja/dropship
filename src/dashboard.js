@@ -29,6 +29,25 @@ export function dashboardMissionMeta(game){
 }
 
 /**
+ * @param {Game} game
+ * @returns {string}
+ */
+export function dashboardMissionSectionLabel(game){
+  return missions.runEnded(game) ? "Epilogue" : "Current Objective";
+}
+
+/**
+ * @param {Game} game
+ * @returns {string}
+ */
+export function dashboardMissionTitle(game){
+  if (missions.runEnded(game)){
+    return dashboardFinalReportTitle(game);
+  }
+  return missions.objectiveText(game).replace(/^Objective:\s*/, "");
+}
+
+/**
  * @param {any} cfg
  * @returns {string}
  */
@@ -53,7 +72,7 @@ export function dashboardPlanetDescription(cfg){
  */
 export function dashboardMissionBody(game){
   if (missions.runEnded(game)){
-    return "The run is over. Review the level and total columns for the final tally before starting again.";
+    return dashboardFinalReportBody(game);
   }
   const cfg = game.planet && game.planet.getPlanetConfig ? game.planet.getPlanetConfig() : null;
   const planetFluff = dashboardProceduralMissionBody(game);
@@ -119,7 +138,7 @@ export function dashboardShipRows(game){
   return [
     { label: "Hull", value: `${game.ship.hpCur}/${game.ship.hpMax}` },
     { label: "Bombs", value: `${game.ship.bombsCur}/${game.ship.bombsMax}` },
-    { label: "Upgrades", value: dashboardPerkSummary(game) || "None" },
+    { label: "Tech", value: dashboardPerkSummary(game) || "None" },
   ];
 }
 
@@ -169,6 +188,9 @@ export function syncInputUi(game, transitionActive){
   if (game.input && typeof game.input.setTouchDocked === "function"){
     game.input.setTouchDocked(!transitionActive && dockedNow);
   }
+  if (game.input && typeof game.input.setMouseDocked === "function"){
+    game.input.setMouseDocked(!transitionActive && dockedNow);
+  }
   if (game.input && typeof game.input.setTouchPerkChoiceActive === "function"){
     game.input.setTouchPerkChoiceActive(game.pendingPerkChoice !== null);
   }
@@ -197,6 +219,8 @@ export function renderHudPanels(game, inputState, now, renderState, opts){
   const feedbackState = game.feedbackState;
   const titleState = game.titleState;
   const perfState = game.perfState;
+  const perkChoiceVisible = game.pendingPerkChoice !== null;
+  const worldHudSuppressed = titleShowing || transitionActive || dashboardOpen || perkChoiceVisible;
 
   if (hudVisible){
     game.ui.updateHud(game.hud, {
@@ -222,10 +246,7 @@ export function renderHudPanels(game, inputState, now, renderState, opts){
 
   if (game.dashboard && game.ui.updateMothershipDashboard){
     if (dashboardOpen){
-      const missionStatusBase = dashboardMissionStatus(game, inputState.inputType, now);
-      const missionStatus = inputState.inputType === "gamepad"
-        ? [missionStatusBase, "Right stick scrolls both panels."].filter(Boolean).join(" ")
-        : missionStatusBase;
+      const missionStatus = dashboardMissionStatus(game, inputState.inputType, now);
       const previewRotation = renderState.view.angle;
       const lastPreviewRotation = dashboardState.lastPreviewRotation;
       const previewRotationDelta = Number.isFinite(lastPreviewRotation)
@@ -246,8 +267,9 @@ export function renderHudPanels(game, inputState, now, renderState, opts){
           shipRows: dashboardShipRows(game),
           statsRows: dashboardStatsRows(game),
           missionHeader: missions.runEnded(game) ? "Final Report" : "Mission Brief",
+          missionSectionLabel: dashboardMissionSectionLabel(game),
           missionMeta: dashboardMissionMeta(game),
-          missionTitle: missions.objectiveText(game).replace(/^Objective:\s*/, ""),
+          missionTitle: dashboardMissionTitle(game),
           missionBody: dashboardMissionBody(game),
           missionStatus,
           planetLabel: cfg ? cfg.label : `Level ${game.level}`,
@@ -271,9 +293,7 @@ export function renderHudPanels(game, inputState, now, renderState, opts){
         dashboardState.lastStatusText = missionStatus;
         dashboardState.lastPreviewRotation = previewRotation;
       }
-      const dashboardScrollY = inputState.dashboardScroll && Number.isFinite(inputState.dashboardScroll.y)
-        ? inputState.dashboardScroll.y
-        : 0;
+      const dashboardScrollY = dashboardScrollAxis();
       if (Math.abs(dashboardScrollY) > 0.01 && game.ui.scrollMothershipDashboard){
         game.ui.scrollMothershipDashboard(game.dashboard, dashboardScrollY * 720 * dt);
       }
@@ -289,7 +309,7 @@ export function renderHudPanels(game, inputState, now, renderState, opts){
   }
 
   const heat = game.ship.heat || 0;
-  const showHeat = !hudVisible && !titleShowing && !transitionActive && !dashboardOpen && meltdown.heatMechanicsActive(game);
+  const showHeat = !hudVisible && !worldHudSuppressed && meltdown.heatMechanicsActive(game);
   const heating = showHeat && (heat > game.lastHeat + 0.1);
   game.lastHeat = heat;
   if (game.heatMeter && game.ui.updateHeatMeter){
@@ -297,8 +317,8 @@ export function renderHudPanels(game, inputState, now, renderState, opts){
   }
 
   if (game.planetLabel){
-    game.planetLabel.style.visibility = (titleShowing || transitionActive || dashboardOpen) ? "hidden" : "visible";
-    if (!titleShowing && !transitionActive && !dashboardOpen && game.ui.updatePlanetLabel){
+    game.planetLabel.style.visibility = worldHudSuppressed ? "hidden" : "visible";
+    if (!worldHudSuppressed && game.ui.updatePlanetLabel){
       const cfg = game.planet.getPlanetConfig();
       const label = cfg ? cfg.label : "";
       const prefix = `Level ${game.level}: `;
@@ -307,14 +327,14 @@ export function renderHudPanels(game, inputState, now, renderState, opts){
   }
 
   if (game.objectiveLabel){
-    game.objectiveLabel.style.visibility = transitionActive ? "hidden" : "visible";
+    game.objectiveLabel.style.visibility = worldHudSuppressed ? "hidden" : "visible";
     game.objectiveLabel.classList.toggle("objective-centered", !!dashboardOpen);
     const abandonHoldActive = !!inputState.abandonHoldActive;
     const abandonHoldRemainingMs = (typeof inputState.abandonHoldRemainingMs === "number")
       ? inputState.abandonHoldRemainingMs
       : 0;
     game.objectiveLabel.style.color = abandonHoldActive ? "rgb(255, 72, 72)" : "";
-    if (game.ui.updateObjectiveLabel){
+    if (!worldHudSuppressed && game.ui.updateObjectiveLabel){
       if (abandonHoldActive){
         game.ui.updateObjectiveLabel(game.objectiveLabel, abandonHoldCountdownText(abandonHoldRemainingMs));
       } else {
@@ -338,8 +358,8 @@ export function renderHudPanels(game, inputState, now, renderState, opts){
   }
 
   if (game.shipStatusLabel){
-    game.shipStatusLabel.style.visibility = (titleShowing || transitionActive || dashboardOpen) ? "hidden" : "visible";
-    if (!titleShowing && !transitionActive && !dashboardOpen && game.ui.updateShipStatusLabel){
+    game.shipStatusLabel.style.visibility = worldHudSuppressed ? "hidden" : "visible";
+    if (!worldHudSuppressed && game.ui.updateShipStatusLabel){
       game.ui.updateShipStatusLabel(game.shipStatusLabel, {
         shipHp: game.ship.hpCur,
         shipHpMax: game.ship.hpMax,
@@ -350,7 +370,7 @@ export function renderHudPanels(game, inputState, now, renderState, opts){
   }
 
   if (game.signalMeter && game.ui.updateSignalMeter){
-    game.ui.updateSignalMeter(game.signalMeter, signalStrength(game), !hudVisible && !titleShowing && !transitionActive && !dashboardOpen);
+    game.ui.updateSignalMeter(game.signalMeter, signalStrength(game), !hudVisible && !worldHudSuppressed);
   }
 }
 
@@ -381,6 +401,7 @@ export function objectivePromptText(game, inputType){
     "Press R to ";
   if (game.pendingPerkChoice){
     if (type === "touch") return "Choose upgrade: tap left or right option.";
+    if (type === "mouse") return "Choose upgrade: click a card or press left/right.";
     return "Choose upgrade: press left/right.";
   }
   if (game.ship.state === "crashed"){
@@ -521,10 +542,223 @@ function dashboardProceduralMissionBody(game){
 }
 
 /**
+ * @returns {number}
+ */
+function dashboardScrollAxis(){
+  return rawDashboardGamepadScrollAxis();
+}
+
+/**
+ * @returns {number}
+ */
+function rawDashboardGamepadScrollAxis(){
+  if (typeof navigator === "undefined" || typeof navigator.getGamepads !== "function") return 0;
+  const pads = navigator.getGamepads() || [];
+  let best = 0;
+  for (const pad of pads){
+    if (!pad || pad.connected === false) continue;
+    const raw = (pad.axes && pad.axes.length > 3 ? pad.axes[3] : 0) ?? 0;
+    const normalized = normalizeDashboardScrollAxis(raw);
+    if (Math.abs(normalized) > Math.abs(best)){
+      best = normalized;
+    }
+  }
+  return best;
+}
+
+/**
+ * @param {number} raw
+ * @returns {number}
+ */
+function normalizeDashboardScrollAxis(raw){
+  const dead = 0.2;
+  if (!Number.isFinite(raw) || Math.abs(raw) <= dead) return 0;
+  return Math.sign(raw) * Math.max(0, Math.min(1, (Math.abs(raw) - dead) / (1 - dead)));
+}
+
+/**
  * @param {Game} game
  * @returns {string}
  */
-function dashboardPerkSummary(game){
+function dashboardFinalReportTitle(game){
+  const cfg = game.planet && game.planet.getPlanetConfig ? game.planet.getPlanetConfig() : null;
+  const rescued = Math.max(0, game.overallStats.rescued | 0);
+  const kills = Math.max(0, game.overallStats.enemiesDestroyed | 0);
+  if (objectiveComplete(game) && game.objective && game.objective.type === "destroy_core"){
+    return dashboardPickReportLine(game, [
+      "Core Down, Fleet Spent",
+      "Objective Complete, Return Denied",
+      "The Planet Lost First",
+    ], "report-title-core", cfg);
+  }
+  if (objectiveComplete(game)){
+    return dashboardPickReportLine(game, [
+      "Mission Complete, Costs Pending",
+      "Contract Fulfilled, Hangar Empty",
+      "Success With Familiar Complications",
+    ], "report-title-complete", cfg);
+  }
+  if (rescued > 0 && rescued >= kills){
+    return dashboardPickReportLine(game, [
+      "Rescue Ledger, Closed Early",
+      "Survivors Up, Fleet Down",
+      "Partial Evacuation, Final Entry",
+    ], "report-title-rescue", cfg);
+  }
+  return dashboardPickReportLine(game, [
+    "Campaign Terminated by Reality",
+    "Final Report, Filed In Ash",
+    "End of Shift, End of Fleet",
+  ], "report-title-failed", cfg);
+}
+
+/**
+ * @param {Game} game
+ * @returns {string}
+ */
+function dashboardFinalReportBody(game){
+  const cfg = game.planet && game.planet.getPlanetConfig ? game.planet.getPlanetConfig() : null;
+  const level = Math.max(1, game.level | 0);
+  const rescued = Math.max(0, game.overallStats.rescued | 0);
+  const kills = Math.max(0, game.overallStats.enemiesDestroyed | 0);
+  const minersLost = Math.max(0, game.overallStats.minersLost | 0);
+  const dropshipsLost = Math.max(0, game.overallStats.dropshipsLost | 0);
+  const factoriesDestroyed = Math.max(0, game.overallStats.factoriesDestroyed | 0);
+  const docks = Math.max(0, game.overallStats.docks | 0);
+  const shots = Math.max(0, game.overallStats.shotsFired | 0);
+  const bombs = Math.max(0, game.overallStats.bombsFired | 0);
+  const objectiveText = dashboardFinalObjectiveSummary(game);
+  const progressText = dashboardFinalProgressSentence(game, cfg, level, objectiveText);
+  const tallyText = dashboardFinalTallySentence({
+    rescued,
+    kills,
+    minersLost,
+    dropshipsLost,
+    factoriesDestroyed,
+  });
+  const styleText = dashboardFinalStyleSentence(game, {
+    docks,
+    shots,
+    bombs,
+    rescued,
+    kills,
+    dropshipsLost,
+  }, cfg);
+  return [progressText, tallyText, styleText].filter(Boolean).join(" ");
+}
+
+/**
+ * @param {Game} game
+ * @returns {string}
+ */
+function dashboardFinalObjectiveSummary(game){
+  return missions.objectiveText(game).replace(/^Objective:\s*/, "");
+}
+
+/**
+ * @param {Game} game
+ * @param {any} cfg
+ * @param {number} level
+ * @param {string} objectiveText
+ * @returns {string}
+ */
+function dashboardFinalProgressSentence(game, cfg, level, objectiveText){
+  const site = cfg && cfg.label ? cfg.label : `Level ${level}`;
+  if (objectiveComplete(game) && game.objective && game.objective.type === "destroy_core" && game.coreMeltdownActive){
+    return dashboardPickReportLine(game, [
+      `The run reached ${site}, cut the core loose, and then ran out of ships before anyone could enjoy surviving it.`,
+      `${site} did lose its core. The fleet simply failed to remain attached to that good news.`,
+      `By ${site}, the core was in collapse and the hangar inventory was down to historical records.`,
+    ], "report-progress-core", cfg);
+  }
+  if (objectiveComplete(game)){
+    return dashboardPickReportLine(game, [
+      `The crew pushed as far as ${site} and technically got the job done before the last hull stopped coming back.`,
+      `${site} went on the books as a completed operation, even if the return leg never made the schedule.`,
+      `The contract was effectively settled at ${site}, followed immediately by an unrecoverable shortage of dropships.`,
+    ], "report-progress-complete", cfg);
+  }
+  return dashboardPickReportLine(game, [
+    `The run stalled at ${site} with ${objectiveText.toLowerCase()} still unresolved.`,
+    `${site} turned into the last stop; ${objectiveText.toLowerCase()} remained unfinished when the fleet gave out.`,
+    `By the time the campaign hit ${site}, the job was still reading "${objectiveText.toLowerCase()}" and the replacement ships had stopped arriving.`,
+  ], "report-progress-failed", cfg);
+}
+
+/**
+ * @param {{rescued:number,kills:number,minersLost:number,dropshipsLost:number,factoriesDestroyed:number}} stats
+ * @returns {string}
+ */
+function dashboardFinalTallySentence(stats){
+  const parts = [];
+  if (stats.rescued > 0){
+    parts.push(`${stats.rescued} ${pluralize("miner", stats.rescued)} made it back upstairs`);
+  } else {
+    parts.push("No miners made it back upstairs");
+  }
+  if (stats.kills > 0 && stats.factoriesDestroyed > 0){
+    parts.push(`${stats.kills} hostiles and ${stats.factoriesDestroyed} ${pluralize("factory", stats.factoriesDestroyed)} were written off`);
+  } else if (stats.kills > 0){
+    parts.push(`${stats.kills} hostile ${pluralize("contact", stats.kills)} were removed from the ledger`);
+  } else if (stats.factoriesDestroyed > 0){
+    parts.push(`${stats.factoriesDestroyed} hostile ${pluralize("factory", stats.factoriesDestroyed)} stopped producing anything except debris`);
+  }
+  if (stats.minersLost > 0){
+    parts.push(`${stats.minersLost} ${pluralize("miner", stats.minersLost)} were lost planetside`);
+  }
+  if (stats.dropshipsLost > 0){
+    parts.push(`${stats.dropshipsLost} ${pluralize("dropship", stats.dropshipsLost)} failed to make the long-term inventory list`);
+  }
+  return parts.length ? `${parts.join("; ")}.` : "";
+}
+
+/**
+ * @param {Game} game
+ * @param {{docks:number,shots:number,bombs:number,rescued:number,kills:number,dropshipsLost:number}} stats
+ * @param {any} cfg
+ * @returns {string}
+ */
+function dashboardFinalStyleSentence(game, stats, cfg){
+  if (stats.bombs >= Math.max(8, Math.floor(stats.shots * 0.18))){
+    return dashboardPickReportLine(game, [
+      "The debrief notes generous bomb usage and a corresponding shortage of subtlety.",
+      "Ordnance expenditure was high, which is a polite way to say the terrain did not enjoy meeting you.",
+      "Subtlety was officially replaced with high explosives somewhere around the mid-campaign paperwork.",
+    ], "report-style-bombs", cfg);
+  }
+  if (stats.docks >= Math.max(3, game.level + 1)){
+    return dashboardPickReportLine(game, [
+      "Orbit logged a steady rhythm of dock, repair, reload, and one more bad idea.",
+      "The mothership saw enough turnaround traffic to qualify as a very nervous airport.",
+      "Repeated dockings kept the campaign alive longer than anyone in accounting would have preferred.",
+    ], "report-style-docks", cfg);
+  }
+  if (stats.rescued > stats.kills && stats.rescued > 0){
+    return dashboardPickReportLine(game, [
+      "For all the noise, the campaign leaned more toward extraction than extermination.",
+      "The file reads like a rescue operation that kept tripping over a war zone.",
+      "Beneath the weapons fire, most of the effort still went into getting people home.",
+    ], "report-style-rescue", cfg);
+  }
+  if (stats.kills > 0 || stats.dropshipsLost > 0){
+    return dashboardPickReportLine(game, [
+      "It was not a subtle run, but subtle runs rarely produce this much debris.",
+      "The final audit describes a loud campaign, an overworked hangar, and several now-theoretical enemies.",
+      "Hostile negotiations remained brief, direct, and mostly one-sided until the fleet finally ran dry.",
+    ], "report-style-combat", cfg);
+  }
+  return dashboardPickReportLine(game, [
+    "Mostly it ended the way these contracts do: abruptly, expensively, and in need of a new filing code.",
+    "The archive will probably classify it as a routine loss, which feels optimistic.",
+    "Officially this will become a short report; unofficially it was a very long day.",
+  ], "report-style-default", cfg);
+}
+
+/**
+ * @param {Game} game
+ * @returns {string}
+ */
+export function dashboardPerkSummary(game){
   /** @type {Array<string>} */
   const parts = [];
   /** @param {string} text @param {number} count */
@@ -566,6 +800,41 @@ function dashboardPickMissionLine(game, options, tag, cfg){
 }
 
 /**
+ * @param {Game} game
+ * @param {readonly string[]} options
+ * @param {string} tag
+ * @param {any} cfg
+ * @returns {string}
+ */
+function dashboardPickReportLine(game, options, tag, cfg){
+  if (!Array.isArray(options) || options.length === 0) return "";
+  const seed = dashboardReportSeed(game, tag, cfg);
+  return options.length > 1 ? options[seed % options.length] : options[0];
+}
+
+/**
+ * @param {Game} game
+ * @param {string} tag
+ * @param {any} cfg
+ * @returns {number}
+ */
+function dashboardReportSeed(game, tag, cfg){
+  const planetSeed = (game.planet && typeof game.planet.getSeed === "function")
+    ? (game.planet.getSeed() | 0)
+    : (game.progressionSeed | 0);
+  let seed = (planetSeed ^ Math.imul((game.level | 0) + 1, 1103515245)) >>> 0;
+  seed ^= dashboardTextHash(tag);
+  seed ^= dashboardTextHash(cfg && cfg.id ? cfg.id : "");
+  seed ^= dashboardTextHash(game.objective && game.objective.type ? game.objective.type : "");
+  seed ^= Math.imul((game.overallStats.rescued | 0) + 11, 2246822519) >>> 0;
+  seed ^= Math.imul((game.overallStats.enemiesDestroyed | 0) + 17, 3266489917) >>> 0;
+  seed ^= Math.imul((game.overallStats.minersLost | 0) + 23, 668265263) >>> 0;
+  seed ^= Math.imul((game.overallStats.dropshipsLost | 0) + 29, 374761393) >>> 0;
+  seed ^= Math.imul((game.overallStats.factoriesDestroyed | 0) + 31, 1274126177) >>> 0;
+  return seed >>> 0;
+}
+
+/**
  * @param {string} text
  * @returns {number}
  */
@@ -585,6 +854,15 @@ function dashboardTextHash(text){
  */
 function dashboardCap(text){
   return text ? text.charAt(0).toUpperCase() + text.slice(1) : "";
+}
+
+/**
+ * @param {string} word
+ * @param {number} count
+ * @returns {string}
+ */
+function pluralize(word, count){
+  return Math.abs(count) === 1 ? word : `${word}s`;
 }
 
 /**
@@ -789,5 +1067,3 @@ function applyPerk(game, perk){
   }
   stats.markDashboardDirty(game);
 }
-
-

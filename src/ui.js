@@ -178,6 +178,7 @@ export function updateHeatMeter(el, heat, show, flashing){
  *   shipRows:Array<{label:string,value:string}>,
  *   statsRows:Array<{label:string,level:string,total:string}>,
  *   missionHeader?:string,
+ *   missionSectionLabel?:string,
  *   missionTitle:string,
  *   missionBody:string,
  *   missionStatus:string,
@@ -230,6 +231,7 @@ export function updateMothershipDashboard(root, stats){
 
   setTextIfChanged(state.missionHeader, stats.missionHeader || "Mission Brief");
   setTextIfChanged(state.missionMeta, stats.missionMeta || "");
+  setTextIfChanged(state.missionSectionLabel, stats.missionSectionLabel || "Current Objective");
   setTextIfChanged(state.missionTitle, stats.missionTitle || "");
   setTextIfChanged(state.missionBody, stats.missionBody || "");
   setTextIfChanged(state.missionStatus, stats.missionStatus || "");
@@ -252,8 +254,8 @@ export function scrollMothershipDashboard(root, deltaY){
   if (!root || !Number.isFinite(deltaY) || Math.abs(deltaY) < 0.1) return;
   const state = ensureMothershipDashboard(root);
   if (!state.open) return;
-  state.leftScroll.scrollTop += deltaY;
-  state.rightScroll.scrollTop += deltaY;
+  scrollDashboardPanel(state.rightScroll, deltaY);
+  scrollDashboardPanel(state.leftScroll, deltaY);
 }
 
 /**
@@ -263,6 +265,7 @@ export function scrollMothershipDashboard(root, deltaY){
  *   statsBody:HTMLElement,
  *   missionHeader:HTMLElement,
  *   missionMeta:HTMLElement,
+ *   missionSectionLabel:HTMLElement,
  *   missionTitle:HTMLElement,
  *   missionBody:HTMLElement,
  *   missionStatus:HTMLElement,
@@ -312,7 +315,7 @@ function ensureMothershipDashboard(root){
       <div class="dashboard-right-body">
         <div class="dashboard-scroll dashboard-text-scroll">
           <div class="dashboard-copy dashboard-mission-meta"></div>
-          <div class="dashboard-section-label">Current Objective</div>
+          <div class="dashboard-section-label dashboard-mission-section-label">Current Objective</div>
           <div class="dashboard-copy dashboard-mission-title"></div>
           <div class="dashboard-copy dashboard-mission-body"></div>
           <div class="dashboard-copy dashboard-mission-status"></div>
@@ -331,6 +334,7 @@ function ensureMothershipDashboard(root){
     statsBody: /** @type {HTMLElement} */ (root.querySelector(".dashboard-stats-body")),
     missionHeader: /** @type {HTMLElement} */ (root.querySelector(".dashboard-mission-header")),
     missionMeta: /** @type {HTMLElement} */ (root.querySelector(".dashboard-mission-meta")),
+    missionSectionLabel: /** @type {HTMLElement} */ (root.querySelector(".dashboard-mission-section-label")),
     missionTitle: /** @type {HTMLElement} */ (root.querySelector(".dashboard-mission-title")),
     missionBody: /** @type {HTMLElement} */ (root.querySelector(".dashboard-mission-body")),
     missionStatus: /** @type {HTMLElement} */ (root.querySelector(".dashboard-mission-status")),
@@ -349,6 +353,20 @@ function ensureMothershipDashboard(root){
   };
   dashboardStateByRoot.set(root, state);
   return state;
+}
+
+/**
+ * @param {HTMLElement} panel
+ * @param {number} deltaY
+ * @returns {boolean}
+ */
+function scrollDashboardPanel(panel, deltaY){
+  if (!panel) return false;
+  const maxScroll = Math.max(0, panel.scrollHeight - panel.clientHeight);
+  if (!(maxScroll > 1)) return false;
+  const prev = panel.scrollTop;
+  panel.scrollTop = Math.max(0, Math.min(maxScroll, prev + deltaY));
+  return Math.abs(panel.scrollTop - prev) > 0.01;
 }
 
 /**

@@ -4,6 +4,7 @@
 /** @typedef {import("./types.d.js").InputState} InputState */
 
 import { TOUCH_UI, GAME } from "./config.js";
+import { perkChoiceIndexAtPoint } from "./perk_choice_ui.js";
 
 const KEY_LEFT = new Set(["ArrowLeft", "a", "A"]);
 const KEY_RIGHT = new Set(["ArrowRight", "d", "D"]);
@@ -169,6 +170,8 @@ export class Input {
     this.zoomDelta = 0;
     this.HOLD_ABANDON_MS = 1000;
     this.pointerLocked = false;
+    /** @type {boolean} */
+    this.mouseDocked = false;
     /** @type {boolean} */
     this.gameOver = false;
     /** @type {boolean} */
@@ -348,11 +351,25 @@ export class Input {
   }
 
   /**
+   * @param {boolean} docked
+   * @returns {void}
+   */
+  setMouseDocked(docked){
+    this.mouseDocked = !!docked;
+    if (this.mouseDocked){
+      this._releasePointerLock();
+    }
+  }
+
+  /**
    * @param {boolean} active
    * @returns {void}
    */
   setTouchPerkChoiceActive(active){
     this.touchPerkChoiceActive = !!active;
+    if (this.touchPerkChoiceActive){
+      this._releasePointerLock();
+    }
   }
 
   /**
@@ -579,6 +596,17 @@ export class Input {
   }
 
   /**
+   * @returns {void}
+   */
+  _releasePointerLock(){
+    if (typeof document === "undefined") return;
+    if (document.pointerLockElement !== this.canvas) return;
+    if (typeof document.exitPointerLock === "function"){
+      document.exitPointerLock();
+    }
+  }
+
+  /**
    * @param {KeyboardEvent} e
    * @returns {void}
    */
@@ -770,11 +798,28 @@ export class Input {
       return;
     }
     if (e.pointerType !== "touch"){
+      const p = this._pointerPos(e);
+      if (this.touchPerkChoiceActive){
+        const perkChoice = perkChoiceIndexAtPoint(
+          { x: p.x * this.canvas.clientWidth, y: p.y * this.canvas.clientHeight },
+          this.canvas.clientWidth,
+          this.canvas.clientHeight
+        );
+        if (perkChoice === 0) this.oneshot.perkLeft = true;
+        else if (perkChoice === 1) this.oneshot.perkRight = true;
+        this.lastInputType = "mouse";
+        return;
+      }
+      if (this.mouseDocked){
+        this.aimMouse = p;
+        this.lastInputType = "mouse";
+        return;
+      }
       if (!this.pointerLocked && document.pointerLockElement !== this.canvas){
         this.canvas.requestPointerLock();
       }
       if (!this.pointerLocked){
-        this.aimMouse = this._pointerPos(e);
+        this.aimMouse = p;
       }
       if (e.button === 2) this._fireBomb();
       if ((e.button === 0 || (e.buttons & 1)) && !this.mouseShootHeld){
