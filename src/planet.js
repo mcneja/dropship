@@ -54,8 +54,6 @@ export class Planet {
       navPadding: 0.75,
     });
     this.airNodesBitmapNavPadded = buildAirNodesBitmap(this.radialGraphNavPadded, this.radial);
-    /** @type {Float32Array} */
-    this.distanceToTarget = new Float32Array(this.radialGraph.nodes.length);
     const mats = buildPlanetMaterials(this.mapgen, this.planetConfig, this.planetParams);
     this.material = mats.material;
     this.props = mats.props;
@@ -515,19 +513,6 @@ export class Planet {
   emitDetachedTerrainPropBursts(detachedProps, callbacks){
     if (!detachedProps || !detachedProps.length || !callbacks || !this.features || !this.features.emitDetachedPropBursts) return;
     this.features.emitDetachedPropBursts(detachedProps, callbacks);
-  }
-
-  /**
-   * Compute and cache a distance map for every node in the graph to a given target position.
-   * Useful when multiple enemies all want to go to the same place.
-   * @param {number} x 
-   * @param {number} y 
-   * @returns {void}
-   */
-  computeDistanceMapTo(x, y){
-    const radialGraph = this.radialGraph;
-    const nodeTarget = this.nearestRadialNodeInAir(x, y);
-    this.distanceToTarget = dijkstraMap(radialGraph, [nodeTarget], this.airNodesBitmap);    
   }
 
   /**
