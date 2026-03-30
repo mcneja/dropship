@@ -89,6 +89,7 @@ export const PERF_FLAGS = Object.freeze({
   disableOverlayCanvas: boolParam("perf_disable_overlay_canvas", false),
   disableHudLayout: boolParam("perf_disable_hud_layout", false),
   disableEnemyAi: boolParam("perf_disable_enemy_ai", false),
+  disableEnemyCrowdPlanner: boolParam("perf_disable_enemy_crowd_planner", false),
   disableAudioPlayback: boolParam("perf_disable_audio_playback", false),
   disableMusicPlayback: boolParam("perf_disable_music_playback", false),
   disableSfxPlayback: boolParam("perf_disable_sfx_playback", false),
@@ -104,6 +105,7 @@ export const ACTIVE_PERF_FLAGS = Object.freeze((() => {
   if (PERF_FLAGS.disableOverlayCanvas) out.push("canvasOverlay=off");
   if (PERF_FLAGS.disableHudLayout) out.push("hudLayout=off");
   if (PERF_FLAGS.disableEnemyAi) out.push("enemyAI=off");
+  if (PERF_FLAGS.disableEnemyCrowdPlanner) out.push("enemyCrowd=off");
   if (PERF_FLAGS.disableAudioPlayback) out.push("audioPlayback=off");
   if (PERF_FLAGS.disableMusicPlayback) out.push("musicPlayback=off");
   if (PERF_FLAGS.disableSfxPlayback) out.push("sfxPlayback=off");

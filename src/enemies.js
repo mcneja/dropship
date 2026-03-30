@@ -20,6 +20,9 @@ import * as terrainSupport from "./terrain_support.js";
 /** @typedef {{cooldown:number, shipNode:number, nodeGoal:number, navPadded:boolean}} PursuitState */
 /** @typedef {{cause:"hp"|"detonate", destroyedBy:FragmentDestroyedBy}} EnemyDestroyInfo */
 /** @typedef {(ax:number, ay:number, bx:number, by:number, radius?:number)=>boolean} SegmentBlocker */
+/** @typedef {{mustAdvance:boolean, priority:number, minSeparation:number, canYield:boolean, formationRole:"melee"|"ranged"|"breaker"}} MovePolicy */
+/** @typedef {{waitAge:number, holdNode:number|null, holdT:number, decisionCooldown:number}} EnemyMoveState */
+/** @typedef {{graph:import("./navigation.js").RadialGraph, navMask:Uint8Array, occupiedCount:Int16Array, nodeOfEnemy:WeakMap<Enemy, number>, ship:Ship|null, corridorId:Int32Array, corridorCap:Int16Array, corridorOccupancy:Int16Array, rangerSectorCounts:Int16Array|null, rangerSectorOfEnemy:WeakMap<Enemy, number>}} MovementPlanner */
 
 /**
  * @param {number} radius
@@ -110,10 +113,29 @@ export class Enemies {
     this._pursuitState = new WeakMap();
     /** @type {WeakMap<Enemy, FragmentDestroyedBy>} */
     this._deathBy = new WeakMap();
+    /** @type {WeakMap<Enemy, EnemyMoveState>} */
+    this._moveState = new WeakMap();
+    /** @type {WeakMap<Enemy, number>} */
+    this._enemyId = new WeakMap();
+    this._enemyIdNext = 1;
     /** @type {Uint8Array|null} */
     this._navMaskCacheBase = null;
     /** @type {Uint8Array|null} */
     this._navMaskCacheNavPadded = null;
+    this._aiTick = 0;
+    this._corridorAnalysisTick = -1;
+    this._sectorAnalysisTick = -1;
+    this._corridorGraph = null;
+    /** @type {Int32Array|null} */
+    this._corridorId = null;
+    /** @type {Int16Array|null} */
+    this._corridorCap = null;
+    /** @type {Int16Array|null} */
+    this._corridorOccupancy = null;
+    /** @type {Int16Array|null} */
+    this._rangerSectorCounts = null;
+    /** @type {WeakMap<Enemy, number>|null} */
+    this._rangerSectorOfEnemy = null;
 
     this._HUNTER_SPEED = 1.0;
     this._RANGER_SPEED = 1.6;
@@ -131,6 +153,12 @@ export class Enemies {
     this._LOS_STEP = 0.2;
     this._CRAWLER_BLAST_LIFE = 0.75;
     this._CRAWLER_BLAST_RADIUS = 1.0;
+    this._ENEMY_MIN_SEPARATION = Math.max(0.3, GAME.ENEMY_SCALE * 2.0);
+    this._RANGER_FANOUT_BINS = 10;
+    this._ANALYSIS_CORRIDOR_STRIDE = 10;
+    this._ANALYSIS_SECTOR_STRIDE = 3;
+    this._WAIT_DECISION_MIN = 0.09;
+    this._WAIT_DECISION_MAX = 0.22;
 
     this._HUNTER_COLLIDER = circleOffsets(0.22, 6);
     this._RANGER_COLLIDER = circleOffsets(0.22, 6);
@@ -153,6 +181,18 @@ export class Enemies {
     this._navMaskCacheNavPadded = null;
     this._pursuitState = new WeakMap();
     this._deathBy = new WeakMap();
+    this._moveState = new WeakMap();
+    this._enemyId = new WeakMap();
+    this._enemyIdNext = 1;
+    this._aiTick = 0;
+    this._corridorAnalysisTick = -1;
+    this._sectorAnalysisTick = -1;
+    this._corridorGraph = null;
+    this._corridorId = null;
+    this._corridorCap = null;
+    this._corridorOccupancy = null;
+    this._rangerSectorCounts = null;
+    this._rangerSectorOfEnemy = null;
   }
 
   /**
@@ -200,12 +240,457 @@ export class Enemies {
   }
 
   /**
+   * @param {EnemyType} type
+   * @returns {MovePolicy}
+   */
+  _enemyPolicyForType(type){
+    if (type === "crawler"){
+      return { mustAdvance: true, priority: 3, minSeparation: this._ENEMY_MIN_SEPARATION * 0.7, canYield: false, formationRole: "breaker" };
+    }
+    if (type === "hunter"){
+      return { mustAdvance: false, priority: 2, minSeparation: this._ENEMY_MIN_SEPARATION, canYield: true, formationRole: "melee" };
+    }
+    if (type === "ranger"){
+      return { mustAdvance: false, priority: 1, minSeparation: this._ENEMY_MIN_SEPARATION * 1.2, canYield: true, formationRole: "ranged" };
+    }
+    return { mustAdvance: false, priority: 0, minSeparation: this._ENEMY_MIN_SEPARATION, canYield: true, formationRole: "melee" };
+  }
+
+  /**
+   * @param {Enemy} e
+   * @returns {MovePolicy}
+   */
+  _enemyMovePolicy(e){
+    return this._enemyPolicyForType(e.type);
+  }
+
+  /**
+   * @param {Enemy} e
+   * @returns {number}
+   */
+  _enemyStableId(e){
+    const existing = this._enemyId.get(e);
+    if (typeof existing === "number" && existing > 0) return existing;
+    const next = this._enemyIdNext++;
+    this._enemyId.set(e, next);
+    return next;
+  }
+
+  /**
+   * @param {Enemy} e
+   * @returns {EnemyMoveState}
+   */
+  _enemyMoveState(e){
+    const existing = this._moveState.get(e);
+    if (existing) return existing;
+    const init = { waitAge: 0, holdNode: null, holdT: 0, decisionCooldown: 0 };
+    this._moveState.set(e, init);
+    return init;
+  }
+
+  /**
+   * @param {Enemy} e
+   * @param {number} dt
+   * @returns {void}
+   */
+  _advanceMoveStateTimers(e, dt){
+    const state = this._enemyMoveState(e);
+    if (state.holdT > 0){
+      state.holdT = Math.max(0, state.holdT - Math.max(0, dt));
+    }
+    if (state.decisionCooldown > 0){
+      state.decisionCooldown = Math.max(0, state.decisionCooldown - Math.max(0, dt));
+    }
+  }
+
+  /**
+   * @param {Enemy[]} movers
+   * @returns {void}
+   */
+  _sortMoversByPolicy(movers){
+    movers.sort((a, b) => {
+      const pa = this._enemyMovePolicy(a);
+      const pb = this._enemyMovePolicy(b);
+      if (pa.mustAdvance !== pb.mustAdvance) return pa.mustAdvance ? -1 : 1;
+      if (pa.priority !== pb.priority) return pb.priority - pa.priority;
+      const sa = this._enemyMoveState(a);
+      const sb = this._enemyMoveState(b);
+      if (sa.waitAge !== sb.waitAge) return sb.waitAge - sa.waitAge;
+      return this._enemyStableId(a) - this._enemyStableId(b);
+    });
+  }
+
+  /**
+   * @param {import("./navigation.js").RadialGraph} graph
+   * @param {Uint8Array} navMask
+   * @returns {void}
+   */
+  _rebuildCorridorAnalysis(graph, navMask){
+    const nodeCount = graph.nodes.length;
+    const corridorId = new Int32Array(nodeCount);
+    corridorId.fill(-1);
+    const corridorCap = new Int16Array(nodeCount);
+    corridorCap.fill(0);
+    let corridorCounter = 0;
+    for (let i = 0; i < nodeCount; i++){
+      if ((navMask[i] || 0) === 0 || (corridorId[i] ?? -1) >= 0) continue;
+      const neigh = graph.neighbors[i] || [];
+      if (neigh.length > 2) continue;
+      const queue = [i];
+      corridorId[i] = corridorCounter;
+      /** @type {number[]} */
+      const nodes = [i];
+      for (let q = 0; q < queue.length; q++){
+        const at = queue[q];
+        if (typeof at !== "number") continue;
+        const neighbors = graph.neighbors[at] || [];
+        for (const edge of neighbors){
+          const to = edge.to;
+          if (to < 0 || to >= nodeCount || (navMask[to] || 0) === 0) continue;
+          if ((corridorId[to] ?? -1) >= 0) continue;
+          const toNeighbors = graph.neighbors[to] || [];
+          if (toNeighbors.length > 2) continue;
+          corridorId[to] = corridorCounter;
+          queue.push(to);
+          nodes.push(to);
+        }
+      }
+      const cap = Math.max(2, Math.min(4, Math.floor(Math.sqrt(nodes.length)) + 1));
+      for (const idx of nodes){
+        corridorCap[idx] = cap;
+      }
+      corridorCounter++;
+    }
+    this._corridorId = corridorId;
+    this._corridorCap = corridorCap;
+    this._corridorGraph = graph;
+    this._corridorAnalysisTick = this._aiTick;
+  }
+
+  /**
+   * @param {Ship|null} ship
+   * @param {Enemy[]} movers
+   * @returns {MovementPlanner|null}
+   */
+  _buildMovementPlanner(ship, movers){
+    const graph = this._enemyNavigationGraph(true);
+    const navMask = this._enemyNavigationMask(true);
+    if (!graph || !graph.nodes || !graph.neighbors || !navMask || navMask.length !== graph.nodes.length){
+      return null;
+    }
+    this._aiTick++;
+    if (
+      this._corridorGraph !== graph
+      || !this._corridorId
+      || !this._corridorCap
+      || (this._aiTick - this._corridorAnalysisTick) >= this._ANALYSIS_CORRIDOR_STRIDE
+    ){
+      this._rebuildCorridorAnalysis(graph, navMask);
+    }
+    const occupiedCount = new Int16Array(graph.nodes.length);
+    /** @type {WeakMap<Enemy, number>} */
+    const nodeOfEnemy = new WeakMap();
+    for (const e of movers){
+      const iNode = this.planet.nearestRadialNodeInAir(e.x, e.y, true);
+      if (iNode < 0 || iNode >= occupiedCount.length || (navMask[iNode] || 0) === 0) continue;
+      occupiedCount[iNode] = (occupiedCount[iNode] || 0) + 1;
+      nodeOfEnemy.set(e, iNode);
+    }
+    /** @type {Int16Array} */
+    const corridorOccupancy = new Int16Array(graph.nodes.length);
+    if (this._corridorId){
+      for (let i = 0; i < occupiedCount.length; i++){
+        const occ = occupiedCount[i] || 0;
+        if (occ <= 0) continue;
+        const cid = this._corridorId[i] ?? -1;
+        if (cid < 0 || cid >= corridorOccupancy.length) continue;
+        corridorOccupancy[cid] = (corridorOccupancy[cid] || 0) + occ;
+      }
+    }
+
+    if (!this._rangerSectorCounts || this._rangerSectorCounts.length !== this._RANGER_FANOUT_BINS){
+      this._rangerSectorCounts = new Int16Array(this._RANGER_FANOUT_BINS);
+    }
+    if (!this._rangerSectorOfEnemy){
+      this._rangerSectorOfEnemy = new WeakMap();
+    }
+    if ((this._aiTick - this._sectorAnalysisTick) >= this._ANALYSIS_SECTOR_STRIDE){
+      this._rangerSectorCounts.fill(0);
+      this._rangerSectorOfEnemy = new WeakMap();
+      if (ship){
+        for (const e of movers){
+          if (e.type !== "ranger") continue;
+          const bin = this._sectorBinForPoint(ship, e.x, e.y, this._RANGER_FANOUT_BINS);
+          if (bin < 0) continue;
+          this._rangerSectorCounts[bin] = (this._rangerSectorCounts[bin] || 0) + 1;
+          this._rangerSectorOfEnemy.set(e, bin);
+        }
+      }
+      this._sectorAnalysisTick = this._aiTick;
+    }
+
+    return {
+      graph,
+      navMask,
+      occupiedCount,
+      nodeOfEnemy,
+      ship,
+      corridorId: this._corridorId || new Int32Array(graph.nodes.length),
+      corridorCap: this._corridorCap || new Int16Array(graph.nodes.length),
+      corridorOccupancy,
+      rangerSectorCounts: ship ? this._rangerSectorCounts : null,
+      rangerSectorOfEnemy: this._rangerSectorOfEnemy || new WeakMap(),
+    };
+  }
+
+  /**
+   * @param {Ship} ship
+   * @param {number} x
+   * @param {number} y
+   * @param {number} bins
+   * @returns {number}
+   */
+  _sectorBinForPoint(ship, x, y, bins){
+    if (bins <= 0) return -1;
+    const ang = Math.atan2(y - ship.y, x - ship.x);
+    const t = ((ang + Math.PI) / (Math.PI * 2));
+    let bin = Math.floor(t * bins);
+    if (bin < 0) bin = 0;
+    if (bin >= bins) bin = bins - 1;
+    return bin;
+  }
+
+  /**
+   * @param {MovementPlanner|null} planner
+   * @param {Enemy} e
+   * @returns {number}
+   */
+  _plannerNodeOfEnemy(planner, e){
+    if (!planner) return -1;
+    const existing = planner.nodeOfEnemy.get(e);
+    if (typeof existing === "number" && existing >= 0 && existing < planner.graph.nodes.length){
+      return existing;
+    }
+    const iNode = this.planet.nearestRadialNodeInAir(e.x, e.y, true);
+    if (iNode >= 0 && iNode < planner.graph.nodes.length){
+      planner.nodeOfEnemy.set(e, iNode);
+      return iNode;
+    }
+    return -1;
+  }
+
+  /**
+   * @param {MovementPlanner|null} planner
+   * @param {Enemy} e
+   * @param {number} prevNode
+   * @returns {void}
+   */
+  _plannerCommitEnemyPosition(planner, e, prevNode){
+    if (!planner) return;
+    const iNode = this.planet.nearestRadialNodeInAir(e.x, e.y, true);
+    if (prevNode >= 0 && prevNode < planner.occupiedCount.length){
+      planner.occupiedCount[prevNode] = Math.max(0, (planner.occupiedCount[prevNode] || 0) - 1);
+    }
+    if (iNode >= 0 && iNode < planner.occupiedCount.length){
+      planner.occupiedCount[iNode] = (planner.occupiedCount[iNode] || 0) + 1;
+      planner.nodeOfEnemy.set(e, iNode);
+    }
+    if (planner.ship && planner.rangerSectorCounts && e.type === "ranger"){
+      const bins = planner.rangerSectorCounts.length;
+      const oldBin = planner.rangerSectorOfEnemy.get(e);
+      const newBin = this._sectorBinForPoint(planner.ship, e.x, e.y, bins);
+      if (typeof oldBin === "number" && oldBin >= 0 && oldBin < bins){
+        planner.rangerSectorCounts[oldBin] = Math.max(0, (planner.rangerSectorCounts[oldBin] || 0) - 1);
+      }
+      if (newBin >= 0 && newBin < bins){
+        planner.rangerSectorCounts[newBin] = (planner.rangerSectorCounts[newBin] || 0) + 1;
+        planner.rangerSectorOfEnemy.set(e, newBin);
+      }
+    }
+  }
+
+  /**
+   * @param {MovementPlanner|null} planner
+   * @param {Enemy} e
+   * @returns {void}
+   */
+  _plannerRemoveEnemy(planner, e){
+    if (!planner) return;
+    const iNode = this._plannerNodeOfEnemy(planner, e);
+    if (iNode >= 0 && iNode < planner.occupiedCount.length){
+      planner.occupiedCount[iNode] = Math.max(0, (planner.occupiedCount[iNode] || 0) - 1);
+    }
+    if (planner.ship && planner.rangerSectorCounts && e.type === "ranger"){
+      const bin = planner.rangerSectorOfEnemy.get(e);
+      if (typeof bin === "number" && bin >= 0 && bin < planner.rangerSectorCounts.length){
+        planner.rangerSectorCounts[bin] = Math.max(0, (planner.rangerSectorCounts[bin] || 0) - 1);
+      }
+    }
+  }
+
+  /**
+   * @param {MovementPlanner} planner
+   * @param {number} iNode
+   * @param {Enemy} self
+   * @param {number} minSeparation
+   * @returns {boolean}
+   */
+  _plannerNodeCrowded(planner, iNode, self, minSeparation){
+    if (iNode < 0 || iNode >= planner.graph.nodes.length) return true;
+    const selfNode = this._plannerNodeOfEnemy(planner, self);
+    const visited = new Uint8Array(planner.graph.nodes.length);
+    /** @type {Array<{node:number,dist:number}>} */
+    const queue = [{ node: iNode, dist: 0 }];
+    for (let q = 0; q < queue.length; q++){
+      const item = queue[q];
+      if (!item) continue;
+      const node = item.node;
+      if (visited[node]) continue;
+      visited[node] = 1;
+      const occ = planner.occupiedCount[node] || 0;
+      const selfAllowance = node === selfNode ? 1 : 0;
+      if (occ > selfAllowance){
+        return true;
+      }
+      if (item.dist >= minSeparation) continue;
+      const neighbors = planner.graph.neighbors[node] || [];
+      for (const edge of neighbors){
+        const to = edge.to;
+        if (to < 0 || to >= planner.graph.nodes.length) continue;
+        if ((planner.navMask[to] || 0) === 0) continue;
+        const nodeFrom = planner.graph.nodes[node];
+        const nodeTo = planner.graph.nodes[to];
+        if (!nodeFrom || !nodeTo) continue;
+        const edgeCost = Number.isFinite(edge.cost) ? edge.cost : NaN;
+        const step = Number.isFinite(edgeCost) ? edgeCost : Math.hypot(nodeTo.x - nodeFrom.x, nodeTo.y - nodeFrom.y);
+        const dist = item.dist + step;
+        if (dist > minSeparation + 1e-4) continue;
+        queue.push({ node: to, dist });
+      }
+    }
+    return false;
+  }
+
+  /**
+   * @param {MovementPlanner} planner
+   * @param {number} iNodeFrom
+   * @param {number} iNodeTo
+   * @returns {number}
+   */
+  _plannerCorridorPenalty(planner, iNodeFrom, iNodeTo){
+    if (iNodeTo < 0 || iNodeTo >= planner.corridorId.length) return 0;
+    const cidTo = planner.corridorId[iNodeTo] ?? -1;
+    if (cidTo < 0 || cidTo >= planner.corridorOccupancy.length) return 0;
+    const cap = planner.corridorCap[iNodeTo] || 0;
+    if (cap <= 0) return 0;
+    const occ = planner.corridorOccupancy[cidTo] || 0;
+    const cidFrom = (iNodeFrom >= 0 && iNodeFrom < planner.corridorId.length) ? (planner.corridorId[iNodeFrom] ?? -1) : -1;
+    const entering = cidFrom !== cidTo;
+    if (!entering) return 0;
+    if (occ < cap) return 0;
+    return 5 + (occ - cap) * 2;
+  }
+
+  /**
+   * @param {MovementPlanner} planner
+   * @param {Enemy} e
+   * @param {number} iNodeFrom
+   * @param {number} iNodeDesired
+   * @param {Ship|null} ship
+   * @returns {number}
+   */
+  _chooseAdvanceNode(planner, e, iNodeFrom, iNodeDesired, ship){
+    const policy = this._enemyMovePolicy(e);
+    const state = this._enemyMoveState(e);
+    const neighbors = planner.graph.neighbors[iNodeFrom] || [];
+    /** @type {number[]} */
+    const candidates = [];
+    for (const edge of neighbors){
+      const iNode = edge.to;
+      if (iNode < 0 || iNode >= planner.navMask.length) continue;
+      if (!planner.navMask[iNode]) continue;
+      candidates.push(iNode);
+    }
+    if (iNodeDesired >= 0 && iNodeDesired < planner.navMask.length && planner.navMask[iNodeDesired] && !candidates.includes(iNodeDesired)){
+      candidates.push(iNodeDesired);
+    }
+    if (!policy.mustAdvance){
+      candidates.push(iNodeFrom);
+    }
+    if (candidates.length === 0){
+      return iNodeFrom;
+    }
+
+    if (
+      state.decisionCooldown > 0
+      && state.holdNode !== null
+      && candidates.includes(state.holdNode)
+      && !this._plannerNodeCrowded(planner, state.holdNode, e, policy.minSeparation)
+    ){
+      return state.holdNode;
+    }
+
+    const desiredNode = (iNodeDesired >= 0 && iNodeDesired < planner.graph.nodes.length)
+      ? planner.graph.nodes[iNodeDesired]
+      : null;
+    let bestNode = iNodeFrom;
+    let bestScore = Infinity;
+    for (const iNode of candidates){
+      const node = planner.graph.nodes[iNode];
+      if (!node) continue;
+      let score = 0;
+      if (desiredNode){
+        score += Math.hypot(node.x - desiredNode.x, node.y - desiredNode.y) * 2.0;
+      }
+      if (iNode !== iNodeFrom){
+        if (this._plannerNodeCrowded(planner, iNode, e, policy.minSeparation)){
+          score += policy.mustAdvance ? 1.5 : 100;
+        }
+      }
+      score += this._plannerCorridorPenalty(planner, iNodeFrom, iNode);
+      const deg = (planner.graph.neighbors[iNode] || []).length;
+      if (policy.formationRole === "ranged" && deg <= 2){
+        score += 1.4;
+      }
+      if (ship && policy.formationRole === "ranged"){
+        const dist = Math.hypot(node.x - ship.x, node.y - ship.y);
+        const preferred = 3.4;
+        score += Math.abs(dist - preferred) * 1.8;
+        if (dist < 2.0) score += 4.0;
+        if (planner.rangerSectorCounts){
+          const bin = this._sectorBinForPoint(ship, node.x, node.y, planner.rangerSectorCounts.length);
+          const myBin = planner.rangerSectorOfEnemy.get(e);
+          let sectorOcc = planner.rangerSectorCounts[bin] || 0;
+          if (typeof myBin === "number" && myBin === bin){
+            sectorOcc = Math.max(0, sectorOcc - 1);
+          }
+          score += sectorOcc * 2.2;
+        }
+      }
+      if (!policy.mustAdvance && iNode === iNodeFrom){
+        score += 0.8;
+      }
+      if (state.holdNode !== null && iNode === state.holdNode && state.holdT > 0){
+        score -= 0.45;
+      }
+      if (score < bestScore){
+        bestScore = score;
+        bestNode = iNode;
+      }
+    }
+    state.holdNode = bestNode;
+    state.holdT = 0.18;
+    state.decisionCooldown = this._WAIT_DECISION_MIN + Math.random() * (this._WAIT_DECISION_MAX - this._WAIT_DECISION_MIN);
+    return bestNode;
+  }
+
+  /**
    * @param {Enemy} e
    * @param {Ship|null} ship
    * @param {number} maxPathDist
    * @param {number} dt
    * @param {boolean} [navPadded]
-   * @returns {{graph:import("./navigation.js").RadialGraph,nodeTarget:{x:number,y:number}}|null}
+   * @returns {{graph:import("./navigation.js").RadialGraph,nodeTarget:{x:number,y:number},nodeTargetIndex:number}|null}
    */
   _nextPursuitNode(e, ship, maxPathDist, dt, navPadded = false){
     if (!ship) return null;
@@ -232,7 +717,7 @@ export class Enemies {
       const nodeTarget = graph.nodes[pursuitState.nodeGoal];
       if (nodeTarget){
         this._pursuitState.set(e, pursuitState);
-        return { graph, nodeTarget };
+        return { graph, nodeTarget, nodeTargetIndex: pursuitState.nodeGoal };
       }
     }
     const pathNodes = findPathAStar(graph, nodeEnemy, nodeShip, navMask);
@@ -259,7 +744,7 @@ export class Enemies {
     pursuitState.nodeGoal = nextIdx;
     pursuitState.navPadded = navPadded;
     this._pursuitState.set(e, pursuitState);
-    return nodeTarget ? { graph, nodeTarget } : null;
+    return nodeTarget ? { graph, nodeTarget, nodeTargetIndex: nextIdx } : null;
   }
 
   /**
@@ -495,6 +980,8 @@ export class Enemies {
     }
 
     const shipTarget = (ship && ship.state !== "crashed") ? ship : null;
+    /** @type {Enemy[]} */
+    const mobile = [];
 
     for (let i = this.enemies.length - 1; i >= 0; i--){
       const e = this.enemies[i];
@@ -519,17 +1006,8 @@ export class Enemies {
         continue;
       }
 
-      if (e.type === "hunter"){
-        this._updateHunter(e, shipTarget, dt);
-      } else if (e.type === "ranger"){
-        this._updateRanger(e, shipTarget, dt);
-      } else if (e.type === "crawler"){
-        if (!this._updateCrawler(e, shipTarget, dt)) {
-          const deathInfo = this._consumeEnemyDestroyInfo(e, "detonate", "detonate");
-          this._notifyEnemyDestroyed(e, deathInfo);
-          this._spawnEnemyDeathFragments(e, deathInfo.destroyedBy);
-          this.enemies.splice(i, 1);
-        }
+      if (e.type === "hunter" || e.type === "ranger" || e.type === "crawler"){
+        mobile.push(e);
       } else if (e.type === "turret"){
         if (!shipTarget) continue;
         this._updateTurret(e, shipTarget, dt);
@@ -538,15 +1016,42 @@ export class Enemies {
         this._updateOrbitingTurret(e, shipTarget, dt);
       }
     }
+
+    if (mobile.length === 0) return;
+    const useCrowdPlanner = !PERF_FLAGS.disableEnemyCrowdPlanner;
+    if (useCrowdPlanner){
+      this._sortMoversByPolicy(mobile);
+    }
+    const planner = useCrowdPlanner ? this._buildMovementPlanner(shipTarget, mobile) : null;
+    for (const e of mobile){
+      if (useCrowdPlanner){
+        this._advanceMoveStateTimers(e, dt);
+      }
+      if (e.type === "hunter"){
+        this._updateHunter(e, shipTarget, dt, planner);
+      } else if (e.type === "ranger"){
+        this._updateRanger(e, shipTarget, dt, planner);
+      } else if (e.type === "crawler"){
+        if (!this._updateCrawler(e, shipTarget, dt, planner)) {
+          const deathInfo = this._consumeEnemyDestroyInfo(e, "detonate", "detonate");
+          this._notifyEnemyDestroyed(e, deathInfo);
+          this._spawnEnemyDeathFragments(e, deathInfo.destroyedBy);
+          this._plannerRemoveEnemy(planner, e);
+          const idx = this.enemies.indexOf(e);
+          if (idx >= 0) this.enemies.splice(idx, 1);
+        }
+      }
+    }
   }
 
   /**
    * @param {Enemy} e 
    * @param {Ship|null} ship 
    * @param {number} dt 
+   * @param {MovementPlanner|null} [planner]
    * @returns {void}
    */
-  _updateHunter(e, ship, dt) {
+  _updateHunter(e, ship, dt, planner = null) {
     const seesShip =
       ship &&
       Math.hypot(ship.x - e.x, ship.y - e.y) < this._HUNTER_SIGHT_RANGE &&
@@ -558,8 +1063,10 @@ export class Enemies {
       e.modeCooldown = Math.max(0, e.modeCooldown - dt);
     }
 
-    if (e.modeCooldown <= 0 || !this._tryMoveHunter(e, ship, dt)) {
+    if (e.modeCooldown <= 0 || !this._tryMoveHunter(e, ship, dt, planner)) {
+      const prevNode = this._plannerNodeOfEnemy(planner, e);
       this._wander(e, this._HUNTER_SPEED, dt);
+      this._plannerCommitEnemyPosition(planner, e, prevNode);
     }
 
     if (ship) this._updateTurret(e, ship, dt);
@@ -569,9 +1076,10 @@ export class Enemies {
    * @param {Enemy} e 
    * @param {Ship|null} ship 
    * @param {number} dt 
+   * @param {MovementPlanner|null} [planner]
    * @returns {boolean}
    */
-  _tryMoveHunter(e, ship, dt) {
+  _tryMoveHunter(e, ship, dt, planner = null) {
     if (!ship) return false;
 
     if (Math.hypot(ship.x, ship.y) > this.planet.planetRadius + 1.0) return false;
@@ -579,21 +1087,49 @@ export class Enemies {
     const maxPathDist = 16;
     const pursuit = this._nextPursuitNode(e, ship, maxPathDist, dt, true);
     if (!pursuit) return false;
-    return this._moveTowardNode(e, pursuit.nodeTarget, this._HUNTER_SPEED, dt);
+    if (!planner){
+      return this._moveTowardNode(e, pursuit.nodeTarget, this._HUNTER_SPEED, dt);
+    }
+    const state = this._enemyMoveState(e);
+    const iNodeFrom = this._plannerNodeOfEnemy(planner, e);
+    if (iNodeFrom < 0){
+      return this._moveTowardNode(e, pursuit.nodeTarget, this._HUNTER_SPEED, dt);
+    }
+    const iNodeChosen = this._chooseAdvanceNode(planner, e, iNodeFrom, pursuit.nodeTargetIndex, ship);
+    if (iNodeChosen === iNodeFrom){
+      state.waitAge += 1;
+      e.vx *= 0.7;
+      e.vy *= 0.7;
+      return true;
+    }
+    const nodeTarget = planner.graph.nodes[iNodeChosen] || pursuit.nodeTarget;
+    const moved = this._moveTowardNode(e, nodeTarget, this._HUNTER_SPEED, dt);
+    if (moved){
+      state.waitAge = Math.max(0, state.waitAge - 1);
+      this._plannerCommitEnemyPosition(planner, e, iNodeFrom);
+    } else {
+      state.waitAge += 1;
+    }
+    return moved;
   }
 
   /**
    * @param {Enemy} e 
    * @param {Ship|null} ship 
    * @param {number} dt 
+   * @param {MovementPlanner|null} [planner]
    * @returns {void}
    */
-  _updateRanger(e, ship, dt) {
+  _updateRanger(e, ship, dt, planner = null) {
     const seesShip =
       ship &&
       Math.hypot(ship.x - e.x, ship.y - e.y) < this._TURRET_MAX_RANGE &&
       this._hasLineOfSight(e.x, e.y, ship.x, ship.y);
 
+    let handledByTactical = false;
+    if (!seesShip && ship){
+      handledByTactical = this._tryMoveSeeker(e, ship, this._RANGER_SPEED, dt, planner);
+    }
     if (seesShip) {
       const decay = Math.exp(-5 * dt);
       const vxPrev = e.vx;
@@ -603,10 +1139,12 @@ export class Enemies {
       e.x += (vxPrev + e.vx) * (dt / 2);
       e.y += (vyPrev + e.vy) * (dt / 2);
       e.iNodeGoal = null;
-    } else if (ship && this._tryMoveSeeker(e, ship, this._RANGER_SPEED, dt)) {
-      e.iNodeGoal = null;
-    } else {
+    } else if (!handledByTactical) {
+      const prevNode = this._plannerNodeOfEnemy(planner, e);
       this._wander(e, this._RANGER_SPEED, dt);
+      this._plannerCommitEnemyPosition(planner, e, prevNode);
+    } else {
+      e.iNodeGoal = null;
     }
 
     if (ship) this._updateTurret(e, ship, dt);
@@ -640,12 +1178,36 @@ export class Enemies {
    * @param {Ship|null} ship
    * @param {number} speed
    * @param {number} dt
+   * @param {MovementPlanner|null} [planner]
    * @returns {boolean}
    */
-  _tryMoveSeeker(e, ship, speed, dt){
+  _tryMoveSeeker(e, ship, speed, dt, planner = null){
     const pursuit = this._nextPursuitNode(e, ship, 16, dt, true);
     if (!pursuit) return false;
-    return this._moveTowardNode(e, pursuit.nodeTarget, speed, dt);
+    if (!planner){
+      return this._moveTowardNode(e, pursuit.nodeTarget, speed, dt);
+    }
+    const state = this._enemyMoveState(e);
+    const iNodeFrom = this._plannerNodeOfEnemy(planner, e);
+    if (iNodeFrom < 0){
+      return this._moveTowardNode(e, pursuit.nodeTarget, speed, dt);
+    }
+    const iNodeChosen = this._chooseAdvanceNode(planner, e, iNodeFrom, pursuit.nodeTargetIndex, ship);
+    if (iNodeChosen === iNodeFrom){
+      state.waitAge += 1;
+      e.vx *= 0.7;
+      e.vy *= 0.7;
+      return true;
+    }
+    const nodeTarget = planner.graph.nodes[iNodeChosen] || pursuit.nodeTarget;
+    const moved = this._moveTowardNode(e, nodeTarget, speed, dt);
+    if (moved){
+      state.waitAge = Math.max(0, state.waitAge - 1);
+      this._plannerCommitEnemyPosition(planner, e, iNodeFrom);
+    } else {
+      state.waitAge += 1;
+    }
+    return moved;
   }
 
   /**
@@ -693,10 +1255,11 @@ export class Enemies {
    * @param {Enemy} e 
    * @param {Ship|null} ship 
    * @param {number} dt 
+   * @param {MovementPlanner|null} [planner]
    * @returns {boolean} keep alive?
    */
-  _updateCrawler(e, ship, dt) {
-    this._moveCrawler(e, ship, dt);
+  _updateCrawler(e, ship, dt, planner = null) {
+    this._moveCrawler(e, ship, dt, planner);
 
     if (!ship) return true;
 
@@ -767,10 +1330,12 @@ export class Enemies {
    * @param {Enemy} e
    * @param {Ship|null} ship
    * @param {number} dt 
+   * @param {MovementPlanner|null} [planner]
    */
-  _moveCrawler(e, ship, dt) {
+  _moveCrawler(e, ship, dt, planner = null) {
+    const prevNode = this._plannerNodeOfEnemy(planner, e);
     const prev = { x: e.x, y: e.y };
-    const seekingShip = this._steerCrawlerTowardShip(e, ship, dt);
+    const seekingShip = this._steerCrawlerTowardShip(e, ship, dt, planner);
     this._approachPlayer(e, ship);
     this._reflectVelocityBackTowardPlanet(e);
     const next = { x: e.x + e.vx * dt, y: e.y + e.vy * dt };
@@ -778,17 +1343,30 @@ export class Enemies {
     this._deflectCrawlerFromUnsafeNodes(e, dt, seekingShip);
     e.x += e.vx * dt;
     e.y += e.vy * dt;
+    this._plannerCommitEnemyPosition(planner, e, prevNode);
   }
 
   /**
    * @param {Enemy} e
    * @param {Ship|null} ship
    * @param {number} dt
+   * @param {MovementPlanner|null} [planner]
    * @returns {boolean}
    */
-  _steerCrawlerTowardShip(e, ship, dt){
+  _steerCrawlerTowardShip(e, ship, dt, planner = null){
     const pursuit = this._nextPursuitNode(e, ship, 16, dt, true);
     if (!pursuit) return false;
+    if (planner){
+      const iNodeFrom = this._plannerNodeOfEnemy(planner, e);
+      if (iNodeFrom >= 0){
+        const iNodeChosen = this._chooseAdvanceNode(planner, e, iNodeFrom, pursuit.nodeTargetIndex, ship);
+        const nodeChosen = planner.graph.nodes[iNodeChosen];
+        if (nodeChosen){
+          const currentSpeed = Math.max(1.2, Math.hypot(e.vx, e.vy));
+          return this._steerTowardNode(e, nodeChosen, currentSpeed);
+        }
+      }
+    }
     const currentSpeed = Math.max(1.2, Math.hypot(e.vx, e.vy));
     return this._steerTowardNode(e, pursuit.nodeTarget, currentSpeed);
   }
