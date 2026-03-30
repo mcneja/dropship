@@ -9,18 +9,6 @@ import {
 } from "./collision_helpers.js";
 
 /**
- * @template T
- * @param {T|null|undefined} value
- * @returns {T}
- */
-function expectDefined(value){
-  if (value == null){
-    throw new Error("Expected value to be defined");
-  }
-  return value;
-}
-
-/**
  * @param {[number, number]} a
  * @param {[number, number]} b
  * @returns {boolean}
@@ -198,8 +186,8 @@ function boundaryEdgeDefsFromTri(tri, rOuter = Number.NaN){
     let bestD2 = -1;
     for (let i = 0; i < pts.length; i++){
       for (let j = i + 1; j < pts.length; j++){
-        const pi = expectDefined(pts[i]);
-        const pj = expectDefined(pts[j]);
+        const pi = /** @type {[number, number]} */ (pts[i]);
+        const pj = /** @type {[number, number]} */ (pts[j]);
         const dx = pj[0] - pi[0];
         const dy = pj[1] - pi[1];
         const d2 = dx * dx + dy * dy;
@@ -211,8 +199,8 @@ function boundaryEdgeDefsFromTri(tri, rOuter = Number.NaN){
       }
     }
     out.push({
-      p0: expectDefined(pts[iBest]),
-      p1: expectDefined(pts[jBest]),
+      p0: /** @type {[number, number]} */ (pts[iBest]),
+      p1: /** @type {[number, number]} */ (pts[jBest]),
       outerCap: false,
     });
   }

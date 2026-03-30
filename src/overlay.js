@@ -3,6 +3,8 @@
 
 import * as camera from "./camera.js";
 import { GAME } from "./config.js";
+import { dashboardPerkSummary } from "./dashboard.js";
+import { perkChoiceLayout } from "./perk_choice_ui.js";
 import { PERF_FLAGS, getEffectiveDevicePixelRatio } from "./perf.js";
 import { drawStartTitle } from "./screenshot.js";
 
@@ -81,53 +83,102 @@ export function drawGameOverlay(game){
   }
 
   if (game.pendingPerkChoice){
-    const panelW = Math.min(w * 0.94, 940 * dpr);
-    const x = (w - panelW) * 0.5;
-    const titleY = h * 0.30;
-    const cardY = h * 0.38;
-    const cardGap = Math.max(18 * dpr, panelW * 0.035);
-    const cardW = (panelW - cardGap) * 0.5;
-    const cardH = Math.min(h * 0.28, 210 * dpr);
+    const layout = perkChoiceLayout(w, h);
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillStyle = "rgba(255, 240, 190, 1)";
     const fontFamily = "\"Science Gothic\", ui-sans-serif, system-ui, sans-serif";
-    const titlePx = fitCanvasFontPx(ctx, "Choose an Upgrade", 700, Math.round(24 * dpr), Math.round(14 * dpr), panelW * 0.84, fontFamily);
+    const titlePx = fitCanvasFontPx(
+      ctx,
+      "Choose an Upgrade",
+      700,
+      Math.round(24 * dpr),
+      Math.round(14 * dpr),
+      layout.panelW * 0.84,
+      fontFamily
+    );
     ctx.font = `700 ${titlePx}px ${fontFamily}`;
-    ctx.fillText("Choose an Upgrade", x + panelW * 0.5, titleY);
+    ctx.fillText("Choose an Upgrade", w * 0.5, layout.titleY);
 
     const left = game.pendingPerkChoice[0];
     const right = game.pendingPerkChoice[1];
-    const bodyPx = Math.max(Math.round(12 * dpr), Math.round(cardW * 0.06));
-    const lineHeight = Math.max(Math.round(15 * dpr), Math.round(bodyPx * 1.26));
-    const cardTitlePx = Math.max(Math.round(11 * dpr), Math.round(bodyPx * 0.92));
+    const bodyMaxPx = Math.max(Math.round(12 * dpr), Math.round(layout.leftCard.w * 0.06));
+    const bodyMinPx = Math.max(Math.round(9 * dpr), Math.round(bodyMaxPx * 0.68));
+    const cardTitlePx = Math.max(Math.round(11 * dpr), Math.round(bodyMaxPx * 0.92));
     /**
-     * @param {number} cardX
+     * @param {{x:number,y:number,w:number,h:number}} card
      * @param {string} heading
      * @param {string} text
      * @param {string} accent
      * @returns {void}
      */
-    const drawPerkCard = (cardX, heading, text, accent) => {
-      const grad = ctx.createLinearGradient(0, cardY, 0, cardY + cardH);
+    const drawPerkCard = (card, heading, text, accent) => {
+      const grad = ctx.createLinearGradient(0, card.y, 0, card.y + card.h);
       grad.addColorStop(0, "rgba(14, 16, 28, 0.96)");
       grad.addColorStop(1, "rgba(8, 10, 18, 0.96)");
       ctx.globalAlpha = 0.92;
       ctx.fillStyle = grad;
-      ctx.fillRect(cardX, cardY, cardW, cardH);
+      ctx.fillRect(card.x, card.y, card.w, card.h);
       ctx.globalAlpha = 1;
       ctx.strokeStyle = accent;
       ctx.lineWidth = Math.max(1, Math.round(2 * dpr));
-      ctx.strokeRect(cardX, cardY, cardW, cardH);
+      ctx.strokeRect(card.x, card.y, card.w, card.h);
       ctx.font = `700 ${cardTitlePx}px ${fontFamily}`;
       ctx.fillStyle = "rgba(255, 240, 190, 1)";
-      ctx.fillText(heading, cardX + cardW * 0.5, cardY + cardH * 0.18);
-      ctx.font = `600 ${bodyPx}px ${fontFamily}`;
+      ctx.fillText(heading, card.x + card.w * 0.5, card.y + card.h * 0.18);
+      const bodyLayout = fitWrappedCanvasText(
+        ctx,
+        text,
+        600,
+        bodyMaxPx,
+        bodyMinPx,
+        card.w * 0.82,
+        card.h * 0.44,
+        4,
+        fontFamily
+      );
+      ctx.font = `600 ${bodyLayout.fontPx}px ${fontFamily}`;
       ctx.fillStyle = "rgba(220, 236, 255, 1)";
-      drawCenteredWrappedText(ctx, text, cardX + cardW * 0.5, cardY + cardH * 0.56, cardW * 0.82, lineHeight, 3);
+      drawCenteredTextBlock(
+        ctx,
+        bodyLayout.lines,
+        card.x + card.w * 0.5,
+        card.y + card.h * 0.46,
+        card.h * 0.44,
+        bodyLayout.lineHeight
+      );
     };
-    drawPerkCard(x, "LEFT", left ? left.text : "", "rgba(120, 210, 255, 0.95)");
-    drawPerkCard(x + cardW + cardGap, "RIGHT", right ? right.text : "", "rgba(255, 214, 180, 0.95)");
+    drawPerkCard(layout.leftCard, "LEFT", left ? left.text : "", "rgba(120, 210, 255, 0.95)");
+    drawPerkCard(layout.rightCard, "RIGHT", right ? right.text : "", "rgba(255, 214, 180, 0.95)");
+
+    const techSummary = dashboardPerkSummary(game) || "None";
+    const summaryTop = layout.leftCard.y + layout.leftCard.h + Math.max(18 * dpr, h * 0.03);
+    const summaryLabelPx = Math.max(Math.round(10 * dpr), Math.round(bodyMaxPx * 0.78));
+    ctx.font = `700 ${summaryLabelPx}px ${fontFamily}`;
+    ctx.fillStyle = "rgba(165, 206, 228, 0.96)";
+    ctx.fillText("Installed Tech", w * 0.5, summaryTop);
+    const summaryTextTop = summaryTop + Math.max(16 * dpr, summaryLabelPx * 1.35);
+    const summaryLayout = fitWrappedCanvasText(
+      ctx,
+      techSummary,
+      550,
+      Math.max(Math.round(11 * dpr), Math.round(bodyMaxPx * 0.8)),
+      Math.max(Math.round(8 * dpr), Math.round(bodyMinPx * 0.95)),
+      layout.panelW * 0.9,
+      Math.max(16 * dpr, h - summaryTextTop - Math.max(20 * dpr, h * 0.05)),
+      4,
+      fontFamily
+    );
+    ctx.font = `550 ${summaryLayout.fontPx}px ${fontFamily}`;
+    ctx.fillStyle = "rgba(220, 236, 255, 0.96)";
+    drawCenteredTextBlock(
+      ctx,
+      summaryLayout.lines,
+      w * 0.5,
+      summaryTextTop + Math.min(summaryLayout.lines.length * summaryLayout.lineHeight, h * 0.16) * 0.5,
+      Math.max(16 * dpr, h - summaryTextTop - Math.max(20 * dpr, h * 0.05)),
+      summaryLayout.lineHeight
+    );
   }
 
   if (showStartTitle){
@@ -159,22 +210,23 @@ function fitCanvasFontPx(ctx, text, weight, maxPx, minPx, maxWidth, family){
 /**
  * @param {CanvasRenderingContext2D} ctx
  * @param {string} text
- * @param {number} cx
- * @param {number} topY
  * @param {number} maxWidth
- * @param {number} lineHeight
  * @param {number} maxLines
- * @returns {void}
+ * @returns {{lines:string[],truncated:boolean}}
  */
-function drawCenteredWrappedText(ctx, text, cx, topY, maxWidth, lineHeight, maxLines){
+function wrapCanvasText(ctx, text, maxWidth, maxLines){
   /** @type {string[]} */
   const lines = [];
+  let truncated = false;
   const paragraphs = String(text || "").split(/\r?\n/);
-  for (const paragraph of paragraphs){
+  for (let paragraphIndex = 0; paragraphIndex < paragraphs.length; paragraphIndex += 1){
+    const paragraph = /** @type {string} */ (paragraphs[paragraphIndex]);
     const rawWords = paragraph.trim().split(/\s+/).filter(Boolean);
     if (!rawWords.length){
       if (lines.length < maxLines){
         lines.push("");
+      } else if (paragraphIndex < paragraphs.length - 1){
+        truncated = true;
       }
       continue;
     }
@@ -204,24 +256,93 @@ function drawCenteredWrappedText(ctx, text, cx, topY, maxWidth, lineHeight, maxL
       if (line && ctx.measureText(next).width > maxWidth){
         lines.push(line);
         line = word;
-        if (lines.length >= maxLines - 1) break;
+        if (lines.length >= maxLines){
+          truncated = true;
+          break;
+        }
       } else {
         line = next;
       }
     }
+    if (truncated) break;
     if (line && lines.length < maxLines){
       lines.push(line);
+    } else if (line){
+      truncated = true;
     }
-    if (lines.length >= maxLines){
+    if (lines.length >= maxLines && paragraphIndex < paragraphs.length - 1){
+      truncated = true;
       break;
     }
   }
-  if (!lines.length) return;
+  if (truncated && lines.length){
+    lines[lines.length - 1] = fitCanvasLineWithEllipsis(ctx, /** @type {string} */ (lines[lines.length - 1]), maxWidth);
+  }
+  return { lines, truncated };
+}
 
+/**
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {string} text
+ * @param {number} weight
+ * @param {number} maxPx
+ * @param {number} minPx
+ * @param {number} maxWidth
+ * @param {number} maxHeight
+ * @param {number} maxLines
+ * @param {string} family
+ * @returns {{fontPx:number,lineHeight:number,lines:string[]}}
+ */
+function fitWrappedCanvasText(ctx, text, weight, maxPx, minPx, maxWidth, maxHeight, maxLines, family){
+  for (let fontPx = Math.max(minPx, maxPx); fontPx >= minPx; fontPx -= 1){
+    ctx.font = `${weight} ${fontPx}px ${family}`;
+    const lineHeight = Math.max(1, Math.round(fontPx * 1.24));
+    const wrapped = wrapCanvasText(ctx, text, maxWidth, maxLines);
+    if (wrapped.lines.length * lineHeight <= maxHeight){
+      return { fontPx, lineHeight, lines: wrapped.lines };
+    }
+  }
+  ctx.font = `${weight} ${minPx}px ${family}`;
+  return {
+    fontPx: minPx,
+    lineHeight: Math.max(1, Math.round(minPx * 1.2)),
+    lines: wrapCanvasText(ctx, text, maxWidth, maxLines).lines,
+  };
+}
+
+/**
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {string} text
+ * @param {number} maxWidth
+ * @returns {string}
+ */
+function fitCanvasLineWithEllipsis(ctx, text, maxWidth){
+  const ellipsis = "...";
+  if (ctx.measureText(text).width <= maxWidth) return text;
+  let line = text;
+  while (line.length > 0 && ctx.measureText(`${line}${ellipsis}`).width > maxWidth){
+    line = line.slice(0, -1);
+  }
+  return line ? `${line}${ellipsis}` : ellipsis;
+}
+
+/**
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {string[]} lines
+ * @param {number} cx
+ * @param {number} centerY
+ * @param {number} maxHeight
+ * @param {number} lineHeight
+ * @returns {void}
+ */
+function drawCenteredTextBlock(ctx, lines, cx, centerY, maxHeight, lineHeight){
+  if (!lines.length) return;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
+  const blockHeight = Math.min(maxHeight, lines.length * lineHeight);
+  const firstLineY = centerY - blockHeight * 0.5 + lineHeight * 0.5;
   for (let i = 0; i < lines.length; i++){
-    ctx.fillText(/** @type {string} */ (lines[i]), cx, topY + i * lineHeight);
+    ctx.fillText(/** @type {string} */ (lines[i]), cx, firstLineY + i * lineHeight);
   }
 }
 

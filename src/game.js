@@ -55,7 +55,7 @@ export class Game {
    * @param {import("./rendering.js").Renderer} deps.renderer
    * @param {import("./input.js").Input} deps.input
    * @param {Ui} deps.ui
-   * @param {{toggleMuted?:()=>boolean,toggleCombatMusicEnabled?:()=>boolean,stepMusicVolume?:(direction:number)=>number,stepSfxVolume?:(direction:number)=>number,setCombatActive?:(active:boolean)=>boolean,triggerCombatImmediate?:()=>boolean,triggerVictoryMusic?:()=>boolean,returnToAmbient?:(withFade?:boolean)=>void,playSfx?:(id:string,opts?:{volume?:number,rate?:number})=>boolean,setThrustLoopActive?:(active:boolean)=>boolean,isPlaybackBypassed?:()=>boolean,setPlaybackBypassed?:(bypassed:boolean)=>boolean}|null|undefined} [deps.audio]
+   * @param {{toggleMuted?:()=>boolean,toggleCombatMusicEnabled?:()=>boolean,stepMusicVolume?:(direction:number)=>number,stepSfxVolume?:(direction:number)=>number,setCombatActive?:(active:boolean)=>boolean,triggerCombatImmediate?:()=>boolean,triggerVictoryMusic?:()=>boolean,returnToAmbient?:(withFade?:boolean)=>void,playSfx?:(id:string,opts?:{volume?:number,rate?:number})=>boolean,setThrustLoopActive?:(active:boolean)=>boolean,isPlaybackBypassed?:()=>boolean,setPlaybackBypassed?:(bypassed:boolean)=>boolean,isAudioUnlocked?:()=>boolean}|null|undefined} [deps.audio]
    * @param {HTMLCanvasElement} deps.canvas
    * @param {HTMLCanvasElement|null|undefined} deps.overlay
    * @param {HTMLElement} deps.hud
@@ -271,6 +271,7 @@ export class Game {
     this.COMBAT_THREAT_HOLD_MS = 12000;
     this.OBJECTIVE_COMPLETE_SFX_DELAY_MS = 1000;
     this.combatThreatUntilMs = 0;
+    this.nextAudioUnlockCueAtMs = 0;
 
     /** @type {{
      *   onExplosion:(info:{x:number,y:number,life:number,radius:number})=>void,
@@ -456,6 +457,17 @@ export class Game {
     }
     const inputState = this.input.update();
     this.activeInputType = inputState.inputType || this.activeInputType;
+    const audioLocked =
+      !!(this.audio
+        && typeof this.audio.isAudioUnlocked === "function"
+        && !this.audio.isAudioUnlocked()
+        && (!this.audio.isPlaybackBypassed || !this.audio.isPlaybackBypassed()));
+    if (!audioLocked){
+      this.nextAudioUnlockCueAtMs = 0;
+    } else if (inputState.inputType === "gamepad" && now >= this.nextAudioUnlockCueAtMs){
+      feedback.showStatusCue(this, "Tap screen once to enable audio", 3.2);
+      this.nextAudioUnlockCueAtMs = now + 8000;
+    }
     debug.syncFrameStep(this, inputState, transitionActive);
     camera.handleZoomInput(this, inputState, transitionActive);
     if (this.helpPopup && typeof this.helpPopup.setTouchMode === "function"){
@@ -511,7 +523,7 @@ export class Game {
     // Gameplay simulation/state mutation for this frame should already be finished.
     const titleShowing = !titleState.seen && titleState.alpha > 0;
     const runEnded = frameMission.runEnded;
-    const hudVisible = debugState.devHudVisible;
+    const hudVisible = debugState.devHudVisible && this.pendingPerkChoice === null;
     this.hud.style.display = hudVisible ? "block" : "none";
     worldView.renderFrame(this, inputState, {
       now,

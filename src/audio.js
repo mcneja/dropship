@@ -61,6 +61,16 @@ const COMBAT_RETRIGGER_COOLDOWN_MS = 18000;
 const THRUST_LOOP_GAIN = 0.25;
 const THRUST_LOOP_FADE_IN_MS = 90;
 const THRUST_LOOP_FADE_OUT_MS = 320;
+const AUDIO_UNLOCK_GESTURE_EVENTS = Object.freeze([
+  "pointerdown",
+  "pointerup",
+  "touchstart",
+  "touchend",
+  "mousedown",
+  "mouseup",
+  "click",
+  "keydown",
+]);
 const AUDIO_SETTINGS_VERSION = 1;
 const AUDIO_SETTINGS_STORAGE_KEY = `dropship.audio.v${AUDIO_SETTINGS_VERSION}`;
 
@@ -333,6 +343,8 @@ export class BackgroundMusic {
 
     this.audioUnlocked = false;
     this.sfxPrimed = false;
+    /** @type {Promise<boolean>|null} */
+    this.unlockAttempt = null;
 
     this.trackIndex = 0;
     this.trackPlays = 0;
@@ -402,19 +414,10 @@ export class BackgroundMusic {
     }
 
     this._onFirstGesture = () => {
-      this.audioUnlocked = true;
-      this._detachGestureListeners();
-      this._initWebAudioContext();
-      this._preloadWebAudioSfx();
-      if (this.runtimeProfile.thrustLoopMode === "webAudio"){
-        this._ensureWebAudioBuffer("ship_thrust_loop");
+      const maybe = this._attemptUnlockFromGesture();
+      if (maybe && typeof maybe.then === "function"){
+        maybe.catch(() => {});
       }
-      this._playModeIfEnabled();
-      if (!this.playbackBypassed && this.runtimeProfile.primeSfx){
-        this._primeSfx();
-      }
-      this._flushPendingSfx();
-      this._syncThrustLoopPlayback();
     };
 
     this._onVisibilityChange = () => {
@@ -432,8 +435,7 @@ export class BackgroundMusic {
       this._syncThrustLoopPlayback();
     };
 
-    window.addEventListener("pointerdown", this._onFirstGesture, { passive: true });
-    window.addEventListener("keydown", this._onFirstGesture, { passive: true });
+    this._attachGestureListeners();
     document.addEventListener("visibilitychange", this._onVisibilityChange, { passive: true });
 
     this._playModeIfEnabled();
@@ -484,13 +486,140 @@ export class BackgroundMusic {
 
   /**
    * @param {HTMLAudioElement} el
-   * @returns {void}
+   * @returns {Promise<boolean>}
    */
   _playAudio(el){
-    const maybePromise = el.play();
-    if (maybePromise && typeof maybePromise.then === "function"){
-      maybePromise.catch(() => {});
+    try {
+      const maybePromise = el.play();
+      if (maybePromise && typeof maybePromise.then === "function"){
+        return maybePromise
+          .then(() => true)
+          .catch((err) => {
+            if (isAudioUnlockError(err)){
+              this._setAudioUnlocked(false);
+            }
+            return false;
+          });
+      }
+    } catch (err){
+      if (isAudioUnlockError(err)){
+        this._setAudioUnlocked(false);
+      }
+      return Promise.resolve(false);
     }
+    return Promise.resolve(true);
+  }
+
+  /**
+   * @returns {HTMLAudioElement|null}
+   */
+  _audioUnlockProbeElement(){
+    if (this.audio) return this.audio;
+    for (const pool of this.sfxPools.values()){
+      if (pool.voices.length) return pool.voices[0] || null;
+    }
+    return this.thrustLoopAudio || null;
+  }
+
+  /**
+   * @param {HTMLAudioElement|null|undefined} el
+   * @returns {Promise<boolean>}
+   */
+  _probeHtmlAudioUnlock(el){
+    if (!el) return Promise.resolve(true);
+    const wasPaused = el.paused;
+    const prevMuted = el.muted;
+    const prevVolume = el.volume;
+    const prevTime = Number.isFinite(el.currentTime) ? el.currentTime : 0;
+    el.muted = true;
+    el.volume = 0;
+    if (wasPaused){
+      try {
+        el.currentTime = 0;
+      } catch (_err){
+        // Ignore currentTime resets on browsers that reject it before metadata.
+      }
+    }
+    return this._playAudio(el).then((ok) => {
+      if (wasPaused){
+        el.pause();
+        try {
+          el.currentTime = prevTime;
+        } catch (_err){
+          // Ignore currentTime restoration failures.
+        }
+      }
+      el.muted = prevMuted;
+      el.volume = prevVolume;
+      return ok;
+    });
+  }
+
+  /**
+   * @param {boolean} unlocked
+   * @returns {boolean}
+   */
+  _setAudioUnlocked(unlocked){
+    const next = !!unlocked;
+    if (this.audioUnlocked === next) return this.audioUnlocked;
+    this.audioUnlocked = next;
+    if (this.audioUnlocked){
+      this._detachGestureListeners();
+    } else {
+      this._attachGestureListeners();
+    }
+    return this.audioUnlocked;
+  }
+
+  /**
+   * @returns {Promise<boolean>}
+   */
+  _attemptUnlockFromGesture(){
+    if (this.audioUnlocked) return Promise.resolve(true);
+    if (this.unlockAttempt) return this.unlockAttempt;
+    const attempt = this._unlockAudioNow()
+      .catch(() => false)
+      .finally(() => {
+        if (this.unlockAttempt === attempt){
+          this.unlockAttempt = null;
+        }
+      });
+    this.unlockAttempt = attempt;
+    return attempt;
+  }
+
+  /**
+   * @returns {Promise<boolean>}
+   */
+  async _unlockAudioNow(){
+    const ctx = this._initWebAudioContext();
+    let webAudioReady = !ctx;
+    if (ctx){
+      try {
+        const maybe = ctx.resume();
+        if (maybe && typeof maybe.then === "function"){
+          await maybe.catch(() => {});
+        }
+      } catch (_err){
+        // Some browsers throw synchronously when resume is still gated.
+      }
+      webAudioReady = ctx.state === "running";
+    }
+    const htmlAudioReady = await this._probeHtmlAudioUnlock(this._audioUnlockProbeElement());
+    const unlocked = webAudioReady && htmlAudioReady;
+    this._setAudioUnlocked(unlocked);
+    if (!unlocked) return false;
+    this._preloadWebAudioSfx();
+    if (this.runtimeProfile.thrustLoopMode === "webAudio"){
+      this._ensureWebAudioBuffer("ship_thrust_loop");
+    }
+    this._playModeIfEnabled();
+    if (!this.playbackBypassed && this.runtimeProfile.primeSfx){
+      this._primeSfx();
+    }
+    this._flushPendingSfx();
+    this._syncThrustLoopPlayback();
+    return true;
   }
 
   /**
@@ -654,11 +783,19 @@ export class BackgroundMusic {
     if (!this.webAudioSfxIds.has(id)) return false;
     const ctx = this._initWebAudioContext();
     if (!ctx) return false;
-    if (ctx.state === "suspended"){
-      const maybe = ctx.resume();
-      if (maybe && typeof maybe.then === "function"){
-        maybe.catch(() => {});
+    if (ctx.state !== "running"){
+      try {
+        const maybe = ctx.resume();
+        if (maybe && typeof maybe.then === "function"){
+          maybe.catch(() => {});
+        }
+      } catch (_err){
+        // Resume failures are handled by the state check below.
       }
+    }
+    if (ctx.state !== "running"){
+      this._setAudioUnlocked(false);
+      return false;
     }
     const variants = this.webAudioVariantBuffers.get(id);
     let buffer = null;
@@ -826,11 +963,15 @@ export class BackgroundMusic {
       return;
     }
     try {
-      if (ctx.state === "suspended"){
+      if (ctx.state !== "running"){
         const maybe = ctx.resume();
         if (maybe && typeof maybe.then === "function"){
           maybe.catch(() => {});
         }
+      }
+      if (ctx.state !== "running"){
+        this._setAudioUnlocked(false);
+        return;
       }
       const source = ctx.createBufferSource();
       const gain = ctx.createGain();
@@ -1073,16 +1214,26 @@ export class BackgroundMusic {
   /**
    * @returns {void}
    */
+  _attachGestureListeners(){
+    for (const eventName of AUDIO_UNLOCK_GESTURE_EVENTS){
+      window.addEventListener(eventName, this._onFirstGesture, { passive: true });
+    }
+  }
+
+  /**
+   * @returns {void}
+   */
   _detachGestureListeners(){
-    window.removeEventListener("pointerdown", this._onFirstGesture);
-    window.removeEventListener("keydown", this._onFirstGesture);
+    for (const eventName of AUDIO_UNLOCK_GESTURE_EVENTS){
+      window.removeEventListener(eventName, this._onFirstGesture);
+    }
   }
 
   /**
    * @returns {void}
    */
   _syncThrustLoopPlayback(){
-    const shouldPlay = !this.playbackBypassed && this.sfxEnabled && this.thrustLoopRequested && !document.hidden;
+    const shouldPlay = !this.playbackBypassed && this.audioUnlocked && this.sfxEnabled && this.thrustLoopRequested && !document.hidden;
     const targetVolume = Math.max(0, Math.min(1, this.sfxMasterVolume * THRUST_LOOP_GAIN));
     if (this.runtimeProfile.thrustLoopMode === "webAudio"){
       this.thrustLoopAudible = shouldPlay;
@@ -1397,6 +1548,13 @@ export class BackgroundMusic {
   }
 
   /**
+   * @returns {boolean}
+   */
+  isAudioUnlocked(){
+    return this.audioUnlocked;
+  }
+
+  /**
    * Force music back to ambient playlist, used on level transitions.
    * @param {boolean} [withFade]
    * @returns {void}
@@ -1479,6 +1637,16 @@ function loadAudioSettings(){
 function clampUnit(value){
   if (!Number.isFinite(value)) return 0;
   return Math.max(0, Math.min(1, value));
+}
+
+/**
+ * @param {unknown} err
+ * @returns {boolean}
+ */
+function isAudioUnlockError(err){
+  if (!err || typeof err !== "object") return false;
+  const name = "name" in err ? String(err.name || "") : "";
+  return name === "NotAllowedError" || name === "SecurityError";
 }
 
 

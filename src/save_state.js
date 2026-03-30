@@ -110,7 +110,11 @@ export function loadGameFromStorage(game){
       localStorage.removeItem(STORAGE_KEY);
       return false;
     }
-    return !!game.restoreFromSaveSnapshot(snapshot);
+    const restored = !!game.restoreFromSaveSnapshot(snapshot);
+    if (restored){
+      localStorage.removeItem(STORAGE_KEY);
+    }
+    return restored;
   } catch (err){
     console.warn("[Save] read failed", err);
     return false;
@@ -131,13 +135,21 @@ export function installExitSaveHandlers(game){
       saveNow();
     }
   };
-  window.addEventListener("pagehide", saveNow);
-  window.addEventListener("beforeunload", saveNow);
+  const onFreeze = () => {
+    saveNow();
+  };
+  const onPageExit = () => {
+    saveNow();
+  };
+  window.addEventListener("pagehide", onPageExit);
+  window.addEventListener("beforeunload", onPageExit);
   document.addEventListener("visibilitychange", onVisibility);
+  document.addEventListener("freeze", onFreeze);
   return () => {
-    window.removeEventListener("pagehide", saveNow);
-    window.removeEventListener("beforeunload", saveNow);
+    window.removeEventListener("pagehide", onPageExit);
+    window.removeEventListener("beforeunload", onPageExit);
     document.removeEventListener("visibilitychange", onVisibility);
+    document.removeEventListener("freeze", onFreeze);
   };
 }
 

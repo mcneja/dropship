@@ -6,18 +6,6 @@ import { CFG } from "./config.js";
 /** @typedef {Point & {air:number}} AirPoint */
 
 /**
- * @template T
- * @param {T|undefined|null} value
- * @returns {T}
- */
-function expectDefined(value){
-  if (value === undefined || value === null){
-    throw new Error("Expected value");
-  }
-  return value;
-}
-
-/**
  * @param {number} r
  * @returns {number}
  */
@@ -54,26 +42,45 @@ function stitchBand(inner, outer){
   if (!inner.length || !outer.length) return tris;
   const n0 = inner.length;
   const n1 = outer.length;
-  const I = inner.concat([expectDefined(inner[0])]);
-  const O = outer.concat([expectDefined(outer[0])]);
+  const innerStart = inner[0];
+  const outerStart = outer[0];
+  if (!innerStart || !outerStart) return tris;
+  const I = inner.concat([innerStart]);
+  const O = outer.concat([outerStart]);
   let i = 0;
   let j = 0;
   while (i < n0 || j < n1){
     if (i >= n0){
-      tris.push([expectDefined(I[i]), expectDefined(O[j]), expectDefined(O[j + 1])]);
+      tris.push([
+        /** @type {Point} */ (I[i]),
+        /** @type {Point} */ (O[j]),
+        /** @type {Point} */ (O[j + 1]),
+      ]);
       j++;
       continue;
     }
     if (j >= n1){
-      tris.push([expectDefined(I[i]), expectDefined(O[j]), expectDefined(I[i + 1])]);
+      tris.push([
+        /** @type {Point} */ (I[i]),
+        /** @type {Point} */ (O[j]),
+        /** @type {Point} */ (I[i + 1]),
+      ]);
       i++;
       continue;
     }
     if ((i + 1) / n0 < (j + 1) / n1){
-      tris.push([expectDefined(I[i]), expectDefined(O[j]), expectDefined(I[i + 1])]);
+      tris.push([
+        /** @type {Point} */ (I[i]),
+        /** @type {Point} */ (O[j]),
+        /** @type {Point} */ (I[i + 1]),
+      ]);
       i++;
     } else {
-      tris.push([expectDefined(I[i]), expectDefined(O[j]), expectDefined(O[j + 1])]);
+      tris.push([
+        /** @type {Point} */ (I[i]),
+        /** @type {Point} */ (O[j]),
+        /** @type {Point} */ (O[j + 1]),
+      ]);
       j++;
     }
   }
@@ -101,7 +108,7 @@ class MinHeap {
     let i = items.length - 1;
     while (i > 0){
       const p = (i - 1) >> 1;
-      const parent = expectDefined(items[p]);
+      const parent = /** @type {{node:number, f:number, g:number}} */ (items[p]);
       if (parent.f <= item.f) break;
       items[i] = parent;
       i = p;
@@ -114,7 +121,7 @@ class MinHeap {
   pop(){
     const items = this.items;
     if (!items.length) return null;
-    const root = expectDefined(items[0]);
+    const root = /** @type {{node:number, f:number, g:number}} */ (items[0]);
     const last = items.pop();
     if (!last || !items.length) return root;
     items[0] = last;
@@ -125,11 +132,11 @@ class MinHeap {
       const r = l + 1;
       if (l >= n) break;
       let m = l;
-      const left = expectDefined(items[l]);
-      if (r < n && expectDefined(items[r]).f < left.f) m = r;
-      if (expectDefined(items[i]).f <= expectDefined(items[m]).f) break;
-      const tmp = expectDefined(items[i]);
-      items[i] = expectDefined(items[m]);
+      const left = /** @type {{node:number, f:number, g:number}} */ (items[l]);
+      if (r < n && /** @type {{node:number, f:number, g:number}} */ (items[r]).f < left.f) m = r;
+      if (/** @type {{node:number, f:number, g:number}} */ (items[i]).f <= /** @type {{node:number, f:number, g:number}} */ (items[m]).f) break;
+      const tmp = /** @type {{node:number, f:number, g:number}} */ (items[i]);
+      items[i] = /** @type {{node:number, f:number, g:number}} */ (items[m]);
       items[m] = tmp;
       i = m;
     }
@@ -176,8 +183,9 @@ export class RadialGraph {
 
     for (let r = 0; r < rings.length; r++){
       const ring = rings[r] || [];
-      ringIndex[r] = [];
-      const ringRefs = expectDefined(ringIndex[r]);
+      /** @type {number[]} */
+      const ringRefs = [];
+      ringIndex[r] = ringRefs;
       for (let i = 0; i < ring.length; i++){
         const v = ring[i];
         if (!v) continue;
@@ -195,8 +203,9 @@ export class RadialGraph {
       : null;
     const navPaddedRingIndex = ringIndex.length;
     if (navPaddingRing && navPaddingRing.length){
-      ringIndex[navPaddedRingIndex] = [];
-      const navPaddedRefs = expectDefined(ringIndex[navPaddedRingIndex]);
+      /** @type {number[]} */
+      const navPaddedRefs = [];
+      ringIndex[navPaddedRingIndex] = navPaddedRefs;
       for (let i = 0; i < navPaddingRing.length; i++){
         const v = navPaddingRing[i];
         if (!v) continue;
@@ -224,8 +233,11 @@ export class RadialGraph {
       const dx = na.x - nb.x;
       const dy = na.y - nb.y;
       const cost = Math.hypot(dx, dy);
-      expectDefined(neighbors[a]).push({ to: b, cost });
-      expectDefined(neighbors[b]).push({ to: a, cost });
+      const neighA = neighbors[a];
+      const neighB = neighbors[b];
+      if (!neighA || !neighB) return;
+      neighA.push({ to: b, cost });
+      neighB.push({ to: a, cost });
     }
 
     /**

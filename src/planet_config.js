@@ -159,6 +159,21 @@
  */
 
 /**
+ * @typedef {PlanetParams & {
+ *   ATMOSPHERE_DRAG_MULT?: number,
+ *   ATMOSPHERE_HEIGHT?: number,
+ *   DRAG_MULT: number,
+ *   THRUST_MULT: number,
+ *   TURN_RATE_MULT: number,
+ *   LAND_FRICTION_MULT: number,
+ *   WALL_FRICTION_MULT?: number,
+ *   BOUNCE_RESTITUTION?: number,
+ *   CRASH_SPEED_MULT: number,
+ *   LAND_SPEED_MULT: number
+ * }} PlanetRoll
+ */
+
+/**
  * Default/moderate range helpers
  * @param {number} min
  * @param {number} max
@@ -798,18 +813,6 @@ export const PLANET_CONFIGS = [
 ];
 
 /**
- * @template T
- * @param {T|null|undefined} value
- * @returns {T}
- */
-function expectDefined(value){
-  if (value == null){
-    throw new Error("Expected value to be defined");
-  }
-  return value;
-}
-
-/**
  * @param {PlanetTypeId} id
  * @returns {PlanetConfig}
  */
@@ -817,7 +820,11 @@ export function pickPlanetConfigById(id){
   for (const cfg of PLANET_CONFIGS){
     if (cfg.id === id) return cfg;
   }
-  return expectDefined(PLANET_CONFIGS[0]);
+  const fallback = PLANET_CONFIGS[0];
+  if (!fallback){
+    throw new Error("PLANET_CONFIGS must contain at least one config");
+  }
+  return fallback;
 }
 
 /**
@@ -1022,8 +1029,8 @@ function planetCycleForRule(seed, rule, cycleIndex){
     const rand = mulberry32(cycleSeed);
     for (let i = order.length - 1; i > 0; i--){
       const j = Math.floor(rand() * (i + 1));
-      const tmp = expectDefined(order[i]);
-      order[i] = expectDefined(order[j]);
+      const tmp = /** @type {PlanetTypeId} */ (order[i]);
+      order[i] = /** @type {PlanetTypeId} */ (order[j]);
       order[j] = tmp;
     }
   }
@@ -1033,14 +1040,14 @@ function planetCycleForRule(seed, rule, cycleIndex){
   for (let i = 0; i < cycleLen; i++){
     const slotI = cycleIndex * cycleLen + i;
     const totalI = enemyTotalAtSlot(rule, slotI);
-    const planetI = expectDefined(order[i]);
+    const planetI = /** @type {PlanetTypeId} */ (order[i]);
     if (!isPlanetExcluded(rule, planetI, totalI)) continue;
     let swapped = false;
     for (let j = 0; j < cycleLen; j++){
       if (j === i) continue;
       const slotJ = cycleIndex * cycleLen + j;
       const totalJ = enemyTotalAtSlot(rule, slotJ);
-      const planetJ = expectDefined(order[j]);
+      const planetJ = /** @type {PlanetTypeId} */ (order[j]);
       if (isPlanetExcluded(rule, planetJ, totalI)) continue;
       if (isPlanetExcluded(rule, planetI, totalJ)) continue;
       const tmp = planetI;
@@ -1088,7 +1095,7 @@ export function resolveLevelProgression(seed, level){
   const cycleIndex = Math.floor(slot / cycleLen);
   const cyclePos = slot % cycleLen;
   const cycle = planetCycleForRule(seed, rule, cycleIndex);
-  const planetId = expectDefined(cycle[Math.max(0, Math.min(cycle.length - 1, cyclePos))]);
+  const planetId = /** @type {PlanetTypeId} */ (cycle[Math.max(0, Math.min(cycle.length - 1, cyclePos))]);
 
   const enemyTotal = enemyTotalAtSlot(rule, slot);
   const enemyCapRaw = valueAtSlot(rule.enemyCap, slot);
@@ -1129,9 +1136,12 @@ export function resolveLevelProgression(seed, level){
  */
 export function pickPlanetConfig(seed, level){
   const lvl = Math.max(1, level | 0);
+  if (!PLANET_CONFIGS.length){
+    throw new Error("PLANET_CONFIGS must contain at least one config");
+  }
   const base = (seed | 0) + lvl * 9973;
   const idx = hash32(base) % PLANET_CONFIGS.length;
-  return expectDefined(PLANET_CONFIGS[idx]);
+  return /** @type {PlanetConfig} */ (PLANET_CONFIGS[idx]);
 }
 
 /**
@@ -1153,7 +1163,7 @@ export function rollPlanetConfig(seed, level, cfg){
   }
   // Integer fields
   for (const k of ["CA_STEPS", "AIR_KEEP_N8", "ROCK_TO_AIR_N8", "ENTRANCES", "VEIN_DILATE", "FOG_BUDGET_TRIS", "EXCAVATE_RINGS", "TOPO_OCTAVES"]){
-    if (k in out) out[k] = Math.round(expectDefined(out[k]));
+    if (k in out) out[k] = Math.round(/** @type {number} */ (out[k]));
   }
   return out;
 }
@@ -1215,7 +1225,7 @@ export function clampPlanetConfig(sample){
   const out = { ...sample };
   for (const [key, [lo, hi]] of Object.entries(limits)){
     if (!(key in out)) continue;
-    const v = expectDefined(out[key]);
+    const v = /** @type {number} */ (out[key]);
     out[key] = Math.max(lo, Math.min(hi, v));
   }
 
@@ -1242,7 +1252,9 @@ export function clampPlanetConfig(sample){
  * @returns {PlanetParams}
  */
 export function resolvePlanetParams(seed, level, cfg, baseGame){
-  const roll = clampPlanetConfig(rollPlanetConfig(seed, level, cfg));
+  const roll = /** @type {PlanetRoll} */ (
+    /** @type {unknown} */ (clampPlanetConfig(rollPlanetConfig(seed, level, cfg)))
+  );
   const isMechanizedCoreLevel = !!(cfg && cfg.id === "mechanized" && level >= 16);
   const mechanizedCoreRadius = isMechanizedCoreLevel ? 8 : (roll.CORE_RADIUS ?? 0);
   const moltenInner = isMechanizedCoreLevel ? mechanizedCoreRadius : (roll.MOLTEN_RING_INNER ?? 0);
@@ -1256,29 +1268,29 @@ export function resolvePlanetParams(seed, level, cfg, baseGame){
   // Gameplay: ATMOSPHERE_DRAG, ATMOSPHERE_HEIGHT, DRAG, THRUST, TURN_RATE,
   //           LAND_FRICTION, WALL_FRICTION, BOUNCE_RESTITUTION, CRASH_SPEED, LAND_SPEED
   return {
-    RMAX: expectDefined(roll.RMAX),
-    PAD: expectDefined(roll.PAD),
-    MOTHERSHIP_ORBIT_HEIGHT: expectDefined(roll.MOTHERSHIP_ORBIT_HEIGHT),
-    SURFACE_G: expectDefined(roll.SURFACE_G),
+    RMAX: roll.RMAX,
+    PAD: roll.PAD,
+    MOTHERSHIP_ORBIT_HEIGHT: roll.MOTHERSHIP_ORBIT_HEIGHT,
+    SURFACE_G: roll.SURFACE_G,
     ATMOSPHERE_DRAG: baseGame.ATMOSPHERE_DRAG * (roll.ATMOSPHERE_DRAG_MULT ?? 1),
     ATMOSPHERE_HEIGHT: Number.isFinite(roll.ATMOSPHERE_HEIGHT) ? Math.max(0, Number(roll.ATMOSPHERE_HEIGHT)) : baseGame.ATMOSPHERE_HEIGHT,
-    TARGET_FINAL_AIR: expectDefined(roll.TARGET_FINAL_AIR),
-    CA_STEPS: expectDefined(roll.CA_STEPS),
-    AIR_KEEP_N8: expectDefined(roll.AIR_KEEP_N8),
-    ROCK_TO_AIR_N8: expectDefined(roll.ROCK_TO_AIR_N8),
-    ENTRANCES: expectDefined(roll.ENTRANCES),
-    ENTRANCE_OUTER: expectDefined(roll.ENTRANCE_OUTER),
-    ENTRANCE_INNER: expectDefined(roll.ENTRANCE_INNER),
-    WARP_F: expectDefined(roll.WARP_F),
-    WARP_A: expectDefined(roll.WARP_A),
-    BASE_F: expectDefined(roll.BASE_F),
-    VEIN_F: expectDefined(roll.VEIN_F),
-    VEIN_THRESH: expectDefined(roll.VEIN_THRESH),
-    VEIN_DILATE: expectDefined(roll.VEIN_DILATE),
-    VIS_RANGE: expectDefined(roll.VIS_RANGE),
-    FOG_SEEN_ALPHA: expectDefined(roll.FOG_SEEN_ALPHA),
-    FOG_UNSEEN_ALPHA: expectDefined(roll.FOG_UNSEEN_ALPHA),
-    FOG_BUDGET_TRIS: expectDefined(roll.FOG_BUDGET_TRIS),
+    TARGET_FINAL_AIR: roll.TARGET_FINAL_AIR,
+    CA_STEPS: roll.CA_STEPS,
+    AIR_KEEP_N8: roll.AIR_KEEP_N8,
+    ROCK_TO_AIR_N8: roll.ROCK_TO_AIR_N8,
+    ENTRANCES: roll.ENTRANCES,
+    ENTRANCE_OUTER: roll.ENTRANCE_OUTER,
+    ENTRANCE_INNER: roll.ENTRANCE_INNER,
+    WARP_F: roll.WARP_F,
+    WARP_A: roll.WARP_A,
+    BASE_F: roll.BASE_F,
+    VEIN_F: roll.VEIN_F,
+    VEIN_THRESH: roll.VEIN_THRESH,
+    VEIN_DILATE: roll.VEIN_DILATE,
+    VIS_RANGE: roll.VIS_RANGE,
+    FOG_SEEN_ALPHA: roll.FOG_SEEN_ALPHA,
+    FOG_UNSEEN_ALPHA: roll.FOG_UNSEEN_ALPHA,
+    FOG_BUDGET_TRIS: roll.FOG_BUDGET_TRIS,
     CORE_RADIUS: mechanizedCoreRadius,
     CORE_DPS: roll.CORE_DPS ?? 0,
     ICE_CRUST_THICKNESS: roll.ICE_CRUST_THICKNESS ?? 0,
@@ -1292,16 +1304,16 @@ export function resolvePlanetParams(seed, level, cfg, baseGame){
       TOPO_AMP: roll.TOPO_AMP ?? 0,
       TOPO_FREQ: roll.TOPO_FREQ ?? 0,
       TOPO_OCTAVES: roll.TOPO_OCTAVES ?? 0,
-    DRAG: baseGame.DRAG * expectDefined(roll.DRAG_MULT),
-    THRUST: baseGame.THRUST * expectDefined(roll.THRUST_MULT),
-    TURN_RATE: baseGame.TURN_RATE * expectDefined(roll.TURN_RATE_MULT),
-    LAND_FRICTION: baseGame.LAND_FRICTION * expectDefined(roll.LAND_FRICTION_MULT),
+    DRAG: baseGame.DRAG * roll.DRAG_MULT,
+    THRUST: baseGame.THRUST * roll.THRUST_MULT,
+    TURN_RATE: baseGame.TURN_RATE * roll.TURN_RATE_MULT,
+    LAND_FRICTION: baseGame.LAND_FRICTION * roll.LAND_FRICTION_MULT,
     WALL_FRICTION: baseGame.LAND_FRICTION * (roll.WALL_FRICTION_MULT ?? roll.LAND_FRICTION_MULT ?? 1),
     BOUNCE_RESTITUTION: Number.isFinite(roll.BOUNCE_RESTITUTION)
       ? Math.max(0, Math.min(1, Number(roll.BOUNCE_RESTITUTION)))
       : Math.max(0, Math.min(1, baseGame.BOUNCE_RESTITUTION)),
-    CRASH_SPEED: baseGame.CRASH_SPEED * expectDefined(roll.CRASH_SPEED_MULT),
-    LAND_SPEED: baseGame.LAND_SPEED * expectDefined(roll.LAND_SPEED_MULT),
+    CRASH_SPEED: baseGame.CRASH_SPEED * roll.CRASH_SPEED_MULT,
+    LAND_SPEED: baseGame.LAND_SPEED * roll.LAND_SPEED_MULT,
     NO_CAVES: !!(cfg.flags && cfg.flags.noCaves),
   };
 }
