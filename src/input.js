@@ -12,6 +12,8 @@ const KEY_DOWN = new Set(["ArrowDown", "s", "S"]);
 const KEY_RESET = new Set(["r", "R"]);
 const TOUCH_PERK_CHOICE_TOP = 0.24;
 const TOUCH_PERK_CHOICE_BOTTOM = 0.76;
+const TOUCH_RESTART_LABEL = "↻";
+const TOUCH_LAUNCH_LABEL = "▲";
 
 function ensureTouchDockStyles(){
   if (typeof document === "undefined" || document.getElementById("touch-dock-style")) return;
@@ -376,7 +378,7 @@ export class Input {
     button.id = "touch-restart-toggle";
     button.type = "button";
     button.setAttribute("aria-label", "Hold 1 second to abandon run");
-    button.textContent = "?";
+    button.textContent = TOUCH_RESTART_LABEL;
     button.style.setProperty("--restart-hold-progress", "0%");
     button.addEventListener("pointerdown", (e) => {
       if (this.modalOpen) return;
@@ -462,7 +464,7 @@ export class Input {
     button.id = "touch-launch-toggle";
     button.type = "button";
     button.setAttribute("aria-label", "Launch from mothership");
-    button.textContent = "?";
+    button.textContent = TOUCH_LAUNCH_LABEL;
     button.addEventListener("pointerdown", (e) => {
       if (this.modalOpen) return;
       if (e.pointerType !== "touch") return;
@@ -563,6 +565,7 @@ export class Input {
       if (showAction) this.touchActionButton.classList.add(modeClass);
     }
     if (this.touchLaunchButton){
+      this.touchLaunchButton.textContent = TOUCH_LAUNCH_LABEL;
       this.touchLaunchButton.classList.toggle("touch-launch-visible", showDocked);
       this.touchLaunchButton.classList.toggle("touch-launch-holding", this.touchLaunchPointerId !== null);
     }
