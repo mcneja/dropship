@@ -1,5 +1,20 @@
 // @ts-check
 /** @typedef {import("./game.js").Game} Game */
+/**
+ * @typedef {{
+ *  sampleCount:number,
+ *  avgMs:number,
+ *  avgFps:number,
+ *  p50Ms:number,
+ *  p95Ms:number,
+ *  p99Ms:number,
+ *  low1Fps:number,
+ *  over16_7:number,
+ *  over25:number,
+ *  over33_3:number,
+ *  maxMs:number
+ * }} FrameStatsSnapshot
+ */
 
 /**
  * @param {string} key
@@ -179,19 +194,7 @@ export class RollingFrameStats {
   }
 
   /**
-   * @returns {{
-   *  sampleCount:number,
-   *  avgMs:number,
-   *  avgFps:number,
-   *  p50Ms:number,
-   *  p95Ms:number,
-   *  p99Ms:number,
-   *  low1Fps:number,
-   *  over16_7:number,
-   *  over25:number,
-   *  over33_3:number,
-   *  maxMs:number
-   * }|null}
+   * @returns {FrameStatsSnapshot|null}
    */
   snapshot(){
     if (!this.count) return null;
@@ -255,6 +258,7 @@ export class PerfState {
     this.fpsTime = nowMs;
     this.fpsFrames = 0;
     this.fps = 0;
+    /** @type {FrameStatsSnapshot|null} */
     this.frameStats = null;
     this.frameStatsTracker = new RollingFrameStats(BENCH_CONFIG.enabled ? 2400 : 600);
     this.frameStatsUpdatedAt = nowMs;

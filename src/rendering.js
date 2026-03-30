@@ -38,18 +38,6 @@ const ACTOR_MATERIAL_WINDOW = 1;
 const ACTOR_MATERIAL_GUN = 2;
 
 /**
- * @template T
- * @param {T|null|undefined} value
- * @returns {T}
- */
-function expectDefined(value){
-  if (value == null){
-    throw new Error("Expected value to be defined");
-  }
-  return value;
-}
-
-/**
  * @param {[number,number,number]} base
  * @param {number} boost
  * @returns {[number,number,number]}
@@ -366,9 +354,9 @@ function pushTriangleOutline(pos, col, ax, ay, bx, by, cx, cy, r, g, b, a){
  * @returns {number}
  */
 function triAirAtWorld(tri, x, y){
-  const a = expectDefined(tri[0]);
-  const b = expectDefined(tri[1]);
-  const c = expectDefined(tri[2]);
+  const a = /** @type {{x:number,y:number,air:number}} */ (tri[0]);
+  const b = /** @type {{x:number,y:number,air:number}} */ (tri[1]);
+  const c = /** @type {{x:number,y:number,air:number}} */ (tri[2]);
   const det = (b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y);
   if (Math.abs(det) < 1e-6){
     return (a.air + b.air + c.air) / 3;
@@ -403,9 +391,9 @@ function pushUniquePoint(out, x, y){
 function triIsoSegment(tri, threshold = 0.5){
   /** @type {Array<[number, number]>} */
   const pts = [];
-  const a = expectDefined(tri[0]);
-  const b = expectDefined(tri[1]);
-  const c = expectDefined(tri[2]);
+  const a = /** @type {{x:number,y:number,air:number}} */ (tri[0]);
+  const b = /** @type {{x:number,y:number,air:number}} */ (tri[1]);
+  const c = /** @type {{x:number,y:number,air:number}} */ (tri[2]);
   /** @type {Array<[{x:number,y:number,air:number}, {x:number,y:number,air:number}]>} */
   const edges = [[a, b], [b, c], [c, a]];
   const eps = 1e-6;
@@ -435,8 +423,8 @@ function triIsoSegment(tri, threshold = 0.5){
   }
   if (pts.length < 2) return null;
   if (pts.length === 2){
-    const p0 = expectDefined(pts[0]);
-    const p1 = expectDefined(pts[1]);
+    const p0 = /** @type {[number, number]} */ (pts[0]);
+    const p1 = /** @type {[number, number]} */ (pts[1]);
     return [p0, p1];
   }
   let iBest = 0;
@@ -444,8 +432,8 @@ function triIsoSegment(tri, threshold = 0.5){
   let bestD2 = -1;
   for (let i = 0; i < pts.length; i++){
     for (let j = i + 1; j < pts.length; j++){
-      const pi = expectDefined(pts[i]);
-      const pj = expectDefined(pts[j]);
+      const pi = /** @type {[number, number]} */ (pts[i]);
+      const pj = /** @type {[number, number]} */ (pts[j]);
       const dx = pj[0] - pi[0];
       const dy = pj[1] - pi[1];
       const d2 = dx * dx + dy * dy;
@@ -456,7 +444,7 @@ function triIsoSegment(tri, threshold = 0.5){
       }
     }
   }
-  return [expectDefined(pts[iBest]), expectDefined(pts[jBest])];
+  return [/** @type {[number, number]} */ (pts[iBest]), /** @type {[number, number]} */ (pts[jBest])];
 }
 
 /**
@@ -472,12 +460,12 @@ function buildTriangleWireframe(triPositions){
   const r = 0.96, g = 0.97, b = 1.0, a = 0.33;
   for (let i = 0; i < triCount; i++){
     const i0 = i * 6;
-    const ax = expectDefined(triPositions[i0]);
-    const ay = expectDefined(triPositions[i0 + 1]);
-    const bx = expectDefined(triPositions[i0 + 2]);
-    const by = expectDefined(triPositions[i0 + 3]);
-    const cx = expectDefined(triPositions[i0 + 4]);
-    const cy = expectDefined(triPositions[i0 + 5]);
+    const ax = /** @type {number} */ (triPositions[i0]);
+    const ay = /** @type {number} */ (triPositions[i0 + 1]);
+    const bx = /** @type {number} */ (triPositions[i0 + 2]);
+    const by = /** @type {number} */ (triPositions[i0 + 3]);
+    const cx = /** @type {number} */ (triPositions[i0 + 4]);
+    const cy = /** @type {number} */ (triPositions[i0 + 5]);
 
     positions[pi++] = ax; positions[pi++] = ay;
     positions[pi++] = bx; positions[pi++] = by;
@@ -607,8 +595,8 @@ function pushHexOutline(pos, col, x, y, radius, rot, r, g, b, a){
     pts.push([x + Math.cos(ang) * radius, y + Math.sin(ang) * radius]);
   }
   for (let i = 0; i < 6; i++){
-    const p0 = expectDefined(pts[i]);
-    const p1 = expectDefined(pts[(i + 1) % 6]);
+    const p0 = /** @type {Vec2} */ (pts[i]);
+    const p1 = /** @type {Vec2} */ (pts[(i + 1) % 6]);
     pushLine(pos, col, p0[0], p0[1], p1[0], p1[1], r, g, b, a);
   }
   return 12;
@@ -636,8 +624,8 @@ function pushPolyFan(pos, col, x, y, radius, sides, rot, r, g, b, a){
     pts.push([x + Math.cos(ang) * radius, y + Math.sin(ang) * radius]);
   }
   for (let i = 0; i < sides; i++){
-    const p0 = expectDefined(pts[i]);
-    const p1 = expectDefined(pts[(i + 1) % sides]);
+    const p0 = /** @type {Vec2} */ (pts[i]);
+    const p1 = /** @type {Vec2} */ (pts[(i + 1) % sides]);
     pushTri(pos, col, x, y, p0[0], p0[1], p1[0], p1[1], r, g, b, a);
   }
   return sides;
@@ -1273,9 +1261,9 @@ function drawFrameImpl(renderer, state, planet){
   const rockPoint = [1.0, 0.55, 0.12];
   /** @type {Rgb} */
   const airPoint = [
-    lighten(expectDefined(airLight[0])),
-    lighten(expectDefined(airLight[1])),
-    lighten(expectDefined(airLight[2])),
+    lighten(/** @type {number} */ (airLight[0])),
+    lighten(/** @type {number} */ (airLight[1])),
+    lighten(/** @type {number} */ (airLight[2])),
   ];
   const now = performance.now() * 0.001;
   const invertT = Math.max(0, state.ship.invertT || 0);
@@ -1395,10 +1383,10 @@ function drawFrameImpl(renderer, state, planet){
     const halfW = 0.55 * s;
     const halfH = 0.12 * s;
     const sink = halfH + 0.02 * s;
-    const nx = expectDefined(ux);
-    const ny = expectDefined(uy);
-    const tangentX = expectDefined(tx);
-    const tangentY = expectDefined(ty);
+    const nx = /** @type {number} */ (ux);
+    const ny = /** @type {number} */ (uy);
+    const tangentX = /** @type {number} */ (tx);
+    const tangentY = /** @type {number} */ (ty);
     const cx = p.x - nx * sink;
     const cy = p.y - ny * sink;
     /**
@@ -1477,8 +1465,8 @@ function drawFrameImpl(renderer, state, planet){
         diry = state.ship.y / r;
       }
       const localDir = rot2(dirx, diry, -shipRot);
-      dirx = expectDefined(localDir[0]);
-      diry = expectDefined(localDir[1]);
+      dirx = /** @type {number} */ (localDir[0]);
+      diry = /** @type {number} */ (localDir[1]);
       const dirLen = Math.hypot(dirx, diry) || 1;
       dirx /= dirLen;
       diry /= dirLen;
@@ -1640,9 +1628,9 @@ function drawFrameImpl(renderer, state, planet){
      * @returns {void}
      */
     const drawTri = (tri, isWall) => {
-      const a = expectDefined(points[tri[0]]);
-      const b = expectDefined(points[tri[1]]);
-      const d = expectDefined(points[tri[2]]);
+      const a = /** @type {{x:number,y:number,air?:number}} */ (points[tri[0]]);
+      const b = /** @type {{x:number,y:number,air?:number}} */ (points[tri[1]]);
+      const d = /** @type {{x:number,y:number,air?:number}} */ (points[tri[2]]);
       const ax = m.x + c * a.x - s3 * a.y;
       const ay = m.y + s3 * a.x + c * a.y;
       const bx = m.x + c * b.x - s3 * b.y;
@@ -1663,22 +1651,22 @@ function drawFrameImpl(renderer, state, planet){
      */
     const triIsWall = (tri, idx) => {
       if (m.triAir && idx < m.triAir.length){
-        return expectDefined(m.triAir[idx]) <= 0.5;
+        return /** @type {number} */ (m.triAir[idx]) <= 0.5;
       }
-      const a = expectDefined(points[tri[0]]);
-      const b = expectDefined(points[tri[1]]);
-      const d = expectDefined(points[tri[2]]);
+      const a = /** @type {{x:number,y:number,air?:number}} */ (points[tri[0]]);
+      const b = /** @type {{x:number,y:number,air?:number}} */ (points[tri[1]]);
+      const d = /** @type {{x:number,y:number,air?:number}} */ (points[tri[2]]);
       const aAir = ("air" in a) ? a.air : 1;
       const bAir = ("air" in b) ? b.air : 1;
       const cAir = ("air" in d) ? d.air : 1;
       return (aAir + bAir + cAir) / 3 <= 0.5;
     };
     for (let i = 0; i < tris.length; i++){
-      const tri = /** @type {[number, number, number]} */ (expectDefined(tris[i]));
+      const tri = /** @type {[number, number, number]} */ (tris[i]);
       if (!triIsWall(tri, i)) drawTri(tri, false);
     }
     for (let i = 0; i < tris.length; i++){
-      const tri = /** @type {[number, number, number]} */ (expectDefined(tris[i]));
+      const tri = /** @type {[number, number, number]} */ (tris[i]);
       if (triIsWall(tri, i)) drawTri(tri, true);
     }
 
@@ -2509,17 +2497,17 @@ function drawFrameImpl(renderer, state, planet){
     const b2x = -ux * len * 0.45 - px * spread;
     const b2y = -uy * len * 0.45 - py * spread;
     const liftRot = rot2(0, lift, shipRot);
-    const lx = expectDefined(liftRot[0]);
-    const ly = expectDefined(liftRot[1]);
+    const lx = /** @type {number} */ (liftRot[0]);
+    const ly = /** @type {number} */ (liftRot[1]);
     const tipRot = rot2(tipx + posUx * offset, tipy + posUy * offset, shipRot);
-    const tx = expectDefined(tipRot[0]);
-    const ty = expectDefined(tipRot[1]);
+    const tx = /** @type {number} */ (tipRot[0]);
+    const ty = /** @type {number} */ (tipRot[1]);
     const p1Rot = rot2(b1x + posUx * offset, b1y + posUy * offset, shipRot);
-    const p1x = expectDefined(p1Rot[0]);
-    const p1y = expectDefined(p1Rot[1]);
+    const p1x = /** @type {number} */ (p1Rot[0]);
+    const p1y = /** @type {number} */ (p1Rot[1]);
     const p2Rot = rot2(b2x + posUx * offset, b2y + posUy * offset, shipRot);
-    const p2x = expectDefined(p2Rot[0]);
-    const p2y = expectDefined(p2Rot[1]);
+    const p2x = /** @type {number} */ (p2Rot[0]);
+    const p2y = /** @type {number} */ (p2Rot[1]);
     const a = 0.35 + 0.65 * p;
     pushLine(pos, col, state.ship.x + p1x + lx, state.ship.y + p1y + ly, state.ship.x + tx + lx, state.ship.y + ty + ly, r, g, b, a);
     pushLine(pos, col, state.ship.x + p2x + lx, state.ship.y + p2y + ly, state.ship.x + tx + lx, state.ship.y + ty + ly, r, g, b, a);
@@ -2621,7 +2609,7 @@ function drawFrameImpl(renderer, state, planet){
 
         /** @type (x: number, y: number) => boolean */
         const isInsideMothership = (x, y) => {
-          const mothership = expectDefined(state.mothership);
+          const mothership = /** @type {NonNullable<typeof state.mothership>} */ (state.mothership);
           x -= mothership.x;
           y -= mothership.y;
           const rotCos = Math.cos(mothership.angle);
@@ -2642,7 +2630,7 @@ function drawFrameImpl(renderer, state, planet){
         let vy = state.ship.vy;
 
         if (insideMothership){
-          const mothership = expectDefined(state.mothership);
+          const mothership = /** @type {NonNullable<typeof state.mothership>} */ (state.mothership);
           vx -= mothership.vx;
           vy -= mothership.vy;
         }
@@ -2853,8 +2841,8 @@ function drawFrameImpl(renderer, state, planet){
         pushLine(pos, col, x0, y0, x1, y1, er, eg, eb, alpha);
         lineVerts += 2;
       }
-      pushLine(pos, col, ex.x - r * 0.6, ex.y, ex.x + r * 0.6, ex.y, Math.min(1, er), Math.min(1, expectDefined(eg) + 0.05), Math.min(1, expectDefined(eb) + 0.08), 0.7 * alpha);
-      pushLine(pos, col, ex.x, ex.y - r * 0.6, ex.x, ex.y + r * 0.6, Math.min(1, er), Math.min(1, expectDefined(eg) + 0.05), Math.min(1, expectDefined(eb) + 0.08), 0.7 * alpha);
+      pushLine(pos, col, ex.x - r * 0.6, ex.y, ex.x + r * 0.6, ex.y, Math.min(1, er), Math.min(1, eg + 0.05), Math.min(1, eb + 0.08), 0.7 * alpha);
+      pushLine(pos, col, ex.x, ex.y - r * 0.6, ex.x, ex.y + r * 0.6, Math.min(1, er), Math.min(1, eg + 0.05), Math.min(1, eb + 0.08), 0.7 * alpha);
       lineVerts += 4;
     }
   }
@@ -2945,16 +2933,16 @@ function drawFrameImpl(renderer, state, planet){
   if (state.debugMinerGuidePath && state.ship && state.ship.state === "landed" && state.ship.guidePath && state.ship.guidePath.path && state.ship.guidePath.path.length > 0){
       const path = state.ship.guidePath.path;
       for (let i = 1; i < path.length; ++i){
-        const p0 = expectDefined(path[i - 1]);
-        const p1 = expectDefined(path[i]);
+        const p0 = /** @type {{x:number,y:number}} */ (path[i - 1]);
+        const p1 = /** @type {{x:number,y:number}} */ (path[i]);
         pushLine(pos, col, p0.x, p0.y, p1.x, p1.y, 1.0, 0.9, 0.1, 0.85);
         lineVerts += 2;
       }
     if (state.debugMinerPathToMiner && state.debugMinerPathToMiner.length > 1){
         const minerPath = state.debugMinerPathToMiner;
         for (let i = 1; i < minerPath.length; i++){
-          const p0 = expectDefined(minerPath[i - 1]);
-          const p1 = expectDefined(minerPath[i]);
+          const p0 = /** @type {{x:number,y:number}} */ (minerPath[i - 1]);
+          const p1 = /** @type {{x:number,y:number}} */ (minerPath[i]);
           pushLine(pos, col, p0.x, p0.y, p1.x, p1.y, 0.2, 0.95, 0.25, 0.98);
           lineVerts += 2;
         }
@@ -2970,8 +2958,8 @@ function drawFrameImpl(renderer, state, planet){
         i0 = path.length - 2;
         u = 1;
       }
-      const p0 = expectDefined(path[Math.max(0, i0)]);
-      const p1 = expectDefined(path[Math.min(path.length - 1, i0 + 1)]);
+      const p0 = /** @type {{x:number,y:number}} */ (path[Math.max(0, i0)]);
+      const p1 = /** @type {{x:number,y:number}} */ (path[Math.min(path.length - 1, i0 + 1)]);
       pShip = {
         x: p0.x + (p1.x - p0.x) * u,
         y: p0.y + (p1.y - p0.y) * u,
@@ -3021,14 +3009,14 @@ function drawFrameImpl(renderer, state, planet){
     // Draw active ship collider outline from sampled hull points.
     if (dbgSamples && dbgSamples.length >= 4){
       let nHull = dbgSamples.length;
-      const last = expectDefined(dbgSamples[dbgSamples.length - 1]);
+      const last = /** @type {[number, number, boolean, number]} */ (dbgSamples[dbgSamples.length - 1]);
       if (Math.hypot(last[0] - state.ship.x, last[1] - state.ship.y) < 1e-5){
         nHull = Math.max(0, nHull - 1);
       }
       if (nHull >= 3){
         for (let i = 0; i < nHull; i++){
-          const a = expectDefined(dbgSamples[i]);
-          const b = expectDefined(dbgSamples[(i + 1) % nHull]);
+          const a = /** @type {[number, number, boolean, number]} */ (dbgSamples[i]);
+          const b = /** @type {[number, number, boolean, number]} */ (dbgSamples[(i + 1) % nHull]);
           pushLine(pos, col, a[0], a[1], b[0], b[1], 0.2, 0.95, 1.0, 0.7);
           lineVerts += 2;
         }
@@ -3131,9 +3119,9 @@ function drawFrameImpl(renderer, state, planet){
     }
 
     for (const tri of testedTris){
-      const a = expectDefined(tri[0]);
-      const b = expectDefined(tri[1]);
-      const c = expectDefined(tri[2]);
+      const a = /** @type {{x:number,y:number,air:number}} */ (tri[0]);
+      const b = /** @type {{x:number,y:number,air:number}} */ (tri[1]);
+      const c = /** @type {{x:number,y:number,air:number}} */ (tri[2]);
       pushTriangleOutline(pos, col, a.x, a.y, b.x, b.y, c.x, c.y, 0.25, 0.65, 1.0, 0.25);
       lineVerts += 6;
       const seg = triIsoSegment(tri, 0.5);
@@ -3155,7 +3143,7 @@ function drawFrameImpl(renderer, state, planet){
       let nearest = null;
       let nearestD2 = Infinity;
       for (let i = 0; i < boundaryEdges.length; i++){
-        const edge = expectDefined(boundaryEdges[i]);
+        const edge = /** @type {NonNullable<typeof boundaryEdges[number]>} */ (boundaryEdges[i]);
         const cp = closestPointOnSegment(edge.ax, edge.ay, edge.bx, edge.by, lp.x, lp.y);
         if (cp.d2 < nearestD2){
           nearestD2 = cp.d2;
@@ -3286,9 +3274,9 @@ function drawFrameImpl(renderer, state, planet){
     col.push(1.0, 0.95, 0.2, 1.0);
     pointVerts += 1;
     if (c.tri){
-      const a = expectDefined(c.tri[0]);
-      const b = expectDefined(c.tri[1]);
-      const d = expectDefined(c.tri[2]);
+      const a = /** @type {{x:number,y:number,air:number}} */ (c.tri[0]);
+      const b = /** @type {{x:number,y:number,air:number}} */ (c.tri[1]);
+      const d = /** @type {{x:number,y:number,air:number}} */ (c.tri[2]);
       pushLine(pos, col, a.x, a.y, b.x, b.y, 1.0, 0.4, 0.2, 0.8);
       pushLine(pos, col, b.x, b.y, d.x, d.y, 1.0, 0.4, 0.2, 0.8);
       pushLine(pos, col, d.x, d.y, a.x, a.y, 1.0, 0.4, 0.2, 0.8);
@@ -3394,15 +3382,15 @@ function drawFrameImpl(renderer, state, planet){
 
     const drawShipPass = () => {
       if (!(shipMeshData && shipProg && shipVao && shipLocalBuf && shipBaryBuf && shipEdgeBuf && shipMatBuf && shipOutlineDirBuf)) return;
-      const hullTopBase = /** @type {Rgb} */ (expectDefined(CFG.DROPSHIP_HULL_TOP));
-      const hullBottomBase = /** @type {Rgb} */ (expectDefined(CFG.DROPSHIP_HULL_BOTTOM));
-      const windowBase = /** @type {Rgb} */ (expectDefined(CFG.DROPSHIP_WINDOW_COLOR));
-      const gunTopBase = /** @type {Rgb} */ (expectDefined(CFG.DROPSHIP_GUN_TOP));
-      const gunBottomBase = /** @type {Rgb} */ (expectDefined(CFG.DROPSHIP_GUN_BOTTOM));
-      const outlineTopBase = /** @type {Rgb} */ (expectDefined(CFG.DROPSHIP_OUTLINE_TOP));
-      const outlineBottomBase = /** @type {Rgb} */ (expectDefined(CFG.DROPSHIP_OUTLINE_BOTTOM));
-      const gunOutlineTopBase = /** @type {Rgb} */ (expectDefined(CFG.DROPSHIP_GUN_OUTLINE_TOP));
-      const gunOutlineBottomBase = /** @type {Rgb} */ (expectDefined(CFG.DROPSHIP_GUN_OUTLINE_BOTTOM));
+      const hullTopBase = /** @type {Rgb} */ (CFG.DROPSHIP_HULL_TOP);
+      const hullBottomBase = /** @type {Rgb} */ (CFG.DROPSHIP_HULL_BOTTOM);
+      const windowBase = /** @type {Rgb} */ (CFG.DROPSHIP_WINDOW_COLOR);
+      const gunTopBase = /** @type {Rgb} */ (CFG.DROPSHIP_GUN_TOP);
+      const gunBottomBase = /** @type {Rgb} */ (CFG.DROPSHIP_GUN_BOTTOM);
+      const outlineTopBase = /** @type {Rgb} */ (CFG.DROPSHIP_OUTLINE_TOP);
+      const outlineBottomBase = /** @type {Rgb} */ (CFG.DROPSHIP_OUTLINE_BOTTOM);
+      const gunOutlineTopBase = /** @type {Rgb} */ (CFG.DROPSHIP_GUN_OUTLINE_TOP);
+      const gunOutlineBottomBase = /** @type {Rgb} */ (CFG.DROPSHIP_GUN_OUTLINE_BOTTOM);
       const hullTopCol = applyTint(hullTopBase[0], hullTopBase[1], hullTopBase[2]);
       const hullBottomCol = applyTint(hullBottomBase[0], hullBottomBase[1], hullBottomBase[2]);
       const windowCol = applyTint(windowBase[0], windowBase[1], windowBase[2]);
@@ -4116,11 +4104,14 @@ export class Renderer {
     this.shipOutlineAlphaBottom = gl.getUniformLocation(shipProg, "uOutlineAlphaBottom");
 
     gl.bindVertexArray(shipVao);
-    this.shipLocalBuf = expectDefined(gl.createBuffer());
-    this.shipBaryBuf = expectDefined(gl.createBuffer());
-    this.shipEdgeBuf = expectDefined(gl.createBuffer());
-    this.shipMatBuf = expectDefined(gl.createBuffer());
-    this.shipOutlineDirBuf = expectDefined(gl.createBuffer());
+    this.shipLocalBuf = gl.createBuffer();
+    this.shipBaryBuf = gl.createBuffer();
+    this.shipEdgeBuf = gl.createBuffer();
+    this.shipMatBuf = gl.createBuffer();
+    this.shipOutlineDirBuf = gl.createBuffer();
+    if (!this.shipLocalBuf || !this.shipBaryBuf || !this.shipEdgeBuf || !this.shipMatBuf || !this.shipOutlineDirBuf){
+      throw new Error("Failed to create ship render buffers");
+    }
     gl.bindBuffer(gl.ARRAY_BUFFER, this.shipLocalBuf);
     gl.enableVertexAttribArray(0);
     gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);

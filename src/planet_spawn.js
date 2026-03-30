@@ -17,18 +17,6 @@ import {
 /** @typedef {import("./types.d.js").StandablePoint} StandablePoint */
 
 /**
- * @template T
- * @param {T|null|undefined} value
- * @returns {T}
- */
-function expectDefined(value){
-  if (value == null){
-    throw new Error("Expected value to be defined");
-  }
-  return value;
-}
-
-/**
  * @typedef {{x:number,y:number,supportX?:number,supportY?:number,supportNodeIndex?:number,supportNodeIndices?:number[]}} MinerSpawnPlacement
  */
 
@@ -100,8 +88,8 @@ export function sampleCaveAttachmentPoints(planet, count, seed, minDist = 0.45){
   const rand = mulberry32(seed);
   for (let i = candidates.length - 1; i > 0; i--){
     const j = Math.floor(rand() * (i + 1));
-    const tmp = expectDefined(candidates[i]);
-    candidates[i] = expectDefined(candidates[j]);
+    const tmp = /** @type {{x:number,y:number,nx:number,ny:number,supportNodeIndex:number}} */ (candidates[i]);
+    candidates[i] = /** @type {{x:number,y:number,nx:number,ny:number,supportNodeIndex:number}} */ (candidates[j]);
     candidates[j] = tmp;
   }
   /** @type {Array<{x:number,y:number,nx:number,ny:number,supportNodeIndex:number}>} */
@@ -525,8 +513,8 @@ export function alignGaiaSpawnProps(planet){
     const shuffled = pool.slice();
     for (let i = shuffled.length - 1; i > 0; i--){
       const j = Math.floor(rand() * (i + 1));
-      const tmp = expectDefined(shuffled[i]);
-      shuffled[i] = expectDefined(shuffled[j]);
+      const tmp = /** @type {StandablePoint} */ (shuffled[i]);
+      shuffled[i] = /** @type {StandablePoint} */ (shuffled[j]);
       shuffled[j] = tmp;
     }
     /** @type {StandablePoint[]} */
@@ -1363,7 +1351,7 @@ export function sampleStandablePoints(planet, count, seed, placement = "random",
   /** @type {Array<{x:number,y:number,r:number}>} */
   const reservations = planet._spawnReservations || [];
   if (placement === "uniform"){
-    indices.sort((a, b) => expectDefined(points[a])[2] - expectDefined(points[b])[2]);
+    indices.sort((a, b) => /** @type {StandablePoint} */ (points[a])[2] - /** @type {StandablePoint} */ (points[b])[2]);
     const offset = rand();
     const step = (Math.PI * 2) / take;
     const window = step * 0.65;
@@ -1463,8 +1451,8 @@ export function sampleStandablePoints(planet, count, seed, placement = "random",
   } else {
     for (let i = indices.length - 1; i > 0; i--){
       const j = Math.floor(rand() * (i + 1));
-      const tmp = expectDefined(indices[i]);
-      indices[i] = expectDefined(indices[j]);
+      const tmp = /** @type {number} */ (indices[i]);
+      indices[i] = /** @type {number} */ (indices[j]);
       indices[j] = tmp;
     }
     for (const idx of indices){
@@ -1798,12 +1786,15 @@ function ringVerticesAroundAngle(planet, ringIndex, angle){
     }
   }
   const minusIdx = (plusIdx - 1 + ring.length) % ring.length;
+  const minusVertex = ring[minusIdx];
+  const plusVertex = ring[plusIdx];
+  if (!minusVertex || !plusVertex) return null;
   return {
     ring,
     minusIdx,
     plusIdx,
-    minusVertex: expectDefined(ring[minusIdx]),
-    plusVertex: expectDefined(ring[plusIdx]),
+    minusVertex,
+    plusVertex,
   };
 }
 
@@ -1829,7 +1820,7 @@ function buildOuterAirReachableMask(planet){
     queue.push(idx);
   }
   for (let q = 0; q < queue.length; q++){
-    const idx = expectDefined(queue[q]);
+    const idx = /** @type {number} */ (queue[q]);
     const neigh = graph.neighbors[idx] || [];
     for (const edge of neigh){
       const next = edge.to;
@@ -1857,8 +1848,8 @@ function shuffleDeterministic(items, seed){
   const rand = mulberry32(seed | 0);
   for (let i = out.length - 1; i > 0; i--){
     const j = Math.floor(rand() * (i + 1));
-    const tmp = expectDefined(out[i]);
-    out[i] = expectDefined(out[j]);
+    const tmp = /** @type {T} */ (out[i]);
+    out[i] = /** @type {T} */ (out[j]);
     out[j] = tmp;
   }
   return out;
@@ -2134,7 +2125,7 @@ function findBarrenOverwatchCandidate(planet, candidate, lookup, used, chosenTur
       }
     }
     for (let qi = 0; qi < queue.length; qi++){
-      const nodeIdx = expectDefined(queue[qi]);
+      const nodeIdx = /** @type {number} */ (queue[qi]);
       ringAir.push(nodeIdx);
       const neigh = graph.neighbors[nodeIdx] || [];
       for (const edge of neigh){
