@@ -224,7 +224,7 @@ export function handleFrameCommands(game, frameCommandInput, inputState){
         game.planetView = !game.planetView;
         return false;
       }
-    } else {
+    } else if (game.debugState && game.debugState.devHudVisible){
       dropship.resetShip(game);
       return true;
     }

@@ -9,7 +9,6 @@ const KEY_LEFT = new Set(["ArrowLeft", "a", "A"]);
 const KEY_RIGHT = new Set(["ArrowRight", "d", "D"]);
 const KEY_THRUST = new Set([" ", "Space", "ArrowUp", "w", "W"]);
 const KEY_DOWN = new Set(["ArrowDown", "s", "S"]);
-const KEY_RESET = new Set(["r", "R"]);
 const TOUCH_PERK_CHOICE_TOP = 0.24;
 const TOUCH_PERK_CHOICE_BOTTOM = 0.76;
 const TOUCH_RESTART_LABEL = "↻";
@@ -633,7 +632,7 @@ export class Input {
     if (code === "Digit0" && !e.ctrlKey && !e.metaKey && !e.altKey){
       this.oneshot.zoomReset = true;
     }
-    if (key === "r" || key === "R"){
+    if ((key === "r" || key === "R") && !e.ctrlKey && !e.metaKey && !e.altKey){
       if (!e.shiftKey) this.oneshot.reset = true;
     }
     if (this.debugCommandsEnabled && debugChord && code === "KeyV") this.oneshot.togglePlanetView = true;
