@@ -366,6 +366,7 @@ function updateCombat(game, dt, fireState){
   } = fireState;
 
   if (game.ship.state !== "crashed" && !dropship.isDockedWithMothership(game)){
+    const muzzleOffset = dropship.getDropshipGunTipForwardOffset(GAME);
     const wantsShoot = !!(shootPressed || shootHeld);
     if (wantsShoot && game.playerShotCooldown <= 0){
       let dirx = 0;
@@ -390,8 +391,8 @@ function updateCombat(game, dt, fireState){
       if (dirx || diry){
         const { vx, vy } = dropship.muzzleVelocity(dirx, diry, game.ship.vx, game.ship.vy, game.PLAYER_SHOT_SPEED);
         game.playerShots.push({
-          x: gunOrigin.x + dirx * 0.45,
-          y: gunOrigin.y + diry * 0.45,
+          x: gunOrigin.x + dirx * muzzleOffset,
+          y: gunOrigin.y + diry * muzzleOffset,
           vx,
           vy,
           life: game.PLAYER_SHOT_LIFE,
@@ -425,8 +426,8 @@ function updateCombat(game, dt, fireState){
         const { vx, vy } = dropship.muzzleVelocity(dirx, diry, game.ship.vx, game.ship.vy, game.PLAYER_BOMB_SPEED);
         --game.ship.bombsCur;
         game.playerBombs.push({
-          x: gunOrigin.x + dirx * 0.45,
-          y: gunOrigin.y + diry * 0.45,
+          x: gunOrigin.x + dirx * muzzleOffset,
+          y: gunOrigin.y + diry * muzzleOffset,
           vx,
           vy,
           life: game.PLAYER_BOMB_LIFE,

@@ -397,6 +397,16 @@ export function getDropshipGunPivotLocal(game){
 }
 
 /**
+ * @param {{SHIP_SCALE:number}} game
+ * @returns {number}
+ */
+export function getDropshipGunTipForwardOffset(game){
+  const { shipHWorld } = getDropshipRenderSize(game);
+  const profile = getDropshipGeometryProfileN();
+  return shipHWorld * profile.gunLenH * (1 - profile.gunMountBackOffsetLen);
+}
+
+/**
  * Ship art stays aligned to local "up" from the planet center.
  * @param {number} x
  * @param {number} y
