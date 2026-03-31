@@ -85,6 +85,7 @@ export function buildRenderState(game, inputState, opts){
     shots: dynamicOverlayEnabled ? game.enemies.shots : EMPTY_RENDER_ARRAY,
     explosions: dynamicOverlayEnabled ? game.enemies.explosions : EMPTY_RENDER_ARRAY,
     fragments: dynamicOverlayEnabled ? game.fragments.concat(game.enemies.debris) : EMPTY_RENDER_ARRAY,
+    thrusterParticles: dynamicOverlayEnabled ? game.thrusterParticles : EMPTY_RENDER_ARRAY,
     playerShots: dynamicOverlayEnabled ? game.playerShots : EMPTY_RENDER_ARRAY,
     playerBombs: dynamicOverlayEnabled ? game.playerBombs : EMPTY_RENDER_ARRAY,
     featureParticles: dynamicOverlayEnabled ? game.planet.getFeatureParticles() : EMPTY_FEATURE_PARTICLES,

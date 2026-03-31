@@ -4,11 +4,11 @@ import { CFG, TOUCH_UI } from "./config.js";
 import { PERF_FLAGS, getEffectiveDevicePixelRatio } from "./perf.js";
 import {
   DROPSHIP_MODEL,
+  DROPSHIP_THRUSTER_BLOOM_RENDER,
   getDropshipGeometryProfileN,
   getDropshipCargoBoundsN,
   getInertialDriveThrust,
   getDropshipRenderSize,
-  getDropshipThrusterPowers,
   getDropshipWorldRotation,
 } from "./dropship.js";
 import { buildStarfieldMesh } from "./starfield.js";
@@ -36,6 +36,14 @@ import {
 const ACTOR_MATERIAL_HULL = 0;
 const ACTOR_MATERIAL_WINDOW = 1;
 const ACTOR_MATERIAL_GUN = 2;
+const FRAGMENT_DEFAULT_SIZE_SCALE = 0.16;
+const FRAGMENT_DEFAULT_STRETCH = 1.7;
+const FRAGMENT_TRI_HALF_WIDTH_SCALE = 0.42;
+const FRAGMENT_TRI_BASE_CENTER_SCALE = 0.6;
+const FRAGMENT_TRI_INNER_CENTER_SCALE = 0.1;
+const FRAGMENT_TRI_INNER_BASE_WIDTH_SCALE = 0.45;
+const FRAGMENT_TRI_OUTER_ALPHA = 0.92;
+const FRAGMENT_TRI_INNER_ALPHA = 0.55;
 
 /**
  * @param {[number,number,number]} base
@@ -1178,15 +1186,10 @@ function drawFrameImpl(renderer, state, planet){
   };
 
   const { shipHWorld, shipWWorld } = getDropshipRenderSize(game);
-  const { bodyLiftN, skiLiftN, cargoWidthScale, cargoBottomN, cargoTopBaseN } = DROPSHIP_MODEL;
+  const { bodyLiftN, skiLiftN, cargoWidthScale, cargoBottomN } = DROPSHIP_MODEL;
   const cabinSide = state.ship.cabinSide || 1;
   const { cargoTopN } = getDropshipCargoBoundsN();
   const dropshipGeomN = getDropshipGeometryProfileN();
-  const cargoMidN = (cargoBottomN + cargoTopN) * 0.5;
-  const oldCargoMidN = (cargoTopBaseN + cargoBottomN) * 0.5;
-  const thrustLiftAll = (cargoMidN - oldCargoMidN) * shipHWorld * 1.0;
-  const thrustDownExtraUp = shipHWorld * 0.18;
-  const thrustUpExtraDown = shipHWorld * -0.12;
 
   /** @type {number[]} */
   const pos = [];
@@ -1726,6 +1729,11 @@ function drawFrameImpl(renderer, state, planet){
         if (!visibleEntityNow(p.x, p.y)) continue;
         drawTurretPadProp(p);
       }
+    }
+  }
+  if (state.thrusterParticles && state.thrusterParticles.length){
+    for (const d of state.thrusterParticles){
+      pushFragmentShard(d);
     }
   }
   shipTriSplit = triVerts;
@@ -2387,7 +2395,7 @@ function drawFrameImpl(renderer, state, planet){
    * @param {import("./types.d.js").Debris} d
    * @returns {void}
    */
-  const pushFragmentShard = (d) => {
+  function pushFragmentShard(d){
     const ownerType = d.ownerType || "crawler";
     const visible = (
       ownerType === "dropship"
@@ -2407,24 +2415,83 @@ function drawFrameImpl(renderer, state, planet){
     )
       ? /** @type {[number,number,number]} */ ([Number(d.cr), Number(d.cg), Number(d.cb)])
       : fragmentBaseColor(ownerType);
+    const alphaMul = Number.isFinite(d.alpha)
+      ? Math.max(0, Math.min(1, Number(d.alpha)))
+      : 1;
     const glow = brightenColor(base, 0.4);
-    const len = d.size ?? (0.16 * game.ENEMY_SCALE);
+    const len = d.size ?? (FRAGMENT_DEFAULT_SIZE_SCALE * game.ENEMY_SCALE);
     const sides = Number.isFinite(d.sides) ? Math.max(3, Math.floor(Number(d.sides))) : 0;
     if (sides >= 5){
-      triVerts += pushPolyFan(pos, col, d.x, d.y, len, sides, d.a, base[0], base[1], base[2], 0.92 * fadeT) * 3;
-      triVerts += pushPolyFan(pos, col, d.x, d.y, len * 0.58, sides, d.a + 0.15, glow[0], glow[1], glow[2], 0.45 * fadeT) * 3;
+      triVerts += pushPolyFan(pos, col, d.x, d.y, len, sides, d.a, base[0], base[1], base[2], 0.92 * fadeT * alphaMul) * 3;
+      triVerts += pushPolyFan(pos, col, d.x, d.y, len * 0.58, sides, d.a + 0.15, glow[0], glow[1], glow[2], 0.45 * fadeT * alphaMul) * 3;
       return;
     }
-    const stretch = d.stretch ?? 1.7;
-    const halfW = len * 0.42;
+    const stretch = d.stretch ?? FRAGMENT_DEFAULT_STRETCH;
+    const halfW = len * FRAGMENT_TRI_HALF_WIDTH_SCALE;
     const ux = Math.cos(d.a);
     const uy = Math.sin(d.a);
     const tx = -uy;
     const ty = ux;
     const tipX = d.x + ux * len * stretch;
     const tipY = d.y + uy * len * stretch;
-    const baseCx = d.x - ux * len * 0.6;
-    const baseCy = d.y - uy * len * 0.6;
+    const baseCx = d.x - ux * len * FRAGMENT_TRI_BASE_CENTER_SCALE;
+    const baseCy = d.y - uy * len * FRAGMENT_TRI_BASE_CENTER_SCALE;
+    if (d.fxTag === "thruster"){
+      const hot = brightenColor(base, 0.72);
+      const bloomMidHalfW = halfW * DROPSHIP_THRUSTER_BLOOM_RENDER.midWidthScale;
+      const bloomMidTipX = d.x + ux * len * stretch * DROPSHIP_THRUSTER_BLOOM_RENDER.midStretchScale;
+      const bloomMidTipY = d.y + uy * len * stretch * DROPSHIP_THRUSTER_BLOOM_RENDER.midStretchScale;
+      const bloomMidBaseCx = d.x - ux * len * FRAGMENT_TRI_BASE_CENTER_SCALE * DROPSHIP_THRUSTER_BLOOM_RENDER.midBaseScale;
+      const bloomMidBaseCy = d.y - uy * len * FRAGMENT_TRI_BASE_CENTER_SCALE * DROPSHIP_THRUSTER_BLOOM_RENDER.midBaseScale;
+      pushTri(
+        pos,
+        col,
+        bloomMidBaseCx + tx * bloomMidHalfW,
+        bloomMidBaseCy + ty * bloomMidHalfW,
+        bloomMidBaseCx - tx * bloomMidHalfW,
+        bloomMidBaseCy - ty * bloomMidHalfW,
+        bloomMidTipX,
+        bloomMidTipY,
+        hot[0],
+        hot[1],
+        hot[2],
+        DROPSHIP_THRUSTER_BLOOM_RENDER.midAlpha * fadeT * alphaMul
+      );
+      triVerts += 3;
+      const bloomOuterHalfW = halfW * DROPSHIP_THRUSTER_BLOOM_RENDER.outerWidthScale;
+      const bloomOuterTipX = d.x + ux * len * stretch * DROPSHIP_THRUSTER_BLOOM_RENDER.outerStretchScale;
+      const bloomOuterTipY = d.y + uy * len * stretch * DROPSHIP_THRUSTER_BLOOM_RENDER.outerStretchScale;
+      const bloomOuterBaseCx = d.x - ux * len * FRAGMENT_TRI_BASE_CENTER_SCALE * DROPSHIP_THRUSTER_BLOOM_RENDER.outerBaseScale;
+      const bloomOuterBaseCy = d.y - uy * len * FRAGMENT_TRI_BASE_CENTER_SCALE * DROPSHIP_THRUSTER_BLOOM_RENDER.outerBaseScale;
+      pushTri(
+        pos,
+        col,
+        bloomOuterBaseCx + tx * bloomOuterHalfW,
+        bloomOuterBaseCy + ty * bloomOuterHalfW,
+        bloomOuterBaseCx - tx * bloomOuterHalfW,
+        bloomOuterBaseCy - ty * bloomOuterHalfW,
+        bloomOuterTipX,
+        bloomOuterTipY,
+        hot[0],
+        hot[1],
+        hot[2],
+        DROPSHIP_THRUSTER_BLOOM_RENDER.outerAlpha * fadeT * alphaMul
+      );
+      triVerts += 3;
+      triVerts += pushPolyFan(
+        pos,
+        col,
+        d.x,
+        d.y,
+        len * DROPSHIP_THRUSTER_BLOOM_RENDER.coreSizeScale,
+        6,
+        d.a,
+        hot[0],
+        hot[1],
+        hot[2],
+        DROPSHIP_THRUSTER_BLOOM_RENDER.coreAlpha * fadeT * alphaMul
+      ) * 3;
+    }
     pushTri(
       pos,
       col,
@@ -2437,25 +2504,25 @@ function drawFrameImpl(renderer, state, planet){
       base[0],
       base[1],
       base[2],
-      0.92 * fadeT
+      FRAGMENT_TRI_OUTER_ALPHA * fadeT * alphaMul
     );
     triVerts += 3;
     pushTri(
       pos,
       col,
-      d.x + ux * len * 0.1,
-      d.y + uy * len * 0.1,
-      baseCx + tx * (halfW * 0.45),
-      baseCy + ty * (halfW * 0.45),
-      baseCx - tx * (halfW * 0.45),
-      baseCy - ty * (halfW * 0.45),
+      d.x + ux * len * FRAGMENT_TRI_INNER_CENTER_SCALE,
+      d.y + uy * len * FRAGMENT_TRI_INNER_CENTER_SCALE,
+      baseCx + tx * (halfW * FRAGMENT_TRI_INNER_BASE_WIDTH_SCALE),
+      baseCy + ty * (halfW * FRAGMENT_TRI_INNER_BASE_WIDTH_SCALE),
+      baseCx - tx * (halfW * FRAGMENT_TRI_INNER_BASE_WIDTH_SCALE),
+      baseCy - ty * (halfW * FRAGMENT_TRI_INNER_BASE_WIDTH_SCALE),
       glow[0],
       glow[1],
       glow[2],
-      0.55 * fadeT
+      FRAGMENT_TRI_INNER_ALPHA * fadeT * alphaMul
     );
     triVerts += 3;
-  };
+  }
 
   if (state.explosions && state.explosions.length){
     for (const ex of state.explosions){
@@ -2469,52 +2536,6 @@ function drawFrameImpl(renderer, state, planet){
       pushFragmentShard(d);
     }
   }
-
-  /**
-   * @param {number} dx
-   * @param {number} dy
-   * @param {number} r
-   * @param {number} g
-   * @param {number} b
-   * @param {number} [extraOffset]
-   * @param {number} [lift]
-   * @param {number} [power]
-   */
-  const thrustV = (dx, dy, r, g, b, extraOffset = 0, lift = 0, power = 1) => {
-    const mag = Math.hypot(dx, dy) || 1;
-    const p = Math.max(0, Math.min(1, power));
-    const posUx = -dx / mag;
-    const posUy = -dy / mag;
-    const ux = dx / mag;
-    const uy = dy / mag;
-    const len = shipHWorld * (0.14 + 0.22 * p);
-    const spread = shipHWorld * (0.06 + 0.09 * p);
-    const px = -uy;
-    const py = ux;
-    const offset = shipHWorld * 0.72 + extraOffset;
-    const tipx = ux * len;
-    const tipy = uy * len;
-    const b1x = -ux * len * 0.45 + px * spread;
-    const b1y = -uy * len * 0.45 + py * spread;
-    const b2x = -ux * len * 0.45 - px * spread;
-    const b2y = -uy * len * 0.45 - py * spread;
-    const liftRot = rot2(0, lift, shipRot);
-    const lx = /** @type {number} */ (liftRot[0]);
-    const ly = /** @type {number} */ (liftRot[1]);
-    const tipRot = rot2(tipx + posUx * offset, tipy + posUy * offset, shipRot);
-    const tx = /** @type {number} */ (tipRot[0]);
-    const ty = /** @type {number} */ (tipRot[1]);
-    const p1Rot = rot2(b1x + posUx * offset, b1y + posUy * offset, shipRot);
-    const p1x = /** @type {number} */ (p1Rot[0]);
-    const p1y = /** @type {number} */ (p1Rot[1]);
-    const p2Rot = rot2(b2x + posUx * offset, b2y + posUy * offset, shipRot);
-    const p2x = /** @type {number} */ (p2Rot[0]);
-    const p2y = /** @type {number} */ (p2Rot[1]);
-    const a = 0.35 + 0.65 * p;
-    pushLine(pos, col, state.ship.x + p1x + lx, state.ship.y + p1y + ly, state.ship.x + tx + lx, state.ship.y + ty + ly, r, g, b, a);
-    pushLine(pos, col, state.ship.x + p2x + lx, state.ship.y + p2y + ly, state.ship.x + tx + lx, state.ship.y + ty + ly, r, g, b, a);
-    lineVerts += 4;
-  };
 
   if (state.ship.state !== "crashed"){
     /**
@@ -2696,34 +2717,6 @@ function drawFrameImpl(renderer, state, planet){
       }
     }
 
-    /** @type {Rgb} */
-    const tc = [1.0, 0.55, 0.15];
-    const thrusterPower = getDropshipThrusterPowers(state.input || {});
-    const manualThrustersActive = (
-      thrusterPower.up > 1e-3
-      || thrusterPower.down > 1e-3
-      || thrusterPower.left > 1e-3
-      || thrusterPower.right > 1e-3
-    );
-    if (thrusterPower.up > 0){
-      thrustV(0, 1, tc[0], tc[1], tc[2], shipHWorld * 0.2, thrustLiftAll + thrustUpExtraDown, thrusterPower.up);
-    }
-    if (thrusterPower.down > 0){
-      thrustV(0, -1, tc[0], tc[1], tc[2], shipHWorld * 0.35, thrustLiftAll + thrustDownExtraUp, thrusterPower.down);
-    }
-    if (thrusterPower.left > 0){
-      thrustV(-1, 0, tc[0], tc[1], tc[2], shipWWorld * 0.5, thrustLiftAll, thrusterPower.left);
-    }
-    if (thrusterPower.right > 0){
-      thrustV(1, 0, tc[0], tc[1], tc[2], shipWWorld * 0.5, thrustLiftAll, thrusterPower.right);
-    }
-    if (!manualThrustersActive && state.ship.state === "flying"){
-      const speed = Math.hypot(state.ship.vx, state.ship.vy);
-      if (speed <= 0.18){
-        const idlePulse = 0.12 + 0.05 * (0.5 + 0.5 * Math.sin(now * 11.0));
-        thrustV(0, 1, 0.95, 0.68, 0.22, shipHWorld * 0.14, thrustLiftAll + thrustUpExtraDown * 0.35, idlePulse);
-      }
-    }
   }
 
   if (showGameplayIndicators && state.aimWorld){

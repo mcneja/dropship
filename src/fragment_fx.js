@@ -15,6 +15,8 @@ import { GAME } from "./config.js";
 /** @typedef {import("./types.d.js").DestroyedTerrainNode} DestroyedTerrainNode */
 /** @typedef {import("./types.d.js").DetachedTerrainProp} DetachedTerrainProp */
 
+const ZERO_GRAVITY = Object.freeze({ x: 0, y: 0 });
+
 /**
  * @param {FragmentOwnerType} type
  * @returns {[number,number,number]}
@@ -549,6 +551,15 @@ export function updateFragmentDebris(debris, opts){
  * @returns {void}
  */
 export function updateFragmentsAndDebris(game, dt){
+  if (game.thrusterParticles && game.thrusterParticles.length){
+    updateFragmentDebris(game.thrusterParticles, {
+      gravityAt: () => ZERO_GRAVITY,
+      dragCoeff: game.planetParams.DRAG * 0.35,
+      dt,
+      terrainCrossing: null,
+      terrainCollisionEnabled: false,
+    });
+  }
   updateFragmentDebris(game.fragments, {
     gravityAt: (x, y) => game.planet.gravityAt(x, y),
     dragCoeff: game.planetParams.DRAG,

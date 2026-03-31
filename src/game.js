@@ -214,6 +214,8 @@ export class Game {
     this.playerBombs = [];
     /** @type {Array<{x:number,y:number,life:number,radius?:number}>} */
     this.entityExplosions = [];
+    /** @type {Array<import("./types.d.js").Debris>} */
+    this.thrusterParticles = [];
     /** @type {Array<{x:number,y:number,vx:number,vy:number,text:string,life:number}>} */
     this.popups = [];
     /** @type {Array<{x:number,y:number,vx:number,vy:number,life:number}>} */

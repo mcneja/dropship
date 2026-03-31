@@ -307,6 +307,7 @@
  * @property {number} [alpha]
  * @property {number} [dragMul]
  * @property {number} [sides]
+ * @property {"thruster"} [fxTag]
  */
 
 /**
@@ -356,6 +357,7 @@
  * @property {Array<{x:number,y:number,vx?:number,vy?:number,life?:number,owner:string}>} shots
  * @property {Array<{x:number,y:number,life:number,maxLife?:number,owner:string,radius?:number}>} explosions
  * @property {Array<Debris>} fragments
+ * @property {Array<Debris>} [thrusterParticles]
  * @property {Array<{x:number,y:number,vx?:number,vy?:number,life?:number}>} playerShots
  * @property {Array<{x:number,y:number,vx?:number,vy?:number,life?:number}>} playerBombs
  * @property {{iceShard:Array<{x:number,y:number,vx?:number,vy?:number,life?:number,maxLife?:number,size?:number}>,lava:Array<{x:number,y:number,vx?:number,vy?:number,life?:number}>,ventPlume:Array<{x:number,y:number,vx?:number,vy?:number,life?:number,maxLife?:number,size?:number}>,spores:Array<{x:number,y:number,vx?:number,vy?:number,life?:number}>,bubbles:Array<{x:number,y:number,vx?:number,vy?:number,life?:number,maxLife?:number,size?:number,rot?:number,spin?:number}>,splashes:Array<{x:number,y:number,vx?:number,vy?:number,life?:number,maxLife?:number,size?:number,rot?:number,cr?:number,cg?:number,cb?:number}>}} featureParticles

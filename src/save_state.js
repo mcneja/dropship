@@ -319,6 +319,7 @@ export function restoreGameFromSaveSnapshot(game, snapshot){
     game.debris = Array.isArray(snapshot.debris) ? cloneSaveData(snapshot.debris) : [];
     game.fragments = Array.isArray(snapshot.fragments) ? cloneSaveData(snapshot.fragments) : [];
     game.entityExplosions = Array.isArray(snapshot.entityExplosions) ? cloneSaveData(snapshot.entityExplosions) : [];
+    game.thrusterParticles = [];
     game.popups = Array.isArray(snapshot.popups) ? cloneSaveData(snapshot.popups) : [];
     game.shipHitPopups = Array.isArray(snapshot.shipHitPopups) ? cloneSaveData(snapshot.shipHitPopups) : [];
     game.pickupAnimations = [];

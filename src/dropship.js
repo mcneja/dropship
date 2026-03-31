@@ -31,6 +31,46 @@ export const DROPSHIP_MODEL = Object.freeze({
   gunLiftN: 0.04,
 });
 
+export const DROPSHIP_THRUSTER_BLOOM_RENDER = Object.freeze({
+  midWidthScale: 2.1,
+  midStretchScale: 1.35,
+  midBaseScale: 1.1,
+  midAlpha: 0.32,
+  outerWidthScale: 3.15,
+  outerStretchScale: 1.75,
+  outerBaseScale: 1.3,
+  outerAlpha: 0.18,
+  coreSizeScale: 1.05,
+  coreAlpha: 0.14,
+});
+
+const THRUSTER_TRAIL_RATE_MIN = 20;
+const THRUSTER_TRAIL_RATE_MAX = 40;
+const THRUSTER_TRAIL_LIFE_MIN = 0.1;
+const THRUSTER_TRAIL_LIFE_MAX = 0.3;
+const THRUSTER_TRAIL_START_PAD = 0.1;
+const THRUSTER_TRAIL_THRUST_VEL_MIN = 0.75;
+const THRUSTER_TRAIL_THRUST_VEL_MAX = 2.4;
+const THRUSTER_TRAIL_MAX_COUNT = 220;
+const THRUSTER_TRAIL_EMIT_MAX_PER_STEP = 5;
+const THRUSTER_TRAIL_RADIAL_JITTER = 0.03;
+const THRUSTER_TRAIL_LATERAL_MIN = 0.02;
+const THRUSTER_TRAIL_LATERAL_MAX = 0.04;
+const THRUSTER_TRAIL_TANGENT_JITTER_MIN = 0.05;
+const THRUSTER_TRAIL_TANGENT_JITTER_MAX = 0.08;
+const THRUSTER_TRAIL_ANGLE_JITTER = 0.22;
+const THRUSTER_TRAIL_SPIN_MAX = 0.3;
+const THRUSTER_TRAIL_SIZE_BASE = 0.2;
+const THRUSTER_TRAIL_SIZE_RAND = 0.2;
+const THRUSTER_TRAIL_STRETCH_BASE = 0.64;
+const THRUSTER_TRAIL_STRETCH_RAND = 0.24;
+const THRUSTER_TRAIL_ALPHA_BASE = 0.35;
+const THRUSTER_TRAIL_ALPHA_POWER = 0.45;
+const THRUSTER_TRAIL_G_MIN = 0.58;
+const THRUSTER_TRAIL_G_RANGE = 0.35;
+const THRUSTER_TRAIL_B_MIN = 0.03;
+const THRUSTER_TRAIL_B_RANGE = 0.10;
+
 /**
  * @param {{SHIP_SCALE:number}} game
  * @returns {{shipHWorld:number,shipWWorld:number}}
@@ -600,6 +640,202 @@ export function getDropshipThrusterPowers(input){
 }
 
 /**
+ * Emit short-lived thruster flame triangles.
+ * Velocity model: particleV = shipV + thrustV, where thrustV points opposite shipV.
+ * @param {Game} game
+ * @param {number} dt
+ * @param {DropshipInput} input
+ * @returns {void}
+ */
+function emitThrusterTrailParticles(game, dt, input){
+  if (game.ship.state !== "flying") return;
+  if (!(dt > 0)) return;
+  const thrusterPower = getDropshipThrusterPowers(input);
+  if (
+    thrusterPower.up <= 1e-3
+    && thrusterPower.down <= 1e-3
+    && thrusterPower.left <= 1e-3
+    && thrusterPower.right <= 1e-3
+  ) return;
+
+  const { shipHWorld, shipWWorld } = getDropshipRenderSize(GAME);
+  const profile = getDropshipGeometryProfileN();
+  const { cargoBottomN, cargoTopN } = getDropshipCargoBoundsN();
+
+  const shipRot = Number.isFinite(game.ship.renderAngle)
+    ? Number(game.ship.renderAngle)
+    : getDropshipWorldRotation(game.ship.x, game.ship.y);
+  const cosR = Math.cos(shipRot);
+  const sinR = Math.sin(shipRot);
+  /**
+   * Convert a world-space direction into ship-local direction.
+   * @param {number} wx
+   * @param {number} wy
+   * @returns {{x:number,y:number}}
+   */
+  const worldToLocalDir = (wx, wy) => {
+    return {
+      x: cosR * wx + sinR * wy,
+      y: -sinR * wx + cosR * wy,
+    };
+  };
+
+  /** @type {Array<[number,number]>} */
+  const localSupportPoints = [];
+  /**
+   * @param {number} x
+   * @param {number} y
+   * @returns {void}
+   */
+  const addSupportPoint = (x, y) => {
+    localSupportPoints.push([x, y]);
+  };
+
+  // Body silhouette.
+  const bodyBottomY = (cargoBottomN + DROPSHIP_MODEL.bodyLiftN) * shipHWorld;
+  const bodyTopY = (cargoTopN + DROPSHIP_MODEL.bodyLiftN) * shipHWorld;
+  const bodyBottomHalfW = profile.bodyBottomHalfWRenderN * shipWWorld;
+  const bodyTopHalfW = profile.bodyTopHalfWRenderN * shipWWorld;
+  addSupportPoint(-bodyBottomHalfW, bodyBottomY);
+  addSupportPoint(bodyBottomHalfW, bodyBottomY);
+  addSupportPoint(bodyTopHalfW, bodyTopY);
+  addSupportPoint(-bodyTopHalfW, bodyTopY);
+
+  // Cabin silhouette.
+  const cabinSide = game.ship.cabinSide || 1;
+  const cabinOffset = profile.cabinOffsetN * cabinSide * shipWWorld;
+  const cabinHalfW = profile.cabinHalfWBaseN * profile.cabinHalfWScale * shipWWorld;
+  addSupportPoint(cabinOffset - cabinHalfW, bodyBottomY);
+  addSupportPoint(cabinOffset + cabinHalfW, bodyBottomY);
+  addSupportPoint(cabinOffset, bodyTopY);
+
+  // Landing skis.
+  const skiY0 = (cargoBottomN + DROPSHIP_MODEL.skiLiftN) * shipHWorld;
+  const skiY1 = (profile.skiTopYRenderN + DROPSHIP_MODEL.skiLiftN) * shipHWorld;
+  const skiHalfW = profile.skiHalfWRenderN * shipWWorld;
+  const skiOffset = profile.skiOffsetRenderN * shipWWorld;
+  addSupportPoint(-skiOffset - skiHalfW, skiY0);
+  addSupportPoint(-skiOffset + skiHalfW, skiY0);
+  addSupportPoint(-skiOffset + skiHalfW, skiY1);
+  addSupportPoint(-skiOffset - skiHalfW, skiY1);
+  addSupportPoint(skiOffset - skiHalfW, skiY0);
+  addSupportPoint(skiOffset + skiHalfW, skiY0);
+  addSupportPoint(skiOffset + skiHalfW, skiY1);
+  addSupportPoint(skiOffset - skiHalfW, skiY1);
+
+  // Gun silhouette with current forward direction.
+  let gunDirWorldX = 0;
+  let gunDirWorldY = 0;
+  if (game.lastAimWorld){
+    gunDirWorldX = game.lastAimWorld.x - game.ship.x;
+    gunDirWorldY = game.lastAimWorld.y - game.ship.y;
+  }
+  let gunDirWorldLen = Math.hypot(gunDirWorldX, gunDirWorldY);
+  if (!(gunDirWorldLen > 1e-4)){
+    const r = Math.hypot(game.ship.x, game.ship.y) || 1;
+    gunDirWorldX = game.ship.x / r;
+    gunDirWorldY = game.ship.y / r;
+    gunDirWorldLen = 1;
+  }
+  gunDirWorldX /= gunDirWorldLen;
+  gunDirWorldY /= gunDirWorldLen;
+  let gunDirLocal = worldToLocalDir(gunDirWorldX, gunDirWorldY);
+  const gunDirLocalLen = Math.hypot(gunDirLocal.x, gunDirLocal.y) || 1;
+  gunDirLocal = {
+    x: gunDirLocal.x / gunDirLocalLen,
+    y: gunDirLocal.y / gunDirLocalLen,
+  };
+  const gunTanLocalX = -gunDirLocal.y;
+  const gunTanLocalY = gunDirLocal.x;
+  const gunLen = shipHWorld * profile.gunLenH;
+  const gunHalfW = shipWWorld * profile.gunHalfWW;
+  const gunMountOffset = gunLen * profile.gunMountBackOffsetLen;
+  const gunPivotX = 0;
+  const gunPivotY = (cargoTopN + profile.gunPivotYInsetN + DROPSHIP_MODEL.bodyLiftN) * shipHWorld;
+  const gunBackCx = gunPivotX - gunDirLocal.x * gunMountOffset;
+  const gunBackCy = gunPivotY - gunDirLocal.y * gunMountOffset;
+  const gunFrontCx = gunBackCx + gunDirLocal.x * gunLen;
+  const gunFrontCy = gunBackCy + gunDirLocal.y * gunLen;
+  addSupportPoint(gunBackCx + gunTanLocalX * gunHalfW, gunBackCy + gunTanLocalY * gunHalfW);
+  addSupportPoint(gunBackCx - gunTanLocalX * gunHalfW, gunBackCy - gunTanLocalY * gunHalfW);
+  addSupportPoint(gunFrontCx + gunTanLocalX * gunHalfW, gunFrontCy + gunTanLocalY * gunHalfW);
+  addSupportPoint(gunFrontCx - gunTanLocalX * gunHalfW, gunFrontCy - gunTanLocalY * gunHalfW);
+
+  const localAccelX = thrusterPower.right - thrusterPower.left;
+  const localAccelY = thrusterPower.up - thrusterPower.down;
+  const localAccelMag = Math.hypot(localAccelX, localAccelY);
+  if (localAccelMag <= 1e-4) return;
+  const p = Math.max(0, Math.min(1, localAccelMag));
+  const ldirX = localAccelX / localAccelMag;
+  const ldirY = localAccelY / localAccelMag;
+  let dirx = cosR * ldirX - sinR * ldirY;
+  let diry = sinR * ldirX + cosR * ldirY;
+  const dmag = Math.hypot(dirx, diry) || 1;
+  dirx /= dmag;
+  diry /= dmag;
+  const tanx = -diry;
+  const tany = dirx;
+  // Flame emits from the side opposite the net acceleration direction.
+  const sideWorldX = -dirx;
+  const sideWorldY = -diry;
+  let sideLocal = worldToLocalDir(sideWorldX, sideWorldY);
+  const sideLocalLen = Math.hypot(sideLocal.x, sideLocal.y) || 1;
+  sideLocal = {
+    x: sideLocal.x / sideLocalLen,
+    y: sideLocal.y / sideLocalLen,
+  };
+  let sideSupport = 0;
+  for (const point of localSupportPoints){
+    const proj = point[0] * sideLocal.x + point[1] * sideLocal.y;
+    if (proj > sideSupport) sideSupport = proj;
+  }
+
+  const rate = THRUSTER_TRAIL_RATE_MIN + (THRUSTER_TRAIL_RATE_MAX - THRUSTER_TRAIL_RATE_MIN) * p;
+  const expected = rate * dt;
+  let count = Math.floor(expected);
+  if (Math.random() < (expected - count)) count++;
+  count = Math.min(THRUSTER_TRAIL_EMIT_MAX_PER_STEP, count);
+  for (let i = 0; i < count; i++){
+    const radialJitter = (Math.random() * 2 - 1) * THRUSTER_TRAIL_RADIAL_JITTER;
+    const lateral = (Math.random() * 2 - 1) * (THRUSTER_TRAIL_LATERAL_MIN + THRUSTER_TRAIL_LATERAL_MAX * p);
+    const startDist = Math.max(0, sideSupport + THRUSTER_TRAIL_START_PAD + radialJitter);
+    const x = game.ship.x + sideWorldX * startDist + tanx * lateral;
+    const y = game.ship.y + sideWorldY * startDist + tany * lateral;
+    const shipSpeed = Math.hypot(game.ship.vx, game.ship.vy);
+    const antiShipX = shipSpeed > 1e-4 ? (-game.ship.vx / shipSpeed) : dirx;
+    const antiShipY = shipSpeed > 1e-4 ? (-game.ship.vy / shipSpeed) : diry;
+    const thrustVel = THRUSTER_TRAIL_THRUST_VEL_MIN + (THRUSTER_TRAIL_THRUST_VEL_MAX - THRUSTER_TRAIL_THRUST_VEL_MIN) * p;
+    const tangentJitter = (Math.random() * 2 - 1) * (THRUSTER_TRAIL_TANGENT_JITTER_MIN + THRUSTER_TRAIL_TANGENT_JITTER_MAX * p);
+    const vx = game.ship.vx + antiShipX * thrustVel + tanx * tangentJitter;
+    const vy = game.ship.vy + antiShipY * thrustVel + tany * tangentJitter;
+    const life = THRUSTER_TRAIL_LIFE_MIN + Math.random() * (THRUSTER_TRAIL_LIFE_MAX - THRUSTER_TRAIL_LIFE_MIN);
+    const warm = Math.random();
+      game.thrusterParticles.push({
+        x,
+        y,
+        vx,
+        vy,
+      a: Math.atan2(diry, dirx) + (Math.random() * 2 - 1) * THRUSTER_TRAIL_ANGLE_JITTER,
+      w: (Math.random() * 2 - 1) * THRUSTER_TRAIL_SPIN_MAX,
+      life,
+      maxLife: life,
+      ownerType: "dropship",
+      size: shipHWorld * (THRUSTER_TRAIL_SIZE_BASE + THRUSTER_TRAIL_SIZE_RAND * Math.random()),
+      stretch: THRUSTER_TRAIL_STRETCH_BASE + THRUSTER_TRAIL_STRETCH_RAND * Math.random(),
+      cr: 1.0,
+      cg: THRUSTER_TRAIL_G_MIN + THRUSTER_TRAIL_G_RANGE * warm,
+        cb: THRUSTER_TRAIL_B_MIN + THRUSTER_TRAIL_B_RANGE * warm,
+        alpha: THRUSTER_TRAIL_ALPHA_BASE + THRUSTER_TRAIL_ALPHA_POWER * p,
+        dragMul: 0.12,
+        fxTag: "thruster",
+      });
+  }
+  if (game.thrusterParticles.length > THRUSTER_TRAIL_MAX_COUNT){
+    game.thrusterParticles.splice(0, game.thrusterParticles.length - THRUSTER_TRAIL_MAX_COUNT);
+  }
+}
+
+/**
  * @param {Game} game
  * @returns {void}
  */
@@ -639,6 +875,7 @@ export function resetShip(game){
   game.playerShots.length = 0;
   game.playerBombs.length = 0;
   game.entityExplosions.length = 0;
+  game.thrusterParticles.length = 0;
   game.popups.length = 0;
   game.shipHitPopups.length = 0;
   game.pickupAnimations.length = 0;
@@ -713,6 +950,7 @@ export function triggerCrash(game, destroyedBy = "unknown"){
   audioState.playSfx(game, "ship_crash", { volume: 0.9 });
   game.lastAimWorld = null;
   game.lastAimScreen = null;
+  game.thrusterParticles.length = 0;
   stats.recordDropshipLoss(game, 1);
   const pieces = 10;
   for (let i = 0; i < pieces; i++){
@@ -965,6 +1203,13 @@ export function updateStep(game, dt, controls, titleState, mothershipMotion){
     mothershipMotion.angularVel
   );
   finalizePose(game, dt);
+  emitThrusterTrailParticles(game, dt, {
+    left: controls.left,
+    right: controls.right,
+    thrust: controls.thrust,
+    down: controls.down,
+    stickThrust: controls.stickThrust,
+  });
   return resolveAimState(game, {
     aim,
     aimShoot,
