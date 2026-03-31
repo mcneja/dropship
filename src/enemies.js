@@ -1060,12 +1060,15 @@ export class Enemies {
   /**
    * @param {Ship|null} ship
    * @param {number} maxAltFromSurface
+   * @param {boolean} [useSurfaceShell]
    * @returns {boolean}
    */
-  _shipWithinRadialBand(ship, maxAltFromSurface){
+  _shipWithinRadialBand(ship, maxAltFromSurface, useSurfaceShell = true){
     if (!ship) return false;
     const radius = Math.hypot(ship.x, ship.y);
-    const surfaceRadius = this.planet.getSurfaceShellRadius ? this.planet.getSurfaceShellRadius() : this.planet.planetRadius;
+    const surfaceRadius = useSurfaceShell && this.planet.getSurfaceShellRadius
+      ? this.planet.getSurfaceShellRadius()
+      : this.planet.planetRadius;
     const maxRadius = surfaceRadius + Math.max(0, maxAltFromSurface);
     return radius <= maxRadius;
   }
@@ -1108,7 +1111,7 @@ export class Enemies {
   _tryMoveHunter(e, ship, dt, planner = null) {
     if (!ship) return false;
 
-    if (!this._shipWithinRadialBand(ship, this._GROUND_PURSUIT_MAX_ALT)) return false;
+    if (!this._shipWithinRadialBand(ship, this._GROUND_PURSUIT_MAX_ALT, false)) return false;
 
     const maxPathDist = 16;
     const pursuit = this._nextPursuitNode(e, ship, maxPathDist, dt, true);
@@ -1147,7 +1150,7 @@ export class Enemies {
    * @returns {void}
    */
   _updateRanger(e, ship, dt, planner = null) {
-    const shipInPursuitBand = this._shipWithinRadialBand(ship, this._GROUND_PURSUIT_MAX_ALT);
+    const shipInPursuitBand = this._shipWithinRadialBand(ship, this._GROUND_PURSUIT_MAX_ALT, false);
     const seesShip =
       ship &&
       Math.hypot(ship.x - e.x, ship.y - e.y) < this._TURRET_MAX_RANGE &&
