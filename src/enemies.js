@@ -118,6 +118,8 @@ export class Enemies {
     /** @type {WeakMap<Enemy, number>} */
     this._enemyId = new WeakMap();
     this._enemyIdNext = 1;
+    /** @type {WeakMap<Enemy, number>} */
+    this._crawlerBounceDir = new WeakMap();
     /** @type {Uint8Array|null} */
     this._navMaskCacheBase = null;
     /** @type {Uint8Array|null} */
@@ -147,12 +149,17 @@ export class Enemies {
     this._TURRET_MAX_RANGE = 5.0;
     this._TURRET_SHOT_SPEED = 5.0;
     this._SHOT_LIFE = 3.0;
+    this._GROUND_PURSUIT_MAX_ALT = 1.0;
     this._APPROACH_RANGE = 2.0;
     this._DETONATE_RANGE = 0.5;
     this._DETONATE_FUSE = 0.6;
     this._LOS_STEP = 0.2;
     this._CRAWLER_BLAST_LIFE = 0.75;
     this._CRAWLER_BLAST_RADIUS = 1.0;
+    this._CRAWLER_BOUNCE_MIN_ALT = 0.0;
+    this._CRAWLER_BOUNCE_MAX_ALT = 1.9;
+    this._CRAWLER_BOUNCE_RADIAL_SPEED = 1.05;
+    this._CRAWLER_BOUNCE_TANGENT_SPEED = 0.9;
     this._ENEMY_MIN_SEPARATION = Math.max(0.3, GAME.ENEMY_SCALE * 2.0);
     this._RANGER_FANOUT_BINS = 10;
     this._ANALYSIS_CORRIDOR_STRIDE = 10;
@@ -184,6 +191,7 @@ export class Enemies {
     this._moveState = new WeakMap();
     this._enemyId = new WeakMap();
     this._enemyIdNext = 1;
+    this._crawlerBounceDir = new WeakMap();
     this._aiTick = 0;
     this._corridorAnalysisTick = -1;
     this._sectorAnalysisTick = -1;
@@ -1050,6 +1058,19 @@ export class Enemies {
   }
 
   /**
+   * @param {Ship|null} ship
+   * @param {number} maxAltFromSurface
+   * @returns {boolean}
+   */
+  _shipWithinRadialBand(ship, maxAltFromSurface){
+    if (!ship) return false;
+    const radius = Math.hypot(ship.x, ship.y);
+    const surfaceRadius = this.planet.getSurfaceShellRadius ? this.planet.getSurfaceShellRadius() : this.planet.planetRadius;
+    const maxRadius = surfaceRadius + Math.max(0, maxAltFromSurface);
+    return radius <= maxRadius;
+  }
+
+  /**
    * @param {Enemy} e 
    * @param {Ship|null} ship 
    * @param {number} dt 
@@ -1087,7 +1108,7 @@ export class Enemies {
   _tryMoveHunter(e, ship, dt, planner = null) {
     if (!ship) return false;
 
-    if (Math.hypot(ship.x, ship.y) > this.planet.planetRadius + 1.0) return false;
+    if (!this._shipWithinRadialBand(ship, this._GROUND_PURSUIT_MAX_ALT)) return false;
 
     const maxPathDist = 16;
     const pursuit = this._nextPursuitNode(e, ship, maxPathDist, dt, true);
@@ -1126,13 +1147,14 @@ export class Enemies {
    * @returns {void}
    */
   _updateRanger(e, ship, dt, planner = null) {
+    const shipInPursuitBand = this._shipWithinRadialBand(ship, this._GROUND_PURSUIT_MAX_ALT);
     const seesShip =
       ship &&
       Math.hypot(ship.x - e.x, ship.y - e.y) < this._TURRET_MAX_RANGE &&
       this._hasLineOfSight(e.x, e.y, ship.x, ship.y);
 
     let handledByTactical = false;
-    if (!seesShip && ship){
+    if (!seesShip && ship && shipInPursuitBand){
       handledByTactical = this._tryMoveSeeker(e, ship, this._RANGER_SPEED, dt, planner);
     }
     if (seesShip) {
@@ -1272,7 +1294,7 @@ export class Enemies {
     const dy = ship.y - e.y;
     const dist = Math.hypot(dx, dy);
 
-    if (dist <= this._DETONATE_RANGE){
+    if (dist <= this._DETONATE_RANGE && this._shipWithinRadialBand(ship, this._CRAWLER_BOUNCE_MAX_ALT)){
       this._spawnCrawlerBlastVisual(e);
       return false;
     }
@@ -1340,11 +1362,26 @@ export class Enemies {
   _moveCrawler(e, ship, dt, planner = null) {
     const prevNode = this._plannerNodeOfEnemy(planner, e);
     const prev = { x: e.x, y: e.y };
-    const seekingShip = this._steerCrawlerTowardShip(e, ship, dt, planner);
-    this._approachPlayer(e, ship);
+    const shipInBounceBand = this._shipWithinRadialBand(ship, this._CRAWLER_BOUNCE_MAX_ALT);
+    const shouldLunge = !!(shipInBounceBand && ship && Math.hypot(ship.x - e.x, ship.y - e.y) < this._APPROACH_RANGE);
+    const surfaceRadius = this.planet.getSurfaceShellRadius ? this.planet.getSurfaceShellRadius() : this.planet.planetRadius;
+    const crawlerOutside = Math.hypot(e.x, e.y) >= surfaceRadius;
+    let seekingShip = false;
+    if (shouldLunge){
+      seekingShip = this._steerCrawlerTowardShip(e, ship, dt, planner);
+      this._approachPlayer(e, ship);
+    } else if (crawlerOutside){
+      this._bounceCrawlerOutsidePlanet(e);
+    } else {
+      seekingShip = this._steerCrawlerTowardShip(e, ship, dt, planner);
+      this._approachPlayer(e, ship);
+    }
     this._reflectVelocityBackTowardPlanet(e);
     const next = { x: e.x + e.vx * dt, y: e.y + e.vy * dt };
-    this._reflectVelocityAwayFromTerrain(e, prev, next);
+    const terrainReflected = this._reflectVelocityAwayFromTerrain(e, prev, next);
+    if (terrainReflected && crawlerOutside){
+      this._crawlerBounceDir.set(e, 1);
+    }
     this._deflectCrawlerFromUnsafeNodes(e, dt, seekingShip);
     e.x += e.vx * dt;
     e.y += e.vy * dt;
@@ -1374,6 +1411,52 @@ export class Enemies {
     }
     const currentSpeed = Math.max(1.2, Math.hypot(e.vx, e.vy));
     return this._steerTowardNode(e, pursuit.nodeTarget, currentSpeed);
+  }
+
+  /**
+   * @param {Enemy} e
+   * @returns {void}
+   */
+  _bounceCrawlerOutsidePlanet(e){
+    const rEnemy = Math.hypot(e.x, e.y);
+    if (rEnemy <= 1e-6) return;
+    const nx = e.x / rEnemy;
+    const ny = e.y / rEnemy;
+    const surfaceRadius = this.planet.getSurfaceShellRadius ? this.planet.getSurfaceShellRadius() : this.planet.planetRadius;
+    const altitude = rEnemy - surfaceRadius;
+    const stableId = this._enemyStableId(e);
+    let bounceDir = this._crawlerBounceDir.get(e);
+    if (bounceDir !== 1 && bounceDir !== -1){
+      bounceDir = (stableId % 2 === 0) ? 1 : -1;
+    }
+    if (altitude >= this._CRAWLER_BOUNCE_MAX_ALT){
+      bounceDir = -1;
+    } else if (bounceDir < 0){
+      const probe = 0.08;
+      const probeX = e.x - nx * probe;
+      const probeY = e.y - ny * probe;
+      const touchingTerrain = !isAir(this.collision, e.x, e.y);
+      const rockBelow = !isAir(this.collision, probeX, probeY);
+      if (touchingTerrain || (altitude <= this._CRAWLER_BOUNCE_MIN_ALT && rockBelow) || altitude < -0.12){
+        bounceDir = 1;
+      }
+    }
+    this._crawlerBounceDir.set(e, bounceDir);
+
+    const tx = -ny;
+    const ty = nx;
+    let tangent = e.vx * tx + e.vy * ty;
+    if (Math.abs(tangent) < 0.05){
+      tangent = (stableId % 2 === 0 ? 1 : -1) * this._CRAWLER_BOUNCE_TANGENT_SPEED;
+    }
+    const tangentSign = tangent >= 0 ? 1 : -1;
+    const tangentSpeed = Math.max(
+      this._CRAWLER_BOUNCE_TANGENT_SPEED * 0.6,
+      Math.min(this._CRAWLER_BOUNCE_TANGENT_SPEED * 1.6, Math.abs(tangent))
+    );
+    const radialSpeed = bounceDir * this._CRAWLER_BOUNCE_RADIAL_SPEED;
+    e.vx = tx * tangentSpeed * tangentSign + nx * radialSpeed;
+    e.vy = ty * tangentSpeed * tangentSign + ny * radialSpeed;
   }
 
   /**
@@ -1441,7 +1524,8 @@ export class Enemies {
    * @returns {void}
    */
   _reflectVelocityBackTowardPlanet(e) {
-    const rMax = this.planet.planetRadius + 1;
+    const surfaceRadius = this.planet.getSurfaceShellRadius ? this.planet.getSurfaceShellRadius() : this.planet.planetRadius;
+    const rMax = surfaceRadius + this._CRAWLER_BOUNCE_MAX_ALT;
 
     const rEnemy = Math.hypot(e.x, e.y);
     if (rEnemy < rMax) return;
@@ -1463,22 +1547,23 @@ export class Enemies {
    * @param {Enemy} e 
    * @param {{x:number,y:number}} prev
    * @param {{x:number,y:number}} next
-   * @returns {void}
+   * @returns {boolean}
    */
   _reflectVelocityAwayFromTerrain(e, prev, next) {
     const planet = this.planet;
     const crossing = planet.terrainCrossing(prev, next);
-    if (!crossing) return;
+    if (!crossing) return false;
     const nx = crossing.nx;
     const ny = crossing.ny;
 
     const vNormal = nx * e.vx + ny * e.vy;
-    if (vNormal >= 0) return;
+    if (vNormal >= 0) return false;
 
     const impulse = -2 * vNormal;
 
     e.vx += impulse * nx;
     e.vy += impulse * ny;
+    return true;
   }
 
   /**
