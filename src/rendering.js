@@ -1384,7 +1384,7 @@ function drawFrameImpl(renderer, state, planet){
     const s = p.scale || 1;
     const halfW = 0.55 * s;
     const halfH = 0.12 * s;
-    const sink = halfH + 0.02 * s;
+    const sink = halfH;
     const nx = /** @type {number} */ (ux);
     const ny = /** @type {number} */ (uy);
     const tangentX = /** @type {number} */ (tx);

@@ -198,10 +198,13 @@ function spawnMiners(game){
     let x = Number(p.x);
     let y = Number(p.y);
     if (barrenPerimeter){
-      const normal = game.planet.normalAtWorld(x, y);
-      if (normal){
-        x += normal.nx * 0.02;
-        y += normal.ny * 0.02;
+      if (game.collision.airValueAtWorld(x, y) <= 0.5){
+        const res = game.planet.nudgeOutOfTerrain(x, y, 0.35, 0.03, 0.08);
+        if (!res.ok){
+          continue;
+        }
+        x = res.x;
+        y = res.y;
       }
     } else {
       let res = game.planet.nudgeOutOfTerrain(x, y);

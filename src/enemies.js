@@ -898,6 +898,8 @@ export class Enemies {
       const vy = Math.sin(dir) * speed;
       this.enemies.push({ type: "crawler", x, y, vx: vx, vy: vy, hp: 1, shotCooldown: 0, modeCooldown: 0, iNodeGoal: null });
     }
+    const barrenPerimeter = !!(planetCfg && planetCfg.flags && planetCfg.flags.barrenPerimeter);
+    const turretBaseLift = GAME.ENEMY_SCALE * 0.75;
     for (const [x, y] of turretPts){
       let tx = x;
       let ty = y;
@@ -906,16 +908,19 @@ export class Enemies {
         tx = res.x;
         ty = res.y;
       }
-      const info = planet._upAlignedNormalAtWorld(tx, ty);
+      const info = barrenPerimeter
+        ? (() => {
+          const up = planet._upDirAt(tx, ty);
+          return up ? { nx: up.ux, ny: up.uy } : planet._upAlignedNormalAtWorld(tx, ty);
+        })()
+        : planet._upAlignedNormalAtWorld(tx, ty);
       if (info){
-        const lift = GAME.ENEMY_SCALE * 0.8;
-        tx += info.nx * lift;
-        ty += info.ny * lift;
+        tx += info.nx * turretBaseLift;
+        ty += info.ny * turretBaseLift;
       } else {
         const len = Math.hypot(tx, ty) || 1;
-        const lift = GAME.ENEMY_SCALE * 0.8;
-        tx += (tx / len) * lift;
-        ty += (ty / len) * lift;
+        tx += (tx / len) * turretBaseLift;
+        ty += (ty / len) * turretBaseLift;
       }
       this.enemies.push({ type: "turret", x: tx, y: ty, vx: 0, vy: 0, hp: 1, shotCooldown: Math.random(), modeCooldown: 0, iNodeGoal: null });
     }
