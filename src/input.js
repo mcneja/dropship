@@ -550,10 +550,12 @@ export class Input {
    * @returns {void}
    */
   _updateTouchDockButtonVisual(){
-    const showDocked = !!(this.touchDocked && this.lastInputType === "touch" && !this.modalOpen && !this.gameOver);
-    const showAction = !!(showDocked && this.touchActionMode);
+    const touchUiVisible = (this.lastInputType === "touch") && !this.modalOpen;
+    const mode = this.touchActionMode;
+    const crashAction = this.gameOver && (mode === "restartGame" || mode === "respawnShip");
+    const showDocked = !!(this.touchDocked && touchUiVisible && !this.gameOver);
+    const showAction = !!(touchUiVisible && mode && (showDocked || crashAction));
     if (this.touchActionButton){
-      const mode = this.touchActionMode;
       let label = "GO";
       let modeClass = "touch-action-upgrade";
       if (mode === "upgrade"){
