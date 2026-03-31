@@ -17,6 +17,7 @@ import {
   setSupportNodeIndices,
 } from "./terrain_support.js";
 import * as terrainSupport from "./terrain_support.js";
+import { RingMesh } from './planet_ring_mesh.js';
 
 /**
  * @param {Game} game
@@ -968,7 +969,7 @@ export {
 const contourCache = new WeakMap();
 
 /**
- * @param {any} mesh
+ * @param {RingMesh} mesh
  * @returns {Map<number, GuideContour>}
  */
 function meshCache(mesh){
@@ -981,7 +982,7 @@ function meshCache(mesh){
 }
 
 /**
- * @param {any} mesh
+ * @param {RingMesh} mesh
  * @returns {void}
  */
 export function invalidateSurfaceGuidePathCache(mesh){
@@ -989,7 +990,7 @@ export function invalidateSurfaceGuidePathCache(mesh){
 }
 
 /**
- * @param {any} mesh
+ * @param {RingMesh} mesh
  * @param {MeshVertex} a
  * @param {MeshVertex} b
  * @returns {string}
@@ -1042,7 +1043,7 @@ export function closestPathIndex(path, qx, qy){
 
 /**
  * Build contour graph from exact triangle-edge crossings at a threshold.
- * @param {any} mesh
+ * @param {RingMesh} mesh
  * @param {number} [threshold]
  * @returns {GuideContour}
  */
@@ -1184,14 +1185,8 @@ export function ensureSurfaceGuideContour(mesh, threshold = 0.5){
     addSegment(/** @type {number} */ (crossed[0]), /** @type {number} */ (crossed[1]));
   }
 
-  const outer = (() => {
-    if (mesh) return mesh.outerRing();
-    const rings = mesh && mesh.rings ? mesh.rings : null;
-    if (!rings || !rings.length) return null;
-    const idx = mesh ? Math.max(0, mesh.outerRingIndex()) : (rings.length - 1);
-    return rings[idx] || null;
-  })();
-  if (outer && outer.length > 1){
+  const outer = mesh.outerRing();
+  if (outer.length > 1){
     for (let i = 0; i < outer.length; i++){
       const v0 = /** @type {MeshVertex} */ (outer[i]);
       const v1 = /** @type {MeshVertex} */ (outer[(i + 1) % outer.length]);
@@ -1217,7 +1212,7 @@ export function ensureSurfaceGuideContour(mesh, threshold = 0.5){
 
 /**
  * Build miner guide path directly from barycentric contour segments.
- * @param {any} mesh
+ * @param {RingMesh} mesh
  * @param {number} x
  * @param {number} y
  * @param {number} maxDistance
