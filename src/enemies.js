@@ -1381,9 +1381,12 @@ export class Enemies {
       this._approachPlayer(e, ship);
     } else if (crawlerOutside){
       this._bounceCrawlerOutsidePlanet(e);
-    } else {
+    } else if (shipInBounceBand){
       seekingShip = this._steerCrawlerTowardShip(e, ship, dt, planner);
       this._approachPlayer(e, ship);
+    } else {
+      // Keep existing momentum when ship is out of crawler pursuit band.
+      seekingShip = false;
     }
     this._reflectVelocityBackTowardPlanet(e);
     const next = { x: e.x + e.vx * dt, y: e.y + e.vy * dt };
@@ -1405,6 +1408,7 @@ export class Enemies {
    * @returns {boolean}
    */
   _steerCrawlerTowardShip(e, ship, dt, planner = null){
+    if (!this._shipWithinRadialBand(ship, this._CRAWLER_BOUNCE_MAX_ALT)) return false;
     const pursuit = this._nextPursuitNode(e, ship, 16, dt, true);
     if (!pursuit) return false;
     if (planner){
