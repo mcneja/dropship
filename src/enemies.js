@@ -1127,9 +1127,15 @@ export class Enemies {
     const iNodeChosen = this._chooseAdvanceNode(planner, e, iNodeFrom, pursuit.nodeTargetIndex, ship);
     if (iNodeChosen === iNodeFrom){
       state.waitAge += 1;
+      const forcedMove = this._moveTowardNode(e, pursuit.nodeTarget, this._HUNTER_SPEED, dt);
+      if (forcedMove){
+        state.waitAge = Math.max(0, state.waitAge - 1);
+        this._plannerCommitEnemyPosition(planner, e, iNodeFrom);
+        return true;
+      }
       e.vx *= 0.7;
       e.vy *= 0.7;
-      return true;
+      return false;
     }
     const nodeTarget = planner.graph.nodes[iNodeChosen] || pursuit.nodeTarget;
     const moved = this._moveTowardNode(e, nodeTarget, this._HUNTER_SPEED, dt);
