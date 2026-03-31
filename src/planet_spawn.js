@@ -137,6 +137,74 @@ export function sampleCaveAttachmentPoints(planet, count, seed, minDist = 0.45){
 }
 
 /**
+ * Project a nearby point onto the barycentric terrain boundary (air=0.5).
+ * This keeps pad alignment consistent with ROCK_AIR_MIN/MAX shaping.
+ * @param {Planet} planet
+ * @param {number} x
+ * @param {number} y
+ * @returns {{x:number,y:number}}
+ */
+function snapToTerrainMidpoint(planet, x, y){
+  const snapped = planet.posClosest ? planet.posClosest(x, y) : null;
+  if (snapped && Number.isFinite(snapped.x) && Number.isFinite(snapped.y)){
+    return { x: snapped.x, y: snapped.y };
+  }
+  return { x, y };
+}
+
+/**
+ * @param {Planet} planet
+ * @param {{x:number,y:number,padSourceKind?:string,padSourceIndex?:number,supportNodeIndex?:number,padNx?:number,padNy?:number,supportX?:number,supportY?:number}} pad
+ * @param {boolean} forceHorizontal
+ * @returns {void}
+ */
+function alignTurretPadToTerrainMidpoint(planet, pad, forceHorizontal){
+  const anchorX = Number.isFinite(pad.supportX) ? Number(pad.supportX) : pad.x;
+  const anchorY = Number.isFinite(pad.supportY) ? Number(pad.supportY) : pad.y;
+  const snapped = snapToTerrainMidpoint(planet, anchorX, anchorY);
+  pad.x = snapped.x;
+  pad.y = snapped.y;
+  setSupportAnchor(pad, pad.x, pad.y);
+  const preferredSupport = (pad.padSourceKind === "rock" && Number.isFinite(pad.padSourceIndex))
+    ? Number(pad.padSourceIndex)
+    : findStandableSupportNodeIndex(planet, pad.x, pad.y);
+  setSupportNodeIndices(pad, [], preferredSupport);
+  if (forceHorizontal){
+    const up = planet._upDirAt(pad.x, pad.y);
+    if (up){
+      pad.padNx = up.ux;
+      pad.padNy = up.uy;
+      return;
+    }
+  }
+  const normal = planet._upAlignedNormalAtWorld(pad.x, pad.y);
+  if (normal){
+    pad.padNx = normal.nx;
+    pad.padNy = normal.ny;
+    return;
+  }
+  const up = planet._upDirAt(pad.x, pad.y);
+  if (up){
+    pad.padNx = up.ux;
+    pad.padNy = up.uy;
+  }
+}
+
+/**
+ * Re-align barren turret pads right before miner/turret spawn sampling.
+ * @param {Planet} planet
+ * @returns {void}
+ */
+function refreshBarrenPadSurfaceAlignment(planet){
+  const cfg = planet.getPlanetConfig ? planet.getPlanetConfig() : null;
+  if (!(cfg && cfg.flags && cfg.flags.barrenPerimeter)) return;
+  for (const pad of (planet.props || [])){
+    if (!pad || pad.type !== "turret_pad" || pad.dead) continue;
+    alignTurretPadToTerrainMidpoint(planet, pad, true);
+  }
+}
+
+/**
  * @param {Planet} planet
  * @returns {void}
  */
@@ -212,7 +280,6 @@ export function alignTurretPadSpawnProps(planet){
     p.dead = false;
     p.x = pt.x;
     p.y = pt.y;
-    setSupportAnchor(p, pt.x, pt.y);
     if (forceHorizontalPads){
       p.padRing = pt.ring;
       p.padDepth = pt.depth;
@@ -220,19 +287,6 @@ export function alignTurretPadSpawnProps(planet){
       p.padSourceKind = pt.sourceKind;
       p.padSourceRing = pt.sourceRing;
       p.padSourceIndex = pt.sourceIndex;
-      setSupportNodeIndices(
-        p,
-        [],
-        (pt.sourceKind === "rock" && Number.isFinite(pt.sourceIndex))
-          ? Number(pt.sourceIndex)
-          : findStandableSupportNodeIndex(planet, p.x, p.y),
-      );
-      const up = planet._upDirAt(p.x, p.y);
-      if (up){
-        p.padNx = up.ux;
-        p.padNy = up.uy;
-        continue;
-      }
     } else {
       delete p.padRing;
       delete p.padDepth;
@@ -240,19 +294,8 @@ export function alignTurretPadSpawnProps(planet){
       delete p.padSourceKind;
       delete p.padSourceRing;
       delete p.padSourceIndex;
-      setSupportNodeIndices(p, [], findStandableSupportNodeIndex(planet, p.x, p.y));
     }
-    const normal = planet.normalAtWorld(p.x, p.y);
-    if (normal){
-      p.padNx = normal.nx;
-      p.padNy = normal.ny;
-    } else {
-      const up = planet._upDirAt(p.x, p.y);
-      if (up){
-        p.padNx = up.ux;
-        p.padNy = up.uy;
-      }
-    }
+    alignTurretPadToTerrainMidpoint(planet, p, forceHorizontalPads);
   }
 }
 
@@ -298,16 +341,44 @@ function buildMinerSpawnPlacement(planet, x, y, supportX = x, supportY = y, supp
 
 /**
  * @param {Planet} planet
- * @param {{x:number,y:number,supportX?:number,supportY?:number,supportNodeIndex?:number,supportNodeIndices?:number[]}} pad
+ * @param {{x:number,y:number,supportX?:number,supportY?:number,supportNodeIndex?:number,supportNodeIndices?:number[],padNx?:number,padNy?:number}} pad
  * @returns {MinerSpawnPlacement}
  */
 function buildMinerSpawnPlacementFromPad(planet, pad){
+  const topX = Number.isFinite(pad.supportX) ? Number(pad.supportX) : pad.x;
+  const topY = Number.isFinite(pad.supportY) ? Number(pad.supportY) : pad.y;
+  let spawnX = topX;
+  let spawnY = topY;
+  let nx = 0;
+  let ny = 0;
+  if (Number.isFinite(pad.padNx) && Number.isFinite(pad.padNy)){
+    const nlen = Math.hypot(Number(pad.padNx), Number(pad.padNy)) || 1;
+    nx = Number(pad.padNx) / nlen;
+    ny = Number(pad.padNy) / nlen;
+  } else {
+    const n = planet._upAlignedNormalAtWorld(topX, topY);
+    if (n){
+      nx = n.nx;
+      ny = n.ny;
+    } else {
+      const up = planet._upDirAt(topX, topY);
+      if (up){
+        nx = up.ux;
+        ny = up.uy;
+      }
+    }
+  }
+  if (Math.hypot(nx, ny) > 1e-6){
+    const minerBaseLift = 0.08 * GAME.MINER_SCALE;
+    spawnX += nx * minerBaseLift;
+    spawnY += ny * minerBaseLift;
+  }
   return buildMinerSpawnPlacement(
     planet,
-    pad.x,
-    pad.y,
-    Number.isFinite(pad.supportX) ? Number(pad.supportX) : pad.x,
-    Number.isFinite(pad.supportY) ? Number(pad.supportY) : pad.y,
+    spawnX,
+    spawnY,
+    topX,
+    topY,
     Number.isFinite(pad.supportNodeIndex) ? Number(pad.supportNodeIndex) : -1,
     Array.isArray(pad.supportNodeIndices) ? pad.supportNodeIndices.slice() : null,
   );
@@ -409,6 +480,7 @@ export function planMinerSpawnPlacements(planet, count, seed, minDist = GAME.MIN
   const cfg = planet.getPlanetConfig ? planet.getPlanetConfig() : null;
   const barrenPerimeter = !!(cfg && cfg.flags && cfg.flags.barrenPerimeter);
   if (barrenPerimeter){
+    refreshBarrenPadSurfaceAlignment(planet);
     reserveBarrenPadsForMiners(planet, count, seed, minDist);
     const reservedPads = [];
     for (const p of (planet.props || [])){
@@ -1574,6 +1646,7 @@ export function debugPropCounts(planet){
 export function sampleTurretPoints(planet, count, seed, placement = "random", minDist = 0, reserve = false){
   const cfg = planet.getPlanetConfig ? planet.getPlanetConfig() : null;
   if (cfg && cfg.flags && cfg.flags.barrenPerimeter){
+    refreshBarrenPadSurfaceAlignment(planet);
     const pads = orderedBarrenPadProps(planet, seed, false).filter((pad) => !pad.padReservedFor);
     if (pads.length){
       /** @type {Array<any>} */
@@ -2202,16 +2275,6 @@ function applyBarrenPadCandidateToProp(planet, candidate, prop, reservedFor){
   prop.padSourceRing = candidate.sourceRing;
   prop.padSourceIndex = candidate.sourceIndex;
   prop.padReservedFor = reservedFor;
-  const up = planet._upDirAt(prop.x, prop.y);
-  if (up){
-    prop.padNx = up.ux;
-    prop.padNy = up.uy;
-    return;
-  }
-  const normal = planet.normalAtWorld(prop.x, prop.y);
-  if (normal){
-    prop.padNx = normal.nx;
-    prop.padNy = normal.ny;
-  }
+  alignTurretPadToTerrainMidpoint(planet, prop, true);
 }
 
