@@ -522,13 +522,56 @@ export class Planet {
       if (!p || p.dead) continue;
       if (!terrainSupport.propDetachesWithTerrain(p)) continue;
       const scale = Math.max(0.2, p.scale || 1);
-      const supportIndices = terrainSupport.getSupportNodeIndices(p);
-      if (!supportIndices.length) continue;
+      const anchorX = Number.isFinite(p.supportX) ? Number(p.supportX) : p.x;
+      const anchorY = Number.isFinite(p.supportY) ? Number(p.supportY) : p.y;
+      const supportRadius = terrainSupport.terrainPropSupportRadius(p);
+      const preferredSupportIdx = Number.isFinite(p.supportNodeIndex) ? Number(p.supportNodeIndex) : -1;
+      let supportIndices = terrainSupport.getSupportNodeIndices(p);
+      if (!supportIndices.length){
+        supportIndices = terrainSupport.collectRockSupportNodeIndices(
+          this,
+          anchorX,
+          anchorY,
+          supportRadius,
+          preferredSupportIdx
+        );
+        if (supportIndices.length){
+          terrainSupport.setSupportNodeIndices(p, supportIndices, preferredSupportIdx);
+        }
+      }
       let detached = false;
       for (const idx of supportIndices){
         if (!destroyedNodeIndices.has(idx)) continue;
         detached = true;
         break;
+      }
+      if (!detached){
+        const nearRadius = Math.max(0.35, supportRadius + 0.30);
+        const nearRadiusSq = nearRadius * nearRadius;
+        let nearDestroyed = false;
+        for (const node of destroyedNodes){
+          if (!node) continue;
+          const dx = anchorX - node.x;
+          const dy = anchorY - node.y;
+          if (dx * dx + dy * dy > nearRadiusSq) continue;
+          nearDestroyed = true;
+          break;
+        }
+        if (!nearDestroyed){
+          continue;
+        }
+        const refreshedSupport = terrainSupport.collectRockSupportNodeIndices(
+          this,
+          anchorX,
+          anchorY,
+          supportRadius,
+          preferredSupportIdx
+        );
+        if (refreshedSupport.length){
+          terrainSupport.setSupportNodeIndices(p, refreshedSupport, preferredSupportIdx);
+        } else {
+          detached = true;
+        }
       }
       if (!detached) continue;
       p.dead = true;

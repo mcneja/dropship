@@ -208,7 +208,7 @@ export function terrainPropSupportRadius(prop){
   const scale = Math.max(0.2, prop && prop.scale ? prop.scale : 1);
   if (!prop) return 0.28;
   if (prop.type === "tree") return Math.max(0.24, 0.18 + scale * 0.16);
-  if (prop.type === "boulder") return Math.max(0.26, 0.18 + scale * 0.22);
+  if (prop.type === "boulder") return Math.max(0.34, 0.24 + scale * 0.30);
   if (prop.type === "ridge_spike") return Math.max(0.24, 0.16 + scale * 0.18);
   if (prop.type === "stalactite") return Math.max(0.22, 0.15 + scale * 0.16);
   if (prop.type === "ice_shard") return Math.max(0.18, 0.12 + scale * 0.14);
@@ -258,7 +258,8 @@ export function propDetachesWithTerrain(prop){
 export function collectRockSupportNodeIndices(planet, x, y, radius, preferredIndex = -1){
   const graph = planet.radialGraph;
   const nodes = graph && graph.nodes ? graph.nodes : null;
-  return collectSupportNodeIndices(nodes, planet.airNodesBitmap, x, y, radius, preferredIndex, 8);
+  const supportCount = Math.max(8, Math.min(24, Math.ceil(Math.max(0.2, radius) * 22)));
+  return collectSupportNodeIndices(nodes, planet.airNodesBitmap, x, y, radius, preferredIndex, supportCount);
 }
 
 /**
